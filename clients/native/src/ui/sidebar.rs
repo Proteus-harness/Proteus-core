@@ -74,15 +74,26 @@ impl Workspace {
                     .border_t_1()
                     .border_color(theme.sidebar_border)
                     .child(
-                        Button::new("settings")
-                            .icon(IconName::Settings)
-                            .label("Настройки")
-                            .ghost()
-                            .small()
+                        h_flex()
+                            .id("open-settings")
                             .w_full()
-                            .justify_start()
-                            .selected(self.settings.is_some())
-                            .on_click(cx.listener(|this, _, _, cx| this.toggle_settings(cx))),
+                            .h_8()
+                            .px_2()
+                            .gap_2()
+                            .rounded(theme.radius)
+                            .text_sm()
+                            .text_color(theme.sidebar_foreground)
+                            .cursor_pointer()
+                            .hover(|item| item.bg(theme.list_hover))
+                            .child(
+                                Icon::new(IconName::Settings)
+                                    .small()
+                                    .text_color(theme.muted_foreground),
+                            )
+                            .child("Настройки")
+                            .on_click(
+                                cx.listener(|this, _, window, cx| this.open_settings(window, cx)),
+                            ),
                     ),
             )
     }

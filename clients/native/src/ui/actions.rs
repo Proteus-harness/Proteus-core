@@ -204,24 +204,32 @@ impl Workspace {
         }
     }
 
-    pub(super) fn toggle_settings(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.settings.is_some() {
-            self.close_settings(cx);
             return;
         }
         let (Some(api), Some(dir)) = (self.api(), self.session_dir()) else {
             return;
         };
-        let view = cx.new(|cx| SettingsView::new(api, dir, cx));
-        self.settings_subscription = Some(cx.subscribe(
+        let view = cx.new(|cx| SettingsView::new(api, dir, window, cx));
+        self.settings_subscription = Some(cx.subscribe_in(
             &view,
-            |this, _, event: &SettingsEvent, cx| match event {
+            window,
+            |this, _, event: &SettingsEvent, window, cx| match event {
                 SettingsEvent::Saved => this.load_config(cx),
-                SettingsEvent::Close => this.close_settings(cx),
+                SettingsEvent::Close => {
+                    this.close_settings(cx);
+                    this.focus_composer(window, cx);
+                }
             },
         ));
         self.settings = Some(view);
         cx.notify();
+    }
+
+    pub(super) fn focus_composer(&self, window: &mut Window, cx: &mut Context<Self>) {
+        self.composer
+            .update(cx, |state, cx| state.focus(window, cx));
     }
 
     pub(super) fn close_settings(&mut self, cx: &mut Context<Self>) {

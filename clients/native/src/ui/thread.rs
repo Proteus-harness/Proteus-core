@@ -7,6 +7,7 @@ use gpui_kit::*;
 use proteus_contracts::app_protocol::AppTranscriptSubagent;
 
 use super::format;
+use super::motion::{chevron, fade_in_if};
 use super::tool_row::{render_tool, tool_line};
 use super::workspace::Workspace;
 use crate::transcript::{Entry, Role};
@@ -28,6 +29,8 @@ impl Workspace {
             return div().into_any_element();
         };
         let expanded = self.expanded.contains(&entry.key);
+        let fresh = self.fresh_rows.is_fresh(entry.key);
+        let key = entry.key;
         let last = ix + 1 == session_rows(self);
         let spacing = match (&entry.role, &entry.tool) {
             (Role::User, _) => Spacing {
@@ -50,8 +53,14 @@ impl Workspace {
         let body = match (&entry.role, &entry.tool, &entry.subagent) {
             (Role::User, _, _) => render_user(entry, cx),
             (Role::Assistant, _, _) => render_assistant(entry),
-            (Role::System, Some(tool), _) => render_tool(entry.key, tool, expanded, cx),
-            (Role::System, None, Some(agent)) => render_subagent(entry.key, agent, expanded, cx),
+            (Role::System, Some(tool), _) => {
+                let opened = self.toggled.is_fresh(entry.key);
+                render_tool(entry.key, tool, expanded, opened, cx)
+            }
+            (Role::System, None, Some(agent)) => {
+                let opened = self.toggled.is_fresh(entry.key);
+                render_subagent(entry.key, agent, expanded, opened, cx)
+            }
             (Role::System, None, None) => render_note(entry, cx),
         };
         h_flex()
@@ -62,7 +71,11 @@ impl Workspace {
             .pb(px(spacing.bottom * 4.))
             .when(ix == 0, |row| row.pt_6())
             .when(last, |row| row.pb_6())
-            .child(div().w_full().max_w(px(CONTENT_WIDTH)).child(body))
+            .child(fade_in_if(
+                div().w_full().max_w(px(CONTENT_WIDTH)).child(body),
+                row_id("enter", key),
+                fresh,
+            ))
             .into_any_element()
     }
 }
@@ -174,6 +187,7 @@ fn render_subagent(
     key: u64,
     agent: &AppTranscriptSubagent,
     expanded: bool,
+    opened: bool,
     cx: &mut Context<Workspace>,
 ) -> AnyElement {
     let theme = cx.theme();
@@ -182,10 +196,14 @@ fn render_subagent(
         meta.push_str(&format!(" · шагов: {iterations}"));
     }
     let tools = expanded.then(|| {
-        v_flex()
-            .pl_5()
-            .gap_1()
-            .children(agent.tools.iter().map(|tool| tool_line(tool, cx)))
+        fade_in_if(
+            v_flex()
+                .pl_5()
+                .gap_1()
+                .children(agent.tools.iter().map(|tool| tool_line(tool, cx))),
+            row_id("subagent-tools", key),
+            opened,
+        )
     });
     v_flex()
         .px_3()
@@ -217,6 +235,11 @@ fn render_subagent(
                         .text_color(theme.muted_foreground)
                         .child(meta),
                 )
+                .child(chevron(
+                    row_id("subagent-chevron", key),
+                    expanded,
+                    theme.muted_foreground,
+                ))
                 .on_click(cx.listener(move |this, _, _, cx| this.toggle_expanded(key, cx))),
         )
         .children(tools)

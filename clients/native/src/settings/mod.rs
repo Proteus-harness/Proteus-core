@@ -6,7 +6,7 @@ mod layout;
 mod schema;
 
 pub use draft::{Draft, FieldPath};
-pub use layout::{Choice, Group, Item, Page, pages};
+pub use layout::{Choice, Group, Item, Page, PageIcon, pages, search};
 pub use schema::{
     FieldKind, TextFormat, choice_title, default_hint, field_kind, format_value, parse_text,
 };

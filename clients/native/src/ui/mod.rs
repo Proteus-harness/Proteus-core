@@ -3,6 +3,7 @@ mod composer;
 mod context_usage;
 mod controls;
 mod format;
+mod motion;
 mod panel;
 mod requests;
 mod settings;
@@ -22,13 +23,43 @@ use proteus_contracts::app_protocol::AppRunStatus;
 use workspace::Status;
 pub use workspace::Workspace;
 
+gpui_kit::actions!(
+    proteus_native,
+    [ToggleSettings, ToggleInfoPanel, NewSession]
+);
+
+pub fn bind_keys(cx: &mut App) {
+    cx.bind_keys([
+        KeyBinding::new("ctrl-,", ToggleSettings, None),
+        KeyBinding::new("ctrl-alt-b", ToggleInfoPanel, None),
+        KeyBinding::new("ctrl-n", NewSession, None),
+    ]);
+}
+
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let root = h_flex()
             .size_full()
             .bg(theme.background)
-            .text_color(theme.foreground);
+            .text_color(theme.foreground)
+            .on_action(cx.listener(|this, _: &ToggleSettings, window, cx| {
+                if this.settings.is_some() {
+                    this.close_settings(cx);
+                    this.focus_composer(window, cx);
+                } else {
+                    this.open_settings(window, cx);
+                }
+            }))
+            .on_action(cx.listener(|this, _: &ToggleInfoPanel, window, cx| {
+                if this.settings.is_none() {
+                    this.toggle_panel(window, cx);
+                }
+            }))
+            .on_action(cx.listener(|this, _: &NewSession, window, cx| {
+                this.new_session(cx);
+                this.focus_composer(window, cx);
+            }));
         match &self.status {
             Status::Starting => root.child(centered(
                 h_flex()
@@ -48,10 +79,21 @@ impl Render for Workspace {
                             .child(error.clone()),
                     ),
             )),
-            Status::Ready => root
-                .child(self.render_sidebar(cx))
-                .child(self.render_main(window, cx))
-                .children(self.render_panel(cx)),
+            Status::Ready if self.settings.is_some() => {
+                let settings = self.settings.clone().expect("settings are open");
+                root.child(motion::rise_in(
+                    div().size_full().child(settings),
+                    "settings-screen",
+                ))
+            }
+            Status::Ready => root.child(motion::rise_in(
+                h_flex()
+                    .size_full()
+                    .child(self.render_sidebar(cx))
+                    .child(self.render_main(window, cx))
+                    .children(self.render_panel(cx)),
+                "chat-screen",
+            )),
         }
     }
 }
@@ -78,6 +120,16 @@ impl Workspace {
             .unwrap_or_else(|| "Новая сессия".to_owned())
     }
 
+    fn session_key(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        self.session
+            .as_ref()
+            .map(|session| &session.dir)
+            .hash(&mut hasher);
+        hasher.finish()
+    }
+
     fn sync_window_title(&mut self, window: &mut Window) {
         let title = format!("{} — Proteus", self.session_title());
         if self.window_title != title {
@@ -89,19 +141,20 @@ impl Workspace {
     fn render_main(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_window_title(window);
         let main = v_flex().flex_1().min_w_0().h_full();
-        if let Some(settings) = &self.settings {
-            return main.child(settings.clone());
-        }
         let renderer = cx.processor(|this, ix: usize, window, cx| this.render_row(ix, window, cx));
+        // A new id per session replays the fade when switching sessions.
+        let thread_id = ElementId::NamedInteger("thread-enter".into(), self.session_key());
         main.child(self.render_header(cx))
-            .child(
+            .child(motion::fade_in_if(
                 MessageScroller::new("thread", self.scroller.clone(), renderer)
                     .flex_1()
                     .min_h_0()
                     .scrollbar(true)
                     .jump_button(true)
                     .with_row_style(StyleRefinement::default().px_0().pb_0()),
-            )
+                thread_id,
+                true,
+            ))
             .children(self.render_requests(window, cx))
             .children(self.notice.clone().map(|notice| {
                 h_flex().w_full().justify_center().px_6().pt_2().child(

@@ -5,7 +5,7 @@ use proteus_contracts::app_protocol::config_builder::{
 use proteus_contracts::domain::{ConfigField, ConfigValueSchema, ModuleConfigSchema};
 use serde_json::json;
 
-use super::{Draft, FieldPath, Item, TextFormat, format_value, pages, parse_text};
+use super::{Draft, FieldPath, Item, TextFormat, format_value, pages, parse_text, search};
 
 fn integer(minimum: Option<i64>, maximum: Option<i64>) -> TextFormat {
     TextFormat::Integer { minimum, maximum }
@@ -136,6 +136,16 @@ fn pages_follow_slot_order_and_selected_module() {
                 order: 0,
                 modules: Vec::new(),
             },
+            ConfigBuilderSlot {
+                id: "unknown".into(),
+                title: "Unknown".into(),
+                responsibility: String::new(),
+                active_module: None,
+                required: false,
+                category: String::new(),
+                order: 9,
+                modules: Vec::new(),
+            },
         ],
         active_modules: vec![ConfigBuilderModuleSelection {
             slot: "compactor".into(),
@@ -154,30 +164,40 @@ fn pages_follow_slot_order_and_selected_module() {
         ..ConfigBuilderSnapshot::default()
     };
     let mut draft = Draft::from_snapshot(&snapshot);
-    let titles: Vec<_> = pages(&snapshot, &draft)
+    let baseline = draft.clone();
+    let layout: Vec<_> = pages(&snapshot, &draft)
         .into_iter()
-        .map(|page| (page.title, page.groups.len()))
+        .map(|page| (page.id, page.groups.len()))
         .collect();
     assert_eq!(
-        titles,
+        layout,
         vec![
-            ("Общие".to_string(), 1),
-            ("Workflow".to_string(), 1),
-            ("Compactor".to_string(), 3),
-            ("Инструменты".to_string(), 1),
+            ("context".to_string(), 1),
+            ("tools".to_string(), 1),
+            ("workflow".to_string(), 1),
+            ("unknown".to_string(), 1),
         ]
     );
     let all = pages(&snapshot, &draft);
+    let compactor = &all[0].groups[0];
+    assert_eq!(compactor.title.as_deref(), Some("Сжатие истории"));
+    assert!(matches!(compactor.items[0], Item::Module { .. }));
+    assert_eq!(compactor.items.len(), 2);
+    assert_eq!(compactor.advanced.len(), 1);
     assert!(matches!(
-        all[3].groups[0].items[0],
+        all[1].groups[0].items[0],
         Item::Tool { locked: true, .. }
     ));
+    assert!(matches!(all[2].groups[0].items[0], Item::Note(_)));
+    assert_eq!(all[3].title, "Unknown");
+
+    let found = search(&all, "подробно");
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].title.as_deref(), Some("Контекст · Сжатие истории"));
 
     draft.set_module("compactor", "plain");
-    let compactor = &pages(&snapshot, &draft)[2];
-    assert_eq!(compactor.groups.len(), 1);
-    assert!(matches!(
-        compactor.groups[0].items.last(),
-        Some(Item::Note(_))
-    ));
+    let all = pages(&snapshot, &draft);
+    assert_eq!(all[0].groups[0].items.len(), 1);
+    assert!(all[0].changed(&draft, &baseline));
+    assert!(!all[1].changed(&draft, &baseline));
 }

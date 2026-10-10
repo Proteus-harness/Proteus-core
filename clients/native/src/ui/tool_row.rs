@@ -8,6 +8,7 @@ use proteus_contracts::app_protocol::AppTranscriptTool;
 use serde_json::Value;
 
 use super::format;
+use super::motion::{chevron, fade_in_if};
 use super::workspace::Workspace;
 use crate::tool_display::{self, DiffLine, PatchFile, PlanStep, StepStatus};
 
@@ -87,22 +88,24 @@ pub(super) fn render_tool(
     key: u64,
     tool: &AppTranscriptTool,
     expanded: bool,
+    opened: bool,
     cx: &mut Context<Workspace>,
 ) -> AnyElement {
-    let chevron = if expanded {
-        IconName::ChevronDown
-    } else {
-        IconName::ChevronRight
-    };
     let muted = cx.theme().muted_foreground;
-    let details = expanded.then(|| tool_details(key, tool, cx));
+    let details = expanded.then(|| {
+        fade_in_if(
+            tool_details(key, tool, cx),
+            row_id("tool-details", key),
+            opened,
+        )
+    });
     v_flex()
         .gap_1()
         .child(
             tool_line(tool, cx)
                 .id(row_id("tool", key))
                 .cursor_pointer()
-                .child(Icon::new(chevron).xsmall().text_color(muted))
+                .child(chevron(row_id("tool-chevron", key), expanded, muted))
                 .on_click(cx.listener(move |this, _, _, cx| this.toggle_expanded(key, cx))),
         )
         .children(details)

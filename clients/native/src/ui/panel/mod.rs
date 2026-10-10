@@ -12,12 +12,15 @@ use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
+use super::motion::{chevron, reveal_width, rise_in};
 use super::workspace::Workspace;
 use notes::Notes;
 use quota::QuotaState;
 
 const PANEL_WIDTH: f32 = 300.;
 const QUOTA_REFRESH: Duration = Duration::from_secs(60);
+/// Keeps the panel mounted while its width springs closed.
+const CLOSE_MOTION: Duration = Duration::from_millis(320);
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum Section {
@@ -60,12 +63,14 @@ pub(super) struct InfoPanel {
     show_tools: bool,
     quota: QuotaState,
     quota_timer: Option<Task<()>>,
+    closing: Option<Task<()>>,
     notes: Option<Notes>,
 }
 
 impl Workspace {
     pub(super) fn toggle_panel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.panel.open = !self.panel.open;
+        self.panel.closing = None;
         if self.panel.open {
             if self.panel.notes.is_none() {
                 self.panel.notes = Some(Notes::new(window, cx));
@@ -81,6 +86,13 @@ impl Workspace {
             }));
         } else {
             self.panel.quota_timer = None;
+            self.panel.closing = Some(cx.spawn(async move |this, cx| {
+                cx.background_executor().timer(CLOSE_MOTION).await;
+                let _ = this.update(cx, |this, cx| {
+                    this.panel.closing = None;
+                    cx.notify();
+                });
+            }));
         }
         cx.notify();
     }
@@ -93,7 +105,8 @@ impl Workspace {
     }
 
     pub(super) fn render_panel(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
-        if !self.panel.open || self.settings.is_some() {
+        let visible = self.panel.open || self.panel.closing.is_some();
+        if !visible || self.settings.is_some() {
             return None;
         }
         let theme = cx.theme();
@@ -104,23 +117,34 @@ impl Workspace {
         let session = self.session_section(cx);
         let agent = self.agent_section(cx);
         let notes = self.panel.notes.as_ref().map(|notes| notes.render(cx));
-        Some(
-            v_flex()
-                .id("info-panel")
-                .w(px(PANEL_WIDTH))
+        let content = v_flex()
+            .id("info-panel")
+            .w(px(PANEL_WIDTH))
+            .flex_none()
+            .h_full()
+            .overflow_y_scroll()
+            .border_l_1()
+            .border_color(border)
+            .bg(background)
+            .child(self.section(Section::Context, context_summary, context, cx))
+            .child(self.section(Section::Plan, plan_summary, plan, cx))
+            .child(self.section(Section::Quota, quota_summary, quota, cx))
+            .child(self.section(Section::Session, None, session, cx))
+            .child(self.section(Section::Agent, None, agent, cx))
+            .children(notes.map(|notes| self.section(Section::Notes, None, notes, cx)));
+        // Anchored to the right edge so the panel slides in instead of
+        // uncovering its content left to right.
+        Some(reveal_width(
+            h_flex()
                 .flex_none()
                 .h_full()
-                .overflow_y_scroll()
-                .border_l_1()
-                .border_color(border)
-                .bg(background)
-                .child(self.section(Section::Context, context_summary, context, cx))
-                .child(self.section(Section::Plan, plan_summary, plan, cx))
-                .child(self.section(Section::Quota, quota_summary, quota, cx))
-                .child(self.section(Section::Session, None, session, cx))
-                .child(self.section(Section::Agent, None, agent, cx))
-                .children(notes.map(|notes| self.section(Section::Notes, None, notes, cx))),
-        )
+                .justify_end()
+                .overflow_hidden()
+                .child(content),
+            "info-panel-reveal",
+            self.panel.open,
+            px(PANEL_WIDTH),
+        ))
     }
 
     fn section(
@@ -145,15 +169,7 @@ impl Workspace {
                     .gap_2()
                     .cursor_pointer()
                     .hover(move |style| style.bg(hover))
-                    .child(
-                        Icon::new(if collapsed {
-                            IconName::ChevronRight
-                        } else {
-                            IconName::ChevronDown
-                        })
-                        .xsmall()
-                        .text_color(muted),
-                    )
+                    .child(chevron((section.id(), 1usize), !collapsed, muted))
                     .child(
                         div()
                             .flex_1()
@@ -168,7 +184,10 @@ impl Workspace {
                     .on_click(cx.listener(move |this, _, _, cx| this.toggle_section(section, cx))),
             )
             .when(!collapsed, |this| {
-                this.child(div().px_4().pb_3().child(body))
+                this.child(rise_in(
+                    div().px_4().pb_3().child(body),
+                    (section.id(), 2usize),
+                ))
             })
     }
 }

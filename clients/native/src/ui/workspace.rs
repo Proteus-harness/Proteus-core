@@ -15,6 +15,7 @@ use proteus_contracts::app_protocol::{
 use proteus_contracts::domain::{Event as RuntimeEvent, ThreadId};
 
 use super::context_usage::ContextUsage;
+use super::motion::Recent;
 use super::panel::InfoPanel;
 use super::settings::SettingsView;
 use super::user_input::UserInputDrafts;
@@ -102,6 +103,9 @@ pub struct Workspace {
     pub(super) scroller: Entity<MessageScrollerState>,
     pub(super) composer: Entity<TextareaState>,
     pub(super) expanded: HashSet<u64>,
+    /// Rows pushed by live events and rows toggled open, for enter motion.
+    pub(super) fresh_rows: Recent,
+    pub(super) toggled: Recent,
     pub(super) user_input: UserInputDrafts,
     pub(super) notice: Option<SharedString>,
     pub(super) window_title: String,
@@ -159,6 +163,8 @@ impl Workspace {
             scroller,
             composer,
             expanded: HashSet::new(),
+            fresh_rows: Recent::default(),
+            toggled: Recent::default(),
             user_input: UserInputDrafts::default(),
             notice: None,
             window_title: String::new(),
@@ -222,6 +228,8 @@ impl Workspace {
         };
         self.session = Some(Session::new(dir.clone()));
         self.expanded.clear();
+        self.fresh_rows.clear();
+        self.toggled.clear();
         self.user_input = UserInputDrafts::default();
         self.scroller
             .update(cx, |scroller, cx| scroller.reset(0, cx));
@@ -252,6 +260,7 @@ impl Workspace {
     pub(super) fn toggle_expanded(&mut self, key: u64, cx: &mut Context<Self>) {
         if !self.expanded.remove(&key) {
             self.expanded.insert(key);
+            self.toggled.mark(key);
         }
         let row = self.session.as_ref().and_then(|session| {
             session
@@ -377,6 +386,15 @@ impl Workspace {
     }
 
     fn apply_change(&mut self, change: Change, cx: &mut Context<Self>) {
+        if matches!(change, Change::Pushed) {
+            let last = self
+                .session
+                .as_ref()
+                .and_then(|session| session.transcript.entries().last());
+            if let Some(entry) = last {
+                self.fresh_rows.mark(entry.key);
+            }
+        }
         self.scroller.update(cx, |scroller, cx| match change {
             Change::None => {}
             Change::Pushed => {

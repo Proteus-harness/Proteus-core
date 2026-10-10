@@ -1,17 +1,18 @@
 //! Agent settings screen: edits the active profile through `/config/builder`.
 
 mod fields;
-mod pages;
+mod nav;
+mod page;
+mod rows;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+use std::time::Duration;
 
-use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::button::Button;
 use gpui_kit::component::input::{InputEvent, InputState, TextareaState};
-use gpui_kit::component::setting::Settings;
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::*;
-use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use proteus_contracts::app_protocol::config_builder::ConfigBuilderSnapshot;
 use serde_json::Value;
@@ -21,6 +22,8 @@ use crate::settings::{
     Draft, FieldKind, FieldPath, Item, Page, TextFormat, default_hint, field_kind, format_value,
     parse_text,
 };
+
+const MESSAGE_TIMEOUT: Duration = Duration::from_secs(4);
 
 pub enum SettingsEvent {
     Saved,
@@ -45,6 +48,11 @@ struct TextField {
     _subscription: Subscription,
 }
 
+struct Message {
+    text: SharedString,
+    error: bool,
+}
+
 pub struct SettingsView {
     api: Api,
     session_dir: PathBuf,
@@ -53,13 +61,35 @@ pub struct SettingsView {
     draft: Draft,
     inputs: HashMap<FieldPath, TextField>,
     saving: bool,
-    message: Option<(SharedString, bool)>,
+    message: Option<Message>,
+    message_timer: Option<Task<()>>,
+    page: Option<String>,
+    search: Entity<InputState>,
+    query: String,
+    open_advanced: HashSet<String>,
+    focus_handle: FocusHandle,
+    _search_subscription: Subscription,
 }
 
 impl EventEmitter<SettingsEvent> for SettingsView {}
 
 impl SettingsView {
-    pub fn new(api: Api, session_dir: PathBuf, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        api: Api,
+        session_dir: PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let search = cx.new(|cx| InputState::new(window, cx).placeholder("Поиск настроек"));
+        let search_subscription = cx.subscribe_in(&search, window, |this, state, event, _, cx| {
+            if matches!(event, InputEvent::Change) {
+                this.query = state.read(cx).value().trim().to_string();
+                cx.notify();
+            }
+        });
+        // Keeps window shortcuts routed while no input inside the screen is focused.
+        let focus_handle = cx.focus_handle();
+        focus_handle.focus(window, cx);
         let mut view = Self {
             api,
             session_dir,
@@ -69,6 +99,13 @@ impl SettingsView {
             inputs: HashMap::new(),
             saving: false,
             message: None,
+            message_timer: None,
+            page: None,
+            search,
+            query: String::new(),
+            open_advanced: HashSet::new(),
+            focus_handle,
+            _search_subscription: search_subscription,
         };
         view.load(cx);
         view
@@ -126,7 +163,7 @@ impl SettingsView {
 
     fn update_draft(&mut self, cx: &mut Context<Self>, change: impl FnOnce(&mut Draft)) {
         change(&mut self.draft);
-        self.message = None;
+        self.clear_message();
         cx.notify();
     }
 
@@ -142,8 +179,47 @@ impl SettingsView {
     fn discard(&mut self, cx: &mut Context<Self>) {
         self.draft = self.baseline.clone();
         self.inputs.clear();
-        self.message = None;
+        self.clear_message();
         cx.notify();
+    }
+
+    fn select_page(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.page = Some(id.to_string());
+        if !self.query.is_empty() {
+            self.query.clear();
+            self.search
+                .update(cx, |search, cx| search.set_value("", window, cx));
+        }
+        cx.notify();
+    }
+
+    fn toggle_advanced(&mut self, key: &str, cx: &mut Context<Self>) {
+        if !self.open_advanced.remove(key) {
+            self.open_advanced.insert(key.to_string());
+        }
+        cx.notify();
+    }
+
+    fn clear_message(&mut self) {
+        self.message = None;
+        self.message_timer = None;
+    }
+
+    fn show_message(&mut self, text: impl Into<SharedString>, error: bool, cx: &mut Context<Self>) {
+        self.message = Some(Message {
+            text: text.into(),
+            error,
+        });
+        self.message_timer = (!error).then(|| {
+            cx.spawn(async move |this, cx| {
+                cx.background_executor().timer(MESSAGE_TIMEOUT).await;
+                this.update(cx, |this, cx| {
+                    this.message = None;
+                    cx.notify();
+                })
+                .ok();
+            })
+        });
     }
 
     fn save(&mut self, cx: &mut Context<Self>) {
@@ -154,7 +230,7 @@ impl SettingsView {
         let api = self.api.clone();
         let dir = self.session_dir.clone();
         self.saving = true;
-        self.message = None;
+        self.clear_message();
         cx.notify();
         cx.spawn(async move |this, cx| {
             let result = cx
@@ -166,14 +242,15 @@ impl SettingsView {
                 match result {
                     Ok(snapshot) => {
                         this.accept(snapshot);
-                        this.message = Some((
-                            "Сохранено · новые запросы используют обновлённую сборку".into(),
+                        this.show_message(
+                            "Сохранено · новые запросы используют обновлённую сборку",
                             false,
-                        ));
+                            cx,
+                        );
                         cx.emit(SettingsEvent::Saved);
                     }
                     Err(error) => {
-                        this.message = Some((format!("Не сохранено: {error:#}").into(), true));
+                        this.show_message(format!("Не сохранено: {error:#}"), true, cx);
                     }
                 }
                 cx.notify();
@@ -189,7 +266,7 @@ impl SettingsView {
         let fields = pages
             .iter()
             .flat_map(|page| &page.groups)
-            .flat_map(|group| &group.items)
+            .flat_map(|group| group.items.iter().chain(&group.advanced))
             .filter_map(|item| match item {
                 Item::Field { path, field } => match field_kind(&field.value) {
                     FieldKind::Text(format) => Some((path, field, format)),
@@ -270,113 +347,16 @@ impl SettingsView {
         }
     }
 
-    fn render_header(&self, cx: &Context<Self>) -> impl IntoElement {
+    fn render_state(&self, cx: &Context<Self>) -> AnyElement {
         let theme = cx.theme();
-        let snapshot = self.snapshot();
-        let target = snapshot.and_then(|snapshot| {
-            snapshot
-                .target_path
-                .clone()
-                .or(snapshot.config_path.clone())
-        });
-        let read_only = snapshot.is_some_and(|snapshot| !snapshot.writable);
-        let dirty = self.dirty();
-        let message = self.message.clone().map(|(text, error)| {
-            div()
-                .text_xs()
-                .truncate()
-                .text_color(if error { theme.danger } else { theme.success })
-                .child(text)
-        });
-
-        h_flex()
-            .h(px(44.))
-            .flex_none()
-            .px_4()
-            .gap_3()
-            .border_b_1()
-            .border_color(theme.border)
-            .child(div().text_sm().font_semibold().child("Настройки агента"))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .text_xs()
-                    .truncate()
-                    .text_color(theme.muted_foreground)
-                    .when(read_only, |label| label.child("Профиль только для чтения"))
-                    .when(!read_only, |label| label.children(target)),
-            )
-            .children(message)
-            .child(
-                Button::new("settings-discard")
-                    .label("Отменить")
-                    .ghost()
-                    .small()
-                    .disabled(!dirty || self.saving)
-                    .on_click(cx.listener(|this, _, _, cx| this.discard(cx))),
-            )
-            .child(
-                Button::new("settings-save")
-                    .label("Сохранить")
-                    .primary()
-                    .small()
-                    .loading(self.saving)
-                    .disabled(!self.can_save())
-                    .on_click(cx.listener(|this, _, _, cx| this.save(cx))),
-            )
-            .child(
-                Button::new("settings-close")
-                    .icon(IconName::Close)
-                    .ghost()
-                    .small()
-                    .tooltip("Закрыть настройки")
-                    .on_click(cx.listener(|_, _, _, cx| cx.emit(SettingsEvent::Close))),
-            )
-    }
-
-    fn render_warnings(&self, cx: &Context<Self>) -> Option<impl IntoElement> {
-        let snapshot = self.snapshot()?;
-        if snapshot.warnings.is_empty() {
-            return None;
-        }
-        let theme = cx.theme();
-        Some(
-            v_flex()
-                .flex_none()
-                .px_4()
-                .py_2()
-                .gap_1()
-                .border_b_1()
-                .border_color(theme.border)
-                .bg(theme.warning.opacity(0.08))
-                .children(snapshot.warnings.iter().map(|warning| {
-                    h_flex()
-                        .gap_2()
-                        .text_xs()
-                        .child(
-                            Icon::new(IconName::TriangleAlert)
-                                .xsmall()
-                                .text_color(theme.warning),
-                        )
-                        .child(warning.message.clone())
-                })),
-        )
-    }
-}
-
-impl Render for SettingsView {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = cx.theme().clone();
-        let body = match &self.state {
+        match &self.state {
             LoadState::Loading => centered(
                 h_flex()
                     .gap_2()
                     .text_color(theme.muted_foreground)
                     .child(Spinner::new().small())
                     .child("Загрузка настроек…"),
-            )
-            .into_any_element(),
+            ),
             LoadState::Failed(error) => centered(
                 v_flex()
                     .gap_3()
@@ -389,24 +369,31 @@ impl Render for SettingsView {
                             .small()
                             .on_click(cx.listener(|this, _, _, cx| this.load(cx))),
                     ),
-            )
-            .into_any_element(),
-            LoadState::Ready(snapshot) => {
-                let pages = crate::settings::pages(snapshot, &self.draft);
-                self.ensure_inputs(&pages, window, cx);
-                let pages = self.setting_pages(&pages, cx);
-                Settings::new("agent-settings")
-                    .sidebar_width(px(220.))
-                    .pages(pages)
-                    .into_any_element()
-            }
+            ),
+            LoadState::Ready(_) => div(),
+        }
+        .into_any_element()
+    }
+}
+
+impl Render for SettingsView {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let pages = match &self.state {
+            LoadState::Ready(snapshot) => crate::settings::pages(snapshot, &self.draft),
+            _ => Vec::new(),
+        };
+        self.ensure_inputs(&pages, window, cx);
+        let content = if pages.is_empty() {
+            self.render_state(cx)
+        } else {
+            self.render_content(&pages, cx).into_any_element()
         };
 
-        v_flex()
+        h_flex()
             .size_full()
-            .child(self.render_header(cx))
-            .children(self.render_warnings(cx))
-            .child(div().flex_1().min_h_0().child(body))
+            .track_focus(&self.focus_handle)
+            .child(self.render_nav(&pages, cx))
+            .child(div().flex_1().min_w_0().h_full().child(content))
     }
 }
 

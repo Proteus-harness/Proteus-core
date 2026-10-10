@@ -1,4 +1,5 @@
 mod api;
+mod assets;
 mod backend;
 mod connection;
 mod graphics;
@@ -30,9 +31,10 @@ fn main() {
     };
 
     gpui_kit::application()
-        .with_assets(gpui_kit::assets::Assets)
+        .with_assets(assets::AppAssets)
         .run(move |cx| {
             gpui_kit::init(cx);
+            ui::bind_keys(cx);
             Theme::change(ThemeMode::Dark, None, cx);
             cx.on_window_closed(|cx, _| {
                 if cx.windows().is_empty() {
