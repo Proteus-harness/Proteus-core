@@ -31,8 +31,14 @@ fn deltas_follow_offsets_and_completion_settles_text() {
     let thread = Uuid::new_v4();
     let id = Uuid::new_v4();
 
-    assert_eq!(transcript.apply_runtime(thread, &delta(id, 0, "Hel")), Change::Pushed);
-    assert_eq!(transcript.apply_runtime(thread, &delta(id, 3, "lo")), Change::Updated(0));
+    assert_eq!(
+        transcript.apply_runtime(thread, &delta(id, 0, "Hel")),
+        Change::Pushed
+    );
+    assert_eq!(
+        transcript.apply_runtime(thread, &delta(id, 3, "lo")),
+        Change::Updated(0)
+    );
     // A replayed delta overwrites from its offset instead of duplicating.
     transcript.apply_runtime(thread, &delta(id, 3, "lo"));
     assert_eq!(&*transcript.entries()[0].text, "Hello");
@@ -61,7 +67,10 @@ fn foreign_thread_text_stays_out_of_the_turn() {
             turn_id: Uuid::new_v4(),
         },
     );
-    assert_eq!(transcript.apply_runtime(child, &delta(Uuid::new_v4(), 0, "x")), Change::None);
+    assert_eq!(
+        transcript.apply_runtime(child, &delta(Uuid::new_v4(), 0, "x")),
+        Change::None
+    );
     assert!(transcript.entries().is_empty());
 }
 
@@ -98,15 +107,28 @@ fn subagent_tools_group_under_the_card() {
 fn snapshot_reuses_keys_and_text_of_known_messages() {
     let mut transcript = Transcript::default();
     let id = Uuid::new_v4();
-    transcript.reset(vec![message("user", None, "hi"), message("assistant", Some(id), "answer")]);
+    transcript.reset(vec![
+        message("user", None, "hi"),
+        message("assistant", Some(id), "answer"),
+    ]);
     let key = transcript.entries()[1].key;
     let text = transcript.entries()[1].text.clone();
 
-    let same = vec![message("user", None, "hi"), message("assistant", Some(id), "answer")];
+    let same = vec![
+        message("user", None, "hi"),
+        message("assistant", Some(id), "answer"),
+    ];
     assert_eq!(transcript.reset(same), Change::None);
 
     let change = transcript.reset(vec![message("assistant", Some(id), "answer")]);
-    assert_eq!(change, Change::Spliced { start: 0, removed: 2, inserted: 1 });
+    assert_eq!(
+        change,
+        Change::Spliced {
+            start: 0,
+            removed: 2,
+            inserted: 1
+        }
+    );
     assert_eq!(transcript.entries()[0].key, key);
     assert!(Arc::ptr_eq(&transcript.entries()[0].text, &text));
 }

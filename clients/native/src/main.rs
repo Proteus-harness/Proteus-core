@@ -20,7 +20,9 @@ fn main() {
         Ok(options) => options,
         Err(error) => {
             eprintln!("proteus-native: {error:#}");
-            eprintln!("usage: proteus-native [WORKSPACE] [--config PROFILE | --origin URL --token TOKEN]");
+            eprintln!(
+                "usage: proteus-native [WORKSPACE] [--config PROFILE | --origin URL --token TOKEN]"
+            );
             std::process::exit(2);
         }
     };

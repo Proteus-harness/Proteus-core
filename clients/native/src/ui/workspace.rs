@@ -8,12 +8,12 @@ use gpui_kit::*;
 use proteus_app_common::pending::PendingCursor;
 use proteus_app_common::session_selection::select_startup_session;
 use proteus_app_common::sync::SessionCursor;
-use proteus_contracts::app_protocol::http::SendRequest;
+use proteus_contracts::app_protocol::config::ConfigSummary;
 use proteus_contracts::app_protocol::{
     AppExecutionState, AppPendingRequests, AppServerEvent, AppSessionSummary,
 };
-use proteus_contracts::domain::RunOptions;
 
+use super::user_input::UserInputDrafts;
 use crate::api::Api;
 use crate::connection::{self, BackendGuard, PumpItem};
 use crate::launch::LaunchOptions;
@@ -33,6 +33,8 @@ pub(super) struct Session {
     pub execution: AppExecutionState,
     pub pending: Option<AppPendingRequests>,
     pub connected: bool,
+    pub link_error: Option<SharedString>,
+    pub config: Option<ConfigSummary>,
 }
 
 impl Session {
@@ -45,6 +47,8 @@ impl Session {
             execution: AppExecutionState::default(),
             pending: None,
             connected: false,
+            link_error: None,
+            config: None,
         }
     }
 
@@ -90,6 +94,7 @@ pub struct Workspace {
     pub(super) scroller: Entity<MessageScrollerState>,
     pub(super) composer: Entity<TextareaState>,
     pub(super) expanded: HashSet<u64>,
+    pub(super) user_input: UserInputDrafts,
     pub(super) notice: Option<SharedString>,
     pump: Option<Task<()>>,
     _startup: Task<()>,
@@ -102,15 +107,19 @@ impl Workspace {
         let composer = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .auto_grow(1, 12)
-                .placeholder("Message Proteus")
+                .placeholder("Сообщение для Proteus")
                 .submit_on_enter(true)
         });
         let subscriptions = vec![
-            cx.subscribe_in(&composer, window, |this, _, event: &InputEvent, window, cx| {
-                if let InputEvent::PressEnter { shift: false, .. } = event {
-                    this.send(window, cx);
-                }
-            }),
+            cx.subscribe_in(
+                &composer,
+                window,
+                |this, _, event: &InputEvent, window, cx| {
+                    if let InputEvent::PressEnter { shift: false, .. } = event {
+                        this.send(window, cx);
+                    }
+                },
+            ),
             cx.on_app_quit(|this, _| {
                 let backend = this.backend.take();
                 async move { drop(backend) }
@@ -138,6 +147,7 @@ impl Workspace {
             scroller,
             composer,
             expanded: HashSet::new(),
+            user_input: UserInputDrafts::default(),
             notice: None,
             pump: None,
             _startup: startup,
@@ -160,7 +170,7 @@ impl Workspace {
     }
 
     /// Runs a blocking server call off the UI thread.
-    fn call<R: Send + 'static>(
+    pub(super) fn call<R: Send + 'static>(
         &mut self,
         cx: &mut Context<Self>,
         job: impl FnOnce(&Api) -> Result<R> + Send + 'static,
@@ -186,13 +196,16 @@ impl Workspace {
         .detach();
     }
 
-    fn open_session(&mut self, dir: PathBuf, cx: &mut Context<Self>) {
+    pub(super) fn open_session(&mut self, dir: PathBuf, cx: &mut Context<Self>) {
         let Some(api) = self.api.clone() else {
             return;
         };
         self.session = Some(Session::new(dir.clone()));
         self.expanded.clear();
-        self.scroller.update(cx, |scroller, cx| scroller.reset(0, cx));
+        self.user_input = UserInputDrafts::default();
+        self.scroller
+            .update(cx, |scroller, cx| scroller.reset(0, cx));
+        self.load_config(cx);
 
         let events = connection::spawn_pump(api, dir);
         self.pump = Some(cx.spawn(async move |this, cx| {
@@ -215,84 +228,6 @@ impl Workspace {
         cx.notify();
     }
 
-    pub(super) fn select_session(&mut self, dir: PathBuf, cx: &mut Context<Self>) {
-        if self.session.as_ref().is_some_and(|session| session.dir == dir) {
-            return;
-        }
-        self.call(
-            cx,
-            move |api| api.resume(&dir),
-            |this, opened, cx| this.open_session(opened.session_dir, cx),
-        );
-    }
-
-    pub(super) fn new_session(&mut self, cx: &mut Context<Self>) {
-        let source = self.session.as_ref().map(|session| session.dir.clone());
-        self.call(
-            cx,
-            move |api| {
-                let opened = api.new_session(source.as_deref())?;
-                Ok((opened, api.sessions()?))
-            },
-            |this, (opened, sessions), cx| {
-                this.sessions = sessions;
-                this.open_session(opened.session_dir, cx);
-            },
-        );
-    }
-
-    fn refresh_sessions(&mut self, cx: &mut Context<Self>) {
-        self.call(cx, |api| api.sessions(), |this, sessions, _| this.sessions = sessions);
-    }
-
-    pub(super) fn send(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let text = self.composer.read(cx).value().trim().to_owned();
-        let Some(session) = &self.session else {
-            return;
-        };
-        if text.is_empty() {
-            return;
-        }
-        let request = SendRequest {
-            id: Some(format!("run-{}", uuid::Uuid::new_v4().simple())),
-            text,
-            images: Vec::new(),
-            options: RunOptions::default(),
-            session_dir: session.dir.clone(),
-        };
-        self.composer.update(cx, |state, cx| state.clean(window, cx));
-        self.notice = None;
-        self.call(cx, move |api| api.send(&request), |_, _, _| {});
-    }
-
-    pub(super) fn stop(&mut self, cx: &mut Context<Self>) {
-        let Some(session) = &self.session else {
-            return;
-        };
-        let Some(run) = &session.execution.active else {
-            return;
-        };
-        let (dir, run_id) = (session.dir.clone(), run.run_id.clone());
-        self.call(cx, move |api| api.cancel(&dir, &run_id), |_, _, _| {});
-    }
-
-    pub(super) fn resolve_approval(
-        &mut self,
-        approval_id: String,
-        approved: bool,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(session) = &self.session else {
-            return;
-        };
-        let dir = session.dir.clone();
-        self.call(
-            cx,
-            move |api| api.approve(&dir, &approval_id, approved),
-            |_, _, _| {},
-        );
-    }
-
     pub(super) fn toggle_expanded(&mut self, key: u64, cx: &mut Context<Self>) {
         if !self.expanded.remove(&key) {
             self.expanded.insert(key);
@@ -305,8 +240,9 @@ impl Workspace {
                 .position(|entry| entry.key == key)
         });
         if let Some(row) = row {
-            self.scroller
-                .update(cx, |scroller, cx| scroller.remeasure_items(row..row + 1, cx));
+            self.scroller.update(cx, |scroller, cx| {
+                scroller.remeasure_items(row..row + 1, cx)
+            });
         }
         cx.notify();
     }
@@ -320,10 +256,11 @@ impl Workspace {
                 session.cursor.begin_connection();
                 session.pending_cursor.begin_connection();
                 session.connected = true;
+                session.link_error = None;
             }
             PumpItem::Disconnected(error) => {
                 session.connected = false;
-                self.notice = Some(format!("Event stream: {error}").into());
+                session.link_error = Some(error.into());
             }
             PumpItem::Event(event) => self.apply_event(*event, cx),
         }
@@ -379,6 +316,14 @@ impl Workspace {
                 ) {
                     session.pending = Some(*snapshot);
                 }
+                if let Some(pending) = &session.pending {
+                    self.user_input.retain(pending);
+                }
+                Change::None
+            }
+            AppServerEvent::ModulesReloaded { .. }
+            | AppServerEvent::ProfileReloadStatus { error: None } => {
+                self.load_config(cx);
                 Change::None
             }
             AppServerEvent::Error { message } => {
@@ -386,11 +331,11 @@ impl Workspace {
                 Change::None
             }
             AppServerEvent::ProfileReloadStatus { error: Some(error) } => {
-                self.notice = Some(format!("Profile reload failed: {error}").into());
+                self.notice = Some(format!("Не удалось перезагрузить профиль: {error}").into());
                 Change::None
             }
             AppServerEvent::Shutdown => {
-                self.status = Status::Failed("App server shut down".into());
+                self.status = Status::Failed("Сервер приложения остановлен".into());
                 Change::None
             }
             _ => Change::None,

@@ -5,7 +5,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use proteus_contracts::app_protocol::{AppTranscriptMessage, AppTranscriptSubagent, AppTranscriptTool};
+use proteus_contracts::app_protocol::{
+    AppTranscriptMessage, AppTranscriptSubagent, AppTranscriptTool,
+};
 use proteus_contracts::domain::{Event, MessageId, ThreadId, ToolResult};
 use serde_json::Value;
 
@@ -109,7 +111,12 @@ impl Transcript {
         }
     }
 
-    pub fn push_user(&mut self, message_id: Option<MessageId>, text: &str, images: usize) -> Change {
+    pub fn push_user(
+        &mut self,
+        message_id: Option<MessageId>,
+        text: &str,
+        images: usize,
+    ) -> Change {
         self.stop_streaming();
         let key = self.allocate_key();
         self.entries.push(Entry {
@@ -136,7 +143,9 @@ impl Transcript {
                 message_id,
                 text,
                 ..
-            } if self.is_turn_thread(thread_id) => self.assistant_text(*message_id, text, Some(*offset)),
+            } if self.is_turn_thread(thread_id) => {
+                self.assistant_text(*message_id, text, Some(*offset))
+            }
             Event::AssistantMessageCompleted {
                 message_id, text, ..
             } if self.is_turn_thread(thread_id) => self.assistant_text(*message_id, text, None),
@@ -234,7 +243,10 @@ impl Transcript {
                 }) else {
                     return Change::None;
                 };
-                let subagent = self.entries[index].subagent.as_mut().expect("subagent entry");
+                let subagent = self.entries[index]
+                    .subagent
+                    .as_mut()
+                    .expect("subagent entry");
                 subagent.status = status.clone();
                 subagent.iterations = Some(*iterations);
                 Change::Updated(index)
@@ -247,7 +259,12 @@ impl Transcript {
         self.turn_thread.is_none_or(|turn| turn == thread_id)
     }
 
-    fn assistant_text(&mut self, message_id: MessageId, text: &str, offset: Option<usize>) -> Change {
+    fn assistant_text(
+        &mut self,
+        message_id: MessageId,
+        text: &str,
+        offset: Option<usize>,
+    ) -> Change {
         let completed = offset.is_none();
         if let Some(index) = self
             .entries
@@ -290,17 +307,22 @@ impl Transcript {
         })
     }
 
-    fn update_tool(&mut self, call_id: &str, update: impl FnOnce(&mut AppTranscriptTool)) -> Change {
+    fn update_tool(
+        &mut self,
+        call_id: &str,
+        update: impl FnOnce(&mut AppTranscriptTool),
+    ) -> Change {
         for (index, entry) in self.entries.iter_mut().enumerate().rev() {
             if let Some(tool) = entry.tool.as_mut().filter(|tool| tool.call_id == call_id) {
                 update(tool);
                 return Change::Updated(index);
             }
-            if let Some(tool) = entry
-                .subagent
-                .as_mut()
-                .and_then(|subagent| subagent.tools.iter_mut().rfind(|tool| tool.call_id == call_id))
-            {
+            if let Some(tool) = entry.subagent.as_mut().and_then(|subagent| {
+                subagent
+                    .tools
+                    .iter_mut()
+                    .rfind(|tool| tool.call_id == call_id)
+            }) {
                 update(tool);
                 return Change::Updated(index);
             }

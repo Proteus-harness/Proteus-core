@@ -4,13 +4,17 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Result, anyhow, bail};
+use proteus_contracts::app_protocol::config::ConfigSummary;
 use proteus_contracts::app_protocol::http::{
-    ApprovalRequest, CancelRequest, NewSessionRequest, ResumeSessionRequest, SendRequest,
-    SessionOpened,
+    ApprovalRequest, CancelRequest, DeleteQueuedMessageRequest, NewSessionRequest,
+    ResumeSessionRequest, SendRequest, SessionOpened, SetModelRequest, SetPermissionModeRequest,
+    SetReasoningEffortRequest, UserInputRequest,
 };
 use proteus_contracts::app_protocol::{
     AppBootstrap, AppServerEvent, AppSessionSummary, StdioOutput,
 };
+use proteus_contracts::contracts::UserInputResponse;
+use proteus_contracts::domain::{MessageId, PermissionMode};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -82,6 +86,75 @@ impl Api {
             cache: Default::default(),
         };
         self.command("/approval", Some(session_dir), &body)
+    }
+
+    pub fn answer_user_input(
+        &self,
+        session_dir: &Path,
+        request_id_value: &str,
+        response: UserInputResponse,
+    ) -> Result<Value> {
+        let body = UserInputRequest {
+            id: Some(request_id("user-input")),
+            request_id: request_id_value.to_owned(),
+            response,
+        };
+        self.command("/user-input", Some(session_dir), &body)
+    }
+
+    pub fn delete_queued(&self, session_dir: &Path, message_id: MessageId) -> Result<Value> {
+        let body = DeleteQueuedMessageRequest {
+            id: Some(request_id("queue-delete")),
+            session_dir: session_dir.to_path_buf(),
+            message_id,
+        };
+        self.command("/queue/delete", None, &body)
+    }
+
+    pub fn config(&self, session_dir: &Path) -> Result<ConfigSummary> {
+        self.get("/config", Some(session_dir))
+    }
+
+    pub fn set_mode(&self, session_dir: &Path, mode: PermissionMode) -> Result<ConfigSummary> {
+        let body = SetPermissionModeRequest {
+            id: Some(request_id("mode")),
+            mode,
+            session_dir: session_dir.to_path_buf(),
+        };
+        self.control("/mode", session_dir, &body)
+    }
+
+    pub fn set_model(&self, session_dir: &Path, model: &str) -> Result<ConfigSummary> {
+        let body = SetModelRequest {
+            id: Some(request_id("model")),
+            model: model.to_owned(),
+            session_dir: session_dir.to_path_buf(),
+        };
+        self.control("/model", session_dir, &body)
+    }
+
+    /// `None` returns to the profile default, `Some("none")` disables reasoning.
+    pub fn set_effort(&self, session_dir: &Path, effort: Option<String>) -> Result<ConfigSummary> {
+        let body = SetReasoningEffortRequest {
+            id: Some(request_id("effort")),
+            effort,
+            session_dir: session_dir.to_path_buf(),
+        };
+        self.control("/effort", session_dir, &body)
+    }
+
+    /// Settings commands answer with the updated config when the server has it.
+    fn control<B: Serialize>(
+        &self,
+        path: &str,
+        session_dir: &Path,
+        body: &B,
+    ) -> Result<ConfigSummary> {
+        let output: Value = self.command(path, None, body)?;
+        match output.get("config") {
+            Some(config) => Ok(serde_json::from_value(config.clone())?),
+            None => self.config(session_dir),
+        }
     }
 
     /// Opens the session event stream; blocks until the server answers.

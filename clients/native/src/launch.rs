@@ -80,5 +80,7 @@ fn saved_profile() -> Option<String> {
         .map(PathBuf::from)
         .unwrap_or_else(|| Path::new(&home).join(".config"));
     let raw = std::fs::read(base.join("dev.proteus.agent/preferences.json")).ok()?;
-    serde_json::from_slice::<DesktopPreferences>(&raw).ok()?.config
+    serde_json::from_slice::<DesktopPreferences>(&raw)
+        .ok()?
+        .config
 }

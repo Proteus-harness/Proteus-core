@@ -94,7 +94,8 @@ pub fn spawn_pump(api: Api, session_dir: std::path::PathBuf) -> async_channel::R
                             match stream.next() {
                                 Some(Ok(StreamItem::Event(event))) => {
                                     let shutdown = matches!(*event, AppServerEvent::Shutdown);
-                                    if tx.send_blocking(PumpItem::Event(event)).is_err() || shutdown {
+                                    if tx.send_blocking(PumpItem::Event(event)).is_err() || shutdown
+                                    {
                                         return;
                                     }
                                 }
@@ -121,7 +122,9 @@ pub fn spawn_pump(api: Api, session_dir: std::path::PathBuf) -> async_channel::R
         });
     if let Err(error) = spawned {
         let (tx, rx) = async_channel::bounded(1);
-        let _ = tx.try_send(PumpItem::Disconnected(format!("spawn event thread: {error}")));
+        let _ = tx.try_send(PumpItem::Disconnected(format!(
+            "spawn event thread: {error}"
+        )));
         return rx;
     }
     rx

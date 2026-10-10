@@ -1,3 +1,5 @@
+use gpui_kit::base::SelectableText;
+use gpui_kit::component::clipboard::Clipboard;
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::text::TextView;
 use gpui_kit::component::*;
@@ -45,18 +47,32 @@ impl Workspace {
     }
 }
 
+fn row_id(name: &'static str, key: u64) -> ElementId {
+    ElementId::NamedInteger(name.into(), key)
+}
+
+fn copy_button(name: &'static str, key: u64, text: SharedString) -> Clipboard {
+    Clipboard::new(row_id(name, key))
+        .value(text)
+        .tooltip("Копировать")
+        .xsmall()
+}
+
 fn render_user(entry: &Entry, cx: &App) -> AnyElement {
     let theme = cx.theme();
+    let text = SharedString::from(&entry.text);
     let images = (entry.images > 0).then(|| {
         div()
             .text_xs()
             .text_color(theme.muted_foreground)
-            .child(format!("{} image(s) attached", entry.images))
+            .child(format!("Изображений: {}", entry.images))
     });
-    h_flex()
+    v_flex()
+        .group(ROW_GROUP)
         .w_full()
-        .justify_end()
+        .items_end()
         .pt_2()
+        .gap_0p5()
         .child(
             v_flex()
                 .max_w(relative(0.85))
@@ -66,19 +82,51 @@ fn render_user(entry: &Entry, cx: &App) -> AnyElement {
                 .rounded(theme.radius * 2.)
                 .bg(theme.secondary)
                 .text_color(theme.secondary_foreground)
-                .child(SharedString::from(&entry.text))
+                .child(SelectableText::new(row_id("user", entry.key), text.clone()))
                 .children(images),
         )
+        .child(row_actions().child(copy_button("copy-user", entry.key, text)))
         .into_any_element()
 }
 
 fn render_assistant(entry: &Entry) -> AnyElement {
-    TextView::markdown(
-        ElementId::NamedInteger("assistant".into(), entry.key),
-        SharedString::from(&entry.text),
-    )
-    .selectable(true)
-    .into_any_element()
+    let text = SharedString::from(&entry.text);
+    let actions = (!entry.streaming && !entry.text.trim().is_empty())
+        .then(|| row_actions().child(copy_button("copy-assistant", entry.key, text.clone())));
+    v_flex()
+        .group(ROW_GROUP)
+        .w_full()
+        .child(
+            TextView::markdown(row_id("assistant", entry.key), text)
+                .selectable(true)
+                .code_block_actions(|block, _, _| {
+                    let code = block.code();
+                    Clipboard::new(row_id("copy-code", hash_code(&code)))
+                        .value(code)
+                        .tooltip("Копировать код")
+                        .xsmall()
+                }),
+        )
+        .children(actions)
+        .into_any_element()
+}
+
+const ROW_GROUP: &str = "thread-row";
+
+/// Row actions stay laid out so revealing them on hover does not shift rows.
+fn row_actions() -> Div {
+    h_flex()
+        .h_6()
+        .gap_1()
+        .invisible()
+        .group_hover(ROW_GROUP, |style| style.visible())
+}
+
+fn hash_code(code: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    code.hash(&mut hasher);
+    hasher.finish()
 }
 
 fn render_note(entry: &Entry, cx: &App) -> AnyElement {
@@ -131,7 +179,7 @@ fn tool_line(tool: &AppTranscriptTool, cx: &App) -> Div {
         )
 }
 
-fn code_block(text: String, cx: &App) -> Div {
+fn code_block(id: ElementId, text: String, cx: &App) -> Div {
     let theme = cx.theme();
     div()
         .w_full()
@@ -141,7 +189,7 @@ fn code_block(text: String, cx: &App) -> Div {
         .bg(theme.muted)
         .font_family(theme.mono_font_family.clone())
         .text_xs()
-        .child(text)
+        .child(SelectableText::new(id, text))
 }
 
 fn render_tool(
@@ -153,13 +201,23 @@ fn render_tool(
     let args = expanded.then(|| {
         let args = tool.effective_args.as_ref().unwrap_or(&tool.args);
         let pretty = serde_json::to_string_pretty(args).unwrap_or_default();
-        code_block(format::clip_block(&pretty, RESULT_LINES, RESULT_CHARS), cx)
+        code_block(
+            row_id("tool-args", key),
+            format::clip_block(&pretty, RESULT_LINES, RESULT_CHARS),
+            cx,
+        )
     });
     let result = expanded
         .then(|| tool.result.as_deref())
         .flatten()
         .filter(|result| !result.trim().is_empty())
-        .map(|result| code_block(format::clip_block(result, RESULT_LINES, RESULT_CHARS), cx));
+        .map(|result| {
+            code_block(
+                row_id("tool-result", key),
+                format::clip_block(result, RESULT_LINES, RESULT_CHARS),
+                cx,
+            )
+        });
     let chevron = if expanded {
         IconName::ChevronDown
     } else {
@@ -187,9 +245,9 @@ fn render_subagent(
     cx: &mut Context<Workspace>,
 ) -> AnyElement {
     let theme = cx.theme();
-    let mut meta = format!("{} · {} tools", agent.status, agent.tools.len());
+    let mut meta = format!("{} · инструментов: {}", agent.status, agent.tools.len());
     if let Some(iterations) = agent.iterations {
-        meta.push_str(&format!(" · {iterations} steps"));
+        meta.push_str(&format!(" · шагов: {iterations}"));
     }
     let tools = expanded.then(|| {
         v_flex()

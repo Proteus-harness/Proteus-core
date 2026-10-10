@@ -51,7 +51,7 @@ impl Workspace {
                             .icon(IconName::Plus)
                             .ghost()
                             .small()
-                            .tooltip("New session")
+                            .tooltip("Новая сессия")
                             .on_click(cx.listener(|this, _, _, cx| this.new_session(cx))),
                     ),
             )
@@ -77,10 +77,17 @@ impl Workspace {
     ) -> impl IntoElement {
         let theme = cx.theme();
         let dir = summary.session_dir.clone();
-        let status = summary.activity.as_ref().map(|activity| activity.status.clone());
+        let status = summary
+            .activity
+            .as_ref()
+            .map(|activity| activity.status.clone());
         let indicator = match status {
-            Some(AppSessionActivityStatus::Running) => Some(Spinner::new().xsmall().into_any_element()),
-            Some(AppSessionActivityStatus::WaitingApproval | AppSessionActivityStatus::WaitingInput) => Some(
+            Some(AppSessionActivityStatus::Running) => {
+                Some(Spinner::new().xsmall().into_any_element())
+            }
+            Some(
+                AppSessionActivityStatus::WaitingApproval | AppSessionActivityStatus::WaitingInput,
+            ) => Some(
                 Icon::new(IconName::CircleAlert)
                     .xsmall()
                     .text_color(theme.warning)

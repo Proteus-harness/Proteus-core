@@ -4,7 +4,14 @@ use proteus_contracts::app_protocol::{AppSessionSummary, AppTranscriptTool};
 use serde_json::Value;
 
 const SUMMARY_KEYS: &[&str] = &[
-    "command", "cmd", "path", "file_path", "pattern", "query", "url", "description",
+    "command",
+    "cmd",
+    "path",
+    "file_path",
+    "pattern",
+    "query",
+    "url",
+    "description",
 ];
 
 pub fn session_title(session: &AppSessionSummary) -> String {
@@ -14,7 +21,7 @@ pub fn session_title(session: &AppSessionSummary) -> String {
         .map(str::trim)
         .filter(|preview| !preview.is_empty())
         .map(|preview| clip(preview, 80))
-        .unwrap_or_else(|| "New session".to_owned())
+        .unwrap_or_else(|| "Новая сессия".to_owned())
 }
 
 pub fn relative_time(updated_at_ms: Option<u64>) -> String {
@@ -27,10 +34,10 @@ pub fn relative_time(updated_at_ms: Option<u64>) -> String {
         .unwrap_or(updated);
     let seconds = now.saturating_sub(updated) / 1000;
     match seconds {
-        0..60 => "now".to_owned(),
-        60..3600 => format!("{}m", seconds / 60),
-        3600..86_400 => format!("{}h", seconds / 3600),
-        _ => format!("{}d", seconds / 86_400),
+        0..60 => "сейчас".to_owned(),
+        60..3600 => format!("{} мин", seconds / 60),
+        3600..86_400 => format!("{} ч", seconds / 3600),
+        _ => format!("{} д", seconds / 86_400),
     }
 }
 
@@ -45,7 +52,10 @@ pub fn tool_summary(tool: &AppTranscriptTool) -> String {
                 Value::String(text) => text.clone(),
                 Value::Array(items) => items
                     .iter()
-                    .map(|item| item.as_str().map_or_else(|| item.to_string(), str::to_owned))
+                    .map(|item| {
+                        item.as_str()
+                            .map_or_else(|| item.to_string(), str::to_owned)
+                    })
                     .collect::<Vec<_>>()
                     .join(" "),
                 other => other.to_string(),
@@ -61,7 +71,10 @@ pub fn tool_summary(tool: &AppTranscriptTool) -> String {
 
 /// First line of `text`, cut to `max_chars`.
 pub fn clip(text: &str, max_chars: usize) -> String {
-    let line = text.lines().find(|line| !line.trim().is_empty()).unwrap_or("");
+    let line = text
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .unwrap_or("");
     let line = line.trim();
     let multiline = text.trim().lines().nth(1).is_some();
     match line.char_indices().nth(max_chars) {
@@ -78,7 +91,7 @@ pub fn clip_block(text: &str, max_lines: usize, max_chars: usize) -> String {
     for line in text.lines() {
         if lines == max_lines || out.len() + line.len() > max_chars {
             let rest = text.lines().count() - lines;
-            out.push_str(&format!("… {rest} more lines"));
+            out.push_str(&format!("… ещё строк: {rest}"));
             return out;
         }
         out.push_str(line);
@@ -102,7 +115,7 @@ mod tests {
 
     #[test]
     fn clip_block_counts_hidden_lines() {
-        assert_eq!(clip_block("a\nb\nc", 2, 100), "a\nb\n… 1 more lines");
+        assert_eq!(clip_block("a\nb\nc", 2, 100), "a\nb\n… ещё строк: 1");
         assert_eq!(clip_block("a\nb\n", 5, 100), "a\nb");
     }
 }

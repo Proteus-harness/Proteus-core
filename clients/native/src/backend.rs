@@ -46,7 +46,15 @@ impl Backend {
             .arg(profile)
             .arg("--cwd")
             .arg(workspace)
-            .args(["server", "http", "--port", "0", "--token", &token, "--ready-stdout"])
+            .args([
+                "server",
+                "http",
+                "--port",
+                "0",
+                "--token",
+                &token,
+                "--ready-stdout",
+            ])
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())

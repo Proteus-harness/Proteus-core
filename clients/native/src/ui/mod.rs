@@ -1,7 +1,11 @@
+mod actions;
 mod composer;
+mod controls;
 mod format;
+mod requests;
 mod sidebar;
 mod thread;
+mod user_input;
 mod workspace;
 
 use gpui_kit::component::message_scroller::MessageScroller;
@@ -10,11 +14,11 @@ use gpui_kit::component::*;
 use gpui_kit::*;
 use proteus_contracts::app_protocol::AppRunStatus;
 
-pub use workspace::Workspace;
 use workspace::Status;
+pub use workspace::Workspace;
 
 impl Render for Workspace {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let root = h_flex()
             .size_full()
@@ -25,13 +29,13 @@ impl Render for Workspace {
                 h_flex()
                     .gap_2()
                     .child(Spinner::new())
-                    .child("Starting Proteus…"),
+                    .child("Запуск Proteus…"),
             )),
             Status::Failed(error) => root.child(centered(
                 v_flex()
                     .max_w(px(720.))
                     .gap_2()
-                    .child(div().font_semibold().child("Proteus is not available"))
+                    .child(div().font_semibold().child("Proteus недоступен"))
                     .child(
                         div()
                             .text_sm()
@@ -41,7 +45,7 @@ impl Render for Workspace {
             )),
             Status::Ready => root
                 .child(self.render_sidebar(cx))
-                .child(self.render_main(cx)),
+                .child(self.render_main(window, cx)),
         }
     }
 }
@@ -56,7 +60,7 @@ fn centered(content: impl IntoElement) -> Div {
 }
 
 impl Workspace {
-    fn render_main(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_main(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let renderer = cx.processor(|this, ix: usize, window, cx| this.render_row(ix, window, cx));
         v_flex()
             .flex_1()
@@ -70,7 +74,7 @@ impl Workspace {
                     .scrollbar(true)
                     .jump_button(true),
             )
-            .children(self.render_approvals(cx))
+            .children(self.render_requests(window, cx))
             .children(self.notice.clone().map(|notice| {
                 h_flex().w_full().justify_center().px_6().pt_2().child(
                     div()
@@ -94,15 +98,18 @@ impl Workspace {
                     .find(|summary| summary.session_dir == session.dir)
             })
             .map(format::session_title)
-            .unwrap_or_else(|| "New session".to_owned());
+            .unwrap_or_else(|| "Новая сессия".to_owned());
         let status = session.and_then(|session| {
             if !session.connected {
-                return Some(("Connecting…", theme.muted_foreground));
+                return Some(match session.link_error {
+                    Some(_) => ("Переподключение…", theme.warning),
+                    None => ("Подключение…", theme.muted_foreground),
+                });
             }
             let run = session.execution.active.as_ref()?;
             Some(match run.status {
-                AppRunStatus::CancelRequested => ("Stopping…", theme.warning),
-                _ => ("Working…", theme.muted_foreground),
+                AppRunStatus::CancelRequested => ("Остановка…", theme.warning),
+                _ => ("Работает…", theme.muted_foreground),
             })
         });
         h_flex()

@@ -7,7 +7,23 @@ description = "Experimental native GPUI client for the Proteus app server"
 license = "MIT"
 
 [dependencies]
-gpui-kit = "0.7.1"
+gpui-kit = { version = "0.7.1", features = [
+    "tree-sitter-bash",
+    "tree-sitter-c",
+    "tree-sitter-cpp",
+    "tree-sitter-css",
+    "tree-sitter-diff",
+    "tree-sitter-go",
+    "tree-sitter-html",
+    "tree-sitter-javascript",
+    "tree-sitter-python",
+    "tree-sitter-rust",
+    "tree-sitter-sql",
+    "tree-sitter-toml",
+    "tree-sitter-tsx",
+    "tree-sitter-typescript",
+    "tree-sitter-yaml",
+] }
 proteus-app-common = { path = "../app/common" }
 proteus-contracts = { path = "../../crates/proteus-contracts" }
 anyhow = "1"
