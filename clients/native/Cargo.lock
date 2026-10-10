@@ -5328,6 +5328,7 @@ version = "0.0.0-dev"
 dependencies = [
  "anyhow",
  "async-channel",
+ "chrono",
  "gpui-kit",
  "libc",
  "proteus-app-common",

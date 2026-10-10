@@ -14,7 +14,7 @@ use proteus_contracts::app_protocol::http::{
 use proteus_contracts::app_protocol::{
     AppBootstrap, AppContextMapSnapshot, AppServerEvent, AppSessionSummary, StdioOutput,
 };
-use proteus_contracts::contracts::UserInputResponse;
+use proteus_contracts::contracts::{ModelQuotaSnapshot, UserInputResponse};
 use proteus_contracts::domain::{MessageId, PermissionMode};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -118,6 +118,11 @@ impl Api {
 
     pub fn context(&self, session_dir: &Path) -> Result<AppContextMapSnapshot> {
         self.get("/context", Some(session_dir))
+    }
+
+    /// `None` when the active model provider reports no quota.
+    pub fn model_quota(&self, session_dir: &Path) -> Result<Option<ModelQuotaSnapshot>> {
+        self.get("/model/quota", Some(session_dir))
     }
 
     pub fn set_mode(&self, session_dir: &Path, mode: PermissionMode) -> Result<ConfigSummary> {

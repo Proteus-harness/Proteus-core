@@ -15,6 +15,7 @@ use proteus_contracts::app_protocol::{
 use proteus_contracts::domain::{Event as RuntimeEvent, ThreadId};
 
 use super::context_usage::ContextUsage;
+use super::panel::InfoPanel;
 use super::settings::SettingsView;
 use super::user_input::UserInputDrafts;
 use crate::api::Api;
@@ -106,6 +107,7 @@ pub struct Workspace {
     pub(super) window_title: String,
     pub(super) settings: Option<Entity<SettingsView>>,
     pub(super) settings_subscription: Option<Subscription>,
+    pub(super) panel: InfoPanel,
     pump: Option<Task<()>>,
     _startup: Task<()>,
     _subscriptions: Vec<Subscription>,
@@ -162,6 +164,7 @@ impl Workspace {
             window_title: String::new(),
             settings: None,
             settings_subscription: None,
+            panel: InfoPanel::default(),
             pump: None,
             _startup: startup,
             _subscriptions: subscriptions,
@@ -319,6 +322,7 @@ impl Workspace {
                 if settled {
                     self.refresh_sessions(cx);
                     self.load_context(cx);
+                    self.load_quota(cx);
                 }
                 Change::None
             }

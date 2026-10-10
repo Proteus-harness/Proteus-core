@@ -22,7 +22,7 @@ fn row_id(name: &'static str, key: u64) -> ElementId {
     ElementId::NamedInteger(name.into(), key)
 }
 
-fn tool_args(tool: &AppTranscriptTool) -> &Value {
+pub(super) fn tool_args(tool: &AppTranscriptTool) -> &Value {
     tool.effective_args.as_ref().unwrap_or(&tool.args)
 }
 
@@ -290,7 +290,7 @@ fn diff_block(body: &str, cx: &App) -> Div {
         .child(StyledText::new(text).with_highlights(highlights))
 }
 
-fn plan_list(steps: &[PlanStep], cx: &App) -> Div {
+pub(super) fn plan_list(steps: &[PlanStep], cx: &App) -> Div {
     let theme = cx.theme();
     v_flex()
         .gap_1()

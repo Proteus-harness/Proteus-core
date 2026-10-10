@@ -3,6 +3,7 @@ mod composer;
 mod context_usage;
 mod controls;
 mod format;
+mod panel;
 mod requests;
 mod settings;
 mod sidebar;
@@ -11,6 +12,7 @@ mod tool_row;
 mod user_input;
 mod workspace;
 
+use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::message_scroller::MessageScroller;
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::*;
@@ -48,7 +50,8 @@ impl Render for Workspace {
             )),
             Status::Ready => root
                 .child(self.render_sidebar(cx))
-                .child(self.render_main(window, cx)),
+                .child(self.render_main(window, cx))
+                .children(self.render_panel(cx)),
         }
     }
 }
@@ -154,5 +157,14 @@ impl Workspace {
                     .child(Spinner::new().xsmall())
                     .child(label)
             }))
+            .child(
+                Button::new("toggle-panel")
+                    .ghost()
+                    .small()
+                    .icon(IconName::PanelRight)
+                    .selected(self.panel.open)
+                    .tooltip("Сведения о сессии")
+                    .on_click(cx.listener(|this, _, window, cx| this.toggle_panel(window, cx))),
+            )
     }
 }

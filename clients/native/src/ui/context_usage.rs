@@ -11,9 +11,9 @@ use super::Workspace;
 /// local estimate. Without a known window size there is nothing to show.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct ContextUsage {
-    used: u32,
-    max: u32,
-    trigger: Option<u32>,
+    pub used: u32,
+    pub max: u32,
+    pub trigger: Option<u32>,
 }
 
 impl ContextUsage {
@@ -46,8 +46,17 @@ impl ContextUsage {
         )
     }
 
-    fn percent(self) -> f32 {
+    pub fn percent(self) -> f32 {
         (self.used as f32 / self.max as f32 * 100.).min(100.)
+    }
+
+    /// Ring and bar color: muted until the compaction trigger gets close.
+    pub fn color(self, theme: &Theme) -> Hsla {
+        match self.trigger {
+            Some(trigger) if self.used >= trigger => theme.danger,
+            Some(trigger) if self.used as f32 >= trigger as f32 * 0.8 => theme.warning,
+            _ => theme.muted_foreground,
+        }
     }
 
     fn describe(self) -> String {
@@ -64,7 +73,7 @@ impl ContextUsage {
     }
 }
 
-fn tokens(value: u32) -> String {
+pub(super) fn tokens(value: u32) -> String {
     match value {
         0..1_000 => value.to_string(),
         1_000..1_000_000 => format!("{:.0}k", value as f32 / 1_000.),
@@ -75,12 +84,7 @@ fn tokens(value: u32) -> String {
 impl Workspace {
     pub(super) fn render_context_usage(&self, cx: &Context<Self>) -> Option<impl IntoElement> {
         let usage = self.session.as_ref()?.context?;
-        let theme = cx.theme();
-        let color = match usage.trigger {
-            Some(trigger) if usage.used >= trigger => theme.danger,
-            Some(trigger) if usage.used as f32 >= trigger as f32 * 0.8 => theme.warning,
-            _ => theme.muted_foreground,
-        };
+        let color = usage.color(cx.theme());
         let description = SharedString::from(usage.describe());
         Some(
             div()
