@@ -4,6 +4,7 @@ mod context_usage;
 mod controls;
 mod format;
 mod requests;
+mod settings;
 mod sidebar;
 mod thread;
 mod tool_row;
@@ -84,12 +85,12 @@ impl Workspace {
 
     fn render_main(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_window_title(window);
+        let main = v_flex().flex_1().min_w_0().h_full();
+        if let Some(settings) = &self.settings {
+            return main.child(settings.clone());
+        }
         let renderer = cx.processor(|this, ix: usize, window, cx| this.render_row(ix, window, cx));
-        v_flex()
-            .flex_1()
-            .min_w_0()
-            .h_full()
-            .child(self.render_header(cx))
+        main.child(self.render_header(cx))
             .child(
                 MessageScroller::new("thread", self.scroller.clone(), renderer)
                     .flex_1()

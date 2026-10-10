@@ -66,6 +66,25 @@ impl Workspace {
                     .gap_0p5()
                     .children(items),
             )
+            .child(
+                h_flex()
+                    .flex_none()
+                    .px_2()
+                    .py_2()
+                    .border_t_1()
+                    .border_color(theme.sidebar_border)
+                    .child(
+                        Button::new("settings")
+                            .icon(IconName::Settings)
+                            .label("Настройки")
+                            .ghost()
+                            .small()
+                            .w_full()
+                            .justify_start()
+                            .selected(self.settings.is_some())
+                            .on_click(cx.listener(|this, _, _, cx| this.toggle_settings(cx))),
+                    ),
+            )
     }
 
     fn render_session_item(

@@ -3,6 +3,7 @@ mod backend;
 mod connection;
 mod graphics;
 mod launch;
+mod settings;
 mod tool_display;
 mod transcript;
 mod ui;

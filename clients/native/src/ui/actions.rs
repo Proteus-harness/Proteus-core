@@ -6,10 +6,12 @@ use proteus_contracts::app_protocol::http::SendRequest;
 use proteus_contracts::domain::{MessageId, PermissionMode, RunOptions};
 
 use super::context_usage::ContextUsage;
+use super::settings::{SettingsEvent, SettingsView};
 use super::workspace::Workspace;
 
 impl Workspace {
     pub(super) fn select_session(&mut self, dir: PathBuf, cx: &mut Context<Self>) {
+        self.close_settings(cx);
         if self
             .session
             .as_ref()
@@ -25,6 +27,7 @@ impl Workspace {
     }
 
     pub(super) fn new_session(&mut self, cx: &mut Context<Self>) {
+        self.close_settings(cx);
         let source = self.session_dir();
         self.call(
             cx,
@@ -198,6 +201,33 @@ impl Workspace {
                 self.notice = Some(format!("Не удалось загрузить каталог моделей: {error}").into());
             }
             session.config = Some(config);
+        }
+    }
+
+    pub(super) fn toggle_settings(&mut self, cx: &mut Context<Self>) {
+        if self.settings.is_some() {
+            self.close_settings(cx);
+            return;
+        }
+        let (Some(api), Some(dir)) = (self.api(), self.session_dir()) else {
+            return;
+        };
+        let view = cx.new(|cx| SettingsView::new(api, dir, cx));
+        self.settings_subscription = Some(cx.subscribe(
+            &view,
+            |this, _, event: &SettingsEvent, cx| match event {
+                SettingsEvent::Saved => this.load_config(cx),
+                SettingsEvent::Close => this.close_settings(cx),
+            },
+        ));
+        self.settings = Some(view);
+        cx.notify();
+    }
+
+    pub(super) fn close_settings(&mut self, cx: &mut Context<Self>) {
+        if self.settings.take().is_some() {
+            self.settings_subscription = None;
+            cx.notify();
         }
     }
 

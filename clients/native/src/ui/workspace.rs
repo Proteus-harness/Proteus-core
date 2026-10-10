@@ -15,6 +15,7 @@ use proteus_contracts::app_protocol::{
 use proteus_contracts::domain::{Event as RuntimeEvent, ThreadId};
 
 use super::context_usage::ContextUsage;
+use super::settings::SettingsView;
 use super::user_input::UserInputDrafts;
 use crate::api::Api;
 use crate::connection::{self, BackendGuard, PumpItem};
@@ -103,6 +104,8 @@ pub struct Workspace {
     pub(super) user_input: UserInputDrafts,
     pub(super) notice: Option<SharedString>,
     pub(super) window_title: String,
+    pub(super) settings: Option<Entity<SettingsView>>,
+    pub(super) settings_subscription: Option<Subscription>,
     pump: Option<Task<()>>,
     _startup: Task<()>,
     _subscriptions: Vec<Subscription>,
@@ -157,6 +160,8 @@ impl Workspace {
             user_input: UserInputDrafts::default(),
             notice: None,
             window_title: String::new(),
+            settings: None,
+            settings_subscription: None,
             pump: None,
             _startup: startup,
             _subscriptions: subscriptions,
@@ -175,6 +180,10 @@ impl Workspace {
             Err(error) => self.status = Status::Failed(format!("{error:#}").into()),
         }
         cx.notify();
+    }
+
+    pub(super) fn api(&self) -> Option<Api> {
+        self.api.clone()
     }
 
     /// Runs a blocking server call off the UI thread.

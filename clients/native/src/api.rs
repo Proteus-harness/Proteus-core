@@ -5,10 +5,11 @@ use std::time::Duration;
 
 use anyhow::{Result, anyhow, bail};
 use proteus_contracts::app_protocol::config::ConfigSummary;
+use proteus_contracts::app_protocol::config_builder::ConfigBuilderSnapshot;
 use proteus_contracts::app_protocol::http::{
     ApprovalRequest, CancelRequest, DeleteQueuedMessageRequest, NewSessionRequest,
-    ResumeSessionRequest, SendRequest, SessionOpened, SetModelRequest, SetPermissionModeRequest,
-    SetReasoningEffortRequest, UserInputRequest,
+    ResumeSessionRequest, SendRequest, SessionOpened, SetConfigBuilderRequest, SetModelRequest,
+    SetPermissionModeRequest, SetReasoningEffortRequest, UserInputRequest,
 };
 use proteus_contracts::app_protocol::{
     AppBootstrap, AppContextMapSnapshot, AppServerEvent, AppSessionSummary, StdioOutput,
@@ -162,6 +163,31 @@ impl Api {
     }
 
     /// Opens the session event stream; blocks until the server answers.
+    pub fn config_builder(&self, session_dir: &Path) -> Result<ConfigBuilderSnapshot> {
+        self.get("/config/builder", Some(session_dir))
+    }
+
+    /// Persists profile changes; the server answers with the fresh snapshot
+    /// or with a plain-text validation error.
+    pub fn save_config_builder(
+        &self,
+        session_dir: &Path,
+        request: &SetConfigBuilderRequest,
+    ) -> Result<ConfigBuilderSnapshot> {
+        let response = self
+            .agent
+            .post(format!("{}/config/builder", self.origin))
+            .header("Authorization", format!("Bearer {}", self.token))
+            .query("session_dir", session_dir.to_string_lossy())
+            .send_json(request)?;
+        let status = response.status();
+        let text = response.into_body().into_with_config().read_to_string()?;
+        if !status.is_success() {
+            bail!("{}", text.trim());
+        }
+        Ok(serde_json::from_str(&text)?)
+    }
+
     pub fn events(&self, session_dir: &Path) -> Result<EventStream> {
         let response = self
             .agent

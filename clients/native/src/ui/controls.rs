@@ -13,6 +13,15 @@ const MODES: [(PermissionMode, &str); 3] = [
     (PermissionMode::Plan, "Планирование"),
 ];
 
+/// Russian label of a persisted permission mode string.
+pub(super) fn mode_label(value: &str) -> &'static str {
+    let mode = mode_from_value(value);
+    MODES
+        .iter()
+        .find(|(candidate, _)| *candidate == mode)
+        .map_or("По правилам", |(_, label)| label)
+}
+
 fn mode_from_value(value: &str) -> PermissionMode {
     match value.to_ascii_lowercase().as_str() {
         "plan" => PermissionMode::Plan,
