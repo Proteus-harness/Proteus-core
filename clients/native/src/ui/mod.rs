@@ -5,6 +5,7 @@ mod format;
 mod requests;
 mod sidebar;
 mod thread;
+mod tool_row;
 mod user_input;
 mod workspace;
 
@@ -72,7 +73,8 @@ impl Workspace {
                     .flex_1()
                     .min_h_0()
                     .scrollbar(true)
-                    .jump_button(true),
+                    .jump_button(true)
+                    .with_row_style(StyleRefinement::default().px_0().pb_0()),
             )
             .children(self.render_requests(window, cx))
             .children(self.notice.clone().map(|notice| {

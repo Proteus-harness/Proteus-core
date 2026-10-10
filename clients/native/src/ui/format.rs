@@ -1,18 +1,6 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use proteus_contracts::app_protocol::{AppSessionSummary, AppTranscriptTool};
-use serde_json::Value;
-
-const SUMMARY_KEYS: &[&str] = &[
-    "command",
-    "cmd",
-    "path",
-    "file_path",
-    "pattern",
-    "query",
-    "url",
-    "description",
-];
+use proteus_contracts::app_protocol::AppSessionSummary;
 
 pub fn session_title(session: &AppSessionSummary) -> String {
     session
@@ -39,34 +27,6 @@ pub fn relative_time(updated_at_ms: Option<u64>) -> String {
         3600..86_400 => format!("{} ч", seconds / 3600),
         _ => format!("{} д", seconds / 86_400),
     }
-}
-
-/// One-line description of what a tool call operates on.
-pub fn tool_summary(tool: &AppTranscriptTool) -> String {
-    let args = tool.effective_args.as_ref().unwrap_or(&tool.args);
-    let picked = args.as_object().and_then(|object| {
-        SUMMARY_KEYS
-            .iter()
-            .find_map(|key| object.get(*key))
-            .map(|value| match value {
-                Value::String(text) => text.clone(),
-                Value::Array(items) => items
-                    .iter()
-                    .map(|item| {
-                        item.as_str()
-                            .map_or_else(|| item.to_string(), str::to_owned)
-                    })
-                    .collect::<Vec<_>>()
-                    .join(" "),
-                other => other.to_string(),
-            })
-    });
-    let text = match picked {
-        Some(text) => text,
-        None if args.is_null() => String::new(),
-        None => args.to_string(),
-    };
-    clip(&text, 160)
 }
 
 /// First line of `text`, cut to `max_chars`.

@@ -1,19 +1,17 @@
 use gpui_kit::base::SelectableText;
 use gpui_kit::component::clipboard::Clipboard;
-use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::text::TextView;
 use gpui_kit::component::*;
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use proteus_contracts::app_protocol::{AppTranscriptSubagent, AppTranscriptTool};
+use proteus_contracts::app_protocol::AppTranscriptSubagent;
 
 use super::format;
+use super::tool_row::{render_tool, tool_line};
 use super::workspace::Workspace;
 use crate::transcript::{Entry, Role};
 
 pub(super) const CONTENT_WIDTH: f32 = 840.;
-
-const RESULT_LINES: usize = 40;
-const RESULT_CHARS: usize = 8_000;
 
 impl Workspace {
     pub(super) fn render_row(
@@ -30,6 +28,25 @@ impl Workspace {
             return div().into_any_element();
         };
         let expanded = self.expanded.contains(&entry.key);
+        let last = ix + 1 == session_rows(self);
+        let spacing = match (&entry.role, &entry.tool) {
+            (Role::User, _) => Spacing {
+                top: 4.,
+                bottom: 0.,
+            },
+            (Role::Assistant, _) => Spacing {
+                top: 2.,
+                bottom: 0.,
+            },
+            (Role::System, Some(_)) => Spacing {
+                top: 1.,
+                bottom: 1.,
+            },
+            (Role::System, None) => Spacing {
+                top: 2.,
+                bottom: 2.,
+            },
+        };
         let body = match (&entry.role, &entry.tool, &entry.subagent) {
             (Role::User, _, _) => render_user(entry, cx),
             (Role::Assistant, _, _) => render_assistant(entry),
@@ -41,10 +58,27 @@ impl Workspace {
             .w_full()
             .justify_center()
             .px_6()
-            .py_1p5()
+            .pt(px(spacing.top * 4.))
+            .pb(px(spacing.bottom * 4.))
+            .when(ix == 0, |row| row.pt_6())
+            .when(last, |row| row.pb_6())
             .child(div().w_full().max_w(px(CONTENT_WIDTH)).child(body))
             .into_any_element()
     }
+}
+
+/// Vertical padding of a row in 4px units: tool calls sit tightly together,
+/// a user turn opens with extra space.
+struct Spacing {
+    top: f32,
+    bottom: f32,
+}
+
+fn session_rows(workspace: &Workspace) -> usize {
+    workspace
+        .session
+        .as_ref()
+        .map_or(0, |session| session.transcript.entries().len())
 }
 
 fn row_id(name: &'static str, key: u64) -> ElementId {
@@ -71,7 +105,6 @@ fn render_user(entry: &Entry, cx: &App) -> AnyElement {
         .group(ROW_GROUP)
         .w_full()
         .items_end()
-        .pt_2()
         .gap_0p5()
         .child(
             v_flex()
@@ -116,7 +149,7 @@ const ROW_GROUP: &str = "thread-row";
 /// Row actions stay laid out so revealing them on hover does not shift rows.
 fn row_actions() -> Div {
     h_flex()
-        .h_6()
+        .h_5()
         .gap_1()
         .invisible()
         .group_hover(ROW_GROUP, |style| style.visible())
@@ -134,107 +167,6 @@ fn render_note(entry: &Entry, cx: &App) -> AnyElement {
         .text_xs()
         .text_color(cx.theme().muted_foreground)
         .child(format::clip(&entry.text, 200))
-        .into_any_element()
-}
-
-fn status_icon(status: &str, cx: &App) -> AnyElement {
-    let theme = cx.theme();
-    match status {
-        "done" => Icon::new(IconName::Check)
-            .xsmall()
-            .text_color(theme.success)
-            .into_any_element(),
-        "failed" | "denied" => Icon::new(IconName::CircleX)
-            .xsmall()
-            .text_color(theme.danger)
-            .into_any_element(),
-        "waiting_approval" => Icon::new(IconName::CircleAlert)
-            .xsmall()
-            .text_color(theme.warning)
-            .into_any_element(),
-        _ => Spinner::new().xsmall().into_any_element(),
-    }
-}
-
-fn tool_line(tool: &AppTranscriptTool, cx: &App) -> Div {
-    let theme = cx.theme();
-    h_flex()
-        .gap_2()
-        .text_sm()
-        .min_w_0()
-        .child(status_icon(&tool.status, cx))
-        .child(
-            div()
-                .flex_none()
-                .font_family(theme.mono_font_family.clone())
-                .child(tool.name.clone()),
-        )
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .truncate()
-                .text_color(theme.muted_foreground)
-                .child(format::tool_summary(tool)),
-        )
-}
-
-fn code_block(id: ElementId, text: String, cx: &App) -> Div {
-    let theme = cx.theme();
-    div()
-        .w_full()
-        .px_3()
-        .py_2()
-        .rounded(theme.radius)
-        .bg(theme.muted)
-        .font_family(theme.mono_font_family.clone())
-        .text_xs()
-        .child(SelectableText::new(id, text))
-}
-
-fn render_tool(
-    key: u64,
-    tool: &AppTranscriptTool,
-    expanded: bool,
-    cx: &mut Context<Workspace>,
-) -> AnyElement {
-    let args = expanded.then(|| {
-        let args = tool.effective_args.as_ref().unwrap_or(&tool.args);
-        let pretty = serde_json::to_string_pretty(args).unwrap_or_default();
-        code_block(
-            row_id("tool-args", key),
-            format::clip_block(&pretty, RESULT_LINES, RESULT_CHARS),
-            cx,
-        )
-    });
-    let result = expanded
-        .then(|| tool.result.as_deref())
-        .flatten()
-        .filter(|result| !result.trim().is_empty())
-        .map(|result| {
-            code_block(
-                row_id("tool-result", key),
-                format::clip_block(result, RESULT_LINES, RESULT_CHARS),
-                cx,
-            )
-        });
-    let chevron = if expanded {
-        IconName::ChevronDown
-    } else {
-        IconName::ChevronRight
-    };
-    let muted = cx.theme().muted_foreground;
-    v_flex()
-        .gap_1()
-        .child(
-            tool_line(tool, cx)
-                .id(ElementId::NamedInteger("tool".into(), key))
-                .cursor_pointer()
-                .child(Icon::new(chevron).xsmall().text_color(muted))
-                .on_click(cx.listener(move |this, _, _, cx| this.toggle_expanded(key, cx))),
-        )
-        .children(args)
-        .children(result)
         .into_any_element()
 }
 
