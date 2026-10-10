@@ -5,6 +5,7 @@ exclude = [
     "clients/app/ui",
     "clients/app/diagnostics",
     "clients/app/src-tauri",
+    "clients/native",
     "modules/research/tool-output-artifacts",
 ]
 members = [
