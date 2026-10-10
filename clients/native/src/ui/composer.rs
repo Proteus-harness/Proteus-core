@@ -66,6 +66,7 @@ impl Workspace {
                         h_flex()
                             .gap_2()
                             .child(div().flex_1().min_w_0().children(self.render_controls(cx)))
+                            .children(self.render_context_usage(cx))
                             .children(stop)
                             .child(send),
                     ),

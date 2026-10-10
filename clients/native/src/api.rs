@@ -11,7 +11,7 @@ use proteus_contracts::app_protocol::http::{
     SetReasoningEffortRequest, UserInputRequest,
 };
 use proteus_contracts::app_protocol::{
-    AppBootstrap, AppServerEvent, AppSessionSummary, StdioOutput,
+    AppBootstrap, AppContextMapSnapshot, AppServerEvent, AppSessionSummary, StdioOutput,
 };
 use proteus_contracts::contracts::UserInputResponse;
 use proteus_contracts::domain::{MessageId, PermissionMode};
@@ -113,6 +113,10 @@ impl Api {
 
     pub fn config(&self, session_dir: &Path) -> Result<ConfigSummary> {
         self.get("/config", Some(session_dir))
+    }
+
+    pub fn context(&self, session_dir: &Path) -> Result<AppContextMapSnapshot> {
+        self.get("/context", Some(session_dir))
     }
 
     pub fn set_mode(&self, session_dir: &Path, mode: PermissionMode) -> Result<ConfigSummary> {

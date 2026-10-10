@@ -5,6 +5,7 @@ use proteus_contracts::app_protocol::config::ConfigSummary;
 use proteus_contracts::app_protocol::http::SendRequest;
 use proteus_contracts::domain::{MessageId, PermissionMode, RunOptions};
 
+use super::context_usage::ContextUsage;
 use super::workspace::Workspace;
 
 impl Workspace {
@@ -55,6 +56,25 @@ impl Workspace {
             cx,
             move |api| api.config(&target),
             move |this, config, _| this.apply_config(&dir, config),
+        );
+    }
+
+    pub(super) fn load_context(&mut self, cx: &mut Context<Self>) {
+        let Some(dir) = self.session_dir() else {
+            return;
+        };
+        let target = dir.clone();
+        self.call(
+            cx,
+            move |api| api.context(&target),
+            move |this, context, _| {
+                if let Some(session) = this.session.as_mut().filter(|s| s.dir == dir) {
+                    session.context = context
+                        .latest_usage
+                        .as_ref()
+                        .and_then(ContextUsage::from_snapshot);
+                }
+            },
         );
     }
 

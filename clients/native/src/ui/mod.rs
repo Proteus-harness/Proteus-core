@@ -1,5 +1,6 @@
 mod actions;
 mod composer;
+mod context_usage;
 mod controls;
 mod format;
 mod requests;
@@ -61,7 +62,28 @@ fn centered(content: impl IntoElement) -> Div {
 }
 
 impl Workspace {
+    fn session_title(&self) -> String {
+        self.session
+            .as_ref()
+            .and_then(|session| {
+                self.sessions
+                    .iter()
+                    .find(|summary| summary.session_dir == session.dir)
+            })
+            .map(format::session_title)
+            .unwrap_or_else(|| "Новая сессия".to_owned())
+    }
+
+    fn sync_window_title(&mut self, window: &mut Window) {
+        let title = format!("{} — Proteus", self.session_title());
+        if self.window_title != title {
+            window.set_window_title(&title);
+            self.window_title = title;
+        }
+    }
+
     fn render_main(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.sync_window_title(window);
         let renderer = cx.processor(|this, ix: usize, window, cx| this.render_row(ix, window, cx));
         v_flex()
             .flex_1()
@@ -93,14 +115,7 @@ impl Workspace {
     fn render_header(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let session = self.session.as_ref();
-        let title = session
-            .and_then(|session| {
-                self.sessions
-                    .iter()
-                    .find(|summary| summary.session_dir == session.dir)
-            })
-            .map(format::session_title)
-            .unwrap_or_else(|| "Новая сессия".to_owned());
+        let title = self.session_title();
         let status = session.and_then(|session| {
             if !session.connected {
                 return Some(match session.link_error {

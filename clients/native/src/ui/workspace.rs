@@ -12,7 +12,9 @@ use proteus_contracts::app_protocol::config::ConfigSummary;
 use proteus_contracts::app_protocol::{
     AppExecutionState, AppPendingRequests, AppServerEvent, AppSessionSummary,
 };
+use proteus_contracts::domain::{Event as RuntimeEvent, ThreadId};
 
+use super::context_usage::ContextUsage;
 use super::user_input::UserInputDrafts;
 use crate::api::Api;
 use crate::connection::{self, BackendGuard, PumpItem};
@@ -35,6 +37,8 @@ pub(super) struct Session {
     pub connected: bool,
     pub link_error: Option<SharedString>,
     pub config: Option<ConfigSummary>,
+    pub context: Option<ContextUsage>,
+    root_thread: Option<ThreadId>,
 }
 
 impl Session {
@@ -49,6 +53,8 @@ impl Session {
             connected: false,
             link_error: None,
             config: None,
+            context: None,
+            root_thread: None,
         }
     }
 
@@ -96,6 +102,7 @@ pub struct Workspace {
     pub(super) expanded: HashSet<u64>,
     pub(super) user_input: UserInputDrafts,
     pub(super) notice: Option<SharedString>,
+    pub(super) window_title: String,
     pump: Option<Task<()>>,
     _startup: Task<()>,
     _subscriptions: Vec<Subscription>,
@@ -149,6 +156,7 @@ impl Workspace {
             expanded: HashSet::new(),
             user_input: UserInputDrafts::default(),
             notice: None,
+            window_title: String::new(),
             pump: None,
             _startup: startup,
             _subscriptions: subscriptions,
@@ -206,6 +214,7 @@ impl Workspace {
         self.scroller
             .update(cx, |scroller, cx| scroller.reset(0, cx));
         self.load_config(cx);
+        self.load_context(cx);
 
         let events = connection::spawn_pump(api, dir);
         self.pump = Some(cx.spawn(async move |this, cx| {
@@ -292,6 +301,7 @@ impl Workspace {
             AppServerEvent::SessionSnapshot { snapshot } => {
                 let snapshot = *snapshot;
                 session.execution = snapshot.execution;
+                session.root_thread = snapshot.root_thread_id;
                 session.transcript.reset(snapshot.transcript)
             }
             AppServerEvent::ExecutionUpdated { execution } => {
@@ -299,12 +309,22 @@ impl Workspace {
                 session.execution = execution;
                 if settled {
                     self.refresh_sessions(cx);
+                    self.load_context(cx);
                 }
                 Change::None
             }
-            AppServerEvent::Runtime { envelope } => session
-                .transcript
-                .apply_runtime(envelope.thread_id, &envelope.event),
+            AppServerEvent::Runtime { envelope } => {
+                if let RuntimeEvent::TokenUsageUpdated { usage, .. } = &envelope.event
+                    && session
+                        .root_thread
+                        .is_none_or(|root| root == envelope.thread_id)
+                {
+                    session.context = ContextUsage::from_event(usage);
+                }
+                session
+                    .transcript
+                    .apply_runtime(envelope.thread_id, &envelope.event)
+            }
             AppServerEvent::UserMessageSubmitted { text, images } => {
                 session.transcript.push_user(None, &text, images.len())
             }
