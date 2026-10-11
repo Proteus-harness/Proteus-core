@@ -17,11 +17,13 @@ mod collapse;
 mod disclosure;
 mod enter;
 mod number;
+mod slide;
 
 pub(super) use collapse::Collapse;
 pub(super) use disclosure::{chevron, drive, reveal, toggled};
 pub(super) use enter::{fade_in_if, rise_in, rise_in_if, stagger_in};
 pub(super) use number::Number;
+pub(super) use slide::Slide;
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU8, Ordering};

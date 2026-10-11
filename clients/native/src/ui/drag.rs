@@ -20,12 +20,8 @@ pub(super) fn is_source(key: &str, cx: &App) -> bool {
     current(cx).is_some_and(|source| source == key)
 }
 
-/// Whether something whose key starts with `prefix` is being dragged.
-pub(super) fn is_dragging(prefix: &str, cx: &App) -> bool {
-    current(cx).is_some_and(|source| source.starts_with(prefix))
-}
-
-fn current(cx: &App) -> Option<&str> {
+/// Key of what is being dragged, if anything.
+pub(super) fn current(cx: &App) -> Option<&str> {
     if !cx.has_active_drag() {
         return None;
     }
