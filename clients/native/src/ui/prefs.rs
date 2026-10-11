@@ -84,6 +84,9 @@ fn apply(value: &Preferences, previous: Option<&Preferences>, cx: &mut App) {
             theme.mono_font_size = px(BASE_MONO_FONT * scale);
         });
     }
+    if previous.is_none_or(|previous| previous.shortcuts != value.shortcuts) {
+        super::keys::bind(&value.shortcuts, cx);
+    }
     super::motion::set_level(value.motion);
     cx.set_reduce_motion(value.motion == MotionPreference::Off);
     cx.refresh_windows();

@@ -11,6 +11,7 @@ mod nav;
 mod params;
 mod plugins;
 mod revisions;
+mod shortcuts;
 mod sizes;
 mod slots;
 mod tools;
@@ -75,6 +76,8 @@ pub struct SettingsView {
     tool_query: String,
     sizes: sizes::SizeSliders,
     overview: crate::ui::analytics::Pages,
+    /// Command whose new shortcut is being recorded.
+    recording: Option<(crate::shortcuts::Command, Subscription)>,
     focus_handle: FocusHandle,
     _subscriptions: Vec<Subscription>,
 }
@@ -124,6 +127,7 @@ impl SettingsView {
             tool_query: String::new(),
             sizes,
             overview,
+            recording: None,
             focus_handle,
             _subscriptions: subscriptions,
         };

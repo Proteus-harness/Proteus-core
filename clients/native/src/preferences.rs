@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::recent::RecentWorkspaces;
 use crate::sessions::SessionMarks;
+use crate::shortcuts::Shortcuts;
 use crate::tabs::TabLayout;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -59,6 +60,7 @@ pub struct Preferences {
     pub tabs: TabLayout,
     pub sessions: SessionMarks,
     pub recent: RecentWorkspaces,
+    pub shortcuts: Shortcuts,
 }
 
 /// Interface scale steps in percent, for the menu and Ctrl+=/Ctrl+-.
@@ -255,6 +257,10 @@ pub fn load() -> Result<Preferences> {
                 .view
                 .validate()
                 .with_context(|| format!("invalid view sizes in {}", path.display()))?;
+            preferences
+                .shortcuts
+                .validate()
+                .with_context(|| format!("invalid shortcuts in {}", path.display()))?;
             Ok(preferences)
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Preferences::default()),

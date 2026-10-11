@@ -6,6 +6,7 @@ mod chats;
 mod drag;
 mod extensions;
 mod format;
+mod keys;
 mod launcher;
 mod motion;
 mod notifications;
@@ -51,29 +52,11 @@ gpui_kit::actions!(
 pub(crate) const SETTINGS_CONTEXT: &str = "ProteusSettings";
 
 pub fn init(cx: &mut App) {
+    // Command shortcuts are bound by `prefs::init` from the preferences.
     prefs::init(cx);
     cx.bind_keys([
-        KeyBinding::new("ctrl-,", ToggleSettings, None),
-        KeyBinding::new("ctrl-shift-e", ToggleFiles, None),
-        KeyBinding::new("ctrl-shift-h", ToggleSessions, None),
-        KeyBinding::new("ctrl-n", NewSession, None),
-        KeyBinding::new("ctrl-`", NewTerminal, None),
         KeyBinding::new("alt-down", NextSettingsPage, Some(SETTINGS_CONTEXT)),
         KeyBinding::new("alt-up", PreviousSettingsPage, Some(SETTINGS_CONTEXT)),
-        KeyBinding::new("ctrl-tab", NextTab, None),
-        KeyBinding::new("ctrl-shift-tab", PreviousTab, None),
-        KeyBinding::new("ctrl-\\", SplitRight, None),
-        // Shift+\ arrives as `|`.
-        KeyBinding::new("ctrl-|", SplitDown, None),
-        KeyBinding::new("ctrl-alt-left", FocusPaneLeft, None),
-        KeyBinding::new("ctrl-alt-right", FocusPaneRight, None),
-        KeyBinding::new("ctrl-alt-up", FocusPaneUp, None),
-        KeyBinding::new("ctrl-alt-down", FocusPaneDown, None),
-        KeyBinding::new("ctrl-=", ZoomIn, None),
-        // Shift+= arrives as `+`.
-        KeyBinding::new("ctrl-+", ZoomIn, None),
-        KeyBinding::new("ctrl--", ZoomOut, None),
-        KeyBinding::new("ctrl-0", ZoomReset, None),
     ]);
     extensions::bind_keys(cx);
 }

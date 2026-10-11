@@ -13,6 +13,7 @@ mod preferences;
 mod recent;
 mod sessions;
 mod settings;
+mod shortcuts;
 mod tabs;
 mod terminal;
 mod tool_display;

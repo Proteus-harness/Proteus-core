@@ -129,7 +129,7 @@ impl TerminalView {
             return false;
         };
         let modifiers = &keystroke.modifiers;
-        if modifiers.platform || reserved(keystroke) {
+        if modifiers.platform || crate::ui::keys::reserved_in_terminal(keystroke, cx) {
             return false;
         }
         if modifiers.control && modifiers.shift && keystroke.key == "v" {
@@ -186,15 +186,6 @@ impl TerminalView {
 }
 
 /// App shortcuts that stay global even inside the terminal.
-fn reserved(keystroke: &Keystroke) -> bool {
-    let modifiers = &keystroke.modifiers;
-    let key = keystroke.key.as_str();
-    if modifiers.control && modifiers.alt {
-        return matches!(key, "left" | "right" | "up" | "down");
-    }
-    modifiers.control && matches!(key, "tab" | "," | "\\" | "|" | "=" | "+" | "-" | "0" | "`")
-}
-
 fn rgb_bytes(color: Hsla) -> [u8; 3] {
     let color = color.to_rgb();
     [color.r, color.g, color.b].map(|value| (value * 255.).round() as u8)

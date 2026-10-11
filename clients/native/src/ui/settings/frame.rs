@@ -71,6 +71,7 @@ impl SettingsView {
             PageId::History => self.history_page(cx),
             PageId::Appearance => self.appearance_page(cx),
             PageId::Chat => self.chat_page(cx),
+            PageId::Shortcuts => self.shortcuts_page(cx),
             PageId::Extensions => self.extensions_page(cx),
             PageId::Overview(_) => unreachable!("overview pages render their own frame"),
         };
