@@ -158,5 +158,13 @@ impl Chat {
                 scroller.splice(start..start + removed, inserted, cx);
             }
         });
+        let changed = match change {
+            Change::Pushed => self.session.transcript.entries().len().checked_sub(1),
+            Change::Updated(row) => Some(row),
+            Change::None | Change::Spliced { .. } => None,
+        };
+        if let Some(row) = changed {
+            self.remeasure_chain(row, cx);
+        }
     }
 }

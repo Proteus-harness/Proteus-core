@@ -7,6 +7,7 @@ use gpui_kit::*;
 use proteus_contracts::app_protocol::AppTranscriptSubagent;
 
 use super::Chat;
+use super::tool_chain::render_chain_header;
 use super::tool_row::{render_tool, tool_line};
 use crate::transcript::{Entry, Role};
 use crate::ui::motion::{self, chevron, fade_in_if, reveal};
@@ -43,6 +44,17 @@ impl Chat {
         let Some(entry) = entries.get(ix) else {
             return div().into_any_element();
         };
+        let compact = prefs::current(cx).view.compact_tools;
+        let chain = self.chain_at(ix, compact);
+        let chain_open = chain
+            .as_ref()
+            .is_some_and(|chain| self.chain_open(entries[chain.start].key));
+        if chain
+            .as_ref()
+            .is_some_and(|chain| ix != chain.start && !chain_open)
+        {
+            return div().into_any_element();
+        }
         let expanded = self.expanded.contains(&entry.key);
         let fresh = self.fresh_rows.is_fresh(entry.key);
         let key = entry.key;
@@ -68,7 +80,23 @@ impl Chat {
         let body = match (&entry.role, &entry.tool, &entry.subagent) {
             (Role::User, _, _) => render_user(entry, cx),
             (Role::Assistant, _, _) => render_assistant(entry, cx),
-            (Role::System, Some(tool), _) => render_tool(entry.key, tool, expanded, cx),
+            (Role::System, Some(tool), _) => match &chain {
+                Some(chain) if ix == chain.start => {
+                    let tools: Vec<_> = entries[chain.clone()]
+                        .iter()
+                        .filter_map(|entry| entry.tool.as_ref())
+                        .collect();
+                    let header = render_chain_header(key, &tools, chain_open, cx);
+                    v_flex()
+                        .gap_1()
+                        .child(header)
+                        .when(chain_open, |column| {
+                            column.child(render_tool(entry.key, tool, expanded, cx))
+                        })
+                        .into_any_element()
+                }
+                _ => render_tool(entry.key, tool, expanded, cx),
+            },
             (Role::System, None, Some(agent)) => render_subagent(entry.key, agent, expanded, cx),
             (Role::System, None, None) => render_note(entry, cx),
         };

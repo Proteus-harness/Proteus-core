@@ -428,5 +428,9 @@ fn same_tool(a: &AppTranscriptTool, b: &AppTranscriptTool) -> bool {
         && a.effective_args.is_some() == b.effective_args.is_some()
 }
 
+mod chains;
+
+pub use chains::{affected_rows, tool_chain};
+
 #[cfg(test)]
 mod tests;

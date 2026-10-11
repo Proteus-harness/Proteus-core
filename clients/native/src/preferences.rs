@@ -66,6 +66,8 @@ pub struct ViewPreferences {
     pub scale: u16,
     pub chat_text: u16,
     pub chat_width: u16,
+    /// Fold runs of tool calls into one row.
+    pub compact_tools: bool,
 }
 
 impl Default for ViewPreferences {
@@ -74,6 +76,7 @@ impl Default for ViewPreferences {
             scale: 100,
             chat_text: 16,
             chat_width: 820,
+            compact_tools: true,
         }
     }
 }

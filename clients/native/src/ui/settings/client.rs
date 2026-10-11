@@ -1,5 +1,6 @@
 //! Client pages: preferences of this device, applied immediately.
 
+use gpui_kit::component::switch::Switch;
 use gpui_kit::component::*;
 use gpui_kit::*;
 
@@ -109,6 +110,20 @@ impl SettingsView {
                 "Ширина диалога",
                 Some("Наибольшая ширина ленты и поля ввода.".into()),
                 slider(&self.sizes.chat_width, "px", cx),
+                false,
+                cx,
+            )
+            .into_any_element(),
+            row(
+                "Компактные цепочки инструментов",
+                Some("Три и больше вызова подряд сворачиваются в одну строку.".into()),
+                Switch::new("pref-compact-tools")
+                    .checked(current.view.compact_tools)
+                    .on_click(|checked, _, cx| {
+                        let checked = *checked;
+                        prefs::update(cx, move |prefs| prefs.view.compact_tools = checked)
+                    })
+                    .into_any_element(),
                 false,
                 cx,
             )

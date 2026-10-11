@@ -11,6 +11,7 @@ mod pump;
 mod requests;
 mod session;
 mod thread;
+mod tool_chain;
 pub(super) mod tool_row;
 mod user_input;
 mod view;
@@ -56,6 +57,8 @@ pub(super) struct Chat {
     scroller: Entity<MessageScrollerState>,
     composer: Entity<TextareaState>,
     expanded: HashSet<u64>,
+    /// Folded tool runs the user opened, by the key of their first row.
+    open_chains: HashSet<u64>,
     /// Rows pushed by live events, for enter motion.
     fresh_rows: Recent,
     user_input: UserInputDrafts,
@@ -122,6 +125,7 @@ impl Chat {
             scroller,
             composer,
             expanded: HashSet::new(),
+            open_chains: HashSet::new(),
             fresh_rows: Recent::default(),
             user_input: UserInputDrafts::default(),
             notice: None,
