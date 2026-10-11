@@ -1,5 +1,5 @@
-//! The bar above the tabs: the logo menu, the open folder, extension icons
-//! and the settings button. It also moves the window.
+//! The bar above the tabs: the logo menu, the open folder and extension
+//! icons. It also moves the window.
 
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
@@ -13,6 +13,7 @@ use super::logo::logo;
 use super::projects::{Projects, WorkspaceRequest, folder_name};
 use crate::preferences::BadgePlace;
 use crate::ui::chat::ChatState;
+use crate::ui::prefs;
 use crate::ui::workspace::{Status, Workspace};
 
 /// Logo cell size before zoom.
@@ -46,7 +47,7 @@ impl Workspace {
         let folder = match projects.clone() {
             Some(projects) => Button::new("top-folder")
                 .ghost()
-                .xsmall()
+                .small()
                 .label(folder)
                 .tooltip(place)
                 .dropdown_menu_with_anchor(Anchor::TopLeft, move |menu, _, cx| {
@@ -70,19 +71,7 @@ impl Workspace {
             .gap_1()
             .items_center()
             .when(ready, |right| {
-                right
-                    .child(self.render_badge_strip(BadgePlace::Header, cx))
-                    .child(
-                        Button::new("top-settings")
-                            .ghost()
-                            .xsmall()
-                            .icon(Icon::new(Lucide::Settings))
-                            .tooltip("Настройки")
-                            .selected(self.settings.is_some())
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.toggle_settings(window, cx)
-                            })),
-                    )
+                right.child(self.render_badge_strip(BadgePlace::Header, cx))
             });
         bar(left, right, theme)
     }
@@ -99,6 +88,7 @@ pub(in crate::ui) fn picker_top_bar(projects: Projects, cx: &App) -> impl IntoEl
 
 fn bar(left: impl IntoElement, right: impl IntoElement, theme: &Theme) -> TitleBar {
     TitleBar::new()
+        .h(prefs::scaled(super::BAR_HEIGHT))
         .pl_1()
         .pr_1()
         .bg(theme.title_bar)
@@ -113,7 +103,7 @@ fn logo_button(
 ) -> impl IntoElement {
     Button::new("top-logo")
         .ghost()
-        .xsmall()
+        .small()
         .tooltip(if busy { "Proteus · агент работает" } else { "Proteus" })
         .child(logo(LOGO_CELL, busy))
         .dropdown_menu_with_anchor(Anchor::TopLeft, menu)

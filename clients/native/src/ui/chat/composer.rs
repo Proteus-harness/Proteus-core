@@ -59,8 +59,9 @@ impl Chat {
                     .p_2()
                     .rounded(theme.radius * 3.)
                     .border_1()
-                    .border_color(theme.border)
-                    .bg(theme.background)
+                    .border_color(theme.input)
+                    // Raised off the conversation in either light or dark themes.
+                    .bg(theme.background.blend(theme.foreground.opacity(0.04)))
                     .children(queued.iter().map(|message| render_queued(message, cx)))
                     .child(
                         Textarea::new(&self.composer)

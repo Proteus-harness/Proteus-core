@@ -11,7 +11,7 @@ use gpui_kit::*;
 use crate::preferences::BadgePlace;
 use crate::ui::chat::ChatState;
 use crate::ui::workspace::Workspace;
-use crate::ui::panels;
+use crate::ui::{panels, prefs};
 
 impl Workspace {
     pub(in crate::ui) fn render_status_bar(&self, cx: &Context<Self>) -> impl IntoElement + use<> {
@@ -27,7 +27,7 @@ impl Workspace {
                 let id = panel.id.clone();
                 Button::new(("status-panel", index))
                     .ghost()
-                    .xsmall()
+                    .with_size(super::icon_button_size(cx))
                     .icon(panel.icon)
                     .tooltip(panel.title)
                     .selected(shown)
@@ -42,19 +42,20 @@ impl Workspace {
         // Same height as the top bar.
         h_flex()
             .flex_none()
-            .h(TITLE_BAR_HEIGHT)
+            .h(prefs::scaled(super::BAR_HEIGHT))
             .px_1()
             .gap_1()
             .items_center()
             .bg(theme.status_bar)
             .border_t_1()
             .border_color(theme.status_bar_border)
-            .text_xs()
+            .text_sm()
             .text_color(theme.muted_foreground)
             .child(h_flex().gap_0p5().children(toggles))
             .child(self.render_agent_state(cx))
             .child(div().flex_1())
             .child(self.render_badge_strip(BadgePlace::Status, cx))
+            .child(super::zoom::zoom_button(cx))
     }
 
     /// State of the active chat, and how many others are working.
@@ -72,14 +73,14 @@ impl Workspace {
             Some(ChatState::Busy(label)) => Some(
                 h_flex()
                     .gap_1p5()
-                    .child(Spinner::new().xsmall())
+                    .child(Spinner::new().small())
                     .child(label),
             ),
             Some(ChatState::Trouble(label)) => Some(
                 h_flex()
                     .gap_1p5()
                     .text_color(theme.warning)
-                    .child(Icon::new(Lucide::TriangleAlert).xsmall())
+                    .child(Icon::new(Lucide::TriangleAlert).small())
                     .child(label),
             ),
             Some(ChatState::Idle) | None => None,
