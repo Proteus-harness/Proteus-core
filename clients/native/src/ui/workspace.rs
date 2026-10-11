@@ -10,6 +10,7 @@ use proteus_app_common::session_selection::select_startup_session;
 use proteus_contracts::app_protocol::AppSessionSummary;
 
 use super::chats::OpenChat;
+use super::chrome::WorkspaceRequest;
 use super::extensions::{OpenDocument, SurfaceView};
 use super::panels::Renaming;
 use super::settings::SettingsView;
@@ -17,7 +18,7 @@ use super::tabs::{SplitResize, TabDrop, TabMotion};
 use crate::api::Api;
 use crate::attention::Tracker;
 use crate::connection::{self, BackendGuard};
-use crate::launch::LaunchOptions;
+use crate::launch::{LaunchOptions, Target};
 use crate::tabs::{self, PaneId};
 
 pub(super) enum Status {
@@ -25,6 +26,8 @@ pub(super) enum Status {
     Ready,
     Failed(SharedString),
 }
+
+impl EventEmitter<WorkspaceRequest> for Workspace {}
 
 struct Boot {
     api: Api,
@@ -72,6 +75,8 @@ fn boot(options: &LaunchOptions, saved: Vec<PathBuf>) -> Result<Boot> {
 
 pub struct Workspace {
     pub(super) workspace_path: PathBuf,
+    /// The server was started here, so another folder can replace it.
+    pub(super) switchable: bool,
     pub(super) status: Status,
     api: Option<Api>,
     backend: Option<BackendGuard>,
@@ -131,6 +136,7 @@ impl Workspace {
         })];
 
         let workspace_path = options.workspace.clone();
+        let switchable = matches!(options.target, Target::Spawn { .. });
         let saved: Vec<PathBuf> = super::prefs::current(cx)
             .tabs
             .chats()
@@ -150,6 +156,7 @@ impl Workspace {
 
         Self {
             workspace_path,
+            switchable,
             status: Status::Starting,
             api: None,
             backend: None,

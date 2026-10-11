@@ -148,7 +148,8 @@ fn badge_menu(menu: PopupMenu, id: &'static str, host: &Host, cx: &App) -> Popup
     let current = extensions.badge_place(id, default);
     for (place, label) in [
         (BadgePlace::Composer, "Под полем ввода"),
-        (BadgePlace::Header, "В панели вкладок"),
+        (BadgePlace::Header, "В верхней полосе"),
+        (BadgePlace::Status, "В строке состояния"),
         (BadgePlace::Hidden, "Скрыть значок"),
     ] {
         menu = menu.item(

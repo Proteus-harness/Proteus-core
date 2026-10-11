@@ -10,9 +10,10 @@ use crate::preferences::BadgePlace;
 use crate::ui::extensions::{self, Manifest};
 use crate::ui::prefs;
 
-const BADGE_PLACES: [(BadgePlace, &str); 3] = [
+const BADGE_PLACES: [(BadgePlace, &str); 4] = [
     (BadgePlace::Composer, "Под полем ввода"),
-    (BadgePlace::Header, "В панели вкладок"),
+    (BadgePlace::Header, "В верхней полосе"),
+    (BadgePlace::Status, "В строке состояния"),
     (BadgePlace::Hidden, "Скрыт"),
 ];
 

@@ -162,6 +162,7 @@ impl ViewPreferences {
 pub enum BadgePlace {
     Composer,
     Header,
+    Status,
     Hidden,
 }
 

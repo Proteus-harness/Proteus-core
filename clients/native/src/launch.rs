@@ -5,6 +5,7 @@ use serde::Deserialize;
 
 const DEFAULT_PROFILE: &str = "config";
 
+#[derive(Clone)]
 pub enum Target {
     Spawn { profile: String },
     Attach { origin: String, token: String },
@@ -71,6 +72,7 @@ impl Launch {
             }
             (None, None) => Target::Spawn {
                 profile: profile
+                    .map(anchor_profile)
                     .or_else(saved_profile)
                     .unwrap_or_else(|| DEFAULT_PROFILE.to_owned()),
             },
@@ -79,6 +81,19 @@ impl Launch {
 
         Ok(Self { workspace, target })
     }
+}
+
+/// A relative config file path keeps naming the same file when the server
+/// is started in another folder; bare profile names stay as given.
+fn anchor_profile(profile: String) -> String {
+    let path = Path::new(&profile);
+    if path.is_relative()
+        && path.components().count() > 1
+        && let Ok(path) = path.canonicalize()
+    {
+        return path.display().to_string();
+    }
+    profile
 }
 
 #[derive(Deserialize)]

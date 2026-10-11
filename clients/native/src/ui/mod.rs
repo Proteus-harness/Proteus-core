@@ -3,6 +3,7 @@ mod analytics;
 mod badges;
 mod chat;
 mod chats;
+mod chrome;
 mod drag;
 mod extensions;
 mod format;
@@ -68,18 +69,13 @@ impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         motion::drive(window, cx);
         let theme = cx.theme();
-        let root = h_flex()
+        let root = v_flex()
             .size_full()
             .track_focus(&self.focus_handle)
             .bg(theme.background)
             .text_color(theme.foreground)
             .on_action(cx.listener(|this, _: &ToggleSettings, window, cx| {
-                if this.settings.is_some() {
-                    this.close_settings(cx);
-                    this.focus_active_chat(window, cx);
-                } else {
-                    this.open_settings(window, cx);
-                }
+                this.toggle_settings(window, cx)
             }))
             .on_action(cx.listener(|this, _: &ToggleFiles, window, cx| {
                 if this.settings.is_none()
@@ -124,6 +120,7 @@ impl Render for Workspace {
             .on_action(|_: &ZoomOut, _, cx| prefs::update(cx, |prefs| prefs.view.zoom(-1)))
             .on_action(|_: &ZoomReset, _, cx| prefs::update(cx, |prefs| prefs.view.zoom(0)))
             .on_drop(cx.listener(|this, _: &tabs::SplitDrag, _, cx| this.finish_resize(cx)));
+        let root = root.child(self.render_top_bar(cx));
         match &self.status {
             Status::Starting => root.child(centered(
                 h_flex()
@@ -146,18 +143,20 @@ impl Render for Workspace {
             Status::Ready if self.settings.is_some() => {
                 let settings = self.settings.clone().expect("settings are open");
                 root.child(motion::rise_in(
-                    div().size_full().child(settings),
+                    div().flex_1().min_h_0().w_full().child(settings),
                     "settings-screen",
                 ))
             }
             Status::Ready => {
                 self.sync_window_title(window, cx);
                 self.sync_badges(window, cx);
+                let status = self.render_status_bar(cx);
                 let tabs = self.render_tabs(window, cx);
                 root.child(motion::rise_in(
-                    h_flex().size_full().child(tabs),
+                    h_flex().flex_1().min_h_0().w_full().child(tabs),
                     "chat-screen",
                 ))
+                .child(status)
             }
         }
     }
@@ -165,7 +164,9 @@ impl Render for Workspace {
 
 fn centered(content: impl IntoElement) -> Div {
     h_flex()
-        .size_full()
+        .flex_1()
+        .min_h_0()
+        .w_full()
         .p_8()
         .items_center()
         .justify_center()
@@ -173,6 +174,15 @@ fn centered(content: impl IntoElement) -> Div {
 }
 
 impl Workspace {
+    fn toggle_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.settings.is_some() {
+            self.close_settings(cx);
+            self.focus_active_chat(window, cx);
+        } else {
+            self.open_settings(window, cx);
+        }
+    }
+
     fn sync_window_title(&mut self, window: &mut Window, cx: &App) {
         let title = match self.active_chat_dir() {
             Some(dir) => format!("{} — Proteus", self.session_title(dir, cx)),

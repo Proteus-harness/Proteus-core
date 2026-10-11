@@ -1,5 +1,5 @@
-//! Buttons at the end of a pane's tab bar: the «+» menu, closing the
-//! pane, and extension icons in the top-right pane.
+//! Buttons at the end of a pane's tab bar: the «+» menu and closing the
+//! pane.
 
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
@@ -9,7 +9,6 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use super::menu;
-use crate::preferences::BadgePlace;
 use crate::tabs::{Pane, TabLayout};
 use crate::ui::workspace::Workspace;
 
@@ -20,14 +19,10 @@ impl Workspace {
         layout: &TabLayout,
         cx: &Context<Self>,
     ) -> impl IntoElement + use<> {
-        let theme = cx.theme();
         let id = pane.id;
         let key = id.0 as usize;
         // The only pane for chats stays while empty, so closing it does nothing.
         let closable = layout.pane_count() > 1 && !pane.tabs.is_empty();
-        let corner = layout
-            .rect(id)
-            .is_some_and(|rect| rect.y <= 1e-4 && rect.x + rect.w >= 1. - 1e-4);
         let workspace = cx.weak_entity();
         let add = Button::new(("pane-add", key))
             .ghost()
@@ -53,17 +48,6 @@ impl Workspace {
                         .on_click(
                             cx.listener(move |this, _, window, cx| this.close_pane(id, window, cx)),
                         ),
-                )
-            })
-            .when(corner, |controls| {
-                controls.child(
-                    h_flex()
-                        .h_full()
-                        .pl_2()
-                        .gap_1()
-                        .border_l_1()
-                        .border_color(theme.border)
-                        .child(self.render_badge_strip(BadgePlace::Header, cx)),
                 )
             })
     }

@@ -1,6 +1,6 @@
-//! First screen when the client starts without a workspace: recent folders
-//! and a folder dialog. Once a folder is chosen the window shows the
-//! workspace in its place.
+//! What the window shows: the folder picker until a folder is chosen, then
+//! the workspace of that folder. Opening another folder from the top bar
+//! replaces the workspace and its server.
 
 use std::path::{Path, PathBuf};
 
@@ -10,20 +10,20 @@ use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
+use super::chrome::{self, Projects, WorkspaceRequest};
 use super::prefs;
 use super::workspace::Workspace;
 use crate::launch::{LaunchOptions, Target};
 
 pub struct Launcher {
     stage: Stage,
+    target: Target,
     focus: FocusHandle,
+    _workspace_requests: Option<Subscription>,
 }
 
 enum Stage {
-    Picking {
-        target: Option<Target>,
-        error: Option<SharedString>,
-    },
+    Picking { error: Option<SharedString> },
     Ready(Entity<Workspace>),
 }
 
@@ -38,11 +38,10 @@ impl Launcher {
         let focus = cx.focus_handle();
         focus.focus(window, cx);
         let mut launcher = Self {
-            stage: Stage::Picking {
-                target: Some(target),
-                error: None,
-            },
+            stage: Stage::Picking { error: None },
+            target,
             focus,
+            _workspace_requests: None,
         };
         if let Some(workspace) = workspace {
             launcher.open(workspace, window, cx);
@@ -50,25 +49,40 @@ impl Launcher {
         launcher
     }
 
+    /// Shows `path` in the window; an open workspace and its server close.
     fn open(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
-        let Stage::Picking { target, error } = &mut self.stage else {
-            return;
-        };
         let workspace = match path.canonicalize() {
             Ok(path) if path.is_dir() => path,
             _ => {
-                *error = Some(format!("Папка недоступна: {}", path.display()).into());
+                let message = format!("Папка недоступна: {}", path.display());
                 prefs::update(cx, |prefs| prefs.recent.forget(&path));
+                match &mut self.stage {
+                    Stage::Picking { error } => *error = Some(message.into()),
+                    Stage::Ready(view) => view.update(cx, |this, cx| this.report(message, cx)),
+                }
                 cx.notify();
                 return;
             }
         };
-        let Some(target) = target.take() else {
+        if let Stage::Ready(view) = &self.stage
+            && view.read(cx).workspace_path == workspace
+        {
             return;
-        };
+        }
         prefs::update(cx, |prefs| prefs.recent.touch(&workspace));
-        let options = LaunchOptions { workspace, target };
+        let options = LaunchOptions {
+            workspace,
+            target: self.target.clone(),
+        };
         let view = cx.new(|cx| Workspace::new(options, window, cx));
+        self._workspace_requests = Some(cx.subscribe_in(
+            &view,
+            window,
+            |this, _, request: &WorkspaceRequest, window, cx| match request {
+                WorkspaceRequest::Open(path) => this.open(path.clone(), window, cx),
+                WorkspaceRequest::Choose => this.choose_folder(window, cx),
+            },
+        ));
         self.stage = Stage::Ready(view);
         cx.notify();
     }
@@ -214,13 +228,36 @@ impl Render for Launcher {
                 .child(workspace.clone())
                 .child(super::wheel::layer())
                 .into_any_element(),
-            Stage::Picking { error, .. } => div()
-                .relative()
-                .size_full()
-                .track_focus(&self.focus)
-                .child(self.render_picker(error.clone(), cx))
-                .child(super::wheel::layer())
-                .into_any_element(),
+            Stage::Picking { error } => {
+                let launcher = cx.weak_entity();
+                let chooser = launcher.clone();
+                let projects = Projects::new(
+                    None,
+                    move |path, window, cx| {
+                        launcher
+                            .update(cx, |this, cx| this.open(path, window, cx))
+                            .ok();
+                    },
+                    move |window, cx| {
+                        chooser
+                            .update(cx, |this, cx| this.choose_folder(window, cx))
+                            .ok();
+                    },
+                );
+                v_flex()
+                    .relative()
+                    .size_full()
+                    .track_focus(&self.focus)
+                    .child(chrome::picker_top_bar(projects, cx))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_h_0()
+                            .child(self.render_picker(error.clone(), cx)),
+                    )
+                    .child(super::wheel::layer())
+                    .into_any_element()
+            }
         }
     }
 }

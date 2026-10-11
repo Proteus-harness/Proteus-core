@@ -90,7 +90,7 @@ fn builtin() -> [Manifest; 7] {
             document: None,
             badge: Some(BadgeSurface {
                 build: session_badges::build_context,
-                place: BadgePlace::Composer,
+                place: BadgePlace::Status,
             }),
         },
         Manifest {
@@ -144,7 +144,7 @@ fn builtin() -> [Manifest; 7] {
             document: None,
             badge: Some(BadgeSurface {
                 build: session_badges::build_session,
-                place: BadgePlace::Hidden,
+                place: BadgePlace::Status,
             }),
         },
         Manifest {
@@ -156,7 +156,7 @@ fn builtin() -> [Manifest; 7] {
             document: None,
             badge: Some(BadgeSurface {
                 build: session_badges::build_agent,
-                place: BadgePlace::Header,
+                place: BadgePlace::Status,
             }),
         },
         Manifest {

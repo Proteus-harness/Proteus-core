@@ -9,9 +9,9 @@ use crate::preferences::BadgePlace;
 
 impl Workspace {
     /// Builds icons that became visible and drops the hidden ones, so an
-    /// icon keeps its state while it moves between the two strips.
+    /// icon keeps its state while it moves between the strips.
     pub(super) fn sync_badges(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let visible: Vec<_> = [BadgePlace::Composer, BadgePlace::Header]
+        let visible: Vec<_> = [BadgePlace::Composer, BadgePlace::Header, BadgePlace::Status]
             .into_iter()
             .flat_map(|place| extensions::visible_badges(place, cx))
             .collect();
@@ -66,6 +66,7 @@ fn slot_name(place: BadgePlace, key: &str) -> SharedString {
     let place = match place {
         BadgePlace::Composer => "composer",
         BadgePlace::Header => "header",
+        BadgePlace::Status => "status",
         BadgePlace::Hidden => "hidden",
     };
     SharedString::from(format!("badge-slot-{place}-{key}"))
