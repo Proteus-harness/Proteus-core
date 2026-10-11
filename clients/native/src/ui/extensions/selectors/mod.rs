@@ -4,13 +4,13 @@
 //! chooser next to the icon.
 
 mod popup;
+mod steps;
 
 use std::cell::Cell;
 use std::rc::Rc;
 
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::base::ElementExt as _;
-use gpui_kit::component::slider::{SliderEvent, SliderState};
 use gpui_kit::component::*;
 use gpui_kit::*;
 use proteus_contracts::app_protocol::config::ConfigSummary;
@@ -31,30 +31,24 @@ enum Control {
     Model,
 }
 
-/// Slider over the efforts of the current model; rebuilt when their number
-/// changes.
-struct EffortSlider {
-    state: Entity<SliderState>,
-    count: usize,
-    /// Position last taken from the session, so a drag isn't undone before
-    /// the server confirms it.
-    synced: Option<usize>,
-    _changes: Subscription,
-}
-
 struct SelectorBadge {
     host: Host,
     id: &'static str,
     control: Control,
     open: bool,
     bounds: Rc<Cell<Bounds<Pixels>>>,
-    effort: Option<EffortSlider>,
+    /// Effort step under the pointer while it is dragged along the steps.
+    scrub: Option<usize>,
+    /// Step already sent to the server, shown until the session reports it.
+    pending: Option<usize>,
 }
 
 impl SelectorBadge {
     fn set_open(&mut self, open: bool, cx: &mut Context<Self>) {
         if self.open != open {
             self.open = open;
+            self.scrub = None;
+            self.pending = None;
             cx.notify();
         }
     }
@@ -65,43 +59,19 @@ impl SelectorBadge {
         Some((chat, config))
     }
 
-    /// Keeps the effort slider in step with the session's efforts.
-    fn sync_effort(&mut self, config: &ConfigSummary, window: &mut Window, cx: &mut Context<Self>) {
-        let count = efforts(config).len();
-        if count < 2 {
-            self.effort = None;
-            return;
-        }
-        if self
-            .effort
-            .as_ref()
-            .is_none_or(|slider| slider.count != count)
-        {
-            let state = cx.new(|_| SliderState::new().min(0.).max((count - 1) as f32).step(1.));
-            let changes = cx.subscribe(&state, |this, _, event: &SliderEvent, cx| {
-                if let SliderEvent::Release(value) = event {
-                    this.choose_effort(value.start().round() as usize, cx);
-                }
-            });
-            self.effort = Some(EffortSlider {
-                state,
-                count,
-                synced: None,
-                _changes: changes,
-            });
-        }
-        let position = effort_position(config);
-        if let Some(slider) = &mut self.effort
-            && slider.synced != Some(position)
-        {
-            slider.synced = Some(position);
-            slider
-                .state
-                .update(cx, |state, cx| state.set_value(position as f32, window, cx));
+    fn scrub_to(&mut self, position: usize, cx: &mut Context<Self>) {
+        if self.scrub != Some(position) {
+            self.scrub = Some(position);
+            cx.notify();
         }
     }
 
-    fn choose_effort(&mut self, position: usize, cx: &mut Context<Self>) {
+    /// Sends the step the drag ended on.
+    fn finish_scrub(&mut self, cx: &mut Context<Self>) {
+        let Some(position) = self.scrub.take() else {
+            return;
+        };
+        cx.notify();
         let Some((chat, config)) = self.session(cx) else {
             return;
         };
@@ -109,13 +79,14 @@ impl SelectorBadge {
             return;
         };
         if current_effort(&config).as_ref() != Some(&effort) {
+            self.pending = Some(position);
             chat.update(cx, |chat, cx| chat.set_effort(Some(effort), cx));
         }
     }
 }
 
-/// Slider position of the session's effort; the profile default when there
-/// is no override.
+/// Step of the session's effort; the profile default when there is no
+/// override.
 fn effort_position(config: &ConfigSummary) -> usize {
     let current = current_effort(config);
     let wanted = current.as_deref().or_else(|| default_effort(config));
@@ -136,7 +107,9 @@ impl Render for SelectorBadge {
                 self.open = false;
                 return div().into_any_element();
             }
-            self.sync_effort(&config, window, cx);
+            if self.pending == Some(effort_position(&config)) {
+                self.pending = None;
+            }
         }
         let (label, details) = match self.control {
             Control::Mode => (
@@ -212,7 +185,8 @@ fn build(host: Host, id: &'static str, control: Control, cx: &mut App) -> AnyVie
         control,
         open: false,
         bounds: Rc::default(),
-        effort: None,
+        scrub: None,
+        pending: None,
     })
     .into()
 }

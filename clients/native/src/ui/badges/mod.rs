@@ -125,7 +125,10 @@ fn drop_zone(hovered: bool, cx: &App) -> impl IntoElement {
     let (fill, border) = if hovered {
         (theme.drop_target.opacity(0.35), theme.drag_border)
     } else {
-        (theme.drop_target.opacity(0.12), theme.drag_border.opacity(0.45))
+        (
+            theme.drop_target.opacity(0.12),
+            theme.drag_border.opacity(0.45),
+        )
     };
     div()
         .absolute()

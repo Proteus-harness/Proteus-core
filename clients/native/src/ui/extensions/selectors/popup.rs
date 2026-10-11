@@ -1,8 +1,7 @@
 //! The chooser a selector icon opens next to itself: permission modes, or
-//! models with the reasoning effort slider under them. The chosen option is
+//! models with the reasoning effort steps under them. The chosen option is
 //! marked by colour rather than a check.
 
-use gpui_kit::component::slider::{Slider, SliderState};
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -10,7 +9,7 @@ use proteus_contracts::app_protocol::config::ConfigSummary;
 
 use super::{Control, SelectorBadge};
 use crate::ui::chat::Chat;
-use crate::ui::chat::controls::{MODES, current_effort, efforts, mode_from_value, models};
+use crate::ui::chat::controls::{MODES, efforts, mode_from_value, models};
 use crate::ui::prefs;
 
 /// Room between the icon and its chooser.
@@ -98,11 +97,11 @@ impl SelectorBadge {
                     .into_any_element(),
             );
         }
-        if let Some(slider) = &self.effort {
+        if efforts(config).len() > 1 {
             if !content.is_empty() {
                 content.push(divider(cx).into_any_element());
             }
-            content.push(effort_section(config, &slider.state, chat, cx).into_any_element());
+            content.push(self.effort_section(config, chat, cx).into_any_element());
         }
         content
     }
@@ -127,62 +126,6 @@ fn mode_choices(
             .into_any_element()
         })
         .collect()
-}
-
-/// Effort slider with the effort names under its notches; a name can be
-/// clicked too, and «по профилю» drops the session's override.
-fn effort_section(
-    config: &ConfigSummary,
-    state: &Entity<SliderState>,
-    chat: WeakEntity<Chat>,
-    cx: &App,
-) -> Div {
-    let theme = cx.theme();
-    let (muted, primary) = (theme.muted_foreground, theme.primary);
-    let current = current_effort(config);
-    let reset = {
-        let chat = chat.clone();
-        let inherited = current.is_none();
-        div()
-            .id("effort-profile")
-            .text_xs()
-            .cursor_pointer()
-            .text_color(if inherited { primary } else { muted })
-            .hover(move |style| style.text_color(primary))
-            .child("по профилю")
-            .on_click(move |_, _, cx| {
-                let _ = chat.update(cx, |chat, cx| chat.set_effort(None, cx));
-            })
-    };
-    let names = efforts(config).iter().map(|effort| {
-        let selected = current.as_ref() == Some(effort);
-        let chat = chat.clone();
-        let value = effort.clone();
-        div()
-            .id(SharedString::from(format!("effort-{effort}")))
-            .text_xs()
-            .cursor_pointer()
-            .text_color(if selected { primary } else { muted })
-            .hover(move |style| style.text_color(primary))
-            .child(effort.clone())
-            .on_click(move |_, _, cx| {
-                let value = value.clone();
-                let _ = chat.update(cx, |chat, cx| chat.set_effort(Some(value), cx));
-            })
-    });
-    v_flex()
-        .px_2()
-        .pt_1()
-        .pb_1p5()
-        .gap_1()
-        .child(
-            h_flex()
-                .justify_between()
-                .child(div().text_xs().text_color(muted).child("Рассуждения"))
-                .child(reset),
-        )
-        .child(Slider::new(state).horizontal().py_1())
-        .child(h_flex().justify_between().gap_2().children(names))
 }
 
 fn heading(text: &'static str, cx: &App) -> Div {
