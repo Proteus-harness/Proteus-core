@@ -12,6 +12,7 @@ use super::SettingsView;
 use super::widgets::{Tone, card, changed_dot, chip, hashed_id, mono, note, section};
 use crate::settings::catalog::{PageId, missing_tools, safety_label, tool_matches};
 use crate::ui::prefs;
+use crate::ui::tip::Tip as _;
 
 const DESCRIPTION_FOLD: usize = 160;
 
@@ -150,10 +151,7 @@ impl SettingsView {
                             .items_center()
                             .child(mono(tool.name.clone(), cx).text_sm())
                             .when(changed, |line| line.child(changed_dot(cx)))
-                            .tooltip(move |window, cx| {
-                                gpui_kit::component::tooltip::Tooltip::new(source.clone())
-                                    .build(window, cx)
-                            }),
+                            .tip_text(source),
                     )
                     .when(!shown.is_empty(), |text| {
                         text.child(

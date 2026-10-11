@@ -14,6 +14,7 @@ use crate::settings::catalog::{
     CLIENT_PAGES, OVERVIEW_PAGES, Overview, PageId, agent_pages, area_page, page_title,
 };
 use crate::ui::prefs;
+use crate::ui::tip::Tip as _;
 
 const NAV_WIDTH: f32 = 232.;
 
@@ -187,9 +188,7 @@ impl SettingsView {
                     .when(!writable, |footer| {
                         footer.child(div().text_color(theme.warning).child("Только чтение"))
                     })
-                    .tooltip(move |window, cx| {
-                        gpui_kit::component::tooltip::Tooltip::new(path.clone()).build(window, cx)
-                    })
+                    .tip_text(path)
             }))
     }
 }

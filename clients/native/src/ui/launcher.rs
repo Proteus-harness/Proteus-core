@@ -227,6 +227,7 @@ impl Render for Launcher {
                 .size_full()
                 .child(workspace.clone())
                 .child(super::wheel::layer())
+                .child(super::tip::layer(cx))
                 .into_any_element(),
             Stage::Picking { error } => {
                 let launcher = cx.weak_entity();
@@ -256,6 +257,7 @@ impl Render for Launcher {
                             .child(self.render_picker(error.clone(), cx)),
                     )
                     .child(super::wheel::layer())
+                    .child(super::tip::layer(cx))
                     .into_any_element()
             }
         }

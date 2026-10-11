@@ -74,15 +74,8 @@ impl Chat {
                             .flex_wrap()
                             .gap_x_2()
                             .gap_y_1()
-                            .child(div().flex_1().children(self.render_controls(cx)))
-                            .child(
-                                h_flex()
-                                    .ml_auto()
-                                    .gap_2()
-                                    .children(extras)
-                                    .children(stop)
-                                    .child(send),
-                            ),
+                            .child(div().flex_1().min_w_0().children(extras))
+                            .child(h_flex().ml_auto().gap_2().children(stop).child(send)),
                     ),
             )
     }

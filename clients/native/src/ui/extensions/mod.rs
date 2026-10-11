@@ -10,6 +10,7 @@ mod declarative;
 mod files;
 mod host;
 mod quota;
+mod selectors;
 mod session_badges;
 mod session_info;
 mod shared;
@@ -75,12 +76,33 @@ pub(super) struct Manifest {
     pub icon: Lucide,
     pub panel: Option<PanelSurface>,
     pub document: Option<DocumentSurface>,
-    /// Icon under the composer or in the tab bar.
+    /// Icon under the composer or in a window bar.
     pub badge: Option<BadgeSurface>,
 }
 
-fn builtin() -> [Manifest; 7] {
+fn builtin() -> [Manifest; 10] {
     [
+        selector(
+            selectors::MODE,
+            "Режим",
+            "Выбор режима разрешений сессии.",
+            Lucide::ShieldCheck,
+            selectors::build_mode,
+        ),
+        selector(
+            selectors::MODEL,
+            "Модель",
+            "Выбор модели сессии.",
+            Lucide::Cpu,
+            selectors::build_model,
+        ),
+        selector(
+            selectors::EFFORT,
+            "Рассуждения",
+            "Выбор глубины рассуждений модели.",
+            Lucide::Brain,
+            selectors::build_effort,
+        ),
         Manifest {
             id: session_info::CONTEXT,
             title: "Контекст",
@@ -172,6 +194,28 @@ fn builtin() -> [Manifest; 7] {
             badge: None,
         },
     ]
+}
+
+/// A session setting selector, kept under the composer until moved.
+fn selector(
+    id: &'static str,
+    title: &'static str,
+    description: &'static str,
+    icon: Lucide,
+    build: BuildView,
+) -> Manifest {
+    Manifest {
+        id,
+        title,
+        description,
+        icon,
+        panel: None,
+        document: None,
+        badge: Some(BadgeSurface {
+            build,
+            place: BadgePlace::Composer,
+        }),
+    }
 }
 
 static CATALOG: OnceLock<Vec<Manifest>> = OnceLock::new();

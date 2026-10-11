@@ -1,12 +1,11 @@
-//! Compact extension icons, shown under the composer or in the tab bar.
+//! Compact extension icons, shown under the composer or in the window bars.
 //! Details live in the hover tooltip; a click brings the extension forward
-//! when it has a panel; the context menu moves, hides or pins the icon, and
-//! unpinned icons can be dragged between both places.
+//! when it has a panel; unpinned icons are dragged between places, and the
+//! context menu only hides or pins an icon.
 
 use std::rc::Rc;
 
 use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenu, PopupMenuItem};
-use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -14,6 +13,7 @@ use gpui_kit::*;
 use super::host::Host;
 use crate::preferences::BadgePlace;
 use crate::ui::{drag, prefs};
+use crate::ui::tip::Tip as _;
 
 /// What an icon shows; drawn again for its drag preview.
 pub(super) type Face = Rc<dyn Fn() -> AnyElement>;
@@ -95,10 +95,7 @@ pub(super) fn badge_frame(
         .hover(move |style| style.bg(hover).text_color(foreground))
         .when(lifted, |badge| badge.opacity(drag::SOURCE_OPACITY))
         .child(face())
-        .tooltip(move |window, cx| {
-            let details = details.clone();
-            Tooltip::element(move |_, cx| tooltip_body(&details, cx)).build(window, cx)
-        })
+        .tip_element(move |_, cx| tooltip_body(&details, cx))
         .when(!pinned, |badge| {
             badge.on_drag(dragged, |dragged, _, _, cx| {
                 drag::start(drag_key(dragged.id), cx);
@@ -140,28 +137,15 @@ fn badge_menu(menu: PopupMenu, id: &'static str, host: &Host, cx: &App) -> Popup
             )
             .separator();
     }
-    let default = manifest
-        .badge
-        .as_ref()
-        .map_or(BadgePlace::Hidden, |badge| badge.place);
     let extensions = &prefs::current(cx).extensions;
-    let current = extensions.badge_place(id, default);
-    for (place, label) in [
-        (BadgePlace::Composer, "Под полем ввода"),
-        (BadgePlace::Header, "В верхней полосе"),
-        (BadgePlace::Status, "В строке состояния"),
-        (BadgePlace::Hidden, "Скрыть значок"),
-    ] {
-        menu = menu.item(
-            PopupMenuItem::new(label)
-                .checked(current == place)
-                .on_click(move |_, _, cx| {
-                    prefs::update(cx, |prefs| prefs.extensions.set_badge_place(id, place))
-                }),
-        );
-    }
     let pinned = extensions.is_pinned(id);
-    menu.separator().item(
+    // Places change by dragging; the menu only hides the icon or pins it.
+    menu.item(
+        PopupMenuItem::new("Скрыть значок").on_click(move |_, _, cx| {
+            prefs::update(cx, |prefs| prefs.extensions.set_badge_place(id, BadgePlace::Hidden))
+        }),
+    )
+    .item(
         PopupMenuItem::new("Закрепить на месте")
             .checked(pinned)
             .on_click(move |_, _, cx| {

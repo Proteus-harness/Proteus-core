@@ -16,6 +16,7 @@ mod prefs;
 mod settings;
 mod tabs;
 mod theme;
+mod tip;
 mod wheel;
 mod workspace;
 

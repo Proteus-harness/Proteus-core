@@ -4,7 +4,6 @@
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenu, PopupMenuItem};
-use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -14,6 +13,7 @@ use super::projects::{Projects, WorkspaceRequest, folder_name};
 use crate::preferences::BadgePlace;
 use crate::ui::chat::ChatState;
 use crate::ui::prefs;
+use crate::ui::tip::Tip as _;
 use crate::ui::workspace::{Status, Workspace};
 
 /// Logo cell size before zoom.
@@ -59,7 +59,7 @@ impl Workspace {
                 .px_2()
                 .text_sm()
                 .child(folder)
-                .tooltip(move |window, cx| Tooltip::new(place.clone()).build(window, cx))
+                .tip_text(place)
                 .into_any_element(),
         };
         let left = h_flex()

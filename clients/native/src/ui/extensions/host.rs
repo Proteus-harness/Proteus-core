@@ -55,6 +55,12 @@ impl Host {
         Some(read(&HostView { workspace, chat }))
     }
 
+    /// The active chat, for extensions that change its session settings.
+    pub(in crate::ui) fn chat(&self, cx: &App) -> Option<Entity<Chat>> {
+        let workspace = self.workspace.upgrade()?;
+        workspace.read(cx).active_chat_view().cloned()
+    }
+
     pub(in crate::ui) fn api(&self, cx: &App) -> Option<Api> {
         self.read(cx, |host| host.workspace.api()).flatten()
     }

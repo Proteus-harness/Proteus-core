@@ -13,6 +13,7 @@ use crate::files::{ChangeStatus, EntryKind};
 use crate::ui::extensions::files::{path_label, status_color};
 use crate::ui::motion;
 use crate::ui::prefs;
+use crate::ui::tip::Tip as _;
 
 /// How long after a directory opens its rows still enter one by one.
 const ENTRANCE: Duration = Duration::from_millis(600);
@@ -191,12 +192,7 @@ impl FilesPanel {
                         .child(change.status.mark()),
                 )
                 .child(path_label(&change.path, cx).flex_1())
-                .tooltip({
-                    let label = change.status.label();
-                    move |window, cx| {
-                        gpui_kit::component::tooltip::Tooltip::new(label).build(window, cx)
-                    }
-                })
+                .tip_text(change.status.label())
                 .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
                     this.click_change(path.clone(), event.click_count() > 1, window, cx)
                 }))

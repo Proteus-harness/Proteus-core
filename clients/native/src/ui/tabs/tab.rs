@@ -5,7 +5,6 @@ use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::menu::ContextMenuExt as _;
 use gpui_kit::component::spinner::Spinner;
-use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -14,6 +13,7 @@ use super::menu;
 use crate::tabs::{self, PaneId, TabLayout};
 use crate::ui::chat::ChatState;
 use crate::ui::prefs;
+use crate::ui::tip::Tip as _;
 use crate::ui::workspace::Workspace;
 use crate::ui::{drag, extensions, panels};
 
@@ -219,9 +219,7 @@ impl Workspace {
                         .bg(primary),
                 )
             })
-            .when_some(tooltip, |tab, text| {
-                tab.tooltip(move |window, cx| Tooltip::new(text.clone()).build(window, cx))
-            })
+            .when_some(tooltip, |tab, text| tab.tip_text(text))
             .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
                 if event.click_count() > 1 {
                     this.keep_tab(&click_id, cx);

@@ -17,6 +17,7 @@ use super::editors::TextInput;
 use super::widgets::{MenuOption, Tone, changed_dot, chip, hashed_id, row, select_menu};
 use crate::settings::{FieldKind, FieldPath, choice_title, default_hint, field_kind};
 use crate::ui::prefs;
+use crate::ui::tip::Tip as _;
 
 const LINE_INPUT_WIDTH: f32 = 260.;
 const CHOICE_WIDTH: f32 = 220.;
@@ -149,12 +150,7 @@ impl SettingsView {
             .child(field.title.clone())
             .children(origin)
             .when(changed, |title| title.child(changed_dot(cx)))
-            .tooltip({
-                let key = field.key.clone();
-                move |window, cx| {
-                    gpui_kit::component::tooltip::Tooltip::new(key.clone()).build(window, cx)
-                }
-            });
+            .tip_text(field.key.clone());
         let description = field.description.trim();
         row(
             title,
