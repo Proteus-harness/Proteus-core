@@ -1,5 +1,6 @@
 use super::{
-    Change, ChangeStatus, Changes, Entry, EntryKind, FileTree, Listing, language_for, split_path,
+    Change, ChangeStatus, Changes, Entry, EntryKind, FileTree, Listing, SearchResult, language_for,
+    search_rows, split_path,
 };
 
 fn listing(path: &str, entries: &[(&str, EntryKind)]) -> Listing {
@@ -87,6 +88,53 @@ fn filter_keeps_ancestors_of_matches() {
     assert_eq!(paths(&tree, "sr"), ["src"]);
     tree.reveal("src/api.rs");
     assert_eq!(paths(&tree, "sr"), ["src", "src/main.rs", "src/api.rs"]);
+}
+
+#[test]
+fn search_rows_nest_matches_under_expanded_ancestors() {
+    let entry = |path: &str, kind| Entry {
+        name: split_path(path).1.to_string(),
+        path: path.to_string(),
+        kind,
+    };
+    let result = SearchResult {
+        query: "tree".to_string(),
+        entries: vec![
+            entry("src/files/tree.rs", EntryKind::File),
+            entry("src/ui/tree", EntryKind::Directory),
+            entry("Tree.md", EntryKind::File),
+            entry("src/ui/tree/render.rs", EntryKind::File),
+        ],
+        truncated: false,
+    };
+    let mut tree = FileTree::default();
+    tree.set_changes(&Changes {
+        repository: true,
+        entries: vec![Change {
+            path: "src/files/tree.rs".to_string(),
+            status: ChangeStatus::Modified,
+        }],
+        truncated: false,
+    });
+    let rows = search_rows(&tree, &result);
+    let shape: Vec<_> = rows
+        .iter()
+        .map(|row| (row.path.as_str(), row.depth, row.expanded))
+        .collect();
+    assert_eq!(
+        shape,
+        [
+            ("src", 0, true),
+            ("src/files", 1, true),
+            ("src/files/tree.rs", 2, false),
+            ("src/ui", 1, true),
+            ("src/ui/tree", 2, true),
+            ("src/ui/tree/render.rs", 3, false),
+            ("Tree.md", 0, false),
+        ]
+    );
+    assert!(rows[1].contains_changes);
+    assert_eq!(rows[2].status, Some(ChangeStatus::Modified));
 }
 
 #[test]

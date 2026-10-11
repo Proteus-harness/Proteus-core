@@ -20,7 +20,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
-use crate::files::{Changes, FileContent, FileDiff, Listing};
+use crate::files::{Changes, FileContent, FileDiff, Listing, SearchResult};
 
 /// Blocking HTTP client for the app server; call it off the UI thread.
 #[derive(Clone)]
@@ -175,6 +175,10 @@ impl Api {
 
     pub fn workspace_list(&self, session_dir: &Path, path: &str) -> Result<Listing> {
         self.get_with("/workspace/list", Some(session_dir), &[("path", path)])
+    }
+
+    pub fn workspace_search(&self, session_dir: &Path, query: &str) -> Result<SearchResult> {
+        self.get_with("/workspace/search", Some(session_dir), &[("q", query)])
     }
 
     pub fn workspace_file(&self, session_dir: &Path, path: &str) -> Result<FileContent> {

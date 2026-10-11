@@ -152,6 +152,15 @@ impl FileTree {
         }
     }
 
+    /// Git marks of an entry: its own status and, for a directory, whether
+    /// it contains changes.
+    pub(super) fn marks(&self, path: &str, directory: bool) -> (Option<ChangeStatus>, bool) {
+        (
+            self.statuses.get(path).copied(),
+            directory && self.changed_dirs.contains(path),
+        )
+    }
+
     fn matches(&self, path: &str, name: &str, directory: bool, filter: &str) -> bool {
         if name.to_lowercase().contains(filter) {
             return true;

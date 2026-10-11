@@ -1,5 +1,6 @@
 mod navigation;
 mod render;
+mod search;
 
 use std::path::PathBuf;
 
@@ -9,7 +10,7 @@ use gpui_kit::*;
 use super::ID;
 use super::changes::{ChangesModel, changes_model};
 use super::document::{FileDocument, Mode};
-use crate::files::{EntryKind, FileTree, Listing, TreeRow};
+use crate::files::{EntryKind, FileTree, Listing, SearchResult, TreeRow, search_rows};
 use crate::ui::extensions::{Host, HostEvent, OpenDocument};
 
 pub(in crate::ui::extensions) use navigation::bind_keys;
@@ -33,6 +34,12 @@ pub(in crate::ui::extensions) struct FilesSidebar {
     tab: Tab,
     filter: Entity<InputState>,
     query: String,
+    /// Whole-workspace matches of `query`; until they arrive the listed
+    /// directories are filtered locally.
+    search: Option<SearchResult>,
+    /// Bumped by every query change so late answers are dropped.
+    search_generation: u64,
+    search_error: Option<SharedString>,
     /// Row under the keyboard cursor.
     cursor: Option<String>,
     /// File last opened from this view.
@@ -51,8 +58,7 @@ impl FilesSidebar {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let filter =
-            cx.new(|cx| InputState::new(window, cx).placeholder("Фильтр по открытым папкам…"));
+        let filter = cx.new(|cx| InputState::new(window, cx).placeholder("Поиск по проекту…"));
         let changes = changes_model(host.clone(), window, cx);
         let mut subscriptions = vec![
             cx.subscribe_in(
@@ -61,6 +67,7 @@ impl FilesSidebar {
                 |this, state, event: &InputEvent, window, cx| match event {
                     InputEvent::Change => {
                         this.query = state.read(cx).value().trim().to_string();
+                        this.schedule_search(cx);
                         this.sync_rows(cx);
                     }
                     InputEvent::PressEnter { .. } => this.enter_list(window, cx),
@@ -91,6 +98,9 @@ impl FilesSidebar {
             tab: Tab::Tree,
             filter,
             query: String::new(),
+            search: None,
+            search_generation: 0,
+            search_error: None,
             cursor: None,
             selected: None,
             followed: None,
@@ -109,9 +119,11 @@ impl FilesSidebar {
             self.cursor = None;
             self.selected = None;
             self.followed = None;
+            self.search = None;
         }
         self.session_dir = session_dir;
         self.error = None;
+        self.schedule_search(cx);
         if let Some(snapshot) = &self.changes.read(cx).changes {
             self.tree.set_changes(snapshot);
         }
@@ -124,6 +136,7 @@ impl FilesSidebar {
         let Some((api, dir)) = self.connection(cx) else {
             return;
         };
+        self.schedule_search(cx);
         let listed = self.tree.listed();
         cx.spawn(async move |this, cx| {
             let job_dir = dir.clone();
@@ -189,8 +202,16 @@ impl FilesSidebar {
 
     /// Rebuilds visible rows and requests listings they still need.
     fn sync_rows(&mut self, cx: &mut Context<Self>) {
-        self.rows = self.tree.rows(&self.query);
         cx.notify();
+        if let Some(result) = self
+            .search
+            .as_ref()
+            .filter(|result| result.query == self.query)
+        {
+            self.rows = search_rows(&self.tree, result);
+            return;
+        }
+        self.rows = self.tree.rows(&self.query);
         let Some((api, dir)) = self.connection(cx) else {
             return;
         };
@@ -275,7 +296,9 @@ impl FilesSidebar {
         self.cursor = Some(row.path.clone());
         if row.kind == EntryKind::Directory {
             self.focus_handle.focus(window, cx);
-            if !keep {
+            if self.searching() {
+                self.show_in_tree(&row.path, window, cx);
+            } else if !keep {
                 self.tree.toggle(&row.path);
                 self.sync_rows(cx);
             }

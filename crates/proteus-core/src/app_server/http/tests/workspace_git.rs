@@ -205,3 +205,57 @@ async fn workspace_git_http_requires_auth_and_explicit_live_session() {
     }
     server.shutdown().await;
 }
+
+fn search(root: &Path, query: &str) -> Vec<(String, String)> {
+    let body = serde_json::to_value(
+        super::super::workspace::search::search(root, query.to_owned()).unwrap(),
+    )
+    .unwrap();
+    body["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| {
+            (
+                entry["path"].as_str().unwrap().to_owned(),
+                entry["kind"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn workspace_search_respects_gitignore_and_skips_deleted_files() {
+    let root = tempfile::tempdir().unwrap();
+    init(root.path());
+    fs::create_dir_all(root.path().join("src/deep")).unwrap();
+    fs::create_dir_all(root.path().join("target")).unwrap();
+    fs::write(root.path().join(".gitignore"), "target/\n").unwrap();
+    fs::write(root.path().join("src/deep/needle.rs"), "").unwrap();
+    fs::write(root.path().join("src/gone_needle.rs"), "").unwrap();
+    fs::write(root.path().join("target/needle.rs"), "").unwrap();
+    git(root.path(), &["add", "."]);
+    git(root.path(), &["commit", "-qm", "base"]);
+    fs::remove_file(root.path().join("src/gone_needle.rs")).unwrap();
+    fs::write(root.path().join("untracked_needle.txt"), "").unwrap();
+    let found = search(root.path(), "needle");
+    assert_eq!(
+        found,
+        [
+            ("src/deep/needle.rs".to_owned(), "file".to_owned()),
+            ("untracked_needle.txt".to_owned(), "file".to_owned()),
+        ]
+    );
+    assert_eq!(
+        search(root.path(), "deep"),
+        [
+            ("src/deep".to_owned(), "directory".to_owned()),
+            ("src/deep/needle.rs".to_owned(), "file".to_owned()),
+        ]
+    );
+    // A session rooted in a subdirectory sees paths relative to it.
+    assert_eq!(
+        search(&root.path().join("src"), "needle"),
+        [("deep/needle.rs".to_owned(), "file".to_owned())]
+    );
+}

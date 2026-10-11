@@ -1,6 +1,7 @@
 //! Workspace files and git changes as the app server reports them, plus the
 //! file tree model. Free of GPUI so it can be tested headless.
 
+mod search;
 mod tree;
 
 #[cfg(test)]
@@ -8,6 +9,7 @@ mod tests;
 
 use serde::Deserialize;
 
+pub use search::search_rows;
 pub use tree::{FileTree, TreeRow};
 
 /// `GET /workspace/list`: one directory level.
@@ -34,6 +36,15 @@ pub enum EntryKind {
     File,
     Symlink,
     Special,
+}
+
+/// `GET /workspace/search`: best path matches over the whole workspace.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SearchResult {
+    pub query: String,
+    pub entries: Vec<Entry>,
+    pub truncated: bool,
 }
 
 /// `GET /workspace/file`.

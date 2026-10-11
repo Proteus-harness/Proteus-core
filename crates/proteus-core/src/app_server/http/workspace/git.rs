@@ -40,6 +40,10 @@ struct Output {
 }
 
 fn git(root: &Path, args: &[&OsStr]) -> Result<Output> {
+    git_bounded(root, args, MAX_BYTES)
+}
+
+fn git_bounded(root: &Path, args: &[&OsStr], limit: usize) -> Result<Output> {
     let mut command = Command::new("git");
     command.current_dir(root).args([
         "--no-pager",
@@ -72,15 +76,15 @@ fn git(root: &Path, args: &[&OsStr]) -> Result<Output> {
         .stdout
         .take()
         .expect("piped stdout")
-        .take((MAX_BYTES + 1) as u64)
+        .take((limit + 1) as u64)
         .read_to_end(&mut bytes);
-    let truncated = bytes.len() > MAX_BYTES;
+    let truncated = bytes.len() > limit;
     if truncated || read.is_err() {
         let _ = child.kill();
     }
     let status = child.wait()?;
     read?;
-    bytes.truncate(MAX_BYTES);
+    bytes.truncate(limit);
     Ok(Output {
         success: status.success(),
         different: status.code() == Some(1),
@@ -96,6 +100,45 @@ fn run(root: &Path, args: &[&str]) -> Result<Output> {
 fn repository(root: &Path) -> Result<bool> {
     let result = run(root, &["rev-parse", "--is-inside-work-tree"])?;
     Ok(result.success && result.bytes == b"true\n")
+}
+
+/// Files of the workspace that Git does not ignore, relative to `root`:
+/// tracked and untracked ones. `None` outside a repository; the flag
+/// reports a listing cut at `limit` bytes.
+pub(super) fn visible_files(root: &Path, limit: usize) -> Result<Option<(Vec<String>, bool)>> {
+    if !repository(root)? {
+        return Ok(None);
+    }
+    let args = [
+        "ls-files",
+        "-z",
+        "--cached",
+        "--others",
+        "--exclude-standard",
+        "--deduplicate",
+        "--",
+        ".",
+    ];
+    let output = git_bounded(
+        root,
+        &args.iter().map(OsStr::new).collect::<Vec<_>>(),
+        limit,
+    )?;
+    ensure!(
+        output.success || output.truncated,
+        "cannot list workspace files"
+    );
+    let complete = output
+        .bytes
+        .iter()
+        .rposition(|b| *b == 0)
+        .map_or(0, |i| i + 1);
+    let files = output.bytes[..complete]
+        .split(|b| *b == 0)
+        .filter(|s| !s.is_empty())
+        .filter_map(|path| std::str::from_utf8(path).ok().map(str::to_owned))
+        .collect();
+    Ok(Some((files, output.truncated)))
 }
 
 pub(crate) fn changes(root: &Path) -> Result<Changes> {

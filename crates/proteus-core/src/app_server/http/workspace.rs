@@ -1,5 +1,6 @@
 //! Read-only workspace browsing for clients; independent of agent tool execution.
 pub(super) mod git;
+pub(super) mod search;
 
 use std::{
     fs,

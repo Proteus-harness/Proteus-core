@@ -47,6 +47,15 @@ async fn read(state: &HttpAppState, path: &str, query: Option<&str>) -> Result<H
         "/context" => json_response(StatusCode::OK, &context_map_json(state, query).await?),
         "/usage" => json_response(StatusCode::OK, &usage_json(state, query).await?),
         "/analysis" => json_response(StatusCode::OK, &super::analysis::read(state, query).await?),
+        "/workspace/search" => {
+            let server = server_for_query(state, query).await?;
+            let root = server.cwd_path().to_path_buf();
+            let text = super::workspace::search::query_text(query)?;
+            let value =
+                tokio::task::spawn_blocking(move || super::workspace::search::search(&root, text))
+                    .await??;
+            json_response(StatusCode::OK, &value)
+        }
         "/workspace/list" | "/workspace/file" | "/workspace/changes" | "/workspace/diff" => {
             let server = server_for_query(state, query).await?;
             let root = server.cwd_path().to_path_buf();

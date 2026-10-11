@@ -81,6 +81,25 @@ async fn workspace_reads_are_authenticated_session_scoped_and_bounded() {
             StatusCode::BAD_REQUEST
         );
     }
+    let uri = format!("{}&q=HELLO", session_uri("/workspace/search", &server));
+    let response = route_request(state.clone(), authed_get_request(&uri))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = serde_json::from_slice(&response_bytes(response).await).unwrap();
+    assert_eq!(body["entries"][0]["path"], "src/hello world.txt");
+    assert_eq!(body["truncated"], false);
+    for suffix in ["&q=", "&q=a&q=b", "&q=a&path=src"] {
+        let uri = format!("{}{suffix}", session_uri("/workspace/search", &server));
+        assert_eq!(
+            route_request(state.clone(), authed_get_request(&uri))
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::BAD_REQUEST,
+            "{suffix}"
+        );
+    }
     #[cfg(unix)]
     {
         let outside = tempfile::tempdir().unwrap();

@@ -211,9 +211,16 @@ impl Render for FilesSidebar {
                     .on_click(cx.listener(|this, _, _, cx| this.reload(cx))),
             );
         let focused = self.focus_handle.contains_focused(window, cx);
+        let search_truncated =
+            self.searching() && self.search.as_ref().is_some_and(|result| result.truncated);
         let list = match self.tab {
             Tab::Tree if self.rows.is_empty() && !self.query.is_empty() => {
-                note("Совпадений в открытых папках нет.", cx).into_any_element()
+                let text = if self.searching() {
+                    "В проекте совпадений нет."
+                } else {
+                    "Ищу по проекту…"
+                };
+                note(text, cx).into_any_element()
             }
             Tab::Tree => uniform_list(
                 "files-tree",
@@ -258,7 +265,13 @@ impl Render for FilesSidebar {
                     ),
                 )
             })
+            .when_some(self.search_error.clone(), |column, error| {
+                column.child(note(error, cx).text_color(danger))
+            })
             .child(list)
+            .when(self.tab == Tab::Tree && search_truncated, |column| {
+                column.child(note("Показаны лучшие совпадения — уточните запрос.", cx))
+            })
     }
 }
 
