@@ -279,11 +279,39 @@ async fn python_compactor_uses_scope_not_workflow_message_names() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn python_compactor_rejects_missing_or_invalid_scope_without_name_fallback() {
+async fn python_compactor_rejects_invalid_launch_settings_and_canonical_scope() {
     let workspace = tempfile::tempdir().unwrap();
     let version = current_process_contract_authority("compactor")
         .unwrap()
         .contract_version;
+    let invalid_export = ProcessExportBinding::new(
+        "compactor",
+        "python_suffix",
+        version,
+        json!({"retain_user_turns": 0}),
+    )
+    .unwrap();
+    let invalid_binding =
+        ProcessComponentBinding::new("invalid-python-compactor", [invalid_export]).unwrap();
+    let invalid_spec = ProcessSpec::new("python3")
+        .arg(python_worker().display().to_string())
+        .cwd(workspace.path())
+        .env("PYTHONDONTWRITEBYTECODE", "1");
+    let error = tokio::task::spawn_blocking(move || {
+        ComponentBroker::connect(
+            invalid_spec,
+            invalid_binding,
+            ComponentBrokerOptions::default(),
+        )
+    })
+    .await
+    .unwrap()
+    .err()
+    .expect("invalid strategy must fail initialize before any compaction invocation");
+    assert!(
+        format!("{error:#}").contains("retain_user_turns must be a positive integer"),
+        "{error:#}"
+    );
     let export =
         ProcessExportBinding::new("compactor", "python_suffix", version, json!({})).unwrap();
     let target = export.export_ref();

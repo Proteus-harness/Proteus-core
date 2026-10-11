@@ -11,6 +11,8 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+from types import MappingProxyType
+from collections.abc import Mapping
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -48,12 +50,26 @@ INPUT_FIELDS = {
     "reason",
 }
 STRATEGY_FIELDS = {"trigger_messages", "retain_user_turns"}
+strategy_config: Mapping[str, int] | None = None
 
 
 def positive_int(value: Any, label: str) -> int:
     if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
         raise ProtocolError(f"{label} must be a positive integer")
     return value
+
+
+def validate_strategy(strategy: Any) -> tuple[int, int]:
+    if not isinstance(strategy, dict):
+        raise ProtocolError("compactor strategy must be an object")
+    unknown = sorted(set(strategy) - STRATEGY_FIELDS)
+    if unknown:
+        raise ProtocolError(f"unknown compactor strategy fields: {unknown}")
+    trigger_messages = positive_int(strategy.get("trigger_messages", 12), "trigger_messages")
+    retain_user_turns = positive_int(
+        strategy.get("retain_user_turns", 2), "retain_user_turns"
+    )
+    return trigger_messages, retain_user_turns
 
 
 def validate_initialize(params: Any) -> str:
@@ -112,15 +128,7 @@ def validate_input(params: Any) -> tuple[dict[str, Any], int, int]:
     strategy = compaction["config"]
     if strategy is None:
         strategy = {}
-    if not isinstance(strategy, dict):
-        raise ProtocolError("CompactionInput.config must be an object or null")
-    unknown = sorted(set(strategy) - STRATEGY_FIELDS)
-    if unknown:
-        raise ProtocolError(f"unknown compactor strategy fields: {unknown}")
-    trigger_messages = positive_int(strategy.get("trigger_messages", 12), "trigger_messages")
-    retain_user_turns = positive_int(
-        strategy.get("retain_user_turns", 2), "retain_user_turns"
-    )
+    trigger_messages, retain_user_turns = validate_strategy(strategy)
     return compaction, trigger_messages, retain_user_turns
 
 
@@ -202,7 +210,13 @@ def compact(params: Any) -> dict[str, Any]:
 
 
 def initialize(params: Any) -> dict[str, Any]:
+    global strategy_config
     component_id = validate_initialize(params)
+    trigger_messages, retain_user_turns = validate_strategy(params["exports"][0]["module_config"])
+    strategy_config = MappingProxyType({
+        "trigger_messages": trigger_messages,
+        "retain_user_turns": retain_user_turns,
+    })
     return {
         "protocol_version": PROTOCOL_VERSION,
         "component_id": component_id,
@@ -223,8 +237,11 @@ def invoke(context: InvocationContext, method: str, params: Any) -> dict[str, An
         raise ProtocolError(f"unknown component export: {context.export!r}")
     if method != "compact":
         raise ProtocolError(f"unknown method: {method!r}")
+    if strategy_config is None:
+        raise ProtocolError("python compactor export is not initialized")
     context.ensure_active()
-    result = compact(params)
+    compaction = require_object(params, INPUT_FIELDS, "CompactionInput")
+    result = compact({**compaction, "config": dict(strategy_config)})
     context.ensure_active()
     return result
 

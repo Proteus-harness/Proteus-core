@@ -278,6 +278,16 @@ outgoing context отличается, cold history сохраняет ориг�
 dogfood/eval проверяется отдельно: scripted evidence не доказывает полезность
 или качество summary на повседневных задачах.
 
+`hook_runtime::dcp::composition` проверяет DCP вместе с реально сработавшими
+Rust Codex и Python suffix compactors. Сначала `compress` меняет только outgoing
+view; затем compactor удаляет prefix history, сохраняя текущий user id. Проверяются
+checkpoint, отсутствие stale pruning оставленного user в следующем model request,
+новый runtime/process с той же session и сохранённым DCP state, cold transcript
+и workflow replay без повторного `compress`, model calls или записи state.
+Node `composition.test.mjs` отдельно проверяет exact file DTO protection,
+инвалидацию потерявших ссылки блоков и зависимых родителей, сохранение валидных
+вложенных блоков и одинаковое согласование state в живом и новом component.
+
 ## Slash-команды
 
 `proteus-core --lib app_server::http::tests::slash` проверяет общий каталог,

@@ -8,6 +8,7 @@ import { buildPriorityMap, buildToolIdList, injectCompressNudges, injectMessageI
 import { createSystemPromptHandler } from "../node_modules/@tarquinen/opencode-dcp/lib/hooks.ts";
 import { configuration } from "./config.mjs";
 import { project } from "./messages.mjs";
+import { reconcileHistory } from "./platform/history.mjs";
 import { PromptStore } from "./platform/prompts.mjs";
 import { Logger } from "./platform/logger.mjs";
 import { transaction, saveSessionState } from "./platform/persistence.mjs";
@@ -47,10 +48,7 @@ export function createDcp(settings = {}) {
       get: async () => ({ data: {} }), // No OpenCode parent-session namespace in this port.
     } };
     await ensureSessionInitialized(client, state, session, logger, raw, false);
-    // Repeated real compaction uses different canonical checkpoint identities.
-    const compaction = raw.findLast((message) => message.info.summary)?.info.id;
-    if (state.checkpointId && state.checkpointId !== compaction) state.lastCompaction = 0;
-    state.checkpointId = compaction;
+    reconcileHistory(state, raw, logger);
     await checkSession(client, state, logger, raw, false);
     state.compressPermission = "allow"; // ToolRegistry/policy already governs exposure and invocation.
     assignMessageRefs(state, raw);

@@ -22,8 +22,14 @@ trigger_messages = 12
 retain_user_turns = 2
 ```
 
-Этот compactor реализован как pure transform `CompactionInput ->
-CompactionOutput` и не использует разрешённый contract-ом
+Процесс проверяет `module_config.compactor.python_suffix` при initialize и
+сохраняет неизменяемые настройки своего единственного export. Неизвестные
+ключи, нулевые и отрицательные значения завершают handshake ошибкой.
+Перед каждой compaction export подставляет эти настройки в `CompactionInput.config`;
+invoke не может переопределить настройки запуска.
+
+Сам алгоритм `compact()` реализован как pure transform `CompactionInput ->
+CompactionOutput`: его можно вызвать отдельно с явным `input.config`. Он не использует разрешённый contract-ом
 `host.model.complete`. Strategy сохраняет canonical context и suffix от одного
 из последних user turns. Это проверяемый пример протокола, а не качественная
 замена model-aware `modules.compactor = "codex"`.

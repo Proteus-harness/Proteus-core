@@ -1,4 +1,6 @@
 use super::*;
+#[path = "dcp/composition.rs"]
+mod composition;
 use proteus_contracts::{
     contracts::{
         CancellationToken, ProcessModelDescriptor, TOOL_HOST_CONVERSATION_SNAPSHOT_METHOD,
