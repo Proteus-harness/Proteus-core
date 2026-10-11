@@ -1599,11 +1599,13 @@ reasoning-поля из runtime config (`summary`, `budget_tokens`). UI полу
 переопределять effort поверх config.
 
 `StdioRequest::ReloadTools` и HTTP `POST /reload-tools` перечитывают `tools.*`
-из config path, заново строят `AssemblyPlan`, process catalog и
-MCP/configured tools, затем публикуют один новый `PreparedAssembly` внутри
+из config path, заново строят `AssemblyPlan`, process catalog,
+component tools и MCP discovery, затем публикуют один новый `PreparedAssembly` внутри
 `RuntimeSnapshot`. Остальные `modules.*`, provider и runtime settings остаются
-как в текущем app-server snapshot; для их замены нужен будущий
-`reload_modules`. Уже running turn держит старый snapshot; new turns берут
+как в текущем app-server snapshot. Component declarations и `module_config`
+тоже сохраняются: `reload-tools` переключает tools уже объявленных exports,
+а добавление component или изменение его запуска требует полной публикации
+профиля через Config Builder или file refresh. Уже running turn держит старый snapshot; new turns берут
 новый. Клиент получает `AppServerEvent::ModulesReloaded { old_epoch,
 new_epoch, tool_names }`, а `GET /config` / `ConfigSummary` возвращает
 `module_epoch`. Это reload control-plane: новый snapshot получает свои MCP

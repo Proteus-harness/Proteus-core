@@ -28,22 +28,28 @@ command = "proteus-reference-module"
 
 [components.reference-capabilities.exports.policy.ask_write]
 
+# Из корня репозитория: собственный Python component запускает rg.
+[components.python-search]
+command = "python3"
+args = ["examples/modules/search-process/search.py"]
+
+[components.python-search.exports.tool.python_rg]
+timeout_ms = 60000
+
+[components.python-search.exports.context_provider.python_rg]
+timeout_ms = 60000
+
 [tools]
-enabled = []
-# path omitted: defaults to the tools directory next to the config root.
-# With the standard layout this is ~/.config/Proteus-agent/tools.
-# Keep module_config.policy.ask_write in sync with the names registered by those manifests.
+enabled = ["search"]
 
 [permissions]
 mode = "normal"
 
 [module_config.policy.ask_write]
-# search, remember_fact, apply_patch, file I/O, git helpers, and shell
-# are component exports when enabled.
-ask_before = ["apply_patch", "remember_fact"]
 allow = ["search"]
 
 [module_config.context.simple]
+search_provider = "python_rg"
 max_search_results = 50
 
 [app_server]

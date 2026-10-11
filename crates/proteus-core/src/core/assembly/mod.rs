@@ -140,12 +140,6 @@ impl AssemblyPlan {
         let components = build_components(&config, &active_modules)?;
         let tools = AssemblyToolsPlan {
             requested: config.tools.enabled.clone(),
-            configured: config
-                .tools
-                .configured
-                .iter()
-                .map(|tool| tool.name.clone())
-                .collect(),
             mcp_servers: config
                 .tools
                 .mcp_servers

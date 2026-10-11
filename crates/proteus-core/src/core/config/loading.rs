@@ -9,7 +9,7 @@ use serde_json::{Map, Value};
 
 use crate::core::core_slots::{CoreSlotSelection, core_slot_descriptor_by_id};
 
-use super::{AppConfig, ConfiguredToolConfig};
+use super::AppConfig;
 
 impl AppConfig {
     pub async fn load(path: Option<&Path>) -> Result<Self> {
@@ -24,10 +24,9 @@ impl AppConfig {
         } else {
             Self::default()
         };
-        let manifest_config_path = should_load.then_some(config_path.as_deref()).flatten();
-        let config = config.with_tool_manifests(manifest_config_path).await?;
+        let instructions_config_path = should_load.then_some(config_path.as_deref()).flatten();
         config
-            .with_resolved_instructions(manifest_config_path)
+            .with_resolved_instructions(instructions_config_path)
             .await
     }
 
@@ -122,39 +121,6 @@ impl AppConfig {
             }
         }
         Ok(self)
-    }
-
-    async fn with_tool_manifests(mut self, config_path: Option<&Path>) -> Result<Self> {
-        let Some(path) = self.tools_path(config_path) else {
-            return Ok(self);
-        };
-        if !tokio::fs::try_exists(&path).await? {
-            return Ok(self);
-        }
-
-        let manifests = load_tool_manifests(&path).await?;
-        self.tools.configured.extend(manifests);
-        Ok(self)
-    }
-
-    fn tools_path(&self, config_path: Option<&Path>) -> Option<PathBuf> {
-        if let Some(path) = self.tools.path.clone() {
-            let path = expand_user_path(path);
-            if path.is_absolute() {
-                return Some(path);
-            }
-            return Some(
-                config_root(config_path)
-                    .map(|root| root.join(&path))
-                    .unwrap_or(path),
-            );
-        }
-
-        if let Some(path) = env::var_os("PROTEUS_TOOLS_PATH") {
-            return Some(PathBuf::from(path));
-        }
-
-        config_root(config_path).map(|root| root.join("tools"))
     }
 }
 
@@ -336,23 +302,6 @@ pub(super) fn config_name_ref(path: &Path) -> Option<&str> {
     Some(name)
 }
 
-pub(super) fn config_root(config_path: Option<&Path>) -> Option<PathBuf> {
-    let path = config_path?;
-    if is_config_file(path) || path.is_file() {
-        let parent = path.parent()?;
-        if parent.file_name().and_then(|name| name.to_str()) == Some("configs") {
-            return parent.parent().map(Path::to_path_buf);
-        }
-        return path.parent().map(Path::to_path_buf);
-    }
-
-    if path.file_name().and_then(|name| name.to_str()) == Some("configs") {
-        return path.parent().map(Path::to_path_buf);
-    }
-
-    Some(path.to_path_buf())
-}
-
 fn is_config_file(path: &Path) -> bool {
     matches!(
         path.extension().and_then(|extension| extension.to_str()),
@@ -373,51 +322,6 @@ fn load_config_value(path: &Path) -> Result<Value> {
             serde_json::to_value(value)
                 .with_context(|| format!("failed to normalize TOML config {}", path.display()))
         }
-    }
-}
-
-async fn load_tool_manifests(path: &Path) -> Result<Vec<ConfiguredToolConfig>> {
-    let mut entries = tokio::fs::read_dir(path)
-        .await
-        .with_context(|| format!("failed to read tools dir {}", path.display()))?;
-    let mut files = Vec::new();
-    while let Some(entry) = entries.next_entry().await? {
-        let entry_path = entry.path();
-        let file_type = entry.file_type().await?;
-        if file_type.is_file() && is_config_file(&entry_path) {
-            files.push(entry_path);
-        } else if file_type.is_dir() {
-            for candidate in [
-                entry_path.join("tool.toml"),
-                entry_path.join("manifest.toml"),
-                entry_path.join("tool.json"),
-                entry_path.join("manifest.json"),
-            ] {
-                if tokio::fs::try_exists(&candidate).await? {
-                    files.push(candidate);
-                    break;
-                }
-            }
-        }
-    }
-    files.sort();
-
-    let mut tools = Vec::new();
-    for file in files {
-        tools.push(load_tool_manifest(&file).await?);
-    }
-    Ok(tools)
-}
-
-async fn load_tool_manifest(path: &Path) -> Result<ConfiguredToolConfig> {
-    let content = tokio::fs::read_to_string(path)
-        .await
-        .with_context(|| format!("failed to read tool manifest {}", path.display()))?;
-    match path.extension().and_then(|extension| extension.to_str()) {
-        Some("json") => serde_json::from_str(&content)
-            .with_context(|| format!("failed to parse JSON tool manifest {}", path.display())),
-        _ => toml::from_str(&content)
-            .with_context(|| format!("failed to parse TOML tool manifest {}", path.display())),
     }
 }
 

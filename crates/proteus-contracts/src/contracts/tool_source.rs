@@ -12,7 +12,6 @@ pub struct ProcessToolOwner {
 pub enum ToolSource {
     Builtin { provider: String },
     ProviderHosted { provider: String },
-    Config { origin: String },
     Mcp { server: String },
     Process { owner: ProcessToolOwner },
     Dynamic { origin: String },
@@ -36,7 +35,6 @@ impl ToolSource {
         match self {
             Self::Builtin { provider } => format!("builtin:{provider}"),
             Self::ProviderHosted { provider } => format!("provider_hosted:{provider}"),
-            Self::Config { origin } => format!("config:{origin}"),
             Self::Mcp { server } => format!("mcp:{server}"),
             Self::Process { owner } => {
                 format!("process:{}/{}", owner.component_id, owner.module_id)

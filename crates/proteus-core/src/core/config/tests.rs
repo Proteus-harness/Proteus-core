@@ -2,8 +2,7 @@ use std::path::{Path, PathBuf};
 
 use super::{
     loading::{
-        config_name_ref, config_root, default_config_dir, expand_user_path_with_home,
-        resolve_config_name_path,
+        config_name_ref, default_config_dir, expand_user_path_with_home, resolve_config_name_path,
     },
     *,
 };
@@ -20,41 +19,12 @@ fn process_environment_config_is_flat_and_defaults_to_empty() {
     assert_eq!(server.environment.env_allowlist, ["DOCS_TOKEN"]);
     assert_eq!(server.environment.env["MCP_MODE"], "isolated");
 
-    let executor = serde_json::from_value::<ConfiguredToolExecutorConfig>(serde_json::json!({
-        "kind": "mcp",
-        "command": "node",
-        "tool": "lookup"
+    let server = serde_json::from_value::<ConfiguredMcpServerConfig>(serde_json::json!({
+        "name": "docs", "command": "node"
     }))
-    .expect("inline MCP environment defaults");
-    let ConfiguredToolExecutorConfig::Mcp { environment, .. } = executor else {
-        panic!("expected MCP executor");
-    };
-    assert!(environment.env_allowlist.is_empty());
-    assert!(environment.env.is_empty());
-
-    let executor = serde_json::from_value::<ConfiguredToolExecutorConfig>(serde_json::json!({
-        "kind": "process",
-        "command": "python3",
-        "env_allowlist": ["TOOL_TOKEN"],
-        "env": { "TOOL_MODE": "isolated" }
-    }))
-    .expect("process tool environment config");
-    let ConfiguredToolExecutorConfig::Process { environment, .. } = executor else {
-        panic!("expected process executor");
-    };
-    assert_eq!(environment.env_allowlist, ["TOOL_TOKEN"]);
-    assert_eq!(environment.env["TOOL_MODE"], "isolated");
-
-    let executor = serde_json::from_value::<ConfiguredToolExecutorConfig>(serde_json::json!({
-        "kind": "process",
-        "command": "python3"
-    }))
-    .expect("process tool environment defaults");
-    let ConfiguredToolExecutorConfig::Process { environment, .. } = executor else {
-        panic!("expected process executor");
-    };
-    assert!(environment.env_allowlist.is_empty());
-    assert!(environment.env.is_empty());
+    .expect("MCP server environment defaults");
+    assert!(server.environment.env_allowlist.is_empty());
+    assert!(server.environment.env.is_empty());
 }
 
 #[test]
@@ -148,28 +118,19 @@ fn display_preferences_are_not_agent_config() {
 }
 
 #[test]
-fn configured_tool_default_schema_allows_additional_properties() {
-    let tool: ConfiguredToolConfig = serde_json::from_value(serde_json::json!({
-        "name": "echo_args",
-        "description": "Echo model arguments.",
-        "safety": "RunsCommands",
-        "executor": {
-            "kind": "process",
-            "command": "echo"
-        }
-    }))
-    .expect("configured tool");
-
-    assert_eq!(tool.input_schema["type"], "object");
-    assert_eq!(tool.input_schema["properties"], serde_json::json!({}));
-    assert_eq!(tool.input_schema["additionalProperties"], true);
-}
-
-#[test]
-fn config_root_for_config_file_inside_configs_is_config_home() {
-    assert_eq!(
-        config_root(Some(Path::new("/tmp/agent/configs/config.toml"))),
-        Some(PathBuf::from("/tmp/agent"))
+fn tools_config_rejects_unknown_fields() {
+    let error =
+        serde_json::from_value::<AppConfig>(serde_json::json!({"tools": {"unexpected": []}}))
+            .expect_err("unknown tools field must be rejected");
+    assert!(
+        error.to_string().contains("unknown field `unexpected`"),
+        "{error}"
+    );
+    let error = toml::from_str::<AppConfig>("[tools]\nunexpected = []")
+        .expect_err("unknown TOML tools field must be rejected");
+    assert!(
+        error.to_string().contains("unknown field `unexpected`"),
+        "{error}"
     );
 }
 

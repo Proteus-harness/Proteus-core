@@ -71,14 +71,11 @@ fn preparation_probe_config() -> AppConfig {
         "command":"python3", "args":["-B",workspace_file("crates/proteus-core/tests/fixtures/preparation_checkpoint_workflow.py")],
         "exports":{"workflow":{"checkpoint_probe":{}}}
     })).unwrap());
-    config.tools.enabled = vec![];
-    config.tools.configured.push(
-        serde_json::from_value(json!({
-            "name":"checkpoint_probe", "description":"unbound effect", "safety":"ReadOnly",
-            "executor":{"kind":"process", "command":"sh", "args":["-c","cat >/dev/null; printf child"]}
-        }))
-        .unwrap(),
-    );
+    config.tools.enabled = vec!["checkpoint_probe".into()];
+    config.components.insert("checkpoint-probe-tool".into(), serde_json::from_value(json!({
+        "command": "python3", "args": ["-B", workspace_file("crates/proteus-core/tests/fixtures/process_probe_tool.py")],
+        "exports": {"tool": {"checkpoint_probe": {}}}
+    })).unwrap());
     config
 }
 

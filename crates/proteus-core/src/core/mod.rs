@@ -19,7 +19,6 @@ mod model_context;
 mod model_service;
 mod module_catalog;
 mod permission_mode;
-pub(crate) mod process_output;
 mod prompt_replay;
 mod provider_hosted_tools;
 mod registry;
@@ -46,10 +45,9 @@ pub use bound_model::{BoundModel, ModelExecutionBinding};
 pub use bound_tools::{BoundTools, ToolExecutionBinding};
 pub use config::{
     AgentControlConfig, AgentControlSurface, AgentProfileConfig, AppConfig, AppServerConfig,
-    ConfiguredMcpServerConfig, ConfiguredToolConfig, ConfiguredToolExecutorConfig, EventLogConfig,
-    InstructionSourceConfig, ModelConfig, ModulesConfig, PermissionsConfig,
-    ProcessEnvironmentConfig, ProfileConfig, PromptCommandConfig, ProviderProfileConfig,
-    RuntimeConfig, ToolsConfig, expand_user_path,
+    ConfiguredMcpServerConfig, EventLogConfig, InstructionSourceConfig, ModelConfig, ModulesConfig,
+    PermissionsConfig, ProcessEnvironmentConfig, ProfileConfig, PromptCommandConfig,
+    ProviderProfileConfig, RuntimeConfig, ToolsConfig, expand_user_path,
 };
 pub use config_snapshot::{
     CONFIG_SNAPSHOT_FILE, SessionConfigModules, SessionConfigSnapshot, SessionConfigTool,

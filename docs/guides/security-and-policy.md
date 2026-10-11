@@ -235,7 +235,7 @@ exports, без callbacks или tool execution authority. Их данные в�
 
 Process tool names валидируются при регистрации: пустое имя и duplicate между
 modules отклоняются. Если явно включённый process tool совпал с
-builtin/configured tool, сборка registry завершается ошибкой конфигурации;
+core facade или MCP tool, сборка registry завершается ошибкой конфигурации;
 приоритет или silent skip не применяются.
 
 Subagent facade выбирается полем `agent_control.surface`. В режиме
@@ -257,8 +257,7 @@ history адресата, а его tools продолжают проходит�
 policy и safety. Fork, прямой peer mesh и writer/worktree spawn в этом режиме
 не реализованы.
 
-Config-defined `process`, inline stdio `mcp` и discovered
-`tools.mcp_servers` tools также считаются command execution boundary. Даже
+Обнаруженные через `tools.mcp_servers` tools считаются command execution boundary. Даже
 если config укажет `ReadOnly` или `WritesFiles`, runtime поднимает effective
 safety до `RunsCommands`, поэтому такие tools не видны и не исполняются в
 `plan` и запрещены в `auto`.
@@ -272,7 +271,7 @@ truncation перед событием `ToolFinished` и передачей ре
 `error_truncated`, original byte count и `max_output_bytes`.
 
 Для `mcp` один host tool всегда мапится на один фиксированный remote MCP tool
-из config или результата `tools/list`. Model args не могут переопределить
+из результата `tools/list`. Model args не могут переопределить
 remote tool name; это сохраняет связь между `ToolSpec`, policy decision и
 фактическим downstream вызовом.
 
@@ -296,7 +295,7 @@ notifications в тот же budget; MCP dispatch notifications выполняе
 останавливается с явной ошибкой; он не продолжает накапливать невостребованные
 кадры.
 
-Process modules, inline/discovered MCP и configured executor `kind = "process"`
+Process modules и обнаруженные MCP servers
 используют одну fail-closed environment policy из `ProcessSpec`. На Unix по
 умолчанию наследуется только `PATH`; Windows дополнительно сохраняет
 необходимые system/process/temp variables. Все эти config-пути принимают

@@ -119,8 +119,7 @@
       "remember_fact",
       "request_user_input",
       "search"
-    ],
-    "path": null
+    ]
   },
   "permissions": {
     "mode": "normal"

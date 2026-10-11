@@ -9,27 +9,29 @@ use serde_json::{Value, json};
 use crate::{
     contracts::{Tool, ToolContext, ToolRegistry, ToolSource},
     core::{ConfiguredMcpServerConfig, ProcessEnvironmentConfig},
-    domain::{ToolCall, ToolResult, ToolSafety, ToolSpec},
+    domain::{ToolCall, ToolResult, ToolSpec},
 };
 
 mod client;
 mod discovery;
 mod transport;
 
-pub(super) use client::McpStdioHost;
+use client::McpStdioHost;
 
 #[cfg(test)]
 use discovery::DiscoveredMcpTool;
 
+const DEFAULT_MCP_RESPONSE_LIMIT_BYTES: usize = 20_000;
+
 #[derive(Clone)]
-pub struct ConfiguredMcpTool {
+struct McpTool {
     spec: ToolSpec,
     remote_tool: String,
     host: Arc<McpStdioHost>,
 }
 
-impl ConfiguredMcpTool {
-    pub(super) fn new(spec: ToolSpec, remote_tool: String, host: Arc<McpStdioHost>) -> Self {
+impl McpTool {
+    fn new(spec: ToolSpec, remote_tool: String, host: Arc<McpStdioHost>) -> Self {
         Self {
             spec,
             remote_tool,
@@ -39,7 +41,7 @@ impl ConfiguredMcpTool {
 }
 
 #[async_trait]
-impl Tool for ConfiguredMcpTool {
+impl Tool for McpTool {
     fn spec(&self) -> ToolSpec {
         self.spec.clone()
     }
@@ -90,26 +92,9 @@ impl Tool for ConfiguredMcpTool {
     }
 }
 
-pub(super) fn configured_mcp_inline_host(
-    command: String,
-    args: Vec<String>,
-    environment: ProcessEnvironmentConfig,
-    protocol_version: String,
-    cwd: &Path,
-    timeout_ms: u64,
-    max_response_bytes: Option<usize>,
-) -> Result<Arc<McpStdioHost>> {
-    let spec = process_spec(command, args, environment, cwd);
-    Ok(Arc::new(McpStdioHost::new(
-        spec,
-        protocol_version,
-        Duration::from_millis(timeout_ms),
-        max_response_bytes
-            .unwrap_or(crate::core::process_output::DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES),
-    )?))
-}
-
-pub(super) fn register_discovered_mcp_tools(
+/// Discovers enabled MCP servers and registers their tools with MCP provenance.
+/// Server discovery failures remain visible in the returned server states.
+pub fn register_mcp_tools(
     registry: &mut ToolRegistry,
     mcp_servers: &[ConfiguredMcpServerConfig],
     cwd: &Path,
@@ -132,7 +117,7 @@ pub(super) fn register_discovered_mcp_tools(
             continue;
         }
         let discovered = (|| {
-            let host = configured_mcp_server_host(server, cwd)?;
+            let host = mcp_server_host(server, cwd)?;
             let tools = discovery::mcp_tools_from_list(server, host.list_tools()?)?;
             Ok::<_, anyhow::Error>((host, tools))
         })();
@@ -150,7 +135,7 @@ pub(super) fn register_discovered_mcp_tools(
                 ToolSource::Mcp {
                     server: server.name.clone(),
                 },
-                ConfiguredMcpTool::new(
+                McpTool::new(
                     discovered_tool.spec,
                     discovered_tool.remote_tool,
                     Arc::clone(&host),
@@ -162,10 +147,7 @@ pub(super) fn register_discovered_mcp_tools(
     Ok(states)
 }
 
-fn configured_mcp_server_host(
-    server: &ConfiguredMcpServerConfig,
-    cwd: &Path,
-) -> Result<Arc<McpStdioHost>> {
+fn mcp_server_host(server: &ConfiguredMcpServerConfig, cwd: &Path) -> Result<Arc<McpStdioHost>> {
     let spec = process_spec(
         server.command.clone(),
         server.args.clone(),
@@ -182,7 +164,7 @@ fn configured_mcp_server_host(
         Duration::from_millis(server.timeout_ms.unwrap_or(30_000)),
         server
             .max_response_bytes
-            .unwrap_or(crate::core::process_output::DEFAULT_PROCESS_OUTPUT_LIMIT_BYTES),
+            .unwrap_or(DEFAULT_MCP_RESPONSE_LIMIT_BYTES),
     )?))
 }
 
@@ -210,19 +192,12 @@ fn render_mcp_content(items: &[ContentBlock]) -> Result<String> {
         .map(|items| items.join("\n"))
 }
 
-pub(super) fn effective_mcp_safety(safety: ToolSafety) -> ToolSafety {
-    discovery::effective_mcp_safety(safety)
-}
-
 #[cfg(test)]
 fn discover_mcp_tools(
     server: &ConfiguredMcpServerConfig,
     cwd: &Path,
 ) -> Result<Vec<DiscoveredMcpTool>> {
-    discovery::mcp_tools_from_list(
-        server,
-        configured_mcp_server_host(server, cwd)?.list_tools()?,
-    )
+    discovery::mcp_tools_from_list(server, mcp_server_host(server, cwd)?.list_tools()?)
 }
 
 #[cfg(test)]

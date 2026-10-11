@@ -25,7 +25,7 @@ use crate::contracts::CancellationToken;
 
 use super::transport::{ConnectionControl, McpTransport};
 
-pub(in crate::tools::configured) struct McpStdioHost {
+pub(super) struct McpStdioHost {
     timeout: Duration,
     state: Arc<ClientState>,
 }

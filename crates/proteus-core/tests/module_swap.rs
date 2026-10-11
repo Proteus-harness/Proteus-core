@@ -138,6 +138,14 @@ async fn search_tool_swaps_component_exports_without_changing_canonical_contract
     let absent = registry(&test_model::config(), workspace.path()).expect("absent search");
     assert!(absent.tools.get("search").is_none());
 
+    let mut disabled_config = search_config("disabled_fixture", "static");
+    disabled_config.tools.enabled.clear();
+    let disabled = registry(&disabled_config, workspace.path()).expect("disabled process search");
+    assert!(
+        disabled.tools.get("search").is_none(),
+        "component discovery must not enable tools"
+    );
+
     for module_id in ["fixture_a", "fixture_b"] {
         let selected = registry(&search_config(module_id, "static"), workspace.path())
             .expect("selected process search");

@@ -431,7 +431,7 @@ async fn malformed_or_unsupported_initialize_is_reported_without_registering_too
 }
 
 #[tokio::test]
-async fn inline_mcp_tool_uses_runtime_approval_journal_and_replay_path() {
+async fn discovered_mcp_tool_uses_runtime_approval_journal_and_replay_path() {
     use proteus_contracts::contracts::ApprovalCacheScope;
     use proteus_core::{
         app_server::AgentAppServer,
@@ -457,36 +457,28 @@ async fn inline_mcp_tool_uses_runtime_approval_journal_and_replay_path() {
     config.modules.policy = Some("ask_write".into());
     config.agent_control.surface = proteus_core::core::AgentControlSurface::None;
     config.tools.enabled.clear();
-    config.tools.configured.push(
-        serde_json::from_value(json!({
-            "name": "read_file",
-            "description": "read a file through the MCP fixture",
-            "input_schema": {
-                "type":"object",
-                "properties":{"path":{"type":"string"}},
-                "required":["path"],
-                "additionalProperties":false
-            },
-            "safety": "RunsCommands",
-            "timeout_ms": 2000,
-            "executor": {
-                "kind":"mcp",
-                "server":"fixture-inline",
-                "command":"python3",
-                "args":[server_path()],
-                "env_allowlist":["PATH"],
-                "env": {
-                    "MCP_FIXTURE_EVENT_LOG": fixture.events,
-                    "MCP_FIXTURE_GENERATION_FILE": fixture.generations,
-                    "MCP_LITERAL_ENV":"runtime",
-                    "MCP_FIXTURE_CONTENT_MODE":"structured_only"
-                },
-                "tool":"echo",
-                "protocol_version":"2025-11-25"
-            }
-        }))
-        .expect("inline MCP config"),
-    );
+    let mut discovered_server = fixture.config.tools.mcp_servers[0].clone();
+    discovered_server.safety = ToolSafety::RunsCommands;
+    discovered_server
+        .environment
+        .env
+        .insert("MCP_LITERAL_ENV".into(), "runtime".into());
+    discovered_server
+        .environment
+        .env
+        .insert("MCP_FIXTURE_CONTENT_MODE".into(), "structured_only".into());
+    config.tools.mcp_servers.push(discovered_server);
+    config.components.insert("test-model".into(), serde_json::from_value(json!({
+        "command": "python3", "args": ["-B", Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/mcp_roundtrip_model.py")],
+        "exports": {"model": {"fake": {}}}
+    })).unwrap());
+    config.module_config.get_mut("model").unwrap().insert("fake".into(), json!({
+        "descriptor": proteus_contracts::contracts::ProcessModelDescriptor {
+            adapter_id: "mcp-roundtrip".into(),
+            capabilities: proteus_contracts::model_standard::ModelCapabilities::basic_text_and_tools(),
+            hosted_tools: vec![],
+        }
+    }));
     config.event_log.path = fixture.dir.path().join("runtime-events.jsonl");
     config.app_server.approval_timeout_ms = 0;
     let config_path = fixture.dir.path().join("runtime-config.json");
@@ -501,8 +493,11 @@ async fn inline_mcp_tool_uses_runtime_approval_journal_and_replay_path() {
     .expect("launch runtime");
     server.start_session().await.expect("start session");
     let sender = server.clone();
-    let turn =
-        tokio::spawn(async move { sender.send_user_message("read_file probe.txt".into()).await });
+    let turn = tokio::spawn(async move {
+        sender
+            .send_user_message("call discovered MCP echo".into())
+            .await
+    });
     let approval = tokio::time::timeout(Duration::from_secs(5), async {
         loop {
             if let Some(request) = server.pending_requests().await.approvals.into_iter().next() {
@@ -513,7 +508,7 @@ async fn inline_mcp_tool_uses_runtime_approval_journal_and_replay_path() {
     })
     .await
     .expect("MCP approval request");
-    assert_eq!(approval.call.name, "read_file");
+    assert_eq!(approval.call.name, "fixture__echo");
     server
         .respond_approval(
             approval.approval_id.as_ref(),
@@ -543,7 +538,7 @@ async fn inline_mcp_tool_uses_runtime_approval_journal_and_replay_path() {
     let records = store.load_records().unwrap();
     assert!(records.iter().any(|record| matches!(
         &record.entry,
-        JournalEntry::ToolCallRecorded(call) if call.call.name == "read_file"
+        JournalEntry::ToolCallRecorded(call) if call.call.name == "fixture__echo"
     )));
     assert!(records.iter().any(|record| matches!(
         &record.entry,

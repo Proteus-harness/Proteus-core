@@ -6,7 +6,7 @@ use crate::{
     contracts::{ToolRegistry, ToolSource, register_provider_tools},
     core::AppConfig,
     domain::ToolSpec,
-    tools::{BuiltinToolProvider, is_builtin_tool_name, register_configured_tools},
+    tools::{BuiltinToolProvider, is_builtin_tool_name, register_mcp_tools},
 };
 
 use super::{ModuleBuildContext, ModuleCatalog};
@@ -80,12 +80,7 @@ impl ModuleCatalog {
                 .disabled_mcp_servers
                 .contains(&server.name);
         }
-        let states = register_configured_tools(
-            &mut tools,
-            &ctx.config.tools.configured,
-            &mcp_servers,
-            ctx.cwd,
-        )?;
+        let states = register_mcp_tools(&mut tools, &mcp_servers, ctx.cwd)?;
 
         for name in &ctx.config.tools.enabled {
             let Some(provided) = process_tools_by_name.get(name) else {
@@ -94,7 +89,7 @@ impl ModuleCatalog {
             let spec = provided.tool.spec();
             if tools.get(&spec.name).is_some() {
                 bail!(
-                    "process tool '{}' conflicts with an already registered builtin/configured tool",
+                    "process tool '{}' conflicts with an already registered host/MCP tool",
                     spec.name
                 );
             }

@@ -165,7 +165,6 @@ fn read_only_cli_paths_do_not_start_unrelated_process_components() {
     config.modules.workflow = Some("workflow-marker".to_owned());
     config.modules.hooks = vec!["preparation-marker".to_owned()];
     config.agent_control.surface = proteus_core::core::AgentControlSurface::None;
-    config.tools.path = None;
     config.tools.enabled = vec!["request_user_input".to_owned()];
     config.components = serde_json::from_value(serde_json::json!({
         "workflow-fixture": {
@@ -898,7 +897,6 @@ fn module_list_output_contains_catalog_rows() {
 #[test]
 fn tool_list_output_contains_registered_tools() {
     let mut config = crate::test_model::config();
-    config.tools.path = None;
     crate::test_model::add_direct_patch_tool(&mut config);
     crate::test_model::add_search_tool(&mut config);
     // Verify process-provided editing/search and the host user-input transport.

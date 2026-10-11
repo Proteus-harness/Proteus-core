@@ -88,6 +88,12 @@ policy/approval/safety/cancellation. Команда не получает author
 или workflow export. [DTO и callbacks](process-module-architecture.md#authority-table),
 [каталог и исполнение](../guides/runtime-and-events.md#slash-команды).
 
+Собственные tools подключаются одним путём: explicit component `tool/v6`
+export и выбор имён в `tools.enabled`. Отдельного configured script executor
+или автозагрузки tool manifests нет. MCP остаётся внешним протоколом с
+server-level enable/discovery и тем же общим registry/policy/approval path;
+[правила настройки](../guides/configuration.md#tools).
+
 Core сохраняет владельца process tool как typed `ProcessToolOwner`:
 `component_id` и `module_id` берутся из активного configured export, а не из
 имени, категории, tags или утверждения самого tool. Этот provenance доступен

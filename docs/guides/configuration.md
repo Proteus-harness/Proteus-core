@@ -846,44 +846,47 @@ enabled = [
 ]
 ```
 
-Имена должны существовать в одном из sources:
+`tools.enabled` выбирает tools объявленных component exports и core facade
+`request_user_input` / `AskUserQuestion`. Неизвестное имя и name collision —
+ошибка. Сам export делает tool доступным для обнаружения; только включённый
+tool попадает в исполняемый registry и набор кандидатов модели. Выключенные
+process tools остаются видны в диагностическом каталоге.
 
-- core facade tools: `request_user_input` / `AskUserQuestion`;
-- объявленные component tool exports, включая `apply_patch`, `search`,
-  `remember_fact` и `recall_memory`;
-- `[[tools.configured]]`;
-- discovered `[[tools.mcp_servers]]`;
-- provider-hosted tools.
+MCP tools подключаются отдельно через включённый `tools.mcp_servers` и
+discovery; их не добавляют в `tools.enabled`. Provider-hosted tools и
+AgentControl facades определяются выбранной моделью и `agent_control.surface`.
+Все эти sources проходят общий registry/policy/approval path.
 
-Unknown enabled tool и name collision — ошибка. Tool export сам по
-себе не делает tool model-visible; имя должно быть в `enabled`.
+### Собственный Process Tool
 
-### Configured Process Tool
+Собственные tools предоставляются через component export `tool/v6`.
+Описание tool, входная схема, safety, parallel permission и исполнение
+принадлежат модулю; Core не разбирает его алгоритм или собственные настройки.
+Работающий пример, который запускает `rg`, —
+[`search-process`](../../examples/modules/search-process/README.md):
 
 ```toml
-[[tools.configured]]
-name = "lint"
-description = "Run the project linter"
-safety = "RunsCommands"
-supports_parallel_tool_calls = false
-timeout_ms = 60000
-input_schema = { type = "object", properties = {} }
+[tools]
+enabled = ["search"]
 
-[tools.configured.executor]
-kind = "process"
-command = "scripts/lint-tool"
-args = []
-env_allowlist = []
-env = { MODE = "check" }
+[components.python-search]
+command = "python3"
+args = ["examples/modules/search-process/search.py"]
+
+[components.python-search.exports.tool.python_rg]
+timeout_ms = 60000
 ```
 
-Configured tool — отдельная tool execution surface, не behavior module.
-Executor имеет kind `process` или `mcp`; native handlers отсутствуют.
+Пути `tools.configured`, `tools.path` и inline MCP executor удалены;
+они вызывают ошибку неизвестного поля. Каталог `tools/` и
+`PROTEUS_TOOLS_PATH` не загружают tools автоматически. Для вызова обычного
+скрипта модуль реализует `list` / `invoke` по общему component contract;
+отдельного script execution protocol в Core нет.
 
-`supports_parallel_tool_calls` по умолчанию `false`: вызов ждёт предыдущие
-tools и удерживает следующие до завершения. Значение `true` разрешает совместное
-исполнение соседних parallel calls через тот же registry/policy/approval path.
-`ReadOnly` сам по себе этого разрешения не даёт.
+`ToolSpec.supports_parallel_tool_calls` по умолчанию `false`: вызов ждёт
+предыдущие tools и удерживает следующие до завершения. Значение `true`
+разрешает совместное исполнение соседних parallel calls через тот же
+registry/policy/approval path. `ReadOnly` само по себе разрешения не даёт.
 
 ### MCP
 

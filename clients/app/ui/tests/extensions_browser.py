@@ -335,13 +335,6 @@ workflow = "coding.single_loop"
 policy = "allow_all"
 [tools]
 enabled = ["update_plan"]
-[[tools.configured]]
-name = "fixture_managed"
-description = "Runtime-managed tool absent from tools.enabled"
-safety = "ReadOnly"
-[tools.configured.executor]
-kind = "process"
-command = "/bin/true"
 [module_config.model.custom-model]
 implementation = "openai_codex"
 base_url = ''' + json.dumps(web) + '\nquota_url = ' + json.dumps(web + '/wham/usage') + '\nauth_file = ' + json.dumps(str(auth)) + '\n[event_log]\npath = ' + json.dumps(str(folder / 'events.jsonl')) + '\n')

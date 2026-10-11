@@ -2,7 +2,7 @@
 //!
 //! Files here define data shapes such as `MemoryItem` or `ToolCall`; they do
 //! not contain runtime implementations. Concrete behavior lives behind
-//! contracts and in core stubs, adapters, configured tools, or external
+//! contracts and in core stubs, adapters, or external
 //! modules.
 
 pub mod addons;
