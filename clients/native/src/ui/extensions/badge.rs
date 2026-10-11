@@ -1,27 +1,34 @@
-//! Compact extension icons, shown under the composer or in the tab bar. A
-//! click brings the extension forward, the context menu moves or hides the
-//! icon, and icons can be dragged between both places.
+//! Compact extension icons, shown under the composer or in the tab bar.
+//! Details live in the hover tooltip; a click brings the extension forward
+//! when it has a view; the context menu moves, hides or pins the icon, and
+//! unpinned icons can be dragged between both places.
+
+use std::rc::Rc;
 
 use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenu, PopupMenuItem};
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::*;
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
-use super::frame::drag_preview;
 use super::host::Host;
 use crate::preferences::BadgePlace;
-use crate::ui::prefs;
+use crate::ui::{drag, prefs};
 
-/// Payload of an icon being dragged; also its drag preview.
+/// What an icon shows; drawn again for its drag preview.
+pub(super) type Face = Rc<dyn Fn() -> AnyElement>;
+
+/// Payload of an icon being dragged; renders as a lifted copy of the icon.
 #[derive(Clone)]
 pub(in crate::ui) struct DraggedBadge {
     pub id: &'static str,
-    pub title: SharedString,
+    face: Face,
 }
 
 impl Render for DraggedBadge {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        drag_preview(self.title.clone(), cx)
+        let foreground = cx.theme().foreground;
+        drag::lifted(badge_box().text_color(foreground).child((self.face)()), cx)
     }
 }
 
@@ -45,21 +52,8 @@ impl Details {
     }
 }
 
-/// The shared shell of every icon: hover, tooltip, click, drag and menu.
-pub(super) fn badge_frame<F: IntoElement + 'static>(
-    id: &'static str,
-    face: F,
-    details: Details,
-    host: &Host,
-    cx: &App,
-) -> impl IntoElement + use<F> {
-    let theme = cx.theme();
-    let (hover, foreground) = (theme.list_hover, theme.foreground);
-    let title = super::find(id).map_or(id, |manifest| manifest.title);
-    let (click_host, menu_host) = (host.clone(), host.clone());
-    let details = std::rc::Rc::new(details);
+fn badge_box() -> Div {
     div()
-        .id(ElementId::Name(format!("badge-{id}").into()))
         .h_7()
         .min_w_7()
         .px_1()
@@ -67,25 +61,55 @@ pub(super) fn badge_frame<F: IntoElement + 'static>(
         .items_center()
         .justify_center()
         .gap_1()
-        .rounded(theme.radius)
         .text_xs()
+}
+
+/// The shared shell of every icon: hover, tooltip, click, drag and menu.
+pub(super) fn badge_frame(
+    id: &'static str,
+    face: Face,
+    details: Details,
+    host: &Host,
+    cx: &App,
+) -> impl IntoElement + use<> {
+    let theme = cx.theme();
+    let (hover, foreground) = (theme.list_hover, theme.foreground);
+    let opens = super::find(id).is_some_and(|manifest| manifest.sidebar.is_some());
+    let pinned = prefs::current(cx).extensions.is_pinned(id);
+    let lifted = drag::is_source(&drag_key(id), cx);
+    let (click_host, menu_host) = (host.clone(), host.clone());
+    let details = Rc::new(details);
+    let dragged = DraggedBadge {
+        id,
+        face: face.clone(),
+    };
+    badge_box()
+        .id(ElementId::Name(format!("badge-{id}").into()))
+        .rounded(theme.radius)
         .text_color(theme.muted_foreground)
-        .cursor_pointer()
+        .when(opens, |badge| {
+            badge
+                .cursor_pointer()
+                .on_click(move |_, window, cx| click_host.activate(id, window, cx))
+        })
         .hover(move |style| style.bg(hover).text_color(foreground))
-        .child(face)
+        .when(lifted, |badge| badge.opacity(drag::SOURCE_OPACITY))
+        .child(face())
         .tooltip(move |window, cx| {
             let details = details.clone();
             Tooltip::element(move |_, cx| tooltip_body(&details, cx)).build(window, cx)
         })
-        .on_click(move |_, window, cx| click_host.activate(id, window, cx))
-        .on_drag(
-            DraggedBadge {
-                id,
-                title: title.into(),
-            },
-            |dragged, _, _, cx| cx.new(|_| dragged.clone()),
-        )
+        .when(!pinned, |badge| {
+            badge.on_drag(dragged, |dragged, _, _, cx| {
+                drag::start(drag_key(dragged.id), cx);
+                cx.new(|_| dragged.clone())
+            })
+        })
         .context_menu(move |menu, _, cx| badge_menu(menu, id, &menu_host, cx))
+}
+
+fn drag_key(id: &str) -> String {
+    format!("badge:{id}")
 }
 
 fn tooltip_body(details: &Details, cx: &App) -> Div {
@@ -107,26 +131,21 @@ fn badge_menu(menu: PopupMenu, id: &'static str, host: &Host, cx: &App) -> Popup
         return menu;
     };
     let mut menu = menu;
-    if manifest.page.is_some() {
+    if let Some(sidebar) = &manifest.sidebar {
         let host = host.clone();
-        menu = menu.item(
-            PopupMenuItem::new("Открыть вкладку")
-                .on_click(move |_, window, cx| host.activate(id, window, cx)),
-        );
-    }
-    if manifest.panel.is_some() {
-        let host = host.clone();
-        menu = menu.item(
-            PopupMenuItem::new("Показать в панели")
-                .on_click(move |_, window, cx| host.show_widget(id, window, cx)),
-        );
+        menu = menu
+            .item(
+                PopupMenuItem::new(format!("Открыть «{}» слева", sidebar.title))
+                    .on_click(move |_, window, cx| host.activate(id, window, cx)),
+            )
+            .separator();
     }
     let default = manifest
         .badge
         .as_ref()
         .map_or(BadgePlace::Hidden, |badge| badge.place);
-    let current = prefs::current(cx).extensions.badge_place(id, default);
-    menu = menu.separator();
+    let extensions = &prefs::current(cx).extensions;
+    let current = extensions.badge_place(id, default);
     for (place, label) in [
         (BadgePlace::Composer, "Под полем ввода"),
         (BadgePlace::Header, "В панели вкладок"),
@@ -140,7 +159,14 @@ fn badge_menu(menu: PopupMenu, id: &'static str, host: &Host, cx: &App) -> Popup
                 }),
         );
     }
-    menu
+    let pinned = extensions.is_pinned(id);
+    menu.separator().item(
+        PopupMenuItem::new("Закрепить на месте")
+            .checked(pinned)
+            .on_click(move |_, _, cx| {
+                prefs::update(cx, |prefs| prefs.extensions.set_pinned(id, !pinned))
+            }),
+    )
 }
 
 /// Icon of an extension with a small counter next to it.

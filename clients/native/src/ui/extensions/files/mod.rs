@@ -1,28 +1,43 @@
 mod changes;
-mod page;
+mod document;
+mod tree;
 
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
-use super::{Host, PageView};
+use super::{Host, SurfaceView};
 use crate::files::ChangeStatus;
 
-pub(super) use page::{FilesPage, Mode, bind_keys};
+pub(super) use tree::bind_keys;
 
 pub(super) const ID: &str = "files";
 
-pub(super) fn build_page(host: Host, window: &mut Window, cx: &mut App) -> PageView {
-    let page = cx.new(|cx| FilesPage::new(host, window, cx));
-    PageView {
-        focus: page.read(cx).focus_handle.clone(),
-        view: page.into(),
+pub(super) fn build_sidebar(host: Host, window: &mut Window, cx: &mut App) -> SurfaceView {
+    let view = cx.new(|cx| tree::FilesSidebar::new(host, window, cx));
+    SurfaceView {
+        focus: view.read(cx).focus_handle.clone(),
+        view: view.into(),
     }
 }
 
-pub(super) fn build_changes(host: Host, window: &mut Window, cx: &mut App) -> AnyView {
-    cx.new(|cx| changes::ChangesWidget::new(host, window, cx))
-        .into()
+/// File tab for `path`, relative to the session working directory.
+pub(super) fn build_document(
+    host: Host,
+    path: &str,
+    window: &mut Window,
+    cx: &mut App,
+) -> SurfaceView {
+    let view = cx.new(|cx| document::FileDocument::new(host, path.to_string(), window, cx));
+    SurfaceView {
+        focus: view.read(cx).focus_handle(cx),
+        view: view.into(),
+    }
+}
+
+/// Tab title: the file name.
+pub(super) fn document_label(path: &str) -> SharedString {
+    crate::files::split_path(path).1.to_string().into()
 }
 
 pub(super) fn build_badge(host: Host, window: &mut Window, cx: &mut App) -> AnyView {

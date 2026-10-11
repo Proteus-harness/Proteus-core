@@ -54,16 +54,16 @@ pub enum BadgePlace {
     Hidden,
 }
 
-/// Which client extensions are on, and how their widgets are arranged.
+/// Which client extensions are on, and where their icons are.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ExtensionPreferences {
     pub disabled: Vec<String>,
-    pub panel_order: Vec<String>,
-    pub collapsed: Vec<String>,
     /// Icon places chosen by the user; others use the extension default.
     pub badges: BTreeMap<String, BadgePlace>,
     pub badge_order: Vec<String>,
+    /// Icons fixed in place: they cannot be dragged.
+    pub pinned: Vec<String>,
 }
 
 impl ExtensionPreferences {
@@ -78,29 +78,6 @@ impl ExtensionPreferences {
         }
     }
 
-    pub fn is_collapsed(&self, id: &str) -> bool {
-        self.collapsed.iter().any(|collapsed| collapsed == id)
-    }
-
-    pub fn toggle_collapsed(&mut self, id: &str) {
-        if self.is_collapsed(id) {
-            self.collapsed.retain(|collapsed| collapsed != id);
-        } else {
-            self.collapsed.push(id.to_string());
-        }
-    }
-
-    /// Panel widgets in the saved order; ids the order does not mention yet
-    /// follow in catalog order.
-    pub fn ordered<'a>(&self, known: &[&'a str]) -> Vec<&'a str> {
-        ordered(&self.panel_order, known)
-    }
-
-    /// Moves a panel widget in front of `before`, or to the end without it.
-    pub fn move_before(&mut self, known: &[&str], id: &str, before: Option<&str>) {
-        move_before(&mut self.panel_order, known, id, before);
-    }
-
     pub fn badge_place(&self, id: &str, default: BadgePlace) -> BadgePlace {
         self.badges.get(id).copied().unwrap_or(default)
     }
@@ -109,6 +86,8 @@ impl ExtensionPreferences {
         self.badges.insert(id.to_string(), place);
     }
 
+    /// Icons in the saved order; ids the order does not mention yet follow
+    /// in catalog order.
     pub fn badges_ordered<'a>(&self, known: &[&'a str]) -> Vec<&'a str> {
         ordered(&self.badge_order, known)
     }
@@ -123,6 +102,17 @@ impl ExtensionPreferences {
     ) {
         self.set_badge_place(id, place);
         move_before(&mut self.badge_order, known, id, before);
+    }
+
+    pub fn is_pinned(&self, id: &str) -> bool {
+        self.pinned.iter().any(|pinned| pinned == id)
+    }
+
+    pub fn set_pinned(&mut self, id: &str, pinned: bool) {
+        self.pinned.retain(|item| item != id);
+        if pinned {
+            self.pinned.push(id.to_string());
+        }
     }
 }
 
@@ -196,60 +186,49 @@ pub fn save(preferences: &Preferences) -> Result<()> {
 mod tests {
     use super::{BadgePlace, ExtensionPreferences};
 
-    const KNOWN: [&str; 3] = ["context", "plan", "notes"];
+    const KNOWN: [&str; 3] = ["context", "plan", "files"];
 
     #[test]
-    fn widgets_reorder_and_new_ones_follow() {
-        let mut extensions = ExtensionPreferences::default();
-        assert_eq!(extensions.ordered(&KNOWN), KNOWN);
-
-        extensions.move_before(&KNOWN, "notes", Some("context"));
-        assert_eq!(extensions.ordered(&KNOWN), ["notes", "context", "plan"]);
-        extensions.move_before(&KNOWN, "notes", None);
-        assert_eq!(extensions.ordered(&KNOWN), KNOWN);
-
-        extensions.move_before(&KNOWN, "context", Some("notes"));
-        assert_eq!(extensions.ordered(&KNOWN), ["plan", "context", "notes"]);
-        extensions.move_before(&KNOWN, "plan", Some("plan"));
-        assert_eq!(extensions.ordered(&KNOWN), ["plan", "context", "notes"]);
-
-        // An extension added later joins at the end; a removed one is skipped.
-        assert_eq!(
-            extensions.ordered(&["notes", "quota", "plan"]),
-            ["plan", "notes", "quota"]
-        );
-    }
-
-    #[test]
-    fn switches_and_collapsing_toggle() {
+    fn switches_and_pins_toggle() {
         let mut extensions = ExtensionPreferences::default();
         extensions.set_enabled("files", false);
         assert!(!extensions.is_enabled("files"));
         extensions.set_enabled("files", true);
         assert!(extensions.is_enabled("files") && extensions.disabled.is_empty());
-        extensions.toggle_collapsed("plan");
-        assert!(extensions.is_collapsed("plan"));
-        extensions.toggle_collapsed("plan");
-        assert!(!extensions.is_collapsed("plan"));
+        extensions.set_pinned("plan", true);
+        extensions.set_pinned("plan", true);
+        assert!(extensions.is_pinned("plan") && extensions.pinned.len() == 1);
+        extensions.set_pinned("plan", false);
+        assert!(!extensions.is_pinned("plan"));
     }
 
     #[test]
     fn badges_move_between_places() {
         let mut extensions = ExtensionPreferences::default();
+        assert_eq!(extensions.badges_ordered(&KNOWN), KNOWN);
         assert_eq!(
             extensions.badge_place("plan", BadgePlace::Composer),
             BadgePlace::Composer
         );
-        extensions.move_badge(&KNOWN, "notes", BadgePlace::Header, Some("context"));
+        extensions.move_badge(&KNOWN, "files", BadgePlace::Header, Some("context"));
         assert_eq!(
-            extensions.badge_place("notes", BadgePlace::Composer),
+            extensions.badge_place("files", BadgePlace::Composer),
             BadgePlace::Header
         );
         assert_eq!(
             extensions.badges_ordered(&KNOWN),
-            ["notes", "context", "plan"]
+            ["files", "context", "plan"]
         );
-        // The panel order is separate.
-        assert_eq!(extensions.ordered(&KNOWN), KNOWN);
+        // Dropping an icon onto itself keeps the order.
+        extensions.move_badge(&KNOWN, "plan", BadgePlace::Composer, Some("plan"));
+        assert_eq!(
+            extensions.badges_ordered(&KNOWN),
+            ["files", "context", "plan"]
+        );
+        // An extension added later joins at the end; a removed one is skipped.
+        assert_eq!(
+            extensions.badges_ordered(&["plan", "quota", "files"]),
+            ["files", "plan", "quota"]
+        );
     }
 }

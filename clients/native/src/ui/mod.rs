@@ -3,10 +3,10 @@ mod badges;
 mod composer;
 mod context_usage;
 mod controls;
+mod drag;
 mod extensions;
 mod format;
 mod motion;
-mod panel;
 mod prefs;
 mod requests;
 mod settings;
@@ -28,7 +28,7 @@ gpui_kit::actions!(
     proteus_native,
     [
         ToggleSettings,
-        ToggleInfoPanel,
+        ToggleFileTree,
         NewSession,
         NextSettingsPage,
         PreviousSettingsPage,
@@ -43,7 +43,7 @@ pub fn init(cx: &mut App) {
     prefs::init(cx);
     cx.bind_keys([
         KeyBinding::new("ctrl-,", ToggleSettings, None),
-        KeyBinding::new("ctrl-alt-b", ToggleInfoPanel, None),
+        KeyBinding::new("ctrl-shift-e", ToggleFileTree, None),
         KeyBinding::new("ctrl-n", NewSession, None),
         KeyBinding::new("alt-down", NextSettingsPage, Some(SETTINGS_CONTEXT)),
         KeyBinding::new("alt-up", PreviousSettingsPage, Some(SETTINGS_CONTEXT)),
@@ -69,9 +69,9 @@ impl Render for Workspace {
                     this.open_settings(window, cx);
                 }
             }))
-            .on_action(cx.listener(|this, _: &ToggleInfoPanel, window, cx| {
+            .on_action(cx.listener(|this, _: &ToggleFileTree, window, cx| {
                 if this.settings.is_none() {
-                    this.toggle_panel(window, cx);
+                    this.toggle_sidebar_view(window, cx);
                 }
             }))
             .on_action(cx.listener(|this, _: &NewSession, window, cx| {
@@ -112,12 +112,10 @@ impl Render for Workspace {
             Status::Ready => {
                 self.sync_window_title(window);
                 self.sync_badges(window, cx);
+                let sidebar = self.render_sidebar(window, cx);
+                let tabs = self.render_tabs(window, cx);
                 root.child(motion::rise_in(
-                    h_flex()
-                        .size_full()
-                        .child(self.render_sidebar(cx))
-                        .child(self.render_tabs(window, cx))
-                        .children(self.render_panel(window, cx)),
+                    h_flex().size_full().child(sidebar).child(tabs),
                     "chat-screen",
                 ))
             }

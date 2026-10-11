@@ -191,6 +191,7 @@ impl SettingsView {
                 PackState::Mixed => "Включены не все · включить все",
             })
             .on_click(cx.listener(move |this, _: &bool, _, cx| {
+                cx.stop_propagation();
                 let names = switchable.clone();
                 this.update_draft(cx, |draft| {
                     for name in &names {
@@ -198,12 +199,12 @@ impl SettingsView {
                     }
                 });
             }));
-        let header = h_flex()
+        // The whole row is one hover target, so the switch sits inside it.
+        let header = line
             .pr_4()
-            .items_center()
-            .child(div().flex_1().min_w_0().child(line))
+            .child(div().flex_1())
             .when(summary.state == PackState::Mixed, |row| {
-                row.child(div().mr_2().child(chip("частично", Tone::Warning, cx)))
+                row.child(chip("частично", Tone::Warning, cx))
             })
             .child(switch);
 

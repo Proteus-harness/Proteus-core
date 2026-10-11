@@ -1,15 +1,13 @@
-//! Client extensions: compact icons, side panel widgets and tabs.
+//! Client extensions: compact icons, left sidebar views and document tabs.
 //!
 //! Every extension is described by a [`Manifest`] and talks to the client
 //! only through [`Host`], so built-in extensions follow the same contract a
 //! separately shipped one would. Users switch extensions on and off and
-//! arrange their icons and panel widgets; the choice is a client preference.
+//! arrange their icons; the choice is a client preference.
 
 mod badge;
 mod files;
-mod frame;
 mod host;
-mod notes;
 mod quota;
 mod session_badges;
 mod session_info;
@@ -20,27 +18,32 @@ use gpui_kit::component::{Icon, IconName};
 use gpui_kit::*;
 
 pub(super) use badge::DraggedBadge;
-pub(super) use frame::{DraggedWidget, drag_preview};
-pub(super) use host::{Host, HostEvent};
+pub(super) use host::{Host, HostEvent, OpenDocument};
 
 use super::prefs;
 use crate::preferences::BadgePlace;
 
-/// Builds a surface view. Runs inside a workspace update, so it must not
-/// read the [`Host`] synchronously.
+/// Builds an icon view. Runs inside a workspace update, so it must not read
+/// the [`Host`] synchronously.
 pub(super) type BuildView = fn(Host, &mut Window, &mut App) -> AnyView;
 
-/// Builds a page; same rules as [`BuildView`].
-pub(super) type BuildPage = fn(Host, &mut Window, &mut App) -> PageView;
+/// Builds a sidebar view; same rules as [`BuildView`].
+pub(super) type BuildFocused = fn(Host, &mut Window, &mut App) -> SurfaceView;
 
-pub(super) struct Surface {
+/// Builds the view of one document, e.g. a file; same rules as [`BuildView`].
+pub(super) type BuildDocument = fn(Host, &str, &mut Window, &mut App) -> SurfaceView;
+
+/// View in the left sidebar, next to the session list.
+pub(super) struct SidebarSurface {
     pub title: &'static str,
-    pub build: BuildView,
+    pub build: BuildFocused,
 }
 
-pub(super) struct PageSurface {
-    pub title: &'static str,
-    pub build: BuildPage,
+/// Documents opened as tabs with ids `<extension>:<argument>`.
+pub(super) struct DocumentSurface {
+    pub build: BuildDocument,
+    /// Short tab title of an argument.
+    pub label: fn(&str) -> SharedString,
 }
 
 /// Compact icon and where it goes until the user moves it.
@@ -49,10 +52,10 @@ pub(super) struct BadgeSurface {
     pub place: BadgePlace,
 }
 
-/// A built page and the focus it takes when shown, so its own keyboard
+/// A built view and the focus it takes when shown, so its own keyboard
 /// shortcuts work right away.
 #[derive(Clone)]
-pub(super) struct PageView {
+pub(super) struct SurfaceView {
     pub view: AnyView,
     pub focus: FocusHandle,
 }
@@ -67,25 +70,20 @@ pub(super) struct Manifest {
     pub title: &'static str,
     pub description: &'static str,
     pub icon: fn() -> Icon,
-    /// Widget in the side panel.
-    pub panel: Option<Surface>,
-    /// Page opened as a tab.
-    pub page: Option<PageSurface>,
+    pub sidebar: Option<SidebarSurface>,
+    pub document: Option<DocumentSurface>,
     /// Icon under the composer or in the tab bar.
     pub badge: Option<BadgeSurface>,
 }
 
-pub(super) static CATALOG: [Manifest; 7] = [
+pub(super) static CATALOG: [Manifest; 6] = [
     Manifest {
         id: session_info::CONTEXT,
         title: "Контекст",
         description: "Заполненность контекста модели и порог автокомпакта.",
         icon: || Icon::new(Lucide::Layers),
-        panel: Some(Surface {
-            title: "Контекст",
-            build: session_info::build_context,
-        }),
-        page: None,
+        sidebar: None,
+        document: None,
         badge: Some(BadgeSurface {
             build: session_badges::build_context,
             place: BadgePlace::Composer,
@@ -96,11 +94,8 @@ pub(super) static CATALOG: [Manifest; 7] = [
         title: "План",
         description: "Шаги текущего плана агента.",
         icon: || Icon::new(Lucide::ListChecks),
-        panel: Some(Surface {
-            title: "План",
-            build: session_info::build_plan,
-        }),
-        page: None,
+        sidebar: None,
+        document: None,
         badge: Some(BadgeSurface {
             build: session_badges::build_plan,
             place: BadgePlace::Composer,
@@ -111,11 +106,8 @@ pub(super) static CATALOG: [Manifest; 7] = [
         title: "Лимиты модели",
         description: "Остаток лимитов у провайдера модели.",
         icon: || Icon::new(Lucide::Gauge),
-        panel: Some(Surface {
-            title: "Лимиты модели",
-            build: quota::build,
-        }),
-        page: None,
+        sidebar: None,
+        document: None,
         badge: Some(BadgeSurface {
             build: quota::build_badge,
             place: BadgePlace::Composer,
@@ -124,33 +116,18 @@ pub(super) static CATALOG: [Manifest; 7] = [
     Manifest {
         id: files::ID,
         title: "Файлы",
-        description: "Дерево рабочей папки, просмотр файлов и изменения git.",
+        description: "Дерево рабочей папки и изменения git в боковой панели, файлы во вкладках.",
         icon: || Icon::new(Lucide::FolderTree),
-        panel: Some(Surface {
-            title: "Изменения",
-            build: files::build_changes,
-        }),
-        page: Some(PageSurface {
+        sidebar: Some(SidebarSurface {
             title: "Файлы",
-            build: files::build_page,
+            build: files::build_sidebar,
+        }),
+        document: Some(DocumentSurface {
+            build: files::build_document,
+            label: files::document_label,
         }),
         badge: Some(BadgeSurface {
             build: files::build_badge,
-            place: BadgePlace::Header,
-        }),
-    },
-    Manifest {
-        id: notes::ID,
-        title: "Заметки",
-        description: "Личные заметки, общие для всех рабочих папок.",
-        icon: || Icon::new(Lucide::StickyNote),
-        panel: None,
-        page: Some(PageSurface {
-            title: "Заметки",
-            build: notes::build,
-        }),
-        badge: Some(BadgeSurface {
-            build: notes::build_badge,
             place: BadgePlace::Header,
         }),
     },
@@ -159,11 +136,8 @@ pub(super) static CATALOG: [Manifest; 7] = [
         title: "Сессия",
         description: "Статус, число сообщений и ожидающие запросы.",
         icon: || Icon::new(IconName::Info),
-        panel: Some(Surface {
-            title: "Сессия",
-            build: session_info::build_session,
-        }),
-        page: None,
+        sidebar: None,
+        document: None,
         badge: Some(BadgeSurface {
             build: session_badges::build_session,
             place: BadgePlace::Hidden,
@@ -172,13 +146,10 @@ pub(super) static CATALOG: [Manifest; 7] = [
     Manifest {
         id: session_info::AGENT,
         title: "Агент",
-        description: "Профиль, модель, режим и модули сессии.",
+        description: "Профиль, модель, режим и инструменты сессии.",
         icon: || Icon::new(IconName::Bot),
-        panel: Some(Surface {
-            title: "Агент",
-            build: session_info::build_agent,
-        }),
-        page: None,
+        sidebar: None,
+        document: None,
         badge: Some(BadgeSurface {
             build: session_badges::build_agent,
             place: BadgePlace::Header,
@@ -192,26 +163,6 @@ pub(super) fn find(id: &str) -> Option<&'static Manifest> {
 
 pub(super) fn is_enabled(id: &str, cx: &App) -> bool {
     prefs::current(cx).extensions.is_enabled(id)
-}
-
-/// Ids of extensions with a panel widget, in catalog order.
-pub(super) fn panel_ids() -> Vec<&'static str> {
-    CATALOG
-        .iter()
-        .filter(|manifest| manifest.panel.is_some())
-        .map(|manifest| manifest.id)
-        .collect()
-}
-
-/// Enabled panel widgets in the user's order.
-pub(super) fn visible_panels(cx: &App) -> Vec<&'static Manifest> {
-    let extensions = &prefs::current(cx).extensions;
-    extensions
-        .ordered(&panel_ids())
-        .into_iter()
-        .filter(|id| extensions.is_enabled(id))
-        .filter_map(find)
-        .collect()
 }
 
 /// Ids of extensions with an icon, in catalog order.
@@ -245,10 +196,18 @@ pub(super) fn visible_badges(place: BadgePlace, cx: &App) -> Vec<&'static Manife
         .collect()
 }
 
-/// Enabled extensions with a page, in catalog order.
-pub(super) fn visible_pages(cx: &App) -> Vec<&'static Manifest> {
+/// Enabled extensions with a sidebar view, in catalog order.
+pub(super) fn visible_sidebars(cx: &App) -> Vec<&'static Manifest> {
     CATALOG
         .iter()
-        .filter(|manifest| manifest.page.is_some() && is_enabled(manifest.id, cx))
+        .filter(|manifest| manifest.sidebar.is_some() && is_enabled(manifest.id, cx))
         .collect()
+}
+
+/// Document surface of an enabled extension for a tab id.
+pub(super) fn document(tab: &str, cx: &App) -> Option<(&'static Manifest, String)> {
+    let (extension, argument) = crate::tabs::split_document(tab)?;
+    let manifest = find(extension).filter(|manifest| is_enabled(manifest.id, cx))?;
+    manifest.document.as_ref()?;
+    Some((manifest, argument.to_string()))
 }

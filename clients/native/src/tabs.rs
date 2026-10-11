@@ -1,5 +1,8 @@
 //! Tab groups of the main area: which tabs are open, where they are, and how
 //! two groups share the width. Pure state, persisted with the preferences.
+//!
+//! Besides the chat, tabs are documents of extensions, addressed as
+//! `<extension>:<argument>`, e.g. `files:src/main.rs`.
 
 use std::collections::HashSet;
 
@@ -18,6 +21,20 @@ pub struct TabLayout {
     pub focused: usize,
     /// Width share of the first group, in thousandths.
     pub split: u16,
+    /// Tab that the next previewed document replaces, so browsing does not
+    /// pile up tabs. Keeping or moving it makes it a regular tab.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview: Option<String>,
+}
+
+/// Tab id of an extension document.
+pub fn document(extension: &str, argument: &str) -> String {
+    format!("{extension}:{argument}")
+}
+
+/// Extension and argument of a document tab; `None` for the chat.
+pub fn split_document(id: &str) -> Option<(&str, &str)> {
+    id.split_once(':')
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -40,6 +57,7 @@ impl Default for TabLayout {
             }],
             focused: 0,
             split: EVEN_SPLIT,
+            preview: None,
         }
     }
 }
@@ -74,6 +92,11 @@ impl TabLayout {
         }
         if !seen.contains(CHAT) {
             return Err("the chat tab is missing".into());
+        }
+        if let Some(preview) = &self.preview
+            && !seen.contains(preview.as_str())
+        {
+            return Err(format!("preview tab `{preview}` is not open"));
         }
         Ok(())
     }
@@ -131,6 +154,49 @@ impl TabLayout {
         self.activate(target, id);
     }
 
+    /// Opens `id` in place of the preview tab, or like [`Self::open`] when
+    /// there is none; `id` becomes the preview. An open tab just comes
+    /// forward and keeps its kind.
+    pub fn open_preview(&mut self, id: &str, can_split: bool) {
+        if let Some(group) = self.group_of(id) {
+            self.activate(group, id);
+            return;
+        }
+        let replaced = self
+            .preview
+            .take()
+            .and_then(|old| Some((self.group_of(&old)?, old)));
+        match replaced {
+            Some((group, old)) => {
+                let tabs = &mut self.groups[group];
+                let ix = tabs
+                    .tabs
+                    .iter()
+                    .position(|tab| *tab == old)
+                    .expect("tab is open");
+                tabs.tabs[ix] = id.to_string();
+                if tabs.previous.as_deref() == Some(old.as_str()) {
+                    tabs.previous = None;
+                }
+                if tabs.active.as_deref() == Some(old.as_str()) {
+                    tabs.active = Some(id.to_string());
+                    self.focused = group;
+                } else {
+                    self.activate(group, id);
+                }
+            }
+            None => self.open(id, can_split),
+        }
+        self.preview = Some(id.to_string());
+    }
+
+    /// Turns the preview tab `id` into a regular one.
+    pub fn keep(&mut self, id: &str) {
+        if self.preview.as_deref() == Some(id) {
+            self.preview = None;
+        }
+    }
+
     /// Opens `id` in `group`, moving it there when open elsewhere.
     pub fn open_in(&mut self, id: &str, group: usize) {
         if group >= self.groups.len() {
@@ -163,6 +229,7 @@ impl TabLayout {
         let Some(from) = self.group_of(id) else {
             return;
         };
+        self.keep(id);
         if group == from {
             let tabs = &mut self.groups[group].tabs;
             if before != Some(id) {
@@ -267,6 +334,7 @@ impl TabLayout {
     }
 
     fn detach(&mut self, group: usize, id: &str) {
+        self.keep(id);
         let tabs = &mut self.groups[group];
         let Some(ix) = tabs.tabs.iter().position(|tab| tab == id) else {
             return;
@@ -396,5 +464,35 @@ mod tests {
         broken.groups[0].tabs = vec!["files".into()];
         broken.groups[0].active = Some("files".into());
         assert!(broken.validate().is_err());
+    }
+
+    #[test]
+    fn preview_tab_is_replaced_until_kept() {
+        let mut layout = TabLayout::default();
+        layout.open_preview("files:a.rs", false);
+        layout.open_preview("files:b.rs", false);
+        assert_eq!(
+            tabs(&layout),
+            [(vec![CHAT, "files:b.rs"], Some("files:b.rs"))]
+        );
+        assert_eq!(layout.preview.as_deref(), Some("files:b.rs"));
+
+        // A kept tab stays; the next preview opens next to it.
+        layout.keep("files:b.rs");
+        layout.open_preview("files:c.rs", false);
+        layout.open_preview("files:b.rs", false);
+        assert_eq!(layout.groups[0].tabs, [CHAT, "files:b.rs", "files:c.rs"]);
+        assert_eq!(layout.active(0), Some("files:b.rs"));
+        assert_eq!(layout.preview.as_deref(), Some("files:c.rs"));
+
+        // Closing the preview tab forgets it.
+        layout.close("files:c.rs");
+        assert_eq!(layout.preview, None);
+        assert!(layout.validate().is_ok());
+        assert_eq!(
+            super::split_document("files:src/a:b.rs"),
+            Some(("files", "src/a:b.rs"))
+        );
+        assert_eq!(super::split_document(CHAT), None);
     }
 }

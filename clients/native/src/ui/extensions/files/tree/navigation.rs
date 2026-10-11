@@ -1,9 +1,9 @@
-//! Keyboard control of the list column: arrows move the cursor, files under
-//! it open in the preview, Left/Right fold directories.
+//! Keyboard control of the list: arrows move the cursor and preview files
+//! under it, Left/Right fold directories, Enter keeps the file open.
 
 use gpui_kit::*;
 
-use super::{FilesPage, Mode, Tab};
+use super::{FilesSidebar, Tab};
 use crate::files::EntryKind;
 
 pub(super) const LIST_CONTEXT: &str = "ProteusFilesList";
@@ -17,8 +17,8 @@ gpui_kit::actions!(
         SelectLast,
         ExpandEntry,
         CollapseEntry,
+        OpenEntry,
         ToggleEntry,
-        ToggleDiff,
         FocusFilter,
     ]
 );
@@ -32,9 +32,8 @@ pub(in crate::ui::extensions) fn bind_keys(cx: &mut App) {
         KeyBinding::new("end", SelectLast, context),
         KeyBinding::new("right", ExpandEntry, context),
         KeyBinding::new("left", CollapseEntry, context),
-        KeyBinding::new("enter", ToggleEntry, context),
+        KeyBinding::new("enter", OpenEntry, context),
         KeyBinding::new("space", ToggleEntry, context),
-        KeyBinding::new("d", ToggleDiff, context),
         KeyBinding::new("/", FocusFilter, context),
         KeyBinding::new("ctrl-f", FocusFilter, context),
     ]);
@@ -48,7 +47,7 @@ struct Stop {
     depth: usize,
 }
 
-impl FilesPage {
+impl FilesSidebar {
     /// Registers the list actions on the focused column.
     pub(super) fn list_actions(&self, element: Div, cx: &mut Context<Self>) -> Div {
         element
@@ -66,15 +65,11 @@ impl FilesPage {
             .on_action(cx.listener(|this, _: &ExpandEntry, window, cx| this.expand(window, cx)))
             .on_action(cx.listener(|this, _: &CollapseEntry, window, cx| this.collapse(window, cx)))
             .on_action(
-                cx.listener(|this, _: &ToggleEntry, window, cx| this.toggle_entry(window, cx)),
+                cx.listener(|this, _: &OpenEntry, window, cx| this.activate(true, window, cx)),
             )
-            .on_action(cx.listener(|this, _: &ToggleDiff, window, cx| {
-                let mode = match this.mode {
-                    Mode::File => Mode::Diff,
-                    Mode::Diff => Mode::File,
-                };
-                this.set_mode(mode, window, cx);
-            }))
+            .on_action(
+                cx.listener(|this, _: &ToggleEntry, window, cx| this.activate(false, window, cx)),
+            )
             .on_action(cx.listener(|this, _: &FocusFilter, window, cx| {
                 this.set_tab(Tab::Tree, cx);
                 this.filter
@@ -82,7 +77,7 @@ impl FilesPage {
             }))
     }
 
-    fn stops(&self) -> Vec<Stop> {
+    fn stops(&self, cx: &App) -> Vec<Stop> {
         match self.tab {
             Tab::Tree => self
                 .rows
@@ -95,6 +90,8 @@ impl FilesPage {
                 })
                 .collect(),
             Tab::Changes => self
+                .changes
+                .read(cx)
                 .changes
                 .iter()
                 .flat_map(|changes| &changes.entries)
@@ -115,7 +112,7 @@ impl FilesPage {
 
     /// Moves the cursor by `offset` rows; `isize::MIN`/`MAX` jump to the ends.
     fn step(&mut self, offset: isize, window: &mut Window, cx: &mut Context<Self>) {
-        let stops = self.stops();
+        let stops = self.stops(cx);
         if stops.is_empty() {
             return;
         }
@@ -142,18 +139,15 @@ impl FilesPage {
             Tab::Changes => self.changes_scroll.scroll_to_item(index),
         }
         if !stop.directory {
-            let mode = match self.tab {
-                Tab::Tree => self.mode,
-                Tab::Changes => Mode::Diff,
-            };
-            self.select(stop.path.clone(), mode, window, cx);
+            let mode = self.mode();
+            self.open(&stop.path, mode, false, window, cx);
         }
         cx.notify();
     }
 
     /// Opens a folded directory or steps into an open one.
     fn expand(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let stops = self.stops();
+        let stops = self.stops(cx);
         let Some(index) = self.cursor_index(&stops) else {
             return self.step(1, window, cx);
         };
@@ -174,7 +168,7 @@ impl FilesPage {
 
     /// Folds an open directory or moves to the parent one.
     fn collapse(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let stops = self.stops();
+        let stops = self.stops(cx);
         let Some(index) = self.cursor_index(&stops) else {
             return;
         };
@@ -192,21 +186,27 @@ impl FilesPage {
         }
     }
 
-    fn toggle_entry(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let stops = self.stops();
+    /// Folds a directory, or opens the file: kept with focus for Enter,
+    /// as a preview for Space.
+    fn activate(&mut self, keep: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let stops = self.stops(cx);
         let Some(index) = self.cursor_index(&stops) else {
             return self.step(1, window, cx);
         };
-        if stops[index].directory {
-            self.tree.toggle(&stops[index].path);
+        let stop = &stops[index];
+        if stop.directory {
+            self.tree.toggle(&stop.path);
             self.sync_rows(cx);
+        } else {
+            let (path, mode) = (stop.path.clone(), self.mode());
+            self.open(&path, mode, keep, window, cx);
         }
     }
 
     /// Enter in the filter hands the keyboard over to the list.
     pub(super) fn enter_list(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.focus_handle.focus(window, cx);
-        let stops = self.stops();
+        let stops = self.stops(cx);
         if self.cursor_index(&stops).is_none()
             && let Some(index) = stops.iter().position(|stop| !stop.directory)
         {

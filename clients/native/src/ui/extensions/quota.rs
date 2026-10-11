@@ -1,16 +1,14 @@
+use std::rc::Rc;
 use std::time::Duration;
 
 use gpui_kit::assets::IconName as Lucide;
-use gpui_kit::component::button::{Button, ButtonVariants};
-use gpui_kit::component::progress::Progress;
 use gpui_kit::component::*;
 use gpui_kit::*;
 use proteus_contracts::contracts::{ModelQuotaBucket, ModelQuotaSnapshot};
 
 use super::badge::{Details, badge_frame};
-use super::frame::{is_open, muted, row, widget_frame};
 use super::host::{Host, HostEvent};
-use super::session_badges::ring;
+use super::session_badges::ring_face;
 use super::shared::shared;
 use crate::ui::format::local_time;
 
@@ -18,8 +16,7 @@ pub(super) const ID: &str = "quota";
 const WEEK_SECONDS: u64 = 604_800;
 const REFRESH: Duration = Duration::from_secs(60);
 
-/// Model quota of the active profile, shared by the panel widget and the
-/// icon: refreshed by timer, after runs and when the panel opens.
+/// Model quota of the active profile: refreshed by timer and after runs.
 struct QuotaModel {
     host: Host,
     /// `Some(None)`: the active provider reports no quota.
@@ -95,82 +92,8 @@ impl QuotaModel {
     }
 }
 
-/// Panel widget with every quota window.
-pub(super) struct QuotaWidget {
-    model: Entity<QuotaModel>,
-    _observe: Subscription,
-}
-
-pub(super) fn build(host: Host, window: &mut Window, cx: &mut App) -> AnyView {
-    let model = model(host, window, cx);
-    cx.new(|cx| QuotaWidget {
-        _observe: cx.observe(&model, |_, _, cx| cx.notify()),
-        model,
-    })
-    .into()
-}
-
-impl QuotaWidget {
-    fn body(&self, cx: &Context<Self>) -> AnyElement {
-        let model = self.model.read(cx);
-        let theme = cx.theme();
-        let content = match &model.loaded {
-            None if model.error.is_none() => muted("Загрузка…", cx).into_any_element(),
-            None => div().into_any_element(),
-            Some(None) => muted("Текущий провайдер не предоставляет сведения о лимитах.", cx)
-                .into_any_element(),
-            Some(Some(snapshot)) => render_snapshot(snapshot, cx).into_any_element(),
-        };
-        let status = match (&model.error, model.snapshot()) {
-            (Some(error), _) => div()
-                .text_xs()
-                .text_color(theme.danger)
-                .child(format!("Не удалось получить лимиты: {error}")),
-            (None, Some(snapshot)) => div()
-                .text_xs()
-                .text_color(theme.muted_foreground)
-                .child(format!("Данные на {}", local_time(snapshot.observed_at))),
-            (None, None) => div(),
-        };
-        let quota = self.model.clone();
-        v_flex()
-            .gap_2()
-            .child(content)
-            .child(
-                h_flex()
-                    .gap_2()
-                    .items_center()
-                    .child(status.flex_1().min_w_0())
-                    .child(
-                        Button::new("quota-refresh")
-                            .ghost()
-                            .xsmall()
-                            .icon(IconName::RefreshCw)
-                            .tooltip("Обновить")
-                            .loading(model.loading)
-                            .on_click(move |_, _, cx| {
-                                quota.update(cx, |model, cx| model.refresh(cx))
-                            }),
-                    ),
-            )
-            .into_any_element()
-    }
-}
-
-impl Render for QuotaWidget {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let summary = self
-            .model
-            .read(cx)
-            .snapshot()
-            .and_then(weekly_remaining)
-            .map(|left| format!("осталось {}", percent(left)).into());
-        let body = is_open(ID, cx).then(|| self.body(cx));
-        widget_frame(ID, "Лимиты модели".into(), summary, body, cx)
-    }
-}
-
-/// Icon: a ring of the used share of the tightest weekly window.
+/// Icon: a ring of the used share of the tightest weekly window; every
+/// window, plan and credits are in its tooltip.
 struct QuotaBadge {
     host: Host,
     model: Entity<QuotaModel>,
@@ -199,22 +122,8 @@ impl Render for QuotaBadge {
         match (&model.error, &model.loaded) {
             (Some(error), _) => details = details.line(format!("Не удалось получить: {error}")),
             (None, None) => details = details.line("Загрузка…"),
-            (None, Some(None)) => {
-                details = details.line("Провайдер не сообщает лимиты.");
-            }
-            (None, Some(Some(snapshot))) => {
-                for bucket in &snapshot.buckets {
-                    for window in &bucket.windows {
-                        details = details.line(format!(
-                            "{} · {}: осталось {} · {}",
-                            bucket_name(bucket),
-                            duration(window.duration_seconds, &window.id),
-                            percent(remaining(window.used_percent)),
-                            reset_label(window.resets_at, now_seconds()),
-                        ));
-                    }
-                }
-            }
+            (None, Some(None)) => details = details.line("Провайдер не сообщает лимиты."),
+            (None, Some(Some(snapshot))) => details = describe(snapshot, details),
         }
         let face = match left {
             Some(left) => {
@@ -225,86 +134,47 @@ impl Render for QuotaBadge {
                 } else {
                     theme.muted_foreground
                 };
-                ring("quota-badge-ring", (100. - left) as f32, color).into_any_element()
+                ring_face("quota-badge-ring", (100. - left) as f32, color)
             }
-            None => Icon::new(Lucide::Gauge).small().into_any_element(),
+            None => Rc::new(|| Icon::new(Lucide::Gauge).small().into_any_element()),
         };
         badge_frame(ID, face, details, &self.host, cx)
     }
 }
 
-fn render_snapshot(snapshot: &ModelQuotaSnapshot, cx: &App) -> Div {
-    let theme = cx.theme();
-    let mut body = v_flex().gap_3();
+fn describe(snapshot: &ModelQuotaSnapshot, mut details: Details) -> Details {
     if let Some(plan) = &snapshot.plan {
-        body = body.child(muted(format!("План · {plan}"), cx));
+        details = details.line(format!("План: {plan}"));
     }
-    if snapshot.buckets.is_empty() {
-        body = body.child(muted("Окна лимитов не предоставлены.", cx));
-    }
-    for (bucket_ix, bucket) in snapshot.buckets.iter().enumerate() {
-        let mut section = v_flex()
-            .gap_1()
-            .child(div().text_sm().font_medium().child(bucket_name(bucket)));
+    for bucket in &snapshot.buckets {
         if bucket.limit_reached == Some(true) {
-            section = section.child(
-                div()
-                    .text_xs()
-                    .text_color(theme.danger)
-                    .child("Лимит исчерпан"),
-            );
+            details = details.line(format!("{}: лимит исчерпан", bucket_name(bucket)));
         } else if bucket.allowed == Some(false) {
-            section = section.child(
-                div()
-                    .text_xs()
-                    .text_color(theme.danger)
-                    .child("Использование сейчас недоступно"),
-            );
+            details = details.line(format!("{}: использование недоступно", bucket_name(bucket)));
         }
-        if bucket.windows.is_empty() {
-            section = section.child(muted("Окна лимитов не предоставлены.", cx));
+        for window in &bucket.windows {
+            details = details.line(format!(
+                "{} · {}: осталось {} · {}",
+                bucket_name(bucket),
+                duration(window.duration_seconds, &window.id),
+                percent(remaining(window.used_percent)),
+                reset_label(window.resets_at, now_seconds()),
+            ));
         }
-        for (window_ix, window) in bucket.windows.iter().enumerate() {
-            let left = remaining(window.used_percent);
-            let color = if left <= 10. {
-                theme.danger
-            } else {
-                theme.muted_foreground
-            };
-            section = section
-                .child(row(
-                    duration(window.duration_seconds, &window.id),
-                    format!("осталось {}", percent(left)),
-                    cx,
-                ))
-                .child(
-                    Progress::new(("quota-bar", bucket_ix * 16 + window_ix))
-                        .value(left as f32)
-                        .color(color)
-                        .xsmall(),
-                )
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(theme.muted_foreground)
-                        .child(reset_label(window.resets_at, now_seconds())),
-                );
-        }
-        body = body.child(section);
     }
     if let Some(credits) = &snapshot.credits {
         let value = if credits.unlimited {
-            "Без ограничений".to_owned()
+            "без ограничений".to_owned()
         } else if let Some(balance) = &credits.balance {
             balance.clone()
         } else if credits.available {
-            "Доступны".to_owned()
+            "доступны".to_owned()
         } else {
-            "Нет доступных".to_owned()
+            "нет доступных".to_owned()
         };
-        body = body.child(row("Кредиты", value, cx));
+        details = details.line(format!("Кредиты: {value}"));
     }
-    body
+    details.line(format!("Данные на {}", local_time(snapshot.observed_at)))
 }
 
 fn bucket_name(bucket: &ModelQuotaBucket) -> String {

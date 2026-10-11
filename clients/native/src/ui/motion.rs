@@ -89,27 +89,6 @@ pub(super) fn chevron(id: impl Into<ElementId>, open: bool, color: Hsla) -> AnyE
     .into_any_element()
 }
 
-/// Width spring for side panels; `open` drives 0 → `width`.
-pub(super) fn reveal_width<E: IntoElement + Styled + 'static>(
-    element: E,
-    id: impl Into<ElementId>,
-    open: bool,
-    width: Pixels,
-) -> AnyElement {
-    if !moves() {
-        return element
-            .w(if open { width } else { px(0.) })
-            .into_any_element();
-    }
-    element
-        .with_spring(
-            id,
-            SpringAnimation::new(SPRING).to(open).from(false),
-            move |element, phase| element.w(phase.clamp(0.0..=1.0).interpolate(px(0.), width)),
-        )
-        .into_any_element()
-}
-
 /// Keys that changed a moment ago: lets list rows animate only right after
 /// they appeared or toggled, not every time they scroll back into view.
 #[derive(Default)]

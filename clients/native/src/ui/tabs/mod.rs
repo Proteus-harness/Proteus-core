@@ -1,6 +1,7 @@
-//! Tabs of the main area: the chat and extension pages in one or two
-//! groups. The layout lives in the client preferences; this module turns
-//! user actions into layout changes and keeps the focus where the user is.
+//! Tabs of the main area: the chat and extension documents (files) in one
+//! or two groups. The layout lives in the client preferences; this module
+//! turns user actions into layout changes and keeps the focus where the
+//! user is.
 
 mod bar;
 mod view;
@@ -9,7 +10,7 @@ pub(super) use view::SplitDrag;
 
 use gpui_kit::*;
 
-use super::extensions::{self, Host, PageView};
+use super::extensions::{self, Host, OpenDocument, SurfaceView};
 use super::prefs;
 use super::workspace::Workspace;
 use crate::tabs::{CHAT, TabLayout};
@@ -18,10 +19,10 @@ use crate::tabs::{CHAT, TabLayout};
 const SPLIT_WIDTH: f32 = 760.;
 
 impl Workspace {
-    /// The saved layout without tabs whose pages are gone.
+    /// The saved layout without tabs whose extensions are gone.
     pub(super) fn tab_layout(&self, cx: &App) -> TabLayout {
         let mut layout = prefs::current(cx).tabs.clone();
-        layout.retain(|id| page_available(id, cx));
+        layout.retain(|id| tab_available(id, cx));
         if let Some(split) = self.split_drag {
             layout.set_split(split);
         }
@@ -30,55 +31,59 @@ impl Workspace {
 
     fn update_tabs(&mut self, cx: &mut Context<Self>, change: impl FnOnce(&mut TabLayout)) {
         let mut layout = prefs::current(cx).tabs.clone();
-        layout.retain(|id| page_available(id, cx));
+        layout.retain(|id| tab_available(id, cx));
         change(&mut layout);
+        self.documents.retain(|id, _| layout.group_of(id).is_some());
         prefs::update(cx, |prefs| prefs.tabs = layout);
         cx.notify();
     }
 
-    /// The page of an enabled extension, built on first use.
-    pub(super) fn ensure_page(
+    /// The view of a document tab, built on first use.
+    pub(super) fn ensure_document(
         &mut self,
         id: &str,
         window: &mut Window,
         cx: &mut Context<Self>,
-    ) -> Option<PageView> {
-        let manifest = extensions::find(id)?;
-        let surface = manifest.page.as_ref()?;
-        if !extensions::is_enabled(id, cx) {
-            return None;
+    ) -> Option<SurfaceView> {
+        if let Some(view) = self.documents.get(id) {
+            return Some(view.clone());
         }
-        if let Some(page) = self.pages.get(manifest.id) {
-            return Some(page.clone());
-        }
-        let page = (surface.build)(Host::new(cx.weak_entity()), window, cx);
-        self.pages.insert(manifest.id, page.clone());
-        Some(page)
+        let (manifest, argument) = extensions::document(id, cx)?;
+        let surface = manifest.document.as_ref()?;
+        let view = (surface.build)(Host::new(cx.weak_entity()), &argument, window, cx);
+        self.documents.insert(id.to_string(), view.clone());
+        Some(view)
     }
 
-    /// Opens an extension page as a tab, or shows it where it is open.
-    pub(super) fn open_tab(
+    /// Opens a document as a tab, or shows it where it is open. A preview
+    /// tab is replaced by the next preview until it is kept.
+    pub(super) fn open_document(
         &mut self,
-        id: &'static str,
+        id: &str,
+        open: OpenDocument,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<AnyView> {
-        let page = self.ensure_page(id, window, cx)?;
+        let view = self.ensure_document(id, window, cx)?;
         self.close_settings(cx);
         let can_split = self.main_width(window) >= px(SPLIT_WIDTH);
-        self.update_tabs(cx, |tabs| tabs.open(id, can_split));
-        page.focus.focus(window, cx);
-        Some(page.view)
+        self.update_tabs(cx, |tabs| {
+            if open.preview {
+                tabs.open_preview(id, can_split);
+            } else {
+                tabs.open(id, can_split);
+                tabs.keep(id);
+            }
+        });
+        if open.focus {
+            view.focus.focus(window, cx);
+        }
+        Some(view.view)
     }
 
-    /// Rough width of the area between the sessions list and the panel.
+    /// Rough width of the area right of the sidebar.
     fn main_width(&self, window: &Window) -> Pixels {
-        let panel = if self.panel.open {
-            super::panel::PANEL_WIDTH
-        } else {
-            0.
-        };
-        window.viewport_size().width - px(super::sidebar::SIDEBAR_WIDTH + panel)
+        window.viewport_size().width - px(super::sidebar::SIDEBAR_WIDTH)
     }
 
     pub(super) fn activate_tab(
@@ -90,6 +95,11 @@ impl Workspace {
     ) {
         self.update_tabs(cx, |tabs| tabs.activate(group, id));
         self.focus_tab(id, window, cx);
+    }
+
+    /// Turns a preview tab into a regular one.
+    pub(super) fn keep_tab(&mut self, id: &str, cx: &mut Context<Self>) {
+        self.update_tabs(cx, |tabs| tabs.keep(id));
     }
 
     pub(super) fn close_tab(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
@@ -183,48 +193,26 @@ impl Workspace {
     fn focus_tab(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
         if id == CHAT {
             self.focus_composer(window, cx);
-        } else if let Some(page) = self.ensure_page(id, window, cx) {
-            page.focus.focus(window, cx);
+        } else if let Some(view) = self.ensure_document(id, window, cx) {
+            view.focus.focus(window, cx);
         }
     }
 
-    /// Brings an extension forward: its tab, or else its panel widget.
+    /// Brings an extension forward: its view in the left sidebar.
     pub(super) fn activate_extension(
         &mut self,
         id: &'static str,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(manifest) = extensions::find(id) else {
-            return;
-        };
-        if manifest.page.is_some() {
-            self.open_tab(id, window, cx);
-        } else if manifest.panel.is_some() {
-            self.show_widget(id, window, cx);
+        if extensions::find(id).is_some_and(|manifest| manifest.sidebar.is_some()) {
+            self.close_settings(cx);
+            self.show_sidebar(Some(id), window, cx);
         }
-    }
-
-    pub(super) fn show_widget(
-        &mut self,
-        id: &'static str,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.close_settings(cx);
-        if prefs::current(cx).extensions.is_collapsed(id) {
-            prefs::update(cx, |prefs| prefs.extensions.toggle_collapsed(id));
-        }
-        if !self.panel.open {
-            self.toggle_panel(window, cx);
-        }
-        cx.notify();
     }
 }
 
 /// Whether a tab id stands for something that can be shown.
-pub(super) fn page_available(id: &str, cx: &App) -> bool {
-    id == CHAT
-        || extensions::find(id)
-            .is_some_and(|manifest| manifest.page.is_some() && extensions::is_enabled(id, cx))
+pub(super) fn tab_available(id: &str, cx: &App) -> bool {
+    id == CHAT || extensions::document(id, cx).is_some()
 }

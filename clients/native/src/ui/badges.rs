@@ -3,8 +3,8 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use super::extensions::{self, DraggedBadge, Host};
-use super::prefs;
 use super::workspace::Workspace;
+use super::{drag, prefs};
 use crate::preferences::BadgePlace;
 
 impl Workspace {
@@ -35,7 +35,7 @@ impl Workspace {
         place: BadgePlace,
         cx: &App,
     ) -> impl IntoElement + use<> {
-        let dragging = cx.has_active_drag();
+        let dragging = drag::is_dragging("badge:", cx);
         let manifests = extensions::visible_badges(place, cx);
         let empty = manifests.is_empty();
         let slots: Vec<_> = manifests
@@ -43,7 +43,7 @@ impl Workspace {
             .filter_map(|manifest| {
                 let view = self.badges.get(manifest.id)?.clone();
                 Some(
-                    drop_slot(slot_id(place, manifest.id), place, Some(manifest.id), cx)
+                    drop_slot(slot_name(place, manifest.id), place, Some(manifest.id), cx)
                         .child(view),
                 )
             })
@@ -55,7 +55,7 @@ impl Workspace {
             .children(slots)
             .when(dragging || empty, |strip| {
                 strip.child(
-                    drop_slot(slot_id(place, "end"), place, None, cx)
+                    drop_slot(slot_name(place, "end"), place, None, cx)
                         .h_7()
                         .when(dragging, |slot| slot.min_w(px(28.))),
                 )
@@ -63,27 +63,28 @@ impl Workspace {
     }
 }
 
-fn slot_id(place: BadgePlace, key: &str) -> ElementId {
+fn slot_name(place: BadgePlace, key: &str) -> SharedString {
     let place = match place {
         BadgePlace::Composer => "composer",
         BadgePlace::Header => "header",
         BadgePlace::Hidden => "hidden",
     };
-    ElementId::Name(SharedString::from(format!("badge-slot-{place}-{key}")))
+    SharedString::from(format!("badge-slot-{place}-{key}"))
 }
 
-/// Drop target placing a dragged icon before `before` (or last) in `place`.
+/// Drop target placing a dragged icon before `before` (or last) in `place`;
+/// a thin line shows where it lands.
 fn drop_slot(
-    id: impl Into<ElementId>,
+    name: SharedString,
     place: BadgePlace,
     before: Option<&'static str>,
     cx: &App,
 ) -> Stateful<Div> {
-    let target = cx.theme().drop_target;
     div()
-        .id(id)
-        .rounded(cx.theme().radius)
-        .drag_over::<DraggedBadge>(move |style, _, _, _| style.bg(target))
+        .id(ElementId::Name(name.clone()))
+        .group(name.clone())
+        .relative()
+        .child(drag::insertion_mark::<DraggedBadge>(name, cx))
         .on_drop(move |dragged: &DraggedBadge, _, cx| {
             let known = extensions::badge_ids();
             prefs::update(cx, |preferences| {

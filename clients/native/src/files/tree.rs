@@ -106,10 +106,6 @@ impl FileTree {
             .collect();
     }
 
-    pub fn status(&self, path: &str) -> Option<ChangeStatus> {
-        self.statuses.get(path).copied()
-    }
-
     /// Visible rows in display order. A non-empty filter keeps matching
     /// entries of the listed directories together with their ancestors and
     /// shows them expanded.

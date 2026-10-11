@@ -1,11 +1,11 @@
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::message_scroller::MessageScroller;
 use gpui_kit::component::*;
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use super::bar::DraggedTab;
 use crate::tabs::{CHAT, TabLayout};
-use crate::ui::extensions;
 use crate::ui::motion;
 use crate::ui::thread::CONTENT_WIDTH;
 use crate::ui::workspace::Workspace;
@@ -75,10 +75,10 @@ impl Workspace {
     ) -> Div {
         let content = match layout.active(group) {
             Some(CHAT) => self.render_chat(window, cx).into_any_element(),
-            Some(id) => match self.ensure_page(id, window, cx) {
-                Some(page) => motion::rise_in(
-                    div().size_full().child(page.view),
-                    ElementId::Name(format!("tab-page-{id}").into()),
+            Some(id) => match self.ensure_document(id, window, cx) {
+                Some(document) => motion::rise_in(
+                    div().size_full().child(document.view),
+                    ElementId::Name(format!("tab-document-{id}").into()),
                 )
                 .into_any_element(),
                 None => div().into_any_element(),
@@ -149,56 +149,35 @@ impl Workspace {
         })
     }
 
-    /// A group without tabs offers the tabs that can go there.
+    /// A group without tabs explains how to fill it.
     fn render_empty_group(&self, group: usize, layout: &TabLayout, cx: &Context<Self>) -> Div {
         let theme = cx.theme();
-        let mut choices: Vec<(String, Icon, SharedString)> = Vec::new();
-        if layout.group_of(CHAT) != Some(group) {
-            choices.push((
-                CHAT.to_string(),
-                Icon::new(gpui_kit::assets::IconName::MessageSquare),
-                "Чат".into(),
-            ));
-        }
-        for manifest in extensions::visible_pages(cx) {
-            if let Some(page) = &manifest.page {
-                choices.push((
-                    manifest.id.to_string(),
-                    (manifest.icon)(),
-                    page.title.into(),
-                ));
-            }
-        }
+        let chat_elsewhere = layout.group_of(CHAT) != Some(group);
         v_flex()
             .size_full()
             .items_center()
             .justify_center()
             .gap_3()
+            .px_6()
             .child(
                 div()
                     .text_sm()
+                    .text_center()
                     .text_color(theme.muted_foreground)
-                    .child("Выберите, что открыть в этой области"),
+                    .child("Откройте файл в боковой панели или перетащите сюда вкладку."),
             )
-            .child(
-                v_flex()
-                    .gap_1()
-                    .children(
-                        choices
-                            .into_iter()
-                            .enumerate()
-                            .map(|(ix, (id, icon, title))| {
-                                Button::new(("empty-group-open", ix))
-                                    .ghost()
-                                    .small()
-                                    .icon(icon)
-                                    .label(title)
-                                    .on_click(cx.listener(move |this, _, window, cx| {
-                                        this.open_tab_in(&id, group, window, cx)
-                                    }))
-                            }),
-                    ),
-            )
+            .when(chat_elsewhere, |column| {
+                column.child(
+                    Button::new(("empty-group-chat", group))
+                        .ghost()
+                        .small()
+                        .icon(Icon::new(gpui_kit::assets::IconName::MessageSquare))
+                        .label("Перенести чат сюда")
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.open_tab_in(CHAT, group, window, cx)
+                        })),
+                )
+            })
             .child(
                 Button::new(("empty-group-close", group))
                     .ghost()

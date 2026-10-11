@@ -24,8 +24,6 @@ pub(in crate::ui) enum HostEvent {
     SessionOpened,
     /// A run of the current session finished; files and quotas may differ.
     RunSettled,
-    /// The side panel was opened.
-    PanelOpened,
 }
 
 impl EventEmitter<HostEvent> for Workspace {}
@@ -80,21 +78,26 @@ impl Host {
         ))
     }
 
-    /// Opens an extension page as a tab and returns its view.
-    pub(in crate::ui) fn open_page(
+    /// Opens a document of extension `extension` as a tab and returns its
+    /// view. A preview tab is replaced by the next preview until it is kept.
+    pub(in crate::ui) fn open_document(
         &self,
-        id: &'static str,
+        extension: &'static str,
+        argument: &str,
+        open: OpenDocument,
         window: &mut Window,
         cx: &mut App,
     ) -> Option<AnyView> {
+        let id = crate::tabs::document(extension, argument);
         self.workspace
-            .update(cx, |workspace, cx| workspace.open_tab(id, window, cx))
+            .update(cx, |workspace, cx| {
+                workspace.open_document(&id, open, window, cx)
+            })
             .ok()
             .flatten()
     }
 
-    /// Brings an extension forward: its page if it has one, otherwise its
-    /// panel widget.
+    /// Brings an extension forward, e.g. shows its sidebar view.
     pub(in crate::ui) fn activate(&self, id: &'static str, window: &mut Window, cx: &mut App) {
         self.workspace
             .update(cx, |workspace, cx| {
@@ -102,13 +105,15 @@ impl Host {
             })
             .ok();
     }
+}
 
-    /// Opens the side panel with the extension's widget expanded.
-    pub(in crate::ui) fn show_widget(&self, id: &'static str, window: &mut Window, cx: &mut App) {
-        self.workspace
-            .update(cx, |workspace, cx| workspace.show_widget(id, window, cx))
-            .ok();
-    }
+/// How [`Host::open_document`] shows a document.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::ui) struct OpenDocument {
+    /// Temporary tab, replaced by the next preview.
+    pub preview: bool,
+    /// Move keyboard focus to the document.
+    pub focus: bool,
 }
 
 /// Read-only view of the workspace for one call of [`Host::read`].
@@ -130,5 +135,14 @@ impl HostView<'_> {
             .find(|summary| summary.session_dir == session.dir)?
             .activity
             .as_ref()
+    }
+
+    /// Argument of the document tab active in the focused area, when the
+    /// tab belongs to `extension`.
+    pub(in crate::ui) fn active_document(&self, extension: &str, cx: &App) -> Option<String> {
+        let layout = self.workspace.tab_layout(cx);
+        let active = layout.active(layout.focused)?;
+        let (owner, argument) = crate::tabs::split_document(active)?;
+        (owner == extension).then(|| argument.to_string())
     }
 }

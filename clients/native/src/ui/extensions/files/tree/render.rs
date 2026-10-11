@@ -7,20 +7,18 @@ use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
-use super::{FilesPage, Tab};
+use super::{FilesSidebar, Tab};
 use crate::files::{ChangeStatus, EntryKind};
 use crate::ui::extensions::files::{path_label, status_color};
 
-const TREE_WIDTH: f32 = 320.;
-const TREE_MIN_WIDTH: f32 = 200.;
 const ROW_HEIGHT: f32 = 26.;
 const INDENT: f32 = 14.;
 
-impl FilesPage {
+impl FilesSidebar {
     fn row_background(&self, path: &str, focused: bool, cx: &App) -> Option<Hsla> {
         let theme = cx.theme();
         if self.selected.as_deref() == Some(path) {
-            Some(theme.list_active)
+            Some(theme.sidebar_accent)
         } else if focused && self.cursor.as_deref() == Some(path) {
             Some(theme.list_hover)
         } else {
@@ -36,7 +34,7 @@ impl FilesPage {
         let name_color = match row.status {
             Some(status) => status_color(status, cx),
             None if row.contains_changes => theme.warning,
-            None => theme.foreground,
+            None => theme.sidebar_foreground,
         };
         let leading = if row.loading {
             Spinner::new().xsmall().into_any_element()
@@ -107,98 +105,10 @@ impl FilesPage {
                         .child(status.mark()),
                 )
             })
-            .on_click(cx.listener(move |this, _, window, cx| this.click_row(index, window, cx)))
+            .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
+                this.click_row(index, event.click_count() > 1, window, cx)
+            }))
             .into_any_element()
-    }
-
-    pub(super) fn render_sidebar(
-        &self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement + use<> {
-        let (border, danger) = (cx.theme().border, cx.theme().danger);
-        let change_count = self.changes.as_ref().map(|changes| changes.entries.len());
-        let tabs = h_flex()
-            .gap_1()
-            .child(
-                tab_button("files-tab-tree", "Дерево", self.tab == Tab::Tree)
-                    .on_click(cx.listener(|this, _, _, cx| this.set_tab(Tab::Tree, cx))),
-            )
-            .child(
-                tab_button(
-                    "files-tab-changes",
-                    match change_count {
-                        Some(count) if count > 0 => format!("Изменения · {count}"),
-                        _ => "Изменения".to_string(),
-                    },
-                    self.tab == Tab::Changes,
-                )
-                .on_click(cx.listener(|this, _, _, cx| this.set_tab(Tab::Changes, cx))),
-            )
-            .child(div().flex_1())
-            .child(
-                Button::new("files-refresh")
-                    .icon(IconName::RefreshCw)
-                    .ghost()
-                    .xsmall()
-                    .tooltip("Обновить")
-                    .on_click(cx.listener(|this, _, window, cx| this.reload(window, cx))),
-            );
-        let focused = self.focus_handle.contains_focused(window, cx);
-        let list = match self.tab {
-            Tab::Tree if self.rows.is_empty() && !self.query.is_empty() => {
-                note("Совпадений в открытых папках нет.", cx).into_any_element()
-            }
-            Tab::Tree => uniform_list(
-                "files-tree",
-                self.rows.len(),
-                cx.processor(move |this, range: Range<usize>, _, cx| {
-                    range
-                        .map(|index| this.render_row(index, focused, cx))
-                        .collect::<Vec<_>>()
-                }),
-            )
-            .track_scroll(&self.list)
-            .flex_1()
-            .min_h_0()
-            .pb_2()
-            .into_any_element(),
-            Tab::Changes => self.render_changes(focused, cx).into_any_element(),
-        };
-        let list = self
-            .list_actions(v_flex().flex_1().min_h_0(), cx)
-            .track_focus(&self.focus_handle)
-            .child(list);
-        v_flex()
-            .w(relative(0.4))
-            .min_w(px(TREE_MIN_WIDTH))
-            .max_w(px(TREE_WIDTH))
-            .flex_none()
-            .h_full()
-            .border_r_1()
-            .border_color(border)
-            .child(div().px_3().py_2().child(tabs))
-            .when_some(self.error.clone(), |column, error| {
-                column.child(
-                    div()
-                        .px_3()
-                        .pb_2()
-                        .text_xs()
-                        .text_color(danger)
-                        .child(error),
-                )
-            })
-            .when(self.tab == Tab::Tree, |column| {
-                column.child(
-                    div().px_3().pb_2().child(
-                        Input::new(&self.filter)
-                            .small()
-                            .cleanable(true)
-                            .prefix(Icon::new(IconName::Search).small()),
-                    ),
-                )
-            })
-            .child(list)
     }
 
     fn render_changes(&self, focused: bool, cx: &mut Context<Self>) -> impl IntoElement + use<> {
@@ -210,7 +120,11 @@ impl FilesPage {
             .overflow_y_scroll()
             .track_scroll(&self.changes_scroll)
             .pb_2();
-        let Some(changes) = &self.changes else {
+        let model = self.changes.read(cx);
+        if let Some(error) = &model.error {
+            return list.child(note(format!("Не удалось получить изменения: {error}"), cx));
+        }
+        let Some(changes) = &model.changes else {
             return list.child(note("Загрузка…", cx));
         };
         if !changes.repository {
@@ -250,21 +164,105 @@ impl FilesPage {
                         gpui_kit::component::tooltip::Tooltip::new(label).build(window, cx)
                     }
                 })
-                .on_click(cx.listener(move |this, _, window, cx| {
-                    this.click_change(path.clone(), window, cx)
+                .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
+                    this.click_change(path.clone(), event.click_count() > 1, window, cx)
                 }))
         });
-        list.children(rows).when(changes.truncated, |list| {
-            list.child(note("Показана только часть изменений.", cx))
-        })
+        let truncated = changes.truncated;
+        list.children(rows.collect::<Vec<_>>())
+            .when(truncated, |list| {
+                list.child(note("Показана только часть изменений.", cx))
+            })
     }
 }
 
-pub(super) fn tab_button(
-    id: &'static str,
-    label: impl Into<SharedString>,
-    selected: bool,
-) -> Button {
+impl Render for FilesSidebar {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.follow_active(cx);
+        let danger = cx.theme().danger;
+        let model = self.changes.read(cx);
+        let change_count = model.count().filter(|count| *count > 0);
+        let refreshing = model.is_loading();
+        let tabs = h_flex()
+            .gap_1()
+            .child(
+                tab_button("files-tab-tree", "Дерево", self.tab == Tab::Tree)
+                    .on_click(cx.listener(|this, _, _, cx| this.set_tab(Tab::Tree, cx))),
+            )
+            .child(
+                tab_button(
+                    "files-tab-changes",
+                    match change_count {
+                        Some(count) => format!("Изменения · {count}"),
+                        None => "Изменения".to_string(),
+                    },
+                    self.tab == Tab::Changes,
+                )
+                .on_click(cx.listener(|this, _, _, cx| this.set_tab(Tab::Changes, cx))),
+            )
+            .child(div().flex_1())
+            .child(
+                Button::new("files-refresh")
+                    .icon(IconName::RefreshCw)
+                    .ghost()
+                    .xsmall()
+                    .loading(refreshing)
+                    .tooltip("Обновить")
+                    .on_click(cx.listener(|this, _, _, cx| this.reload(cx))),
+            );
+        let focused = self.focus_handle.contains_focused(window, cx);
+        let list = match self.tab {
+            Tab::Tree if self.rows.is_empty() && !self.query.is_empty() => {
+                note("Совпадений в открытых папках нет.", cx).into_any_element()
+            }
+            Tab::Tree => uniform_list(
+                "files-tree",
+                self.rows.len(),
+                cx.processor(move |this, range: Range<usize>, _, cx| {
+                    range
+                        .map(|index| this.render_row(index, focused, cx))
+                        .collect::<Vec<_>>()
+                }),
+            )
+            .track_scroll(&self.list)
+            .flex_1()
+            .min_h_0()
+            .pb_2()
+            .into_any_element(),
+            Tab::Changes => self.render_changes(focused, cx).into_any_element(),
+        };
+        let list = self
+            .list_actions(v_flex().flex_1().min_h_0(), cx)
+            .track_focus(&self.focus_handle)
+            .child(list);
+        v_flex()
+            .size_full()
+            .child(div().px_2().pb_2().child(tabs))
+            .when_some(self.error.clone(), |column, error| {
+                column.child(
+                    div()
+                        .px_3()
+                        .pb_2()
+                        .text_xs()
+                        .text_color(danger)
+                        .child(error),
+                )
+            })
+            .when(self.tab == Tab::Tree, |column| {
+                column.child(
+                    div().px_2().pb_2().child(
+                        Input::new(&self.filter)
+                            .small()
+                            .cleanable(true)
+                            .prefix(Icon::new(IconName::Search).small()),
+                    ),
+                )
+            })
+            .child(list)
+    }
+}
+
+fn tab_button(id: &'static str, label: impl Into<SharedString>, selected: bool) -> Button {
     Button::new(id)
         .label(label)
         .ghost()
@@ -272,11 +270,11 @@ pub(super) fn tab_button(
         .selected(selected)
 }
 
-fn note(text: &'static str, cx: &App) -> Div {
+fn note(text: impl Into<SharedString>, cx: &App) -> Div {
     div()
         .px_3()
         .py_2()
         .text_sm()
         .text_color(cx.theme().muted_foreground)
-        .child(text)
+        .child(text.into())
 }

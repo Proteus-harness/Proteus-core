@@ -1,5 +1,6 @@
-//! Data models shared by the views of one extension, e.g. its panel widget
-//! and its icon, so both show the same data and fetch it once.
+//! Data models shared by the views of one extension, e.g. its sidebar view,
+//! its document tabs and its icon, so all of them show the same data and
+//! fetch it once.
 
 use std::any::TypeId;
 use std::collections::HashMap;

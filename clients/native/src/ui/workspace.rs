@@ -15,9 +15,8 @@ use proteus_contracts::app_protocol::{
 use proteus_contracts::domain::{Event as RuntimeEvent, ThreadId};
 
 use super::context_usage::ContextUsage;
-use super::extensions::{HostEvent, PageView};
+use super::extensions::{HostEvent, SurfaceView};
 use super::motion::Recent;
-use super::panel::InfoPanel;
 use super::prefs::ClientPreferences;
 use super::settings::SettingsView;
 use super::user_input::UserInputDrafts;
@@ -114,10 +113,12 @@ pub struct Workspace {
     pub(super) window_title: String,
     pub(super) settings: Option<Entity<SettingsView>>,
     pub(super) settings_subscription: Option<Subscription>,
-    pub(super) panel: InfoPanel,
-    /// Extension pages and icons built so far; the tab layout itself is a
-    /// client preference.
-    pub(super) pages: HashMap<&'static str, PageView>,
+    /// Extension view shown in the sidebar instead of the sessions.
+    pub(super) sidebar_view: Option<&'static str>,
+    /// Extension views, document tabs and icons built so far; the tab
+    /// layout itself is a client preference.
+    pub(super) sidebars: HashMap<&'static str, SurfaceView>,
+    pub(super) documents: HashMap<String, SurfaceView>,
     pub(super) badges: HashMap<&'static str, AnyView>,
     /// Split position while the divider between tab groups is dragged.
     pub(super) split_drag: Option<u16>,
@@ -195,8 +196,9 @@ impl Workspace {
             window_title: String::new(),
             settings: None,
             settings_subscription: None,
-            panel: InfoPanel::default(),
-            pages: HashMap::new(),
+            sidebar_view: None,
+            sidebars: HashMap::new(),
+            documents: HashMap::new(),
             badges: HashMap::new(),
             split_drag: None,
             tab_drag: false,
