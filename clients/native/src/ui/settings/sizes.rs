@@ -18,15 +18,15 @@ impl SizeSliders {
         let view = prefs::current(cx).view;
         let chat_text = cx.new(|_| {
             SliderState::new()
-                .min(f32::from(*CHAT_TEXT.start()))
                 .max(f32::from(*CHAT_TEXT.end()))
+                .min(f32::from(*CHAT_TEXT.start()))
                 .step(1.)
                 .default_value(f32::from(view.chat_text))
         });
         let chat_width = cx.new(|_| {
             SliderState::new()
-                .min(f32::from(*CHAT_WIDTH.start()))
                 .max(f32::from(*CHAT_WIDTH.end()))
+                .min(f32::from(*CHAT_WIDTH.start()))
                 .step(10.)
                 .default_value(f32::from(view.chat_width))
         });
