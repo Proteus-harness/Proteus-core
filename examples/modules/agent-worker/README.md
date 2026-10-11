@@ -1,6 +1,6 @@
 # Process agent worker
 
-`agent.py` — минимальный внешний `Workflow` v19 worker. Он не импортирует
+`agent.py` — минимальный внешний `Workflow` v20 worker. Он не импортирует
 `proteus-core`, Rust crates или provider SDK: связь с runtime состоит только из
 strict JSON-RPC поверх stdin/stdout.
 
@@ -33,7 +33,7 @@ executable + config-ом без Rust adapter под конкретный `module
 ```bash
 cargo run -p proteus-module-protocol --bin proteus-component-conformance -- \
   --component-id python-agent \
-  --export '{"slot":"workflow","module_id":"python_agent_loop","contract_version":"v19","module_config":{}}' \
+  --export '{"slot":"workflow","module_id":"python_agent_loop","contract_version":"v20","module_config":{}}' \
   -- python3 -B examples/modules/agent-worker/agent.py
 ```
 
@@ -53,7 +53,7 @@ execution закрыт structural deny. Чтобы проверить tool loop 
 выберите нужные tool modules/tools и policy в своём профиле; менять worker для
 этого не требуется.
 
-## Contract v19
+## Contract v20
 
 `runtime.execution_id` идентифицирует общее выполнение. `conversation` и
 `model_ref` — явные nullable поля контракта; этот разговорный Python-loop
@@ -70,7 +70,12 @@ Module method: `run` (`ProcessWorkflowInput -> ProcessWorkflowResponse`).
 через `ProtocolError` без terminal history update. Перед tools и успешным
 завершением пример вызывает `host.history.checkpoint`: подтверждённая history
 и выбранные tool results сохраняются независимо от доставки terminal ответа.
-Заранее выделенные ids tool messages совпадают в checkpoint и terminal output.
+Checkpoint явно передаёт `preparation_target: null`, поскольку этот loop не
+предлагает compaction. Strict ACK содержит `history`, `messages` и nullable
+`revision`; example принимает полную canonical history и возвращённый progress,
+сохраняя request-only context отдельно. При detached ACK локальная полная
+история остаётся у workflow. Заранее выделенные ids tool messages совпадают
+в checkpoint и terminal output.
 Каждый binding содержит обязательный `execution_call`: этот пример передаёт
 исходный call без преобразований. Host проверяет совпадение id с `call_id` и
 точное соответствие последующего исполнения объявленной операции.
@@ -79,7 +84,7 @@ Module method: `run` (`ProcessWorkflowInput -> ProcessWorkflowResponse`).
 terminal и затем исполняет tools. Выбор раннего исполнения принадлежит workflow;
 Core предоставляет Python и Rust одну streaming boundary.
 
-Разрешённые callbacks определяются только парой `workflow/v19`:
+Разрешённые callbacks определяются только парой `workflow/v20`:
 
 - `host.runtime.status`;
 - `host.context.build`;

@@ -58,7 +58,7 @@ fn runtime_managed(source: &ToolSource, _name: &str) -> bool {
     agent_control::owns_tool_source(source)
         || matches!(
             source,
-            ToolSource::ProviderHosted { .. } | ToolSource::Config { .. } | ToolSource::Mcp { .. }
+            ToolSource::ProviderHosted { .. } | ToolSource::Mcp { .. }
         )
 }
 
@@ -100,12 +100,6 @@ mod tests {
             assert!(runtime_managed(&source, "registered_facade_tool"));
             assert!(tool_enabled(&config, &source, "registered_facade_tool"));
         }
-        assert!(runtime_managed(
-            &ToolSource::Config {
-                origin: "config".into()
-            },
-            "configured"
-        ));
         assert!(runtime_managed(
             &ToolSource::Mcp {
                 server: "local".into()

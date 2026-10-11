@@ -30,7 +30,7 @@ use proteus_contracts::process_module::{ModuleRegistry, ProcessModuleError, Work
 
 #[cfg(test)]
 pub(crate) use proteus_contracts::{
-    contracts::CompactionInput,
+    contracts::ContextPreparationInput,
     domain::{
         ContextBundle, Event, TokenUsageSnapshot, TokenUsageSource, ToolCall, ToolChoice,
         ToolResult, ToolSafety, ToolSpec,

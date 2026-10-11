@@ -181,7 +181,7 @@ plan flow UI может просить модель вернуть staged read-o
 а `ReadOnly` — требовать последовательного запуска.
 
 Общий host batch и streamed calls `coding.codex_loop` используют этот признак.
-`ToolExposure` сохраняет зарегистрированное значение, включая запрет; менять
+`BeforeToolSelection` сохраняет зарегистрированное значение, включая запрет; менять
 его при отборе нельзя. Provider-hosted tools исполняются провайдером и не
 участвуют в локальном gate. Root-owned `task` сохраняет отдельную семантику
 группы: совместный запуск детей требует подходящих `AgentProfile` с
@@ -235,7 +235,7 @@ exports, без callbacks или tool execution authority. Их данные в�
 
 Process tool names валидируются при регистрации: пустое имя и duplicate между
 modules отклоняются. Если явно включённый process tool совпал с
-builtin/configured tool, сборка registry завершается ошибкой конфигурации;
+core facade или MCP tool, сборка registry завершается ошибкой конфигурации;
 приоритет или silent skip не применяются.
 
 Subagent facade выбирается полем `agent_control.surface`. В режиме
@@ -257,8 +257,7 @@ history адресата, а его tools продолжают проходит�
 policy и safety. Fork, прямой peer mesh и writer/worktree spawn в этом режиме
 не реализованы.
 
-Config-defined `process`, inline stdio `mcp` и discovered
-`tools.mcp_servers` tools также считаются command execution boundary. Даже
+Обнаруженные через `tools.mcp_servers` tools считаются command execution boundary. Даже
 если config укажет `ReadOnly` или `WritesFiles`, runtime поднимает effective
 safety до `RunsCommands`, поэтому такие tools не видны и не исполняются в
 `plan` и запрещены в `auto`.
@@ -272,7 +271,7 @@ truncation перед событием `ToolFinished` и передачей ре
 `error_truncated`, original byte count и `max_output_bytes`.
 
 Для `mcp` один host tool всегда мапится на один фиксированный remote MCP tool
-из config или результата `tools/list`. Model args не могут переопределить
+из результата `tools/list`. Model args не могут переопределить
 remote tool name; это сохраняет связь между `ToolSpec`, policy decision и
 фактическим downstream вызовом.
 
@@ -296,7 +295,7 @@ notifications в тот же budget; MCP dispatch notifications выполняе
 останавливается с явной ошибкой; он не продолжает накапливать невостребованные
 кадры.
 
-Process modules, inline/discovered MCP и configured executor `kind = "process"`
+Process modules и обнаруженные MCP servers
 используют одну fail-closed environment policy из `ProcessSpec`. На Unix по
 умолчанию наследуется только `PATH`; Windows дополнительно сохраняет
 необходимые system/process/temp variables. Все эти config-пути принимают
@@ -362,7 +361,7 @@ Reference `codex-patch` выбран в Codex-family profiles. Он приним
 пути как `A`/`M`/`D`. Подробная граница default file-update mode и provenance:
 [codex-patch/UPSTREAM.md](../../modules/reference/codex-patch/UPSTREAM.md).
 
-В packaged proxy-профилях `codex`/`glm` model-facing форма `apply_patch` —
+В подписочном профиле `codex` model-facing форма `apply_patch` —
 обычный function tool. Явно настроенный freeform custom tool всё равно проходит
 через тот же `ToolOrchestrator`, `ApprovalPolicy` и process tool adapter.
 
@@ -544,8 +543,8 @@ payload-ы без них парсятся с defaults.
 `ToolOrchestrator` передаёт модели tools через
 `ApprovalPolicy::evaluate_visibility`: tools с `Allow` видны сразу, tools с
 `Ask` видны только если transport умеет интерактивно запросить approval, а
-`Deny` tools не попадают в candidates для `ToolExposure`. После этого
-`ToolExposure` может только сузить/ранжировать список перед
+`Deny` tools не попадают в candidates для `BeforeToolSelection`. После этого
+selection hooks могут только сузить/ранжировать предыдущий список перед
 `CanonicalModelRequest.tools`, но не может вернуть запрещённый policy tool. При фактическом
 вызове `ToolOrchestrator` использует `ApprovalPolicy::evaluate` с реальным
 `ToolCall`, поэтому execution policy видит аргументы модели и не зависит от
@@ -623,7 +622,7 @@ per-command изоляция описана модели явно; это зад
 ## codex_policy
 
 `codex_policy` поставляется тем же `policy-pack` и используется
-экспериментальным named config `codex` (`configs/codex.config.toml`). Это не отдельный
+подписочным named config `codex` (`configs/codex.config.toml`). Это не отдельный
 security layer: core применяет его через тот же `ApprovalPolicy` slot и тот же
 mode-aware wrapper.
 

@@ -188,7 +188,7 @@ export interface SessionUsageSnapshot {
     exchange_id: string;
     turn_id: string | null;
     model: { provider: string; model: string };
-    origin: 'direct' | 'compactor';
+    origin: 'direct' | 'auxiliary';
     started_at_ms: number;
     finished_at_ms: number | null;
     status: 'unfinished' | 'completed' | 'error' | 'canceled' | 'timeout';

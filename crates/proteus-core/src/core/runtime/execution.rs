@@ -4,13 +4,9 @@ use anyhow::Result;
 
 use crate::{
     contracts::{
-        CancellationToken, ExecutionPermissionGrants, ExecutionScope, NoopToolExecutionRecorder,
-        ToolExecutionRecorder,
+        CancellationToken, ExecutionScope, NoopToolExecutionRecorder, ToolExecutionRecorder,
     },
-    core::{
-        BoundTools, ModeAwarePolicy, SessionConfigSnapshot, SessionToolExecutionRecorder,
-        ToolExecutionBinding,
-    },
+    core::{BoundTools, SessionConfigSnapshot, SessionToolExecutionRecorder, ToolExecutionBinding},
     domain::{ModelRef, PermissionMode, ReasoningConfig, ToolCall, ToolResult},
 };
 
@@ -48,7 +44,7 @@ impl AgentRuntime {
         cancellation: CancellationToken,
     ) -> Result<ToolResult> {
         let admission = self.admit_execution(cancellation).await;
-        let tools = self.bind_detached_tools(&admission);
+        let tools = self.bind_detached_tools(&admission)?;
         tools.execute(self.services.cwd.clone(), call).await
     }
 
@@ -78,6 +74,7 @@ impl AgentRuntime {
             config.tools = crate::core::SessionConfigTool::capture(&state.runtime.registry.tools);
             config.reasoning = state.reasoning.clone();
             config.permission_mode_default = permission_mode;
+            config.approval_available = self.services.approval.can_request_approval();
         }
         ExecutionAdmissionSnapshot {
             runtime: state.runtime.clone(),
@@ -88,7 +85,7 @@ impl AgentRuntime {
         }
     }
 
-    pub(super) fn bind_detached_tools(&self, admission: &ExecutionAdmission) -> BoundTools {
+    pub(super) fn bind_detached_tools(&self, admission: &ExecutionAdmission) -> Result<BoundTools> {
         let recorder: Arc<dyn ToolExecutionRecorder> = match &self.session.session_store {
             Some(store) => Arc::new(SessionToolExecutionRecorder::new(store.clone())),
             None => Arc::new(NoopToolExecutionRecorder),
@@ -104,17 +101,25 @@ impl AgentRuntime {
                 )),
                 None => Arc::new(crate::contracts::NoopExecutionRecorder),
             };
-        BoundTools::new(
-            registry.tools.clone(),
-            Arc::new(ModeAwarePolicy::new(
-                admission.snapshot.permission_mode,
-                registry.policy.clone(),
-            )),
+        let execution = registry.execution_context_for_model(
+            crate::core::ModelExecutionBinding::with_recorder(
+                admission.scope.clone(),
+                hook_recorder,
+            )
+            .with_tool_recorder(binding.recorder()),
             self.services.approval.clone(),
-            Arc::<ExecutionPermissionGrants>::default(),
+            admission.snapshot.permission_mode,
+            admission.snapshot.model_ref.as_ref(),
+        )?;
+        Ok(BoundTools::new(
+            execution.tools.clone(),
+            execution.policy.clone(),
+            execution.approval.clone(),
+            execution.permission_grants.clone(),
             binding,
         )
-        .with_hooks(registry.bind_hooks(admission.scope.clone(), hook_recorder))
+        .with_hooks(execution.hooks.clone())
+        .with_operations(execution.operations.clone()))
     }
 }
 

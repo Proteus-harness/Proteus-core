@@ -83,6 +83,7 @@ fn run_loop(
         compacted.push(current_user);
         let changed = turn.apply_compaction_report(
             prepared.compaction.as_ref(),
+            prepared.preparation_target.as_ref(),
             &compacted,
             PersistentRepair::ReplaceAfter,
         )?;
@@ -91,7 +92,8 @@ fn run_loop(
             turn.checkpoint(host, &[])?;
         }
         let context_position = if changed {
-            turn.model_messages.len() - 1
+            crate::history::current_user_index(&turn.model_messages, turn.current_user_message_id)
+                .unwrap()
         } else {
             0
         };
@@ -101,7 +103,7 @@ fn run_loop(
     let mut first_sampling = true;
 
     loop {
-        let prepared = if first_sampling {
+        let mut prepared = if first_sampling {
             first_sampling = false;
             first_sampling_request(input, host, &turn.model_messages, trigger_tokens)?
         } else {
@@ -118,12 +120,14 @@ fn run_loop(
         };
         if turn.apply_compaction_report(
             prepared.compaction.as_ref(),
+            prepared.preparation_target.as_ref(),
             &prepared.request.messages,
             PersistentRepair::ReplaceAfter,
         )? {
             last_usage = None;
             context_hint = None;
             turn.checkpoint(host, &[])?;
+            prepared.request.messages = turn.model_messages.clone();
         }
         let mut request = prepared.request;
         let response =

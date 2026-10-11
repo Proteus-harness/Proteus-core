@@ -84,9 +84,9 @@ async fn check(failure: Failure, workflow: &str) {
     let mut config = config(&format!("http://{}", listener.local_addr().unwrap()));
     config
         .module_config
-        .get_mut("compactor")
+        .get_mut("hook")
         .unwrap()
-        .get_mut("codex")
+        .get_mut("codex_compact")
         .unwrap()["stream_max_retries"] = json!(1);
     config
         .module_config
@@ -179,23 +179,23 @@ async fn check(failure: Failure, workflow: &str) {
             .is_some_and(|tool| tool.call_id == "call_read" && tool.status == "done")
     }));
     drop(cold);
-    // A failed compactor has no changed checkpoint for workflow replay. Do not
-    // reinterpret its internal exchange as a direct model failure or Success.
+    // Failed preparation and its auxiliary child exchanges replay without a checkpoint.
     if !matches!(failure, Failure::Cancel) {
-        let error = replay_workflow(
+        let replay = replay_workflow(
             &session,
             &config,
             &ModuleCatalog::from_config(&config).unwrap(),
             WorkflowReplayOptions::default(),
         )
         .await
-        .unwrap_err();
+        .unwrap();
         assert!(
-            error.to_string().contains(
-                "compactor model exchanges require a recorded changed-compaction checkpoint"
-            ),
-            "{error:#}"
+            replay.comparison.matched,
+            "issues={:?}; replay error={:?}",
+            replay.comparison.issues, replay.replay.error
         );
+        assert!(replay.source_journal_unchanged);
+        assert_eq!(replay.replay.status, TurnSettlementStatus::Error);
     }
 }
 

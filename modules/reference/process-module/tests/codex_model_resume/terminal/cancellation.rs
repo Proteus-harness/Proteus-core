@@ -67,7 +67,7 @@ async fn cancel_long_poll_and_check_cold_history(tty: bool) {
             .load_projection()
             .unwrap();
         if projection.records.iter().any(|record| matches!(&record.entry,
-            JournalEntry::ToolCallRecorded(tool) if tool.call.id == "call_poll" && tool.phase == ToolCallRecordPhase::Requested)) { break; }
+            JournalEntry::ToolCallRecorded(tool) if tool.call.id == "call_poll" && matches!(tool.phase, ToolCallRecordPhase::Requested { .. }))) { break; }
         assert!(
             tokio::time::Instant::now() < deadline,
             "poll never dispatched"

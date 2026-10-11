@@ -104,7 +104,7 @@ Tool node показывает:
 
 Process tools имеют source `dynamic/process-module`. То, что модуль вернул
 tool из `list`, ещё не делает его enabled: model-visible surface определяется
-`tools.enabled`, policy и tool exposure.
+`tools.enabled`, policy и selection hooks.
 
 В конструкторе сборки флаг `runtime_managed` отдельно от `enabled` показывает,
 что доступность инструмента задаёт runtime, а не список `tools.enabled`.
@@ -143,7 +143,6 @@ Snapshot может сообщить:
 - несколько merged config files;
 - unknown active module;
 - error best-effort catalog/tool сборки;
-- слишком широкий tool surface при отсутствии tool exposure selection.
 
 Selected process failure при реальной сборке runtime остаётся hard error, а не
 warning/fallback.
@@ -216,7 +215,7 @@ Reference-модуль не получает отдельной визуальн
 
 Шаг модели раскрывает сохранённые инструкции, сообщения, инструменты,
 ответ или ошибку, токены провайдера и полный canonical JSON. Запросы
-compactor помечены отдельно. Это вход после подготовки Core, не сырой
+auxiliary model callbacks помечены отдельно. Это вход после подготовки Core, не сырой
 HTTP-пакет провайдера; redaction журнала сохраняется. Отсутствие usage
 не трактуется как нулевой расход.
 

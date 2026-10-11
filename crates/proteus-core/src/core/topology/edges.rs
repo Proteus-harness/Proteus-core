@@ -36,10 +36,10 @@ pub(super) fn build_edges(
     }
     for (from, to, label) in [
         ("slot:workflow", "slot:context", "builds context"),
-        ("slot:workflow", "slot:tool_exposure", "selects tools"),
+        ("slot:workflow", "slot:hook", "typed contributions"),
         ("slot:workflow", "slot:model", "model call"),
         ("slot:workflow", "slot:policy", "approval gate"),
-        ("slot:tool_exposure", "tools", "visible tools"),
+        ("slot:hook", "tools", "tool selection"),
         ("slot:policy", "tools", "execution policy"),
     ] {
         edges.push(edge(from, to, "runtime", Some(label)));

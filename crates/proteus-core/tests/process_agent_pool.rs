@@ -64,8 +64,7 @@ fn test_runtime_context(events: Arc<InMemoryEventStore>) -> AgentWorkflowContext
         Arc::new(EventEmitter::new(events)),
         registry.context.clone(),
         Arc::new(HeadlessUserInputTransport),
-        registry.compactor.clone(),
-        registry.tool_exposure.clone(),
+        test_model::no_context_preparation(),
         None,
     )
 }

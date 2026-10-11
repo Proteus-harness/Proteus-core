@@ -84,7 +84,7 @@ async fn crash_and_resume(after_result: bool, freeform: bool) {
     if after_result {
         std::fs::write(root.path().join("after-result"), "").unwrap();
     }
-    // The effect is deliberately non-idempotent. In the first window the shell
+    // The effect is deliberately non-idempotent. In the first window the tool
     // waits after the write; no tool response can reach Core before its death.
     let gate = tokio::net::UnixListener::bind(workspace.join("crash-gate.sock")).unwrap();
     let command = if after_result {
@@ -101,14 +101,15 @@ async fn crash_and_resume(after_result: bool, freeform: bool) {
             .unwrap()
             .get_mut("openai")
             .unwrap()["capabilities"]["supports_freeform_tools"] = json!(true);
-        config.tools.configured.push(
+        config.tools.enabled.push("crash_probe".to_owned());
+        config.components.insert(
+            "crash-probe-component".to_owned(),
             serde_json::from_value(json!({
-                "name": "crash_probe",
-                "description": "Write the fixture files from a custom tool invocation.",
-                "surface": {"kind": "freeform", "format": {"type": "grammar", "syntax": "lark", "definition": "start: /[a-z ]+/"}},
-                "safety": "RunsCommands",
-                "timeout_ms": 20000,
-                "executor": {"kind": "process", "command": "/bin/sh", "args": ["-c", command]}
+                "command": "python3",
+                "args": ["-B", Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/crash_probe.py")],
+                "env": {"CRASH_PROBE_WAIT": (!after_result).to_string()},
+                "handshake_timeout_ms": 3000,
+                "exports": {"tool": {"crash-probe": {"timeout_ms": 20000}}},
             }))
             .unwrap(),
         );
@@ -128,12 +129,15 @@ async fn crash_and_resume(after_result: bool, freeform: bool) {
         let (mut socket, _) = listener.accept().await.unwrap();
         let request = super::read_json_request(&mut socket).await;
         let call = if freeform {
-            assert!(
-                request["tools"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .any(|tool| tool["type"] == "custom" && tool["name"] == "crash_probe")
+            let tool = request["tools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|tool| tool["type"] == "custom" && tool["name"] == "crash_probe")
+                .expect("component freeform tool is model-visible");
+            assert_eq!(
+                tool["format"],
+                json!({"type": "grammar", "syntax": "lark", "definition": "start: /[a-z ]+/"})
             );
             json!({"type": call_type, "call_id": CALL_ID, "name": "crash_probe", "input": "change files"})
         } else {

@@ -199,10 +199,7 @@ impl ModuleRuntime {
         } else {
             match result {
                 Ok(result) => rpc_success(&invocation_id, result),
-                Err(error) => rpc_error(
-                    &invocation_id,
-                    ProcessModuleRpcError::new(-32_000, format!("{error:#}")),
-                ),
+                Err(error) => rpc_error(&invocation_id, terminal_error(&error)),
             }
         };
         if let Err(error) = self.transport.write(&response) {
@@ -267,6 +264,24 @@ impl ModuleRuntime {
             .remove(id)
             .ok_or_else(|| anyhow!("invocation {id:?} settled more than once"))?;
         Ok(())
+    }
+}
+
+fn terminal_error(error: &anyhow::Error) -> ProcessModuleRpcError {
+    let failure = error
+        .downcast_ref::<proteus_contracts::process_module::ProcessModuleError>()
+        .and_then(|error| error.model_failure.as_ref())
+        .or_else(|| error.downcast_ref::<proteus_contracts::model_standard::ModelFailure>());
+    let rpc = ProcessModuleRpcError::new(-32_000, format!("{error:#}"));
+    match failure {
+        Some(failure) => match serde_json::to_value(failure) {
+            Ok(data) => rpc.with_data(data),
+            Err(error) => ProcessModuleRpcError::new(
+                -32603,
+                format!("failed to serialize model failure: {error}"),
+            ),
+        },
+        None => rpc,
     }
 }
 

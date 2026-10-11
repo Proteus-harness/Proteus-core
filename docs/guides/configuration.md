@@ -4,6 +4,8 @@ Proteus принимает TOML и JSON. Schema pre-release и strict: неиз�
 должны приводить к ошибке, а не игнорироваться.
 
 Полный рабочий пример: [configs/config.toml](../../configs/config.toml).
+Он включает подписочную сборку `codex` и добавляет DCP. Подписочная сборка без DCP:
+[configs/codex.config.toml](../../configs/codex.config.toml).
 Минимальный fake-model профиль:
 [proteus.example.toml](../../examples/configs/proteus.example.toml).
 
@@ -25,8 +27,8 @@ directory файлы `.toml` / `.json` merge-ятся лексикографич
 
 Directory mode предназначен для одного profile, разложенного на fragments.
 Каталог `configs/` в репозитории содержит альтернативные named profiles
-(`codex`, `glm`, `opencode`) и потому не должен передаваться целиком через
-`--config configs`: выбирайте конкретный файл или named config.
+(`codex`, `context-search-chatgpt`, `opencode`) и потому не должен передаваться
+целиком через `--config configs`: выбирайте конкретный файл или named config.
 
 ```toml
 include = "../../configs/proteus.provider.example.toml"
@@ -37,15 +39,17 @@ config file. Includes merge-ятся слева направо, затем те�
 перекрывает результат. Objects merge recursively; arrays и scalar values
 заменяются целиком. Include cycle — ошибка.
 
-Tracked `codex`/`glm` profiles используют явные fragments:
+Поставляемая подписочная сборка `codex` использует явные fragments:
 
 ```text
-configs/fragments/openai-proxy.toml  provider launch/credential references
+configs/config.toml                 codex.config.toml + DCP overlay
+configs/codex.config.toml           подписочная сборка без DCP
+configs/fragments/openai-chatgpt.toml OAuth provider launch/capabilities
 configs/fragments/codex-runtime.toml parent modules/tools и peer lifecycle/routing
 configs/fragments/codex-profile.toml strict Codex policy/context overlay
 configs/fragments/codex-peer-runtime.toml общий workflow/components/runtime peers
 configs/fragments/codex-{explore,coder}-peer.toml prompt/tools/policy конкретного peer
-configs/codex-{explore,coder}.config.toml provider/model named child configs
+configs/codex-{explore,coder}.config.toml подписочные named child configs
 ```
 
 Fragment не является profile, module pack или неявным default: он не
@@ -53,6 +57,9 @@ Fragment не является profile, module pack или неявным defaul
 provider и каждый behavior slot. Массивы не append-ятся. `components` — map и
 merge-ится рекурсивно: например, profile может добавить новый exact export, не
 повторяя launch-параметры и остальные exports component-а.
+
+Root `codex` и основной `config.toml` используют подписочные child configs.
+Отдельные API/proxy-профили не поставляются.
 
 `~`, `$HOME` и `${HOME}` раскрываются в path fields.
 
@@ -65,7 +72,7 @@ merge-ится рекурсивно: например, profile может доб
 ```bash
 mkdir -p .local
 cp -a configs .local/configs
-PROTEUS_CONFIG_HOME="$PWD/.local" proteus --config codex-chatgpt
+PROTEUS_CONFIG_HOME="$PWD/.local" proteus --config codex
 ```
 
 Копирование выполняется один раз в отсутствующий `.local/configs/`; затем
@@ -211,7 +218,7 @@ OpenCode или отдельный API proxy не требуются.
 ```bash
 proteus-reference-module auth openai_codex login
 proteus-reference-module auth openai_codex status
-proteus --config codex-chatgpt
+proteus --config codex
 ```
 
 Для машины без callback в браузере:
@@ -240,13 +247,14 @@ token автоматически обновляется вместе с access t
 proteus-reference-module auth openai_codex logout
 ```
 
-Готовый `codex-chatgpt` использует `gpt-5.6-luna` и собственные
-`codex-chatgpt-explore`/`codex-chatgpt-coder`: peers также обращаются через
+Готовый `codex` использует `gpt-5.6-luna` и собственные
+`codex-explore`/`codex-coder`: peers также обращаются через
 подписку. Модель при запуске задаётся в `providers.chatgpt.model`; доступные
 модели и лимиты определяются аккаунтом. Фрагмент `fragments/openai-chatgpt.toml` задаёт explicit
 model export, capabilities и консервативный порог контекста 200000 tokens.
 
-В root-профиле `codex-chatgpt` включён самостоятельный
+Основной `config.toml` включает `codex.config.toml`, сохраняя его model/provider,
+workflow, preparation hook, peers и остальные параметры, и добавляет самостоятельный
 [DCP component](../../modules/reference/dcp/README.md): `hook.dcp`, model tool
 `compress` и пользовательская команда `/dcp`. Для запуска нужен Node.js 22+,
 собранный модуль и executable `proteus-dcp` в `PATH`; portable и `install.sh`
@@ -260,12 +268,12 @@ ln -s "$PWD/modules/reference/dcp/dist/worker.js" "$HOME/.local/bin/proteus-dcp"
 
 Не заменяйте существующий launcher без проверки его назначения. При переносе
 checkout обновите ссылку; при переносе модуля сохраняйте его dependencies.
-Сборки, включающие `codex-chatgpt` через `include`, наследуют DCP. Самостоятельные
-`codex`, `codex-chatgpt-explore` и `codex-chatgpt-coder` его не включают.
-Workflow, model и обычный `codex` compactor не заменены: DCP меняет только
+Сборки, включающие основной `config.toml` через `include`, наследуют DCP.
+Чистый подписочный `codex`, `codex-explore` и `codex-coder` его не включают.
+Workflow, model и обычный `codex_compact` preparation hook не заменены: DCP меняет только
 outgoing view, а параметры hook/tool exports в профиле одинаковы.
 
-Экспериментальный `context-search-chatgpt` включает этот же profile и меняет
+Экспериментальный `context-search-chatgpt` включает основной `config.toml` и меняет
 только context selection на `repo_aware`. Запуск:
 
 ```bash
@@ -279,8 +287,9 @@ proteus --config context-search-chatgpt
 экспериментов, а не заявление о Codex parity: `repo_aware` также добавляет task
 chunk и иначе оформляет project instructions. Поиск может добавить шум и
 увеличить первый запрос. Он не видит историю прочитанных файлов и не удаляет
-из контекста уже известные модели фрагменты. Выбор обычного `codex-chatgpt`
-возвращает `codex_context` той же root-сборки с DCP.
+из контекста уже известные модели фрагменты. Запуск без `--config` возвращает
+основной `config.toml` с `codex_context` и DCP; `--config codex` выбирает
+чистую подписочную сборку без DCP.
 
 `openai_codex` сам запрашивает `GET /backend-api/codex/models` с ChatGPT OAuth.
 Интерфейс приложения показывает все возвращённые модели, включая entries с отметкой «скрытая»,
@@ -366,7 +375,7 @@ HTTP-повторов после первой попытки: по умолча�
 Повторы заканчиваются после успешных HTTP-заголовков: ошибки чтения/разбора
 JSON body и уже открытого SSE stream не запускают эту политику повторно.
 Диагностический `stream_error_fallback` остаётся отдельной явной настройкой;
-tracked Codex profile её не включает.
+поставляемая подписочная сборка её не включает.
 
 Для SSE OpenAI и OpenAI-compatible adapter принимает
 `module_config.model.<id>.stream_idle_timeout_ms`: неотрицательное целое число,
@@ -424,25 +433,25 @@ Anthropic adapter передаёт это отключение отсутств�
 
 `proteus init codex` создаёт top-level `config.toml`, parent/peer fragments,
 prompts и named child configs `codex-explore.config.toml` /
-`codex-coder.config.toml`. Provider example явно встраивается как в parent,
-так и в оба child config; локальный OpenAI proxy из tracked
-`codex.config.toml` туда не протекает. Установочные named configs, напротив,
-сами выбирают OpenAI-compatible provider и `gpt-5.6-luna`.
+`codex-coder.config.toml`. Это самостоятельный генератор конфигурации с выбранным
+provider example, а не установка подписочного `codex`. Provider example
+явно встраивается как в parent, так и в оба child config. Созданные child configs
+независимы от одноимённых поставляемых подписочных profiles.
+Поставляемая сборка и её peers используют ChatGPT OAuth и `gpt-5.6-luna`.
 В generated runtime роли ссылаются на абсолютные пути созданных рядом
 child profiles; запуск parent по явному пути не подхватывает одноимённый
 профиль из глобального config home.
 
 ## Выбор Behavior Modules
 
-`[modules]` имеет пять optional selection keys (ordered hooks задаются отдельно):
+`[modules]` имеет четыре optional selection keys (ordered hooks задаются отдельно):
 
 ```toml
 [modules]
 workflow = "coding.single_loop"
 context = "repo_aware"
 policy = "ask_write"
-compactor = "codex"
-tool_exposure = "codex_dynamic"
+hooks = ["tool_selection.dynamic", "codex_compact"]
 ```
 
 Каждый выбранный id должен иметь exact component export. Model выбирается
@@ -457,7 +466,7 @@ tool_exposure = "codex_dynamic"
 
 ## Process Components И Exports
 
-### Настройки Codex Context И Compactor
+### Настройки Codex Context И Preparation Hook
 
 Reference context implementations `simple`, `repo_aware` и `codex_context`
 отвергают неизвестные поля в своём `module_config.context.<id>` при
@@ -488,8 +497,8 @@ Context builder не вызывает tools и не получает права 
 завершается явной ошибкой. Уменьшайте исходный `project_doc_max_bytes` либо
 увеличивайте общий бюджет, вместо незаметного удаления AGENTS.md.
 
-Local `codex` compactor по умолчанию запускается при достижении 90% известного
-сырого окна модели. `module_config.compactor.codex.trigger_tokens` задаёт
+Hook `codex_compact` по умолчанию запускается при достижении 90% известного
+сырого окна модели. `module_config.hook.codex_compact.trigger_tokens` задаёт
 абсолютный порог, ограниченный теми же 90%. Если окно неизвестно и явного порога
 нет, автоматическое сжатие не запускается. `trigger_fraction` и прежние
 environment overrides удалены; старые/неизвестные module-config keys отвергаются.
@@ -502,21 +511,22 @@ Summary использует текущую модель и её инструк�
 refs и файлы остаются в journal/store. Текущий ввод при pre-turn compaction
 добавляется после сжатия и сохраняет свои изображения.
 
-`module_config.compactor.codex.stream_max_retries` задаёт число повторов summary
+`module_config.hook.codex_compact.stream_max_retries` задаёт число повторов summary
 после первой попытки: по умолчанию `5`, `0` отключает повторы, значения выше
 `100` ограничиваются сотней, как в выбранном Codex. Это отдельная настройка
-compactor; она не наследует retry budget workflow или HTTP provider. Для
+hook; она не наследует retry budget workflow или HTTP provider. Для
 сравнения одной сборки задавайте одинаковый stream budget явно. При переполнении
-контекста compactor сокращает историю и сбрасывает счётчик повторов; переполнение
+контекста hook сокращает историю и сбрасывает счётчик повторов; переполнение
 запроса из одного summary prompt, отмена и session budget завершаются сразу.
 
-Без export override compactor наследует общий `runtime.workflow_timeout_ms`:
-внутренние model calls и повторные попытки расходуют оставшийся бюджет turn.
+Без export override hook наследует общий `runtime.workflow_timeout_ms`:
+внутренние model/tool calls и повторные попытки расходуют оставшийся бюджет turn.
 `runtime.model_timeout_ms` ограничивает отдельный model call. Protocol deadline
-compactor имеет запас 1000 мс для settlement внешнего timeout; общий лимит turn
-от этого не увеличивается. `components.<id>.exports.compactor.<module>.timeout_ms`
+hook имеет запас 1000 мс для settlement внешнего timeout; общий лимит turn
+от этого не увеличивается. `components.<id>.exports.hook.<module>.timeout_ms`
 может явно ограничить всю compaction сильнее. При `workflow_timeout_ms = 0`
-compactor требует явный положительный export timeout.
+hook использует явный положительный export timeout либо общий protocol
+default 30000 мс. Эти правила одинаковы для всех hook implementations.
 
 ### Объявление Exports
 
@@ -593,7 +603,7 @@ depth, counts и deadlines задаёт host, поэтому transport-cycle val
 config больше нет. Подробности — в
 `process-module-architecture.md`.
 
-Отдельный runnable пример с workflow, context, compactor и capabilities в
+Отдельный runnable пример с workflow, context, preparation hook и capabilities в
 одном component — `examples/configs/proteus.one-component.example.toml`.
 Это evidence topology, а не новый default: несколько components по-прежнему
 нужны, когда владелец хочет разные failure domains.
@@ -653,8 +663,7 @@ workflow:         coding.single_loop, coding.codex_loop,
 context:          simple, repo_aware, codex_context
 context_provider: skills, rg_search, jsonl_memory, sqlite_memory
 policy:           allow_all, ask_write, codex_policy, opencode_policy
-compactor:        codex
-tool_exposure:    codex_dynamic
+hook:             tool_selection.dynamic, codex_compact, hook.instructions, hook.output_budget
 tool:             reference.tools и узкие selectors, direct_patch, codex_patch,
                   rg_search, jsonl_memory, sqlite_memory
 ```
@@ -662,11 +671,21 @@ tool:             reference.tools и узкие selectors, direct_patch, codex_p
 Это reference/test inventory, не обязательный пакет. Любой другой executable,
 прошедший тот же contract, настраивается тем же способом.
 
+Отдельных selections `modules.search`, `modules.memory` и `modules.patch` нет.
+Имена `rg_search`, `jsonl_memory`, `sqlite_memory`, `direct_patch` и `codex_patch`
+обозначают implementations общих tool/provider contracts. Имя export и имя tool
+различаются: например, `tool/rg_search` предоставляет model-visible `search`.
+
 `tool/rg_search` предоставляет `search`, а `tool/jsonl_memory` либо
 `tool/sqlite_memory` — `remember_fact` и `recall_memory`. Эти exports не входят
 в `reference.tools`; нужные имена включаются через `tools.enabled`. Подключайте
 одну реализацию для каждого имени tool. `/remember` требует enabled
 `remember_fact` и проходит тот же policy/approval path.
+
+Для индексируемого `search` есть внешний
+[пример на tgrep](../../examples/modules/tgrep-search/README.md) и
+[самостоятельный профиль](../../examples/configs/proteus.tgrep-search.example.toml).
+Он заменяет tool implementation; context provider отдельно не добавляется.
 
 Одноимённые `context_provider` exports добавляют результаты автоматического
 чтения; они не зависят от `tools.enabled` и не вызывают tools. Каждый export
@@ -756,7 +775,7 @@ disabled_mcp_servers = ["team.tools:database"]
 Core не читает `SKILL.md`: любой `context_provider/v4` может предоставить
 typed skill catalog, либо вернуть `null`, если не поддерживает эту возможность.
 Одинаковые host-owned `SkillRuntimeSettings` передаются context provider и
-`tool/v5`; в reference skill-pack один фильтр используется для списка и загрузки.
+`tool/v6`; в reference skill-pack один фильтр используется для списка и загрузки.
 `name` ограничен 64 ASCII-символами без `--`, `description` — 1024 символами;
 дополнительные поля Agent Skills не предоставляют новых прав tools.
 
@@ -827,44 +846,47 @@ enabled = [
 ]
 ```
 
-Имена должны существовать в одном из sources:
+`tools.enabled` выбирает tools объявленных component exports и core facade
+`request_user_input` / `AskUserQuestion`. Неизвестное имя и name collision —
+ошибка. Сам export делает tool доступным для обнаружения; только включённый
+tool попадает в исполняемый registry и набор кандидатов модели. Выключенные
+process tools остаются видны в диагностическом каталоге.
 
-- core facade tools: `request_user_input` / `AskUserQuestion`;
-- объявленные component tool exports, включая `apply_patch`, `search`,
-  `remember_fact` и `recall_memory`;
-- `[[tools.configured]]`;
-- discovered `[[tools.mcp_servers]]`;
-- provider-hosted tools.
+MCP tools подключаются отдельно через включённый `tools.mcp_servers` и
+discovery; их не добавляют в `tools.enabled`. Provider-hosted tools и
+AgentControl facades определяются выбранной моделью и `agent_control.surface`.
+Все эти sources проходят общий registry/policy/approval path.
 
-Unknown enabled tool и name collision — ошибка. Tool export сам по
-себе не делает tool model-visible; имя должно быть в `enabled`.
+### Собственный Process Tool
 
-### Configured Process Tool
+Собственные tools предоставляются через component export `tool/v6`.
+Описание tool, входная схема, safety, parallel permission и исполнение
+принадлежат модулю; Core не разбирает его алгоритм или собственные настройки.
+Работающий пример, который запускает `rg`, —
+[`search-process`](../../examples/modules/search-process/README.md):
 
 ```toml
-[[tools.configured]]
-name = "lint"
-description = "Run the project linter"
-safety = "RunsCommands"
-supports_parallel_tool_calls = false
-timeout_ms = 60000
-input_schema = { type = "object", properties = {} }
+[tools]
+enabled = ["search"]
 
-[tools.configured.executor]
-kind = "process"
-command = "scripts/lint-tool"
-args = []
-env_allowlist = []
-env = { MODE = "check" }
+[components.python-search]
+command = "python3"
+args = ["examples/modules/search-process/search.py"]
+
+[components.python-search.exports.tool.python_rg]
+timeout_ms = 60000
 ```
 
-Configured tool — отдельная tool execution surface, не behavior module.
-Executor имеет kind `process` или `mcp`; native handlers отсутствуют.
+Пути `tools.configured`, `tools.path` и inline MCP executor удалены;
+они вызывают ошибку неизвестного поля. Каталог `tools/` и
+`PROTEUS_TOOLS_PATH` не загружают tools автоматически. Для вызова обычного
+скрипта модуль реализует `list` / `invoke` по общему component contract;
+отдельного script execution protocol в Core нет.
 
-`supports_parallel_tool_calls` по умолчанию `false`: вызов ждёт предыдущие
-tools и удерживает следующие до завершения. Значение `true` разрешает совместное
-исполнение соседних parallel calls через тот же registry/policy/approval path.
-`ReadOnly` сам по себе этого разрешения не даёт.
+`ToolSpec.supports_parallel_tool_calls` по умолчанию `false`: вызов ждёт
+предыдущие tools и удерживает следующие до завершения. Значение `true`
+разрешает совместное исполнение соседних parallel calls через тот же
+registry/policy/approval path. `ReadOnly` само по себе разрешения не даёт.
 
 ### MCP
 
@@ -939,38 +961,45 @@ ask_before = ["apply_patch", "write_file", "shell"]
 `allow_all` полезен только для контролируемых profiles; это ordinary
 reference implementation с той же authority.
 
-## Tool Exposure
+## Отбор Инструментов
 
-Codex-family profiles не задают `modules.tool_exposure`: workflow получает
-весь набор tools, видимых по текущей policy, без hot set и дополнительных
-`proteus_tool_*` посредников. Состав задаётся `tools.enabled` и настроенной
-AgentControl surface; approval проверяется при исполнении.
+Codex-family profiles не подключают selection hook: workflow получает весь
+набор policy-visible tools без hot set и дополнительных `proteus_tool_*`
+посредников. Состав задаётся `tools.enabled` и AgentControl surface;
+approval проверяется при исполнении.
 
-Для собственной сборки можно отдельно включить эвристический selector
-`codex_dynamic`. Это алгоритм Proteus, он не воспроизводит upstream Codex
-`tool_search`:
+Для своей сборки можно включить `hook/tool_selection.dynamic` — эвристику
+Proteus, не копию upstream Codex `tool_search`:
 
 ```toml
 [modules]
-tool_exposure = "codex_dynamic"
+hooks = ["tool_selection.dynamic", "codex_compact"]
 
 [components.reference-capabilities]
 command = "proteus-reference-module"
 
-[components.reference-capabilities.exports.tool_exposure.codex_dynamic]
+[components.reference-capabilities.exports.hook."tool_selection.dynamic"]
+[components.reference-capabilities.exports.hook.codex_compact]
 
-[module_config.tool_exposure.codex_dynamic]
+[module_config.hook."tool_selection.dynamic"]
 max_hot_tools = 16
 ```
 
-Если selection отсутствует, host передаёт workflow все policy-visible tools.
-Это structural behavior, не скрытый module id.
+Массив `modules.hooks` заменяется целиком: сохраните все другие contributions
+своего профиля, включая `hook.dcp`, если он подключён. Selection выполняется
+на `BeforeToolSelection` до `BeforeContext`, поэтому подготовка учитывает schemas
+уже отобранных tools. На остальных events selector возвращает Continue.
 
 `max_hot_tools` — положительное целое, `always_include` — массив непустых
-имён tools (пустой массив очищает поставляемый список). Эти настройки читаются
-из config выбранного export, а не из invocation. Неизвестные keys и неверные
-типы отвергаются. Configs `ask_write`, `codex_policy` и `opencode_policy`
-также отвергают неизвестные поля, включая опечатки в `allow`, `ask_before` и `deny`.
+имён tools; пустой массив очищает поставляемый список. Config передаётся hook
+export при initialize. Неизвестные keys и неверные типы отвергаются.
+Без contribution host сохраняет все policy-visible candidates; это не скрытая
+implementation. Каждый hook может только сузить/переупорядочить предыдущий
+набор без изменения specs. Отбор, обнаружение скрытых tools и разрешение
+исполнения сохраняют разные ответственности.
+
+Configs `ask_write`, `codex_policy` и `opencode_policy` также отвергают
+неизвестные поля, включая опечатки в `allow`, `ask_before` и `deny`.
 
 ## Subagents
 
@@ -1005,8 +1034,9 @@ max_summary_bytes = 8192
 конфигу другого полного Proteus. Его provider/model, instructions, workflow,
 tools, policy и содержательные ограничения не наследуются от root. Parent role
 содержит только имя/описание, config reference и технические process/lifecycle
-bounds. Packaged `codex.config.toml` использует `codex-explore` и
-`codex-coder`; их tool surfaces и policy находятся в отдельных child profiles.
+bounds. Поставляемый `codex.config.toml` использует
+`codex-explore` и `codex-coder`; их tool surfaces и policy
+находятся в отдельных child profiles.
 
 In-process mini-agent, loop-oriented slot и его inline role schema удалены без
 legacy alias, fallback или dual-read. `agent_control` — отдельная top-level
@@ -1098,7 +1128,7 @@ Pi/OpenCode tool handlers (включая изменение args), JSON-stdin P
 `updatedInput` и Stop scripts Codex/Claude Code. Completion review сохраняет
 root turn, имеет общий workflow deadline и лимит 8 продолжений.
 Неподдержанные upstream действия отклоняются явно; это адаптер переноса,
-не загрузчик чужих plugins. Модуль использует тот же `hook/v4`, без отдельной
+не загрузчик чужих plugins. Модуль использует тот же `hook/v6`, без отдельной
 registration или authority surface в Core.
 
 ### DCP Context Pruning
@@ -1111,8 +1141,8 @@ registration или authority surface в Core.
 opaque config двух exports должен совпадать. Пример не устанавливает executable
 автоматически: нужен абсолютный путь к подготовленному `dist/worker.js`.
 
-DCP заменяет только outgoing model context, не cold history; выбранный
-`compactor` остаётся независимым. `/dcp stats`, `/dcp context` и
+DCP заменяет только outgoing model context, не cold history. Стратегия
+подготовки `codex_compact` выбирается отдельным hook export. `/dcp stats`, `/dcp context` и
 `/dcp decompress [NUMBER]` принадлежат тому же component; управление не
 предоставляется модели. Это механизм из DCP 3.2.0, не вся оболочка OpenCode
 с её commands/TUI/RPC и не объявление parity экспериментального профиля.
@@ -1132,7 +1162,7 @@ prompt = "Review $ARGUMENTS carefully"
 строки, не shell expansion. Команда не запускает tools сама и не выдаёт новых прав.
 Имена проверяются; пустой prompt или результат expansion, дубли с host/module
 командами, зарезервированные `exit`/`quit` и неизвестные поля дают ошибку.
-Module-команды объявляются реализацией tool через `tool/v5`,
+Module-команды объявляются реализацией tool через `tool/v6`,
 а не этим блоком; отключение tool убирает его команду из каталога.
 
 Полный список текущей сборки — `/help`; [семантика и API](runtime-and-events.md#slash-команды).

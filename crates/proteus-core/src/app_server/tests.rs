@@ -834,6 +834,15 @@ async fn reload_tools_rebuilds_registry_from_config_path_and_emits_event() {
     let cwd = tempfile::tempdir().expect("cwd");
     let config_dir = tempfile::tempdir().expect("config dir");
     let config_path = config_dir.path().join("config.toml");
+    // ReloadTools changes the selected tool surface of the current profile;
+    // component declarations are fixed until a full profile publication.
+    let probe_component = format!(
+        "\n[components.reload-probe]\ncommand = \"python3\"\nargs = [\"-B\", {}]\n[components.reload-probe.exports.tool.reload_probe]\n",
+        serde_json::to_string(
+            &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/process_probe_tool.py")
+        )
+        .unwrap()
+    );
     std::fs::write(
         &config_path,
         r#"
@@ -845,7 +854,8 @@ active_provider = "fake"
 enabled = []
 "#
         .to_owned()
-            + &crate::test_model::toml_component(),
+            + &crate::test_model::toml_component()
+            + &probe_component,
     )
     .expect("initial config");
     let config = AppConfig::load(Some(&config_path))
@@ -854,6 +864,16 @@ enabled = []
     let handle = AgentAppServer::launch(config, cwd.path().to_path_buf(), Some(&config_path))
         .await
         .expect("app server");
+    let initial_summary = handle.config_summary().await;
+    assert_eq!(initial_summary["module_epoch"].as_u64(), Some(0));
+    assert!(
+        initial_summary["registered_tools"]
+            .as_array()
+            .expect("registered tools")
+            .iter()
+            .all(|tool| tool["name"].as_str() != Some("reload_probe")),
+        "discovering a component must not enable its tool before reload"
+    );
     let mut event_rx = handle.subscribe();
 
     std::fs::write(
@@ -867,20 +887,12 @@ active_provider = "fake"
 workflow = "missing_after_reload"
 
 [tools]
-enabled = []
+enabled = ["reload_probe"]
 
-[[tools.configured]]
-name = "reload_probe"
-description = "Probe tool added by reload"
-safety = "ReadOnly"
-
-[tools.configured.executor]
-kind = "process"
-command = "printf"
-args = ["ok"]
 "#
         .to_owned()
-            + &crate::test_model::toml_component(),
+            + &crate::test_model::toml_component()
+            + &probe_component,
     )
     .expect("updated config");
 
@@ -920,7 +932,7 @@ args = ["ok"]
 }
 
 #[tokio::test]
-async fn app_server_remember_uses_a_configured_tool_without_a_turn() {
+async fn app_server_remember_uses_a_process_tool_without_a_turn() {
     use crate::process_adapters::ProcessComponentConfig;
 
     let workspace = tempfile::tempdir().expect("workspace");

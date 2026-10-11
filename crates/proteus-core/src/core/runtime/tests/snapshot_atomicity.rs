@@ -11,7 +11,7 @@ use crate::{
         ApprovalPolicy, EventSink, Model, ModelEventStream, PolicyContext, PolicyVisibilityContext,
         Workflow, WorkflowOutput,
     },
-    core::{ConfiguredToolConfig, ConfiguredToolExecutorConfig, SessionConfigSnapshot},
+    core::SessionConfigSnapshot,
     domain::{
         Event, EventEnvelope, ModelRef, PermissionMode, PolicyDecision, ReasoningConfig, ToolCall,
         ToolSafety, ToolSpec,
@@ -221,27 +221,14 @@ async fn admitted_turn_freezes_registry_and_effective_settings_until_settlement(
         .expect("first turn reaches post-admission gate")
         .forget();
 
-    let mut next_config = AppConfig::default();
-    next_config.tools.configured.push(ConfiguredToolConfig {
-        name: "late_tool".to_owned(),
-        description: "Appears in the next runtime epoch".to_owned(),
-        input_schema: serde_json::json!({"type": "object"}),
-        surface: crate::domain::ToolSurface::default(),
-        safety: ToolSafety::ReadOnly,
-        supports_parallel_tool_calls: false,
-        timeout_ms: None,
-        metadata: serde_json::Value::Null,
-        executor: ConfiguredToolExecutorConfig::Process {
-            command: "printf".to_owned(),
-            args: vec!["ok".to_owned()],
-            environment: Default::default(),
-        },
-    });
+    let mut next_config = crate::test_model::config();
+    add_probe_tool(&mut next_config, "late_tool");
+    let next_catalog = crate::test_support::module_catalog_for(&next_config);
     let mut next_assembly = PreparedAssembly::from_catalog(
         next_config.clone(),
         workspace.path().to_path_buf(),
         None,
-        test_catalog(),
+        next_catalog,
     )
     .expect("next assembly");
     next_assembly.registry_mut().workflow = workflow;
@@ -249,11 +236,15 @@ async fn admitted_turn_freezes_registry_and_effective_settings_until_settlement(
     next_assembly
         .registry_mut()
         .replace_model_for_test(Arc::new(LabeledModel("provider-b")));
-    let next_config_snapshot = SessionConfigSnapshot::from_runtime_config(
+    let mut next_config_snapshot = SessionConfigSnapshot::from_runtime_config(
         &next_config,
         next_assembly.registry(),
         PermissionMode::Normal,
+        runtime.approval_available(),
     );
+    // Admission must refresh the actual transport fact, even when supplied
+    // reload metadata incorrectly describes an interactive environment.
+    next_config_snapshot.approval_available = true;
     runtime
         .reload_assembly(next_assembly, Some(next_config_snapshot))
         .await
@@ -327,4 +318,6 @@ async fn admitted_turn_freezes_registry_and_effective_settings_until_settlement(
     assert_eq!(recorded_b.model, Some(observations[1].model_ref.clone()));
     assert_eq!(recorded_b.reasoning, observations[1].reasoning);
     assert_eq!(recorded_b.permission_mode_default, PermissionMode::Plan);
+    assert!(!recorded_a.approval_available);
+    assert!(!recorded_b.approval_available);
 }

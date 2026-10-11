@@ -7,6 +7,8 @@ export interface HookContext {
   };
   readonly config: Readonly<Record<string, unknown>>;
   readonly signal: AbortSignal;
+  completeModel(request: ModelRequest): Promise<unknown>;
+  executeTool(call: ToolCall): Promise<ToolResult>;
 }
 export interface ToolCall {
   readonly id: string;
@@ -28,8 +30,24 @@ export interface ModelRequest {
   readonly instructions: readonly unknown[];
   readonly [field: string]: unknown;
 }
+export interface PreparationOutput {
+  readonly messages: readonly unknown[];
+  readonly changed: boolean;
+  readonly user_message_replacements: readonly unknown[];
+  readonly [field: string]: unknown;
+}
+export interface ToolSelectionInput {
+  readonly request: { readonly task: unknown; readonly cwd: string; readonly query: string | null; readonly phase: string | null; readonly max_tools: number | null; readonly reason: string | null };
+  readonly candidates: readonly Readonly<Record<string, unknown>>[];
+}
+export interface ToolSelectionOutput {
+  readonly tools: readonly Readonly<Record<string, unknown>>[];
+  readonly metadata: unknown;
+}
 export interface HookEvents {
   turn_started: { readonly event: "turn_started"; readonly task: unknown; readonly history: readonly unknown[] };
+  before_tool_selection: { readonly event: "before_tool_selection"; readonly input: ToolSelectionInput; readonly output: ToolSelectionOutput };
+  before_context: { readonly event: "before_context"; readonly input: { readonly messages: readonly unknown[]; readonly request: ModelRequest | null; readonly token_estimate: number | null; readonly window_tokens: number | null; readonly reason: string | null }; readonly output: PreparationOutput; readonly target: null | { readonly execution_id: string; readonly revision: number } };
   before_model: { readonly event: "before_model"; readonly origin: string; readonly request: ModelRequest };
   before_tool: { readonly event: "before_tool"; readonly call: ToolCall; readonly spec: unknown; readonly blocked: string | null };
   after_tool: { readonly event: "after_tool"; readonly call: ToolCall; readonly result: ToolResult };
@@ -38,6 +56,8 @@ export interface HookEvents {
 }
 export type HookResponse =
   | { action: "continue" }
+  | { action: "tool_selection"; output: ToolSelectionOutput }
+  | { action: "context_preparation"; output: PreparationOutput }
   | { action: "tool_arguments"; args: unknown }
   | { action: "continue_turn"; reason: string }
   | { action: "block_tool"; reason: string }
@@ -46,6 +66,8 @@ export type HookResponse =
 type Continue = Extract<HookResponse, { action: "continue" }>;
 export type EventResponse = {
   turn_started: Continue;
+  before_tool_selection: Continue | Extract<HookResponse, { action: "tool_selection" }>;
+  before_context: Continue | Extract<HookResponse, { action: "context_preparation" }>;
   before_model: Continue | Extract<HookResponse, { action: "model_context" }>;
   before_tool: Continue | Extract<HookResponse, { action: "block_tool" | "tool_arguments" }>;
   after_tool: Continue | Extract<HookResponse, { action: "tool_output" }>;
@@ -61,5 +83,5 @@ export interface Hooks {
 export function createHooks(settings?: Record<string, unknown>): {
   api: Hooks;
   seal(): void;
-  invoke(input: { event: HookEvents[keyof HookEvents]; cwd: string; attribution: HookContext["attribution"]; conversation: HookContext["conversation"] }, signal: AbortSignal): Promise<{ result: HookResponse }>;
+  invoke(input: { event: HookEvents[keyof HookEvents]; cwd: string; attribution: HookContext["attribution"]; conversation: HookContext["conversation"] }, signal: AbortSignal, callback: (method: string, params: unknown) => Promise<unknown>): Promise<{ result: HookResponse }>;
 };

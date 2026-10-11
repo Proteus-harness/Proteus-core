@@ -345,16 +345,19 @@ history сохраняют раздельные commentary/final items. Клие
 
 ## Хуки Выполнения
 
-Opt-in `modules.hooks` задаёт упорядоченную цепочку process exports `hook/v4`.
-Core вызывает её в шести точках: `turn_started`, `before_model`, `before_tool`,
-`after_tool`, `before_stop`, `turn_settled`. Это общая execution boundary: model/tool hooks
+Opt-in `modules.hooks` задаёт упорядоченную цепочку process exports `hook/v6`.
+Core вызывает её в восьми точках: `turn_started`, `before_tool_selection`,
+`before_context`, `before_model`,
+`before_tool`, `after_tool`, `before_stop`, `turn_settled`. Это общая execution boundary: model/tool hooks
 действуют также в host callbacks внешнего workflow и при detached tool calls.
 Отдельный workflow не обязан повторять их wiring.
 
 `HookInput.conversation` — обязательный nullable read-only snapshot: у
-conversation-bound `before_model` он содержит canonical history и context
-observations, у остальных events и standalone операций — `null`. Hook response
-меняет только разрешённые поля event. Journal schema v18 записывает snapshot
+conversation-bound `before_model` и `before_context` он содержит canonical
+history, revision и context observations; `BeforeToolSelection` получает
+optional bound snapshot; у остальных events и standalone
+операций — `null`. Hook response
+меняет только разрешённые поля event. Journal schema v21 записывает snapshot
 как часть trace; replay использует записанный transformed outcome как oracle,
 не вызывает handlers и не воспроизводит их package-owned storage effects.
 
@@ -391,12 +394,15 @@ replay не применяет output contribution дважды и не повт
 сохраняется в trace, следующие handlers продолжают работу, исход хода не
 меняется. Terminal notification получает вычисленный outcome перед записью
 `TurnSettled`; даже при cancellation/timeout она имеет отдельный bounded
-cleanup token. Каждый process export ограничен своим `timeout_ms` (по
-умолчанию 5000 мс). Snapshot и порядок handlers неизменны в пределах хода.
+cleanup token. Каждый process export ограничен своим `timeout_ms`; без
+override применяется общий workflow budget с запасом 1000 мс на settlement,
+либо 30000 мс при отключённом workflow timeout. Outer deadline и cancellation
+ограничивают дочернюю работу независимо от export budget. Snapshot и порядок handlers неизменны в пределах хода.
 
 Workflow replay применяет записанные responses и failures без запуска hook
-процессных модулей. Он проверяет входы и consumption traces; callbacks внутренней model
-работы compactor остаются частью существующей recorded-compaction oracle.
+процессных модулей. Он проверяет входы и consumption traces; owner/parent tree дочерних model/tool records проверяется и потребляется
+вместе с outcome вызывающего hook/tool. Для `BeforeContext` сохраняются также
+failed и unchanged результаты, которым не нужен changed checkpoint.
 Раздел «Анализ ходов» в настройках показывает hook traces. Пример включения —
 [`hooks.config.toml`](../../examples/configs/hooks.config.toml).
 
@@ -405,13 +411,14 @@ Workflow replay применяет записанные responses и failures б
 Если runtime запущен с config path, рядом с config root создаётся дерево
 `sessions/<workspace>/<session>/` (подробно про layout, resume и lifecycle —
 раздел «Session Store» ниже). Source of truth — `journal.jsonl`, где одна
-строка является строгим record schema v18 с `record_id`, монотонным
+строка является строгим record schema v21 с `record_id`, монотонным
 `session_seq`, timestamp, mandatory session id, optional execution/thread/turn
-ids, `kind` и payload. `TurnOpened`, model и tool facts требуют
+ids, `kind` и payload. `TurnOpened`, context, model и tool facts требуют
 `ExecutionId`; history/settlement остаются chat facts без execution owner.
 Detached execution facts имеют execution id, но не выдумывают thread/turn.
 
-Journal фиксирует `turn_opened`, typed `hook_invoked`, revisioned `history_mutated`, точные shaped
+Journal фиксирует `turn_opened`, typed `hook_invoked`, revisioned `history_mutated`,
+пару `context_request_recorded` / `context_response_recorded`, точные shaped
 model request/completed items/terminal response, tool request/approval/resolution/result и
 `turn_settled`. Conversation history для resume получается fold-ом
 `history_mutated`; request-scoped context в неё не попадает. Compaction пишет
@@ -434,20 +441,23 @@ corruption в середине файла завершает load ошибкой
 редактируются до записи.
 
 `config_snapshot.json` — последний turn/persist snapshot resolved runtime
-config для этой сессии. Текущая `schema_version = 3`: поле
-`agent_control_surface` заменило старое имя без compatibility reader-а, а
-`active_provider`, если задан, содержит id точного профиля из `providers`.
+config для этой сессии. Текущая `schema_version = 8`; неизвестные и старые
+формы отвергаются без compatibility reader-а. `active_provider`, если задан,
+содержит id точного профиля из `providers`.
 При его отсутствии сборка не создаёт model adapter; обращение к модели
 завершается явной ошибкой. Наличие невыбранных provider profiles само по себе
 не включает модель.
 Snapshot перезаписывается при открытии существующей сессии и при принятии user
 message. В snapshot входят profile name, active provider, актуальные model/ref
 и reasoning config, выбранные module ids, список зарегистрированных tools с
-source/spec, `agent_control_surface` и default permission mode. Каждый
+source/spec, `agent_control_surface`, default permission mode и
+`approval_available` — фактическая возможность transport запросить approval.
+Она влияет на policy visibility tools с решением Ask и сохраняется для replay. Каждый
 `turn_opened` дополнительно содержит snapshot того же
 `RuntimeSnapshot`/`ModuleEpoch`. Private admission Core один раз атомарно
 захватывает assembly snapshot вместе с effective `model_ref`, reasoning и
-permission mode в immutable `ExecutionAdmissionSnapshot`; Turn journal, model
+permission mode и фактической approval availability в immutable
+`ExecutionAdmissionSnapshot`; Turn journal, model
 binding, policy и Workflow используют только эти значения до settlement.
 `AgentRuntime::execute_tool`, включая app-server `/remember`, использует тот же
 capture primitive и удерживают selected capability до terminal result. Поэтому concurrent `/model`, `/mode`, `/effort`,
@@ -458,7 +468,7 @@ capture primitive и удерживают selected capability до terminal resu
 рядом с созданным из него `RuntimeRegistry`. Начальная сборка и reload передают
 их только единым `PreparedAssembly`, поэтому diagnostics не могут увидеть
 новый план со старым registry. Сам план не дублируется в canonical journal:
-replay использует компактный `SessionConfigSnapshot` schema v4 с точными module
+replay использует компактный `SessionConfigSnapshot` schema v8 с точными module
 ids и зарегистрированными tools, включая их `supports_parallel_tool_calls`.
 
 `RuntimeSnapshot` — snapshot assembly/configuration, а не checkpoint
@@ -629,7 +639,7 @@ fallback, если стабильного prefix breakpoint нет. Runtime ни
 
 Отчёт расхода `GET /usage` строится из canonical journal: каждый
 `ModelRequestRecorded` — отдельная строка, парный `ModelResponseRecorded`
-добавляет provider usage или ошибку. Повторы и compactor exchanges этой session
+добавляет provider usage или ошибку. Повторы и auxiliary exchanges этой session
 включены в отчёт; внутренние HTTP-попытки provider adapter-а и отдельные peer
 sessions не выдаются за запросы текущего журнала. Отсутствующие сведения о
 токенах у ошибочного или незавершённого запроса означают неизвестный расход.
@@ -660,9 +670,9 @@ cache как `cold`, `warming` или `hot`.
 
 `HistoryCompactionStarted`, `HistoryCompactionCompleted` и
 `HistoryCompactionFailed` испускаются вокруг host capability
-`compact_history_json`. Completed содержит `HistoryCompactionReport`: было ли
+`prepare_context_json` (`host.context.prepare`). Completed содержит `HistoryCompactionReport`: было ли
 реальное изменение, сколько сообщений/tokens было до и после, какой threshold
-сработал, источник summary и metadata конкретного compactor-а. Основной интерфейс
+сработал, источник summary и metadata конкретной preparation strategy. Основной интерфейс
 показывает status `сжимает историю`; при `changed = true` добавляет короткую
 system-строку в transcript.
 
@@ -741,7 +751,7 @@ HTTP/SSE transport:
 - `GET /usage` — расход по canonical model exchanges текущей session;
   `GET /usage?session_dir=<path>` читает выбранную live или cold session.
   `SessionUsageSnapshot` содержит session id, revision, последний turn id и
-  запросы в порядке начала: exchange/turn ids, model ref, direct/compactor
+  запросы в порядке начала: exchange/turn ids, model ref, direct/auxiliary
   origin, время начала и окончания, статус, finish reason, provider TokenUsage,
   количество сообщений и tools, reasoning effort и лимит выхода. Тексты
   prompts, ответов и tool arguments в отчёт не входят. Та же surface доступна
@@ -1031,12 +1041,12 @@ journal. ОС освобождает владение при закрытии pr
 находится в parent directory, а время создания/изменения берётся из metadata
 файловой системы. Новая session получает 10-значный numeric basename,
 детерминированный из внутреннего UUID; полный `SessionId` сохраняется в
-`session.json` schema v4 вместе с `journal_schema_version = 16`. Перед записью runtime
+`session.json` schema v4 вместе с `journal_schema_version = 21`. Перед записью runtime
 проверяет metadata, поэтому коллизия коротких имён завершается ошибкой и не
 смешивает histories.
 
 Reader принимает только basename из 10 ASCII-цифр с обязательным
-`session.json` schema v4 и journal schema v18. UUID-basename directories,
+`session.json` schema v4 и journal schema v21. UUID-basename directories,
 прежние session/journal schemas и неизвестные wire/storage формы
 отвергаются явно: pre-release cutover не содержит legacy decoder или dual-read.
 Обычный каталог и автоматический выбор последней session пропускают
@@ -1107,27 +1117,39 @@ compactions должна завершаться сохранённым conversat
 resume используют сокращённое представление. Runtime атомарно заменяет историю
 этим snapshot-ом и затем дописывает `new_messages`.
 
-`workflow/v19` также позволяет вернуть `WorkflowFailure` с накопленным history
+`workflow/v20` также позволяет вернуть `WorkflowFailure` с накопленным history
 update. Core проверяет и сохраняет его до settlement со статусом `Error`.
 `coding.codex_loop` использует этот путь: если tool завершился, а следующий
 model call упал, новый turn получает прежний call/result и после перезапуска
 runtime. Если до ошибки пришли завершённые assistant messages, workflow также
 сохраняет их из `ModelFailure.completed_messages`. Внутренние summary messages
-ошибочного compactor не включаются в этот progress. Завершённый replacement
-после compaction можно сохранить без нового
-ответа. Автоматического повтора tool или продолжения workflow с места падения
+ошибочного preparation hook не включаются в этот progress. Принятый replacement
+после compaction можно сохранить без нового ответа; staged candidate, который
+checkpoint отклонил или не подтвердил, через failure update не публикуется. Автоматического повтора tool или продолжения workflow с места падения
 этот механизм не выполняет.
 
 При обычном `ContextWindowExceeded` текущий turn остаётся `Error`.
 `coding.codex_loop` учитывает сохранённое заполнение известного окна при
 preflight следующего turn, в том числе после cold resume. Последний реальный
 usage успешного предыдущего ответа также участвует в этой оценке. Если оценка достигает
-текущего порога compactor, summary выполняется перед обычным model request.
+текущего порога hook `codex_compact`, summary выполняется перед обычным model request.
 Pre-turn summary получает только старую историю; текущий принятый ввод
 добавляется после сжатия без изменения текста и id.
 Неизвестное окно само по себе не включает принудительное сжатие. Это отдельная
 оценка контекста: provider usage и стоимость не увеличиваются из-за ошибки.
 Подробности и граница parity — в [Codex baseline](../development/codex-baseline.md).
+
+`host.context.prepare` запускает ordered `BeforeContext` chain на безопасной
+границе, когда model stream закрыт и результаты предыдущего tool batch известны.
+Hook видит материал и предыдущий проверенный candidate; модель для подготовки
+не обязательна. Conversation-bound результат имеет host-owned execution/revision
+target. Workflow хранит proposal отдельно до `host.history.checkpoint`;
+`WorkflowCheckpointAck` возвращает фактические accepted messages и revision,
+включая host-added результаты. Workflow принимает ACK как свою локальную
+working history, сохраняя request-only context отдельно. Stale revision даёт
+явную ошибку, без rebase или повторного запуска effects. Частная подготовка
+без root target не создаёт conversation checkpoint. Потерянный ACK после commit
+не отменяет принятую историю; cold read возвращает durable snapshot.
 
 Workflow может раньше подтвердить progress через `host.history.checkpoint`.
 В `coding.codex_loop` это происходит для каждого completed model item, включая
@@ -1236,7 +1258,7 @@ terminal `model_response_recorded`; без id разрешён только jour
 
 Replay строит model adapter из указанного config profile и передаёт ему
 сохранённый `CanonicalModelRequest` без повторного context building,
-compaction, tool exposure или shaping. `ModelService`, workflow, tool registry
+preparation, selection hooks или shaping. `ModelService`, workflow, tool registry
 и `ToolOrchestrator` в execution path не входят. Поэтому local tool calls из
 нового ответа не исполняются: команда завершает provider call и перечисляет их
 в отчёте. `ModelRef` не переписывается, поэтому recorded/replay model совпадают;
@@ -1270,13 +1292,17 @@ settings и instruction blocks, необходимые для построени
 Policy. Их process implementations запускаются; реальные model adapters,
 context providers, subagents и tool implementations не создаются: model
 responses, approval decisions и tool results последовательно подставляются из
-journal, а context, compaction и tool
-exposure восстанавливаются из canonical records. Обязательный `origin` model
-request отделяет `direct` вызовы workflow от внутренних `compactor` summary
-exchanges. Все пары проверяются на завершённость, но model sequence и позиции
-checkpoint учитывают только `direct`. Summary вызовы остаются в journal для
-prompt replay, usage и eval; workflow replay использует готовый compaction
-report/history, не повторяя внутренний алгоритм и его typed error branches.
+journal; полный context bundle или ошибка возвращаются по записанным context
+request/response facts с проверкой точного task input и однократного consumption;
+selection — по typed
+`BeforeToolSelection` trace, preparation — по typed `BeforeContext` trace. `origin`
+различает `direct` и `auxiliary`, а `OperationOwner` связывает exchange с
+workflow, hook invocation или tool call. Workflow-owned exchanges составляют
+его последовательность; дочернее дерево model/tool records проверяется и
+потребляется вместе с подставляемым outcome родителя ровно один раз.
+Summary вызовы остаются в journal для prompt replay, usage и eval. Failed и
+unchanged preparation не требуют changed checkpoint или следующего direct
+request; внутренний алгоритм hook и его side effects повторно не исполняются.
 
 Ошибки прямых model calls возвращаются как сохранённый `ModelFailure` с исходными
 `kind`, текстом и completed messages. Это позволяет workflow при replay выбрать
@@ -1297,13 +1323,15 @@ history проходит общий runtime validator. Допустимая но
 
 Turn без model exchanges также поддерживается: например, `coding.project_check`
 воспроизводит passing tests или остановку на tool failure по tool facts и
-settlement. Фиктивная модель не вызывается. Без записанного model request
-нельзя восстановить context, tool exposure или compaction input; запрос этих
-данных отмечается как divergence. Незаписанный model/tool call также остаётся
+settlement. Фиктивная модель не вызывается. Context build не требует последующего
+model request: успех и ошибка воспроизводятся по собственным records.
+Selection и preparation без модели воспроизводятся по записанным
+`BeforeToolSelection` и `BeforeContext` traces. Запрос
+незаписанных данных отмечается как divergence. Незаписанный model/tool call также остаётся
 divergence, даже если Workflow перехватил ошибку и вернул прежний итог.
 
 Текущий workflow replay не эмулирует root steering decorator: turn с доставленным steering или
-follow-up отклоняется fail-closed. Незавершённые model/tool pairs, overlap turns
+follow-up отклоняется fail-closed. Незавершённые context/model/tool pairs, overlap turns
 и отсутствующий snapshot также являются ошибкой выбора fixture. Terminal
 workflow `Error` поддерживается при завершённой последовательности records,
 включая сравнение явно возвращённого workflow history update.
@@ -1332,9 +1360,8 @@ Runtime оборачивает выбранный `Model` turn-scoped декор
 `Workflow` contract. Ответ модели с tool calls открывает одну delivery
 boundary: перед следующим обычным model call декоратор забирает одно сообщение
 и добавляет его как canonical `MessageRole::User`. Очередь остаётся FIFO и
-доставляется one-at-a-time. Model calls внутреннего `HistoryCompactor`
-выполняются в подавленном core scope и не могут случайно поглотить эту
-boundary. Если после settlement подходящего следующего model call не было,
+доставляется one-at-a-time. Вспомогательные model calls hooks/tools имеют
+typed origin `auxiliary` и не потребляют root steering boundary. Если после settlement подходящего следующего model call не было,
 первое сообщение становится новым follow-up turn; остаток повторяет тот же
 алгоритм.
 
@@ -1584,11 +1611,13 @@ reasoning-поля из runtime config (`summary`, `budget_tokens`). UI полу
 переопределять effort поверх config.
 
 `StdioRequest::ReloadTools` и HTTP `POST /reload-tools` перечитывают `tools.*`
-из config path, заново строят `AssemblyPlan`, process catalog и
-MCP/configured tools, затем публикуют один новый `PreparedAssembly` внутри
+из config path, заново строят `AssemblyPlan`, process catalog,
+component tools и MCP discovery, затем публикуют один новый `PreparedAssembly` внутри
 `RuntimeSnapshot`. Остальные `modules.*`, provider и runtime settings остаются
-как в текущем app-server snapshot; для их замены нужен будущий
-`reload_modules`. Уже running turn держит старый snapshot; new turns берут
+как в текущем app-server snapshot. Component declarations и `module_config`
+тоже сохраняются: `reload-tools` переключает tools уже объявленных exports,
+а добавление component или изменение его запуска требует полной публикации
+профиля через Config Builder или file refresh. Уже running turn держит старый snapshot; new turns берут
 новый. Клиент получает `AppServerEvent::ModulesReloaded { old_epoch,
 new_epoch, tool_names }`, а `GET /config` / `ConfigSummary` возвращает
 `module_epoch`. Это reload control-plane: новый snapshot получает свои MCP

@@ -281,7 +281,7 @@ async fn assert_final_state(config: &AppConfig, root: &Path, session_dir: &Path)
             .filter(|record| matches!(
                 &record.entry,
                 JournalEntry::ToolCallRecorded(tool)
-                    if tool.phase == ToolCallRecordPhase::Requested && tool.call.id == CALL_ID
+                    if matches!(tool.phase, ToolCallRecordPhase::Requested { .. }) && tool.call.id == CALL_ID
             ))
             .count(),
         1

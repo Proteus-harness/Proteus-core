@@ -69,6 +69,16 @@ pub struct ToolModuleInvocationContext {
 }
 
 pub trait ToolModuleHost: Send + Sync {
+    fn complete_model_json(&self, _request_json: String) -> ProcessModuleResult<String> {
+        Err(ProcessModuleError::new(
+            "invocation has no bound model operations",
+        ))
+    }
+    fn execute_tool_json(&self, _call_json: String) -> ProcessModuleResult<String> {
+        Err(ProcessModuleError::new(
+            "invocation has no bound tool operations",
+        ))
+    }
     fn is_cancelled(&self) -> ProcessModuleResult<bool>;
     /// Read only the invocation-bound conversation, never an arbitrary session.
     fn read_conversation_json(&self) -> ProcessModuleResult<String> {
@@ -178,33 +188,28 @@ pub trait ContextBuilderModule: Send + Sync + 'static {
 
 pub type ContextBuilderModuleObject = Box<dyn ContextBuilderModule>;
 
-pub trait CompactorModuleHost: Send + Sync {
+pub trait HookModuleHost: Send + Sync {
     fn is_cancelled(&self) -> ProcessModuleResult<bool>;
-    fn complete_model_json(&self, request_json: String) -> ProcessModuleResult<String>;
+    fn complete_model_json(&self, _request_json: String) -> ProcessModuleResult<String> {
+        Err(ProcessModuleError::new(
+            "invocation has no bound model operations",
+        ))
+    }
+    fn execute_tool_json(&self, _call_json: String) -> ProcessModuleResult<String> {
+        Err(ProcessModuleError::new(
+            "invocation has no bound tool operations",
+        ))
+    }
 }
-
-pub type CompactorModuleHostMut<'a> = dyn CompactorModuleHost + 'a;
-
-pub trait CompactorModule: Send + Sync + 'static {
-    fn compact_json(
-        &self,
-        input_json: String,
-        host: &mut dyn CompactorModuleHost,
-    ) -> ProcessModuleResult<String>;
-}
-
-pub type CompactorModuleObject = Box<dyn CompactorModule>;
 
 pub trait HookModule: Send + Sync + 'static {
-    fn invoke_json(&self, input_json: String) -> ProcessModuleResult<String>;
+    fn invoke_json(
+        &self,
+        input_json: String,
+        host: &mut dyn HookModuleHost,
+    ) -> ProcessModuleResult<String>;
 }
 pub type HookModuleObject = Box<dyn HookModule>;
-
-pub trait ToolExposureModule: Send + Sync + 'static {
-    fn select_json(&self, input_json: String) -> ProcessModuleResult<String>;
-}
-
-pub type ToolExposureModuleObject = Box<dyn ToolExposureModule>;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -230,7 +235,7 @@ pub struct WorkflowModuleOutput {
 }
 
 pub trait WorkflowModuleHost: Send + Sync {
-    fn checkpoint_history_json(&self, checkpoint_json: String) -> ProcessModuleResult<()>;
+    fn checkpoint_history_json(&self, checkpoint_json: String) -> ProcessModuleResult<String>;
     fn is_cancelled(&self) -> ProcessModuleResult<bool>;
     fn queued_user_messages(&self) -> ProcessModuleResult<u32>;
     fn build_context_json(&self, task_json: String) -> ProcessModuleResult<String>;
@@ -238,7 +243,7 @@ pub trait WorkflowModuleHost: Send + Sync {
     fn next_model_stream_json(&self, cursor_json: String) -> ProcessModuleResult<String>;
 
     fn complete_model_json(&self, request_json: String) -> ProcessModuleResult<String>;
-    fn compact_history_json(&self, input_json: String) -> ProcessModuleResult<String>;
+    fn prepare_context_json(&self, input_json: String) -> ProcessModuleResult<String>;
     fn visible_tools_json(&self, cwd: String) -> ProcessModuleResult<String>;
     fn select_tools_json(&self, request_json: String) -> ProcessModuleResult<String>;
     fn execute_tool_json(
@@ -320,16 +325,6 @@ pub trait ModuleRegistry {
         &mut self,
         module_id: String,
         builder: ContextBuilderModuleObject,
-    ) -> ProcessModuleResult<()>;
-    fn register_compactor(
-        &mut self,
-        module_id: String,
-        compactor: CompactorModuleObject,
-    ) -> ProcessModuleResult<()>;
-    fn register_tool_exposure(
-        &mut self,
-        module_id: String,
-        exposure: ToolExposureModuleObject,
     ) -> ProcessModuleResult<()>;
     fn register_hook(
         &mut self,

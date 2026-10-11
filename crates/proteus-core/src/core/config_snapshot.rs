@@ -26,6 +26,8 @@ pub struct SessionConfigSnapshot {
     pub agent_control_surface: String,
     pub tools: Vec<SessionConfigTool>,
     pub permission_mode_default: PermissionMode,
+    /// Actual approval transport capability captured for this execution.
+    pub approval_available: bool,
 }
 
 pub type SessionConfigModules = ModulesConfig;
@@ -56,12 +58,13 @@ impl SessionConfigTool {
 }
 
 impl SessionConfigSnapshot {
-    pub const SCHEMA_VERSION: u32 = 7;
+    pub const SCHEMA_VERSION: u32 = 8;
 
     pub fn from_runtime_config(
         config: &AppConfig,
         registry: &RuntimeRegistry,
         permission_mode_default: PermissionMode,
+        approval_available: bool,
     ) -> Self {
         let tools = SessionConfigTool::capture(&registry.tools);
         Self {
@@ -79,6 +82,7 @@ impl SessionConfigSnapshot {
             agent_control_surface: config.agent_control.surface.as_str().to_owned(),
             tools,
             permission_mode_default,
+            approval_available,
         }
     }
 }

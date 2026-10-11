@@ -1,6 +1,6 @@
 # Экспериментальная сборка: тот же subscription coding workflow,
 # context/v3 заменён на repo_aware с предварительным поиском по задаче.
-include = "codex-chatgpt.config.toml"
+include = "config.toml"
 
 [profile]
 name = "context-search-chatgpt"

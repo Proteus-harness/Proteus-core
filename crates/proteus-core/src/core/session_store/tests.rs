@@ -346,6 +346,7 @@ async fn journal_redaction_preserves_schemas_and_redacts_value_metadata() {
         .append_execution_journal_entry(
             ExecutionAttribution::detached(new_execution_id()),
             JournalEntry::ModelRequestRecorded(ModelRequestRecorded {
+                owner: crate::contracts::OperationOwner::Workflow,
                 exchange_id: new_exchange_id(),
                 origin: ModelCallOrigin::Direct,
                 request,

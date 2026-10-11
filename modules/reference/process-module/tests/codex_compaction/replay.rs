@@ -24,9 +24,9 @@ pub(super) async fn check(
             _ => None,
         })
         .collect();
-    let mut expected_origins = vec![ModelCallOrigin::Direct, ModelCallOrigin::Compactor];
+    let mut expected_origins = vec![ModelCallOrigin::Direct, ModelCallOrigin::Auxiliary];
     if context_window_once {
-        expected_origins.push(ModelCallOrigin::Compactor);
+        expected_origins.push(ModelCallOrigin::Auxiliary);
     }
     expected_origins.push(ModelCallOrigin::Direct);
     assert_eq!(origins, expected_origins);

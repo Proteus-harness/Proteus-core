@@ -1,4 +1,4 @@
-# Общий Codex-shaped runtime для tracked codex/glm профилей и `proteus init
+# Общий Codex-shaped runtime для подписочной сборки codex и `proteus init
 # codex`. Это config fragment, а не самостоятельный профиль или standard pack:
 # provider и profile-specific policy/context задаёт overlay.
 
@@ -13,10 +13,10 @@ file = "prompts/codex-default.md"
 priority = 100
 
 [modules]
+hooks = ["codex_compact"]
 workflow = "coding.codex_loop"
 context = "codex_context"
 policy = "codex_policy"
-compactor = "codex"
 
 [components.reference-workflow]
 command = "proteus-reference-module"
@@ -48,7 +48,7 @@ env_allowlist = ["HOME", "PROTEUS_HOME"]
 
 [components.reference-capabilities.exports.tool.codex_patch]
 
-[components.reference-capabilities.exports.compactor.codex]
+[components.reference-capabilities.exports.hook.codex_compact]
 
 # Отдельные паки tools делят тот же процесс и сохраняют прежнюю tool surface.
 [components.reference-capabilities.exports.tool.file_tools]
@@ -71,7 +71,7 @@ enabled = ["skill", "search", "read_file", "read_many_files", "list_dir", "find_
 [permissions]
 mode = "normal"
 
-[module_config.compactor.codex]
+[module_config.hook.codex_compact]
 # Порог по умолчанию: 90% окна модели; trigger_tokens может задать меньший.
 
 [module_config.tool.codex_patch]

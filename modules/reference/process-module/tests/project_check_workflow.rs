@@ -184,7 +184,7 @@ async fn check_model_free_replay(git_failure: bool, test_failure: bool, continua
         .iter()
         .filter_map(|record| match &record.entry {
             JournalEntry::ToolCallRecorded(tool)
-                if tool.phase == ToolCallRecordPhase::Requested =>
+                if matches!(tool.phase, ToolCallRecordPhase::Requested { .. }) =>
             {
                 Some(tool.call.name.as_str())
             }

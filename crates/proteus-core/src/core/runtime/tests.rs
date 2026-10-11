@@ -11,8 +11,8 @@ use super::turn::{TurnAbort, turn_settlement_status};
 use super::*;
 use crate::{
     contracts::{Workflow, WorkflowOutput},
-    core::{ConfiguredToolConfig, ConfiguredToolExecutorConfig, ModuleCatalog, PreparedAssembly},
-    domain::{AgentOutput, AgentTask, ExecutionId, HistoryCompactionReport, ToolSafety},
+    core::{ModuleCatalog, PreparedAssembly},
+    domain::{AgentOutput, AgentTask, ExecutionId, HistoryCompactionReport},
     model_standard::{CanonicalMessage, CanonicalModelRequest, MessageRole},
 };
 
@@ -24,6 +24,20 @@ mod steering_integration;
 
 fn test_catalog() -> ModuleCatalog {
     crate::test_support::module_catalog()
+}
+
+fn add_probe_tool(config: &mut AppConfig, name: &str) {
+    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/process_probe_tool.py");
+    config.tools.enabled.push(name.to_owned());
+    config.components.insert(
+        format!("{name}-component"),
+        serde_json::from_value(serde_json::json!({
+            "command": "python3", "args": ["-B", fixture],
+            "exports": {"tool": {name: {"timeout_ms": 3_000}}}
+        }))
+        .expect("probe component config"),
+    );
 }
 
 fn message_text_for_test(message: &CanonicalMessage) -> String {
@@ -428,11 +442,12 @@ async fn runtime_writes_config_snapshot_when_session_is_persisted() {
     assert_eq!(value["modules"]["workflow"], "coding.plan_execute_review");
     assert_eq!(value["modules"]["context"], "simple");
     assert_eq!(value["modules"]["policy"], "ask_write");
-    assert!(value["modules"]["compactor"].is_null());
-    assert!(value["modules"]["tool_exposure"].is_null());
+    assert!(value["modules"].get("compactor").is_none());
+    assert!(value["modules"].get("tool_exposure").is_none());
     assert_eq!(value["agent_control_surface"], "task");
     assert!(value.get("subagent_surface").is_none());
     assert_eq!(value["permission_mode_default"], "auto");
+    assert_eq!(value["approval_available"], false);
     assert!(value["tools"].as_array().is_some());
 
     let mut reloaded_config = AppConfig::default();
@@ -449,6 +464,7 @@ async fn runtime_writes_config_snapshot_when_session_is_persisted() {
         &reloaded_config,
         reloaded_assembly.registry(),
         PermissionMode::Normal,
+        runtime.approval_available(),
     );
     runtime
         .reload_assembly(reloaded_assembly, Some(reloaded_snapshot))
@@ -545,24 +561,11 @@ async fn reload_assembly_publishes_matching_plan_without_mutating_running_turn()
     let running = tokio::spawn(async move { running_runtime.run("probe".to_owned()).await });
     workflow.started.notified().await;
 
-    let mut next_config = AppConfig::default();
-    next_config.tools.configured.push(ConfiguredToolConfig {
-        name: "late_tool".to_owned(),
-        description: "Appears after reload".to_owned(),
-        input_schema: serde_json::json!({"type": "object"}),
-        surface: crate::domain::ToolSurface::default(),
-        safety: ToolSafety::ReadOnly,
-        supports_parallel_tool_calls: false,
-        timeout_ms: None,
-        metadata: serde_json::Value::Null,
-        executor: ConfiguredToolExecutorConfig::Process {
-            command: "printf".to_owned(),
-            args: vec!["ok".to_owned()],
-            environment: Default::default(),
-        },
-    });
+    let mut next_config = crate::test_model::config();
+    add_probe_tool(&mut next_config, "late_tool");
+    let next_catalog = crate::test_support::module_catalog_for(&next_config);
     let next_assembly =
-        PreparedAssembly::from_catalog(next_config, cwd.path().to_path_buf(), None, test_catalog())
+        PreparedAssembly::from_catalog(next_config, cwd.path().to_path_buf(), None, next_catalog)
             .expect("next assembly");
     let report = runtime
         .reload_assembly(next_assembly, None)
@@ -575,7 +578,7 @@ async fn reload_assembly_publishes_matching_plan_without_mutating_running_turn()
     assert!(
         active_plan
             .tools
-            .configured
+            .requested
             .iter()
             .any(|name| name == "late_tool")
     );

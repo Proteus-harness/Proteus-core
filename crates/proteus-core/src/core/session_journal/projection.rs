@@ -26,6 +26,7 @@ pub(crate) struct JournalValidationState {
     settled_turns: HashSet<TurnId>,
     model_requests: HashMap<ExchangeId, ExecutionFactOwner>,
     model_responses: HashSet<ExchangeId>,
+    context: super::context::ContextLifecycle,
     tool_calls: HashMap<CallId, ToolLifecycle>,
 }
 
@@ -38,7 +39,7 @@ struct TurnLifecycle {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct ExecutionFactOwner {
+pub(super) struct ExecutionFactOwner {
     execution_id: ExecutionId,
     thread_id: Option<ThreadId>,
     turn_id: Option<TurnId>,
@@ -209,6 +210,14 @@ impl JournalValidationState {
                 self.history_revision = mutation.new_revision;
                 self.history_turn = record.turn_id;
             }
+            JournalEntry::ContextRequestRecorded(request) => {
+                let owner = self.require_execution_fact(record)?;
+                self.context.request(request.invocation_id, owner)?;
+            }
+            JournalEntry::ContextResponseRecorded(response) => {
+                let owner = self.require_execution_fact(record)?;
+                self.context.response(response.invocation_id, owner)?;
+            }
             JournalEntry::ModelRequestRecorded(request) => {
                 let owner = self.require_execution_fact(record)?;
                 self.validate_part_id_stability(&request.request.messages)?;
@@ -253,14 +262,18 @@ impl JournalValidationState {
             }
             JournalEntry::ToolCallRecorded(tool) => {
                 let owner = self.require_execution_fact(record)?;
-                if matches!(tool.phase, ToolCallRecordPhase::Requested)
-                    && record.thread_id.zip(record.turn_id) == self.capture_owner
+                if matches!(
+                    &tool.phase,
+                    ToolCallRecordPhase::Requested {
+                        owner: crate::contracts::OperationOwner::Workflow
+                    }
+                ) && record.thread_id.zip(record.turn_id) == self.capture_owner
                 {
                     self.capture.validate_call(&tool.call)?;
                 }
                 let lifecycle = self.tool_calls.entry(tool.call.id.clone()).or_default();
                 match &tool.phase {
-                    ToolCallRecordPhase::Requested => {
+                    ToolCallRecordPhase::Requested { .. } => {
                         if lifecycle.call.is_some() {
                             bail!("tool call {} was requested more than once", tool.call.id);
                         }
@@ -524,6 +537,7 @@ pub struct JournalProjection {
     pub history_revision: u64,
     pub interrupted_turns: Vec<proteus_contracts::contracts::WorkflowHistoryInterruption>,
     pub interrupted_model_exchanges: Vec<ExchangeId>,
+    pub interrupted_context_builds: Vec<uuid::Uuid>,
     pub unresolved_tool_calls: Vec<CallId>,
     pub unsettled_turns: Vec<TurnId>,
 }
@@ -582,12 +596,15 @@ impl JournalProjection {
             .collect::<Vec<_>>();
         unsettled_turns.sort_unstable();
 
+        let interrupted_context_builds = state.context.interrupted();
+
         Ok(Self {
             records,
             history: state.history,
             history_revision: state.history_revision,
             interrupted_turns: state.interrupted_turns,
             interrupted_model_exchanges,
+            interrupted_context_builds,
             unresolved_tool_calls,
             unsettled_turns,
         })

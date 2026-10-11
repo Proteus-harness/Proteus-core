@@ -26,7 +26,7 @@ from component_runtime import (  # noqa: E402
 )
 
 MODULE_ID = "python_rg"
-CONTRACTS = {"tool": "v5", "context_provider": "v4"}
+CONTRACTS = {"tool": "v6", "context_provider": "v4"}
 active_exports: list[dict[str, Any]] = []
 
 INITIALIZE_FIELDS = {

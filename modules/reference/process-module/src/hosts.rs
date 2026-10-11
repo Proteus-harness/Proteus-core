@@ -5,15 +5,15 @@ use std::sync::{
 
 use proteus_contracts::{
     contracts::{
-        COMPACTOR_HOST_COMPLETE_MODEL_METHOD, CONTEXT_HOST_PROVIDER_METHOD,
-        WORKFLOW_HOST_BUILD_CONTEXT_METHOD, WORKFLOW_HOST_COMPACT_HISTORY_METHOD,
+        CONTEXT_HOST_PROVIDER_METHOD, OPERATION_HOST_COMPLETE_MODEL_METHOD,
+        OPERATION_HOST_EXECUTE_TOOL_METHOD, WORKFLOW_HOST_BUILD_CONTEXT_METHOD,
         WORKFLOW_HOST_COMPLETE_MODEL_METHOD, WORKFLOW_HOST_EMIT_EVENT_METHOD,
         WORKFLOW_HOST_EXECUTE_TOOL_METHOD, WORKFLOW_HOST_EXECUTE_TOOLS_METHOD,
-        WORKFLOW_HOST_RUNTIME_STATUS_METHOD, WORKFLOW_HOST_SELECT_TOOLS_METHOD,
-        WORKFLOW_HOST_VISIBLE_TOOLS_METHOD,
+        WORKFLOW_HOST_PREPARE_CONTEXT_METHOD, WORKFLOW_HOST_RUNTIME_STATUS_METHOD,
+        WORKFLOW_HOST_SELECT_TOOLS_METHOD, WORKFLOW_HOST_VISIBLE_TOOLS_METHOD,
     },
     process_module::{
-        CompactorModuleHost, ContextBuilderModuleHost, ProcessModuleError, ToolModuleHost,
+        ContextBuilderModuleHost, HookModuleHost, ProcessModuleError, ToolModuleHost,
         WorkflowModuleHost,
     },
 };
@@ -80,6 +80,24 @@ impl proteus_contracts::process_module::ModelModuleHost for ModelHostBridge {
 }
 
 impl ToolModuleHost for ToolHostBridge {
+    fn execute_tool_json(&self, call_json: String) -> Result<String, ProcessModuleError> {
+        model_aware_call(
+            &self.0,
+            OPERATION_HOST_EXECUTE_TOOL_METHOD,
+            "call",
+            call_json,
+        )
+    }
+
+    fn complete_model_json(&self, request_json: String) -> Result<String, ProcessModuleError> {
+        model_aware_call(
+            &self.0,
+            OPERATION_HOST_COMPLETE_MODEL_METHOD,
+            "request",
+            request_json,
+        )
+    }
+
     fn conversation_snapshot_json(&self) -> Result<String, ProcessModuleError> {
         let value = self
             .0
@@ -134,9 +152,18 @@ impl ContextBuilderModuleHost for ContextHostBridge {
     }
 }
 
-pub struct CompactorHostBridge(pub HostBridge);
+pub struct HookHostBridge(pub HostBridge);
 
-impl CompactorModuleHost for CompactorHostBridge {
+impl HookModuleHost for HookHostBridge {
+    fn execute_tool_json(&self, call_json: String) -> Result<String, ProcessModuleError> {
+        model_aware_call(
+            &self.0,
+            OPERATION_HOST_EXECUTE_TOOL_METHOD,
+            "call",
+            call_json,
+        )
+    }
+
     fn is_cancelled(&self) -> Result<bool, ProcessModuleError> {
         Ok(self.0.is_cancelled())
     }
@@ -144,7 +171,7 @@ impl CompactorModuleHost for CompactorHostBridge {
     fn complete_model_json(&self, request_json: String) -> Result<String, ProcessModuleError> {
         model_aware_call(
             &self.0,
-            COMPACTOR_HOST_COMPLETE_MODEL_METHOD,
+            OPERATION_HOST_COMPLETE_MODEL_METHOD,
             "request",
             request_json,
         )
@@ -169,13 +196,16 @@ fn model_callback_error(error: anyhow::Error) -> ProcessModuleError {
 pub struct WorkflowHostBridge(pub HostBridge);
 
 impl WorkflowModuleHost for WorkflowHostBridge {
-    fn checkpoint_history_json(&self, checkpoint_json: String) -> Result<(), ProcessModuleError> {
+    fn checkpoint_history_json(
+        &self,
+        checkpoint_json: String,
+    ) -> Result<String, ProcessModuleError> {
         let checkpoint = parse_value(checkpoint_json).map_err(ProcessModuleError::new)?;
         match self.0.call(
             proteus_contracts::contracts::WORKFLOW_HOST_CHECKPOINT_HISTORY_METHOD,
             checkpoint,
         ) {
-            Ok(_) => Ok(()),
+            Ok(value) => workflow_json(value),
             Err(error) => workflow_error(error),
         }
     }
@@ -239,10 +269,10 @@ impl WorkflowModuleHost for WorkflowHostBridge {
         )
     }
 
-    fn compact_history_json(&self, input_json: String) -> Result<String, ProcessModuleError> {
+    fn prepare_context_json(&self, input_json: String) -> Result<String, ProcessModuleError> {
         model_aware_call(
             &self.0,
-            WORKFLOW_HOST_COMPACT_HISTORY_METHOD,
+            WORKFLOW_HOST_PREPARE_CONTEXT_METHOD,
             "input",
             input_json,
         )
@@ -308,7 +338,7 @@ impl WorkflowModuleHost for WorkflowHostBridge {
     }
 }
 
-/// JSON host callbacks with typed model failures shared by workflow and compactor slots.
+/// JSON host callbacks with typed model failures shared by workflow, hook and tool slots.
 fn model_aware_call(
     bridge: &HostBridge,
     method: &str,

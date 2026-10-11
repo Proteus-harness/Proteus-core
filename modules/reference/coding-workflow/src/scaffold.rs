@@ -1,7 +1,7 @@
 use proteus_contracts::{
     contracts::{
-        WorkflowFailure, WorkflowHistoryCheckpoint, WorkflowHistoryUpdate,
-        WorkflowToolResultBinding,
+        ContextPreparationTarget, WorkflowFailure, WorkflowHistoryCheckpoint,
+        WorkflowHistoryUpdate, WorkflowToolResultBinding,
     },
     domain::{
         AgentOutput, CONTEXT_MESSAGE_NAME, Event, HistoryCompactionReport, MessageId, ToolResult,
@@ -12,6 +12,10 @@ use proteus_contracts::{
     },
 };
 use serde_json::Value;
+
+mod preparation;
+mod results;
+use preparation::PendingPreparation;
 
 use crate::history::{
     current_user_index, persistent_messages_from_model_messages, replace_after_compaction,
@@ -32,13 +36,18 @@ pub(crate) struct TurnScaffold {
     pub(crate) context_token_estimate: Option<u32>,
     compactions: Vec<HistoryCompactionReport>,
     history_replacement_len: Option<usize>,
+    pending_preparation: Option<PendingPreparation>,
     result_bindings: std::collections::HashMap<String, WorkflowToolResultBinding>,
 }
 
 impl TurnScaffold {
     pub(crate) fn failure(&self, error: ProcessModuleError) -> WorkflowFailure {
         let mut failure = WorkflowFailure::from(error);
-        match self.history_update() {
+        let history = match &self.pending_preparation {
+            Some(pending) => Ok(pending.previous.history.clone()),
+            None => self.history_update(),
+        };
+        match history {
             Ok(Some(history)) => failure.with_history(history),
             Ok(None) => failure,
             Err(history_error) => {
@@ -123,6 +132,7 @@ impl TurnScaffold {
                 .continuation
                 .as_ref()
                 .and_then(|c| c.history.history_replacement.as_ref().map(Vec::len)),
+            pending_preparation: None,
             result_bindings: Default::default(),
         })
     }
@@ -166,18 +176,6 @@ impl TurnScaffold {
         Ok(())
     }
 
-    pub(crate) fn append_tool_results(&mut self, results: impl IntoIterator<Item = ToolResult>) {
-        for result in results {
-            let call_id = result.call_id.clone();
-            let tool_result_message = match self.result_bindings.remove(&call_id) {
-                Some(binding) => binding.message(result),
-                None => crate::history::tool_result_message(result),
-            };
-            self.model_messages.push(tool_result_message.clone());
-            self.persistent_messages.push(tool_result_message);
-        }
-    }
-
     pub(crate) fn checkpoint(
         &mut self,
         host: &WorkflowModuleHostMut<'_>,
@@ -206,17 +204,19 @@ impl TurnScaffold {
         let checkpoint = WorkflowHistoryCheckpoint {
             history,
             tool_results: bindings,
+            preparation_target: self
+                .pending_preparation
+                .as_ref()
+                .and_then(|pending| pending.target.clone()),
         };
-        host.checkpoint_history_json(
-            serde_json::to_string(&checkpoint)
-                .map_err(|error| ProcessModuleError::new(error.to_string()))?,
-        )?;
+        self.accept_checkpoint(host, checkpoint)?;
         Ok(())
     }
 
     pub(crate) fn apply_compaction_report(
         &mut self,
         report: Option<&HistoryCompactionReport>,
+        target: Option<&ContextPreparationTarget>,
         compacted_messages: &[CanonicalMessage],
         repair: PersistentRepair,
     ) -> Result<bool, ProcessModuleError> {
@@ -224,10 +224,12 @@ impl TurnScaffold {
             return Ok(false);
         };
 
-        self.compactions.push(report.clone());
         if !report.changed {
+            self.compactions.push(report.clone());
             return Ok(false);
         }
+        self.stage_preparation(target.cloned())?;
+        self.compactions.push(report.clone());
 
         if let Some(replacement) = report
             .user_message_replacements
@@ -272,6 +274,11 @@ impl TurnScaffold {
         output_text: String,
         metadata: Value,
     ) -> Result<WorkflowModuleOutput, ProcessModuleError> {
+        if self.pending_preparation.is_some() {
+            return Err(ProcessModuleError::new(
+                "context preparation has not been acknowledged",
+            ));
+        }
         let output = AgentOutput::new(output_text, metadata);
         emit_event(
             host,

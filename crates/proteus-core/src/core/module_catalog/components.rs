@@ -4,13 +4,12 @@ use anyhow::{Result, bail};
 use proteus_module_protocol::{ProcessExportBinding, current_process_contract_authority};
 
 use crate::{
-    contracts::{ContextBuilder, HistoryCompactor, ToolExposure, Workflow},
+    contracts::{ContextBuilder, Workflow},
     core::AppConfig,
     domain::{ModuleKind, ModuleManifest, SlotId, slot},
     process_adapters::{
         ProcessApprovalPolicy, ProcessComponentLauncher, ProcessContextBuilder,
-        ProcessExportConfig, ProcessHistoryCompactor, ProcessModel, ProcessToolExposure,
-        ProcessWorkflowAdapter,
+        ProcessExportConfig, ProcessModel, ProcessWorkflowAdapter,
     },
 };
 
@@ -87,6 +86,7 @@ impl ModuleCatalog {
                         Ok(Arc::new(crate::process_adapters::ProcessHookAdapter::new(
                             export.clone(),
                             ctx.cwd,
+                            ctx.config.runtime.workflow_timeout_ms,
                         )?))
                     },
                 );
@@ -119,30 +119,6 @@ impl ModuleCatalog {
                             ctx.cwd,
                         )?))
                     },
-                );
-            }
-            "compactor" => {
-                ensure_process_id_is_free(self, slot::COMPACTOR, &module_id)?;
-                self.register_module::<dyn HistoryCompactor>(
-                    slot::COMPACTOR,
-                    &module_id,
-                    process_manifest(&export, ModuleKind::Compactor, description),
-                    move |ctx| {
-                        Ok(Arc::new(ProcessHistoryCompactor::new(
-                            export.clone(),
-                            ctx.cwd,
-                            ctx.config.runtime.workflow_timeout_ms,
-                        )?))
-                    },
-                );
-            }
-            "tool_exposure" => {
-                ensure_process_id_is_free(self, slot::TOOL_EXPOSURE, &module_id)?;
-                self.register_module::<dyn ToolExposure>(
-                    slot::TOOL_EXPOSURE,
-                    &module_id,
-                    process_manifest(&export, ModuleKind::ToolExposure, description),
-                    move |ctx| Ok(Arc::new(ProcessToolExposure::new(export.clone(), ctx.cwd)?)),
                 );
             }
             "workflow" => {

@@ -29,7 +29,7 @@ const NEXT_TASK: &str = "Продолжай после переполнения 
 const SUMMARY_TEXT: &str = "Контрольный файл уже записан; продолжи без повтора.";
 const FINAL_TEXT: &str = "Продолжение завершено.";
 const COMPACTION_PROMPT: &str =
-    include_str!("../../../codex-compactor/src/upstream/compact_prompt.md");
+    include_str!("../../../codex-context-preparation/src/upstream/compact_prompt.md");
 const TRIGGER_TOKENS: usize = 90_000;
 
 fn tool_response() -> Value {
@@ -122,8 +122,8 @@ async fn configure(root: &Path, endpoint: &str) -> AppConfig {
     model["max_input_tokens"] = json!(100_000);
     config
         .module_config
-        .get_mut("compactor")
-        .and_then(|modules| modules.get_mut("codex"))
+        .get_mut("hook")
+        .and_then(|modules| modules.get_mut("codex_compact"))
         .expect("Codex compactor config")["trigger_tokens"] = json!(TRIGGER_TOKENS);
     std::fs::write(
         root.join("config.json"),
@@ -233,7 +233,7 @@ async fn assert_evidence(config: &AppConfig, root: &Path, session_dir: &Path, re
         [
             ModelCallOrigin::Direct,
             ModelCallOrigin::Direct,
-            ModelCallOrigin::Compactor,
+            ModelCallOrigin::Auxiliary,
             ModelCallOrigin::Direct
         ]
     );
@@ -257,7 +257,7 @@ async fn assert_evidence(config: &AppConfig, root: &Path, session_dir: &Path, re
             .filter(|record| matches!(
                 &record.entry,
                 JournalEntry::ToolCallRecorded(call)
-                    if call.phase == ToolCallRecordPhase::Requested
+                    if matches!(call.phase, ToolCallRecordPhase::Requested { .. })
                         && call.call.id == "call_write_before_overflow"
             ))
             .count(),

@@ -220,7 +220,7 @@ async fn assert_canonical_session(config: &AppConfig, session_dir: &Path) {
             matches!(
                 &record.entry,
                 JournalEntry::ToolCallRecorded(tool)
-                    if tool.phase == ToolCallRecordPhase::Requested
+                    if matches!(tool.phase, ToolCallRecordPhase::Requested { .. })
                         && tool.call.id == "call_write_before_failure"
             )
         })
@@ -320,21 +320,24 @@ async fn configure(root: &Path, endpoint: &str, workflow: &str, deferred: bool) 
             .unwrap()["request_max_retries"] = json!(0);
     }
     if deferred {
-        config.modules.tool_exposure = Some("codex_dynamic".into());
+        config
+            .modules
+            .hooks
+            .insert(0, "tool_selection.dynamic".into());
         config.components.insert(
-            "fixture-exposure".into(),
+            "fixture-selection".into(),
             serde_json::from_value(json!({
                 "command": env!("CARGO_BIN_EXE_proteus-reference-module"),
-                "exports": {"tool_exposure": {"codex_dynamic": {}}}
+                "exports": {"hook": {"tool_selection.dynamic": {}}}
             }))
             .unwrap(),
         );
         config
             .module_config
-            .entry("tool_exposure".into())
+            .entry("hook".into())
             .or_default()
             .insert(
-                "codex_dynamic".into(),
+                "tool_selection.dynamic".into(),
                 json!({"max_hot_tools":1,"always_include":["read_file"]}),
             );
     }

@@ -9,10 +9,9 @@ use async_trait::async_trait;
 use super::*;
 use crate::{
     contracts::{
-        CancellationToken, CompactionHost, EventSink, Model, ModelEventStream, Workflow,
-        WorkflowFailure, WorkflowHistoryUpdate, WorkflowOutput,
+        CancellationToken, EventSink, Model, ModelEventStream, Workflow, WorkflowFailure,
+        WorkflowHistoryUpdate, WorkflowOutput,
     },
-    core::RuntimeCompactionHost,
     domain::{
         AgentOutput, AgentTask, Event, EventEnvelope, ModelRef, SteeringDeliveryKind, ToolCall,
         ToolResult,
@@ -31,7 +30,7 @@ struct TwoRoundSteeringWorkflow {
     continue_second_request: Arc<tokio::sync::Notify>,
 }
 
-struct CompactionBoundarySteeringWorkflow {
+struct AuxiliaryBoundarySteeringWorkflow {
     first_response_received: Arc<tokio::sync::Notify>,
     continue_after_queue: Arc<tokio::sync::Notify>,
 }
@@ -162,7 +161,7 @@ impl Workflow for TwoRoundSteeringWorkflow {
 }
 
 #[async_trait]
-impl Workflow for CompactionBoundarySteeringWorkflow {
+impl Workflow for AuxiliaryBoundarySteeringWorkflow {
     async fn run(
         &self,
         _task: AgentTask,
@@ -194,8 +193,8 @@ impl Workflow for CompactionBoundarySteeringWorkflow {
         self.first_response_received.notify_one();
         self.continue_after_queue.notified().await;
 
-        let compaction_host = RuntimeCompactionHost::new(ctx.clone());
-        let summary = compaction_host
+        let auxiliary_host = ctx.execution.operations.as_ref().expect("bound operations");
+        let summary = auxiliary_host
             .complete_model(CanonicalModelRequest::new(
                 ctx.model_ref.clone().expect("model selection"),
                 vec![CanonicalMessage::text(MessageRole::User, "summarize")],
@@ -522,7 +521,7 @@ async fn delivered_message_and_completed_work_survive_model_failure_in_history_a
 }
 
 #[tokio::test]
-async fn compactor_model_call_does_not_consume_steering_boundary() {
+async fn auxiliary_model_call_does_not_consume_steering_boundary() {
     let cwd = tempfile::tempdir().expect("temp dir");
     let runtime = Arc::new(
         AgentRuntime::builder(AppConfig::default(), cwd.path().to_path_buf())
@@ -530,7 +529,7 @@ async fn compactor_model_call_does_not_consume_steering_boundary() {
             .build()
             .expect("runtime"),
     );
-    let workflow = Arc::new(CompactionBoundarySteeringWorkflow {
+    let workflow = Arc::new(AuxiliaryBoundarySteeringWorkflow {
         first_response_received: Arc::new(tokio::sync::Notify::new()),
         continue_after_queue: Arc::new(tokio::sync::Notify::new()),
     });

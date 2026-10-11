@@ -36,7 +36,6 @@ pub fn render_topology_runtime_path(snapshot: &TopologySnapshot) -> String {
     out.push_str("\nActive product path\n");
     render_runtime_slot(snapshot, "workflow", "turn loop", &mut out);
     render_runtime_slot(snapshot, "context", "context build", &mut out);
-    render_runtime_slot(snapshot, "tool_exposure", "tool selection", &mut out);
     render_runtime_slot(snapshot, "model", "model call", &mut out);
     render_runtime_slot(snapshot, "policy", "approval gate", &mut out);
     out.push_str(&format!(
@@ -44,19 +43,6 @@ pub fn render_topology_runtime_path(snapshot: &TopologySnapshot) -> String {
         snapshot.tools.iter().filter(|tool| tool.registered).count(),
         snapshot.tools.iter().filter(|tool| tool.enabled).count()
     ));
-
-    let parked = ["compactor"];
-    let parked = parked
-        .into_iter()
-        .filter_map(|slot_id| {
-            let slot = snapshot.slots.iter().find(|slot| slot.id == slot_id)?;
-            let active = slot.active_module.as_deref().unwrap_or("-");
-            Some(format!("{slot_id}={active}"))
-        })
-        .collect::<Vec<_>>();
-    if !parked.is_empty() {
-        out.push_str(&format!("\nParked/support slots: {}\n", parked.join(", ")));
-    }
 
     if !snapshot.warnings.is_empty() {
         out.push_str("\nWarnings\n");
@@ -86,7 +72,7 @@ pub fn render_topology_runtime_mermaid(snapshot: &TopologySnapshot) -> String {
             }
         ),
     );
-    for slot_id in ["workflow", "context", "tool_exposure", "model", "policy"] {
+    for slot_id in ["workflow", "context", "hook", "model", "policy"] {
         labels.insert(
             format!("slot:{slot_id}"),
             runtime_mermaid_slot_label(snapshot, slot_id),
@@ -101,23 +87,6 @@ pub fn render_topology_runtime_mermaid(snapshot: &TopologySnapshot) -> String {
         ),
     );
     labels.insert("output".to_owned(), "Final output".to_owned());
-
-    let parked = ["compactor"]
-        .into_iter()
-        .filter_map(|slot_id| {
-            let slot = snapshot.slots.iter().find(|slot| slot.id == slot_id)?;
-            Some(format!(
-                "{slot_id}: {}",
-                slot.active_module.as_deref().unwrap_or("-")
-            ))
-        })
-        .collect::<Vec<_>>();
-    if !parked.is_empty() {
-        labels.insert(
-            "parked".to_owned(),
-            format!("parked/support<br/>{}", parked.join("<br/>")),
-        );
-    }
 
     if !snapshot.warnings.is_empty() {
         labels.insert(
@@ -161,8 +130,8 @@ pub fn render_topology_runtime_mermaid(snapshot: &TopologySnapshot) -> String {
     add_edge("config", "slot:model", "selects");
     add_edge("slot:workflow", "slot:context", "builds context");
     add_edge("slot:context", "slot:model", "context");
-    add_edge("slot:workflow", "slot:tool_exposure", "selects tools");
-    add_edge("slot:tool_exposure", "tools", "visible tools");
+    add_edge("slot:workflow", "slot:hook", "typed contributions");
+    add_edge("slot:hook", "tools", "tool selection");
     add_edge("slot:model", "slot:workflow", "response/tool calls");
     add_edge("slot:workflow", "slot:policy", "approval gate");
     add_edge("slot:policy", "tools", "executes allowed calls");
@@ -190,6 +159,14 @@ fn render_runtime_slot(snapshot: &TopologySnapshot, slot_id: &str, label: &str, 
 }
 
 fn runtime_mermaid_slot_label(snapshot: &TopologySnapshot, slot_id: &str) -> String {
+    if slot_id == "hook" {
+        let chain = if snapshot.hooks.is_empty() {
+            "none".to_owned()
+        } else {
+            snapshot.hooks.join(" -> ")
+        };
+        return format!("hook<br/>{chain}");
+    }
     let active = snapshot
         .slots
         .iter()

@@ -10,6 +10,7 @@ mod failure_history;
 mod intents;
 mod output_helpers;
 mod plan_execute_review;
+mod preparation;
 mod project_check_workflow;
 mod request_accounting;
 mod single_loop;
@@ -39,9 +40,12 @@ struct FakeHost {
     selected_tools: Mutex<Vec<ToolSpec>>,
     executed_calls: Mutex<Vec<ToolCall>>,
     tool_results: Mutex<VecDeque<ToolResult>>,
-    compactions: Mutex<Vec<CompactionInput>>,
-    compaction_outputs: Mutex<VecDeque<proteus_contracts::contracts::CompactionOutput>>,
+    compactions: Mutex<Vec<ContextPreparationInput>>,
+    compaction_outputs: Mutex<VecDeque<proteus_contracts::contracts::ContextPreparationOutput>>,
     compaction_failure: Option<ProcessModuleError>,
+    checkpoint_failure: Option<ProcessModuleError>,
+    preparation_target: Option<proteus_contracts::contracts::ContextPreparationTarget>,
+    checkpoint_ack: Mutex<Option<proteus_contracts::contracts::WorkflowCheckpointAck>>,
 }
 
 impl FakeHost {
@@ -75,7 +79,7 @@ impl FakeHost {
 
     fn with_compaction_outputs(
         mut self,
-        outputs: Vec<proteus_contracts::contracts::CompactionOutput>,
+        outputs: Vec<proteus_contracts::contracts::ContextPreparationOutput>,
     ) -> Self {
         self.compaction_outputs = Mutex::new(VecDeque::from(outputs));
         self
@@ -83,12 +87,35 @@ impl FakeHost {
 }
 
 impl WorkflowModuleHost for FakeHost {
-    fn checkpoint_history_json(&self, checkpoint_json: String) -> Result<(), ProcessModuleError> {
-        self.checkpoints
+    fn checkpoint_history_json(
+        &self,
+        checkpoint_json: String,
+    ) -> Result<String, ProcessModuleError> {
+        let checkpoint: proteus_contracts::contracts::WorkflowHistoryCheckpoint =
+            serde_json::from_str(&checkpoint_json).unwrap();
+        self.checkpoints.lock().unwrap().push(checkpoint.clone());
+        if let Some(error) = &self.checkpoint_failure {
+            return Err(error.clone());
+        }
+        let ack = self
+            .checkpoint_ack
             .lock()
             .unwrap()
-            .push(serde_json::from_str(&checkpoint_json).unwrap());
-        Ok(())
+            .take()
+            .unwrap_or_else(|| {
+                let mut messages = checkpoint
+                    .history
+                    .history_replacement
+                    .clone()
+                    .unwrap_or_default();
+                messages.extend(checkpoint.history.new_messages.clone());
+                proteus_contracts::contracts::WorkflowCheckpointAck {
+                    history: checkpoint.history,
+                    messages,
+                    revision: None,
+                }
+            });
+        Ok(serde_json::to_string(&ack).unwrap())
     }
     fn is_cancelled(&self) -> Result<bool, ProcessModuleError> {
         Ok(false)
@@ -173,11 +200,11 @@ impl WorkflowModuleHost for FakeHost {
         ))
     }
 
-    fn compact_history_json(&self, input_json: String) -> Result<String, ProcessModuleError> {
+    fn prepare_context_json(&self, input_json: String) -> Result<String, ProcessModuleError> {
         if let Some(error) = &self.compaction_failure {
             return Err(error.clone());
         }
-        let input: CompactionInput =
+        let input: ContextPreparationInput =
             serde_json::from_str(input_json.as_str()).expect("compaction input json");
         self.compactions
             .lock()
@@ -189,10 +216,14 @@ impl WorkflowModuleHost for FakeHost {
             .expect("compaction outputs")
             .pop_front()
             .unwrap_or_else(|| {
-                proteus_contracts::contracts::CompactionOutput::unchanged(input.request.messages)
+                proteus_contracts::contracts::ContextPreparationOutput::unchanged(input.messages)
             });
         Ok(String::from(
-            serde_json::to_string(&output).expect("compaction output json"),
+            serde_json::to_string(&proteus_contracts::contracts::ContextPreparationResult {
+                output,
+                target: self.preparation_target.clone(),
+            })
+            .expect("preparation result json"),
         ))
     }
 
@@ -204,11 +235,11 @@ impl WorkflowModuleHost for FakeHost {
     }
 
     fn select_tools_json(&self, _request_json: String) -> Result<String, ProcessModuleError> {
-        let output = proteus_contracts::contracts::ToolExposureOutput::new(
+        let output = proteus_contracts::contracts::ToolSelectionOutput::new(
             self.selected_tools.lock().expect("selected tools").clone(),
         );
         Ok(String::from(
-            serde_json::to_string(&output).expect("tool exposure output json"),
+            serde_json::to_string(&output).expect("tool selection output json"),
         ))
     }
 

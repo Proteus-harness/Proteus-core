@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    domain::ExchangeId,
+    domain::{AgentTask, ExchangeId},
     model_standard::{CanonicalModelRequest, CanonicalModelResponse, ModelFailure},
 };
 
@@ -12,17 +12,35 @@ use crate::{
 pub enum ModelCallOrigin {
     /// An ordinary workflow or detached model call.
     Direct,
-    /// A model callback made through the `HistoryCompactor` host surface.
-    Compactor,
+    /// Auxiliary generation initiated by an execution-bound hook or tool.
+    Auxiliary,
 }
 
-/// Execution-bound sink for generic model lifecycle facts.
+/// Execution-bound sink for generic execution lifecycle facts.
 ///
 /// The binding selects the execution owner before this surface reaches a
 /// caller, so individual calls deliberately carry no session, thread or turn
 /// identity. Implementations may persist the facts or keep them in memory.
 #[async_trait]
 pub trait ExecutionRecorder: Send + Sync {
+    /// Persist the exact context input before invoking its implementation.
+    async fn context_request_recorded(
+        &self,
+        _invocation_id: uuid::Uuid,
+        _task: &AgentTask,
+    ) -> Result<()> {
+        Ok(())
+    }
+
+    /// Persist the context result before exposing it to the workflow.
+    async fn context_response_recorded(
+        &self,
+        _invocation_id: uuid::Uuid,
+        _outcome: &super::ContextBuildOutcome,
+    ) -> Result<()> {
+        Ok(())
+    }
+
     /// Persist hook decisions before the next execution side effect.
     async fn hook_recorded(&self, _trace: &super::HookTrace) -> Result<()> {
         Ok(())
@@ -32,6 +50,7 @@ pub trait ExecutionRecorder: Send + Sync {
         &self,
         exchange_id: ExchangeId,
         origin: ModelCallOrigin,
+        owner: super::OperationOwner,
         request: &CanonicalModelRequest,
     ) -> Result<()>;
 
@@ -67,6 +86,7 @@ impl ExecutionRecorder for NoopExecutionRecorder {
         &self,
         _exchange_id: ExchangeId,
         _origin: ModelCallOrigin,
+        _owner: super::OperationOwner,
         _request: &CanonicalModelRequest,
     ) -> Result<()> {
         Ok(())

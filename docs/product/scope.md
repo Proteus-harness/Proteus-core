@@ -7,8 +7,9 @@
 
 - Process-only Component Runtime v2 / wire v3: persistent multi-export
   components, concurrent invocation, callbacks, cancellation и restart.
-- Slots для workflow, context/context providers, policy, compactor,
-  tool exposure, tools, hooks и model. Поиск, память и patch — process tools;
+- Slots для workflow, context/context providers, policy,
+  tools, hooks и model; отбор tools выполняется hooks.
+  Поиск, память и patch — process tools;
   автоматическое чтение поиска/памяти — context providers.
 - AssemblyPlan, атомарный runtime snapshot и ExecutionScope.
 - Вход «текст + изображения»: canonical image refs, хранилище вложений,
@@ -17,9 +18,10 @@
   [границы и использование](../guides/images.md).
 - Standalone process Workflow без conversation и модели; typed top-level
   операция `execute_tool` без открытия Turn; `/remember` вызывает memory tool.
-- Opt-in typed `hook/v4` contributions: явная ordered chain, model instructions/
-  messages, pre-tool block/args, post-tool output и bounded completion review;
-  callbacks отсутствуют.
+- Opt-in typed `hook/v6` contributions: явная ordered chain, model instructions/
+  messages, отбор tools, подготовка working history, pre-tool block/args, post-tool output
+  и bounded completion review. Hooks/tools получают execution-bound model/tool
+  callbacks; выбранный preparation hook заменяет отдельный compactor slot.
 - Самостоятельный DCP Node component с model-driven `compress` и hook context
   view, package-owned durable state; исходная история сохраняется. Это перенос
   механизма DCP 3.2.0 с явными adaptations, без OpenCode commands/TUI/RPC;
@@ -68,10 +70,10 @@ Reference modules и profiles — поставляемые примеры без
 | Граница | Ограничение |
 |---|---|
 | Model | Descriptor запрашивается для конкретного `ModelRef` и сохраняется в runtime snapshot; обновление возможностей требует пересборки snapshot |
-| Workflow | Standalone invocation допускает пустую history, отсутствие conversation и модели; chat events/history checkpoints/compaction требуют разговорного контекста |
+| Workflow | Standalone invocation допускает пустую history, отсутствие conversation и модели; chat events и root history checkpoints требуют разговорного контекста; preparation частной истории возможна без модели и conversation |
 | Исполнение вне чата | `Workflow` сохраняет `AgentTask` с текстом и `cwd`, history и `AgentOutput`; отдельный вызов через registry не даёт публичного admission и durable settlement произвольной задачи в `AgentRuntime` |
 | Предметные контракты | `ModuleKind`, таблица process authority, config и adapters задают известный host набор; подключение нового семейства контрактов без согласованных изменений этих границ пока отсутствует |
-| Replay | Model-free Turn поддержан; context/tool exposure/compaction требуют записанного model request. Прямые model calls workflow отделены от summary exchanges; replay хода с внутренним summary требует записанного changed-compaction checkpoint и следующего direct model request; внутренний алгоритм и typed error branches compactor не воспроизводятся. Root steering и внешние Canceled/Timeout не эмулируются |
+| Replay | Model-free Turn поддержан. Context build воспроизводится по точным input/outcome records, включая ошибки до модели; отбор tools и preparation — по typed hook trace, включая failure и unchanged. Owner/parent tree связывает дочерние model/tool records с hook/tool invocation; алгоритмы и effects повторно не исполняются. Root steering и внешние Canceled/Timeout не эмулируются |
 | Collaboration | Spawn принимает только parallel_safe роли с isolation=none; настроенный coder с worktree в эту surface не входит |
 | Peer recovery | Resume зависит от живого process; durable tree, attach и reconnect отсутствуют |
 | Доверие к модулям | Собственные процессные модули доверенные и работают с OS-правами владельца; принятый локальный режим, sandbox не является задачей этапа |

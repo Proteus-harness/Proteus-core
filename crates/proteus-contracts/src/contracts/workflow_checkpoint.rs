@@ -56,11 +56,27 @@ impl WorkflowToolResultBinding {
 pub struct WorkflowHistoryCheckpoint {
     pub history: WorkflowHistoryUpdate,
     pub tool_results: Vec<WorkflowToolResultBinding>,
+    /// CAS guard minted by the host for accepted preparation; null for an ordinary append.
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub preparation_target: Option<super::ContextPreparationTarget>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct WorkflowCheckpointAck {
+    pub history: WorkflowHistoryUpdate,
+    /// Full canonical root projection when revision is present.
+    pub messages: Vec<CanonicalMessage>,
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub revision: Option<u64>,
 }
 
 #[async_trait]
 pub trait WorkflowHistoryRecorder: Send + Sync {
-    async fn checkpoint(&self, checkpoint: WorkflowHistoryCheckpoint) -> Result<()>;
+    async fn checkpoint(
+        &self,
+        checkpoint: WorkflowHistoryCheckpoint,
+    ) -> Result<WorkflowCheckpointAck>;
 }
 
 /// For callers which do not provide conversation persistence (e.g. a replay
@@ -70,8 +86,21 @@ pub struct NoopWorkflowHistoryRecorder;
 
 #[async_trait]
 impl WorkflowHistoryRecorder for NoopWorkflowHistoryRecorder {
-    async fn checkpoint(&self, _checkpoint: WorkflowHistoryCheckpoint) -> Result<()> {
-        Ok(())
+    async fn checkpoint(
+        &self,
+        checkpoint: WorkflowHistoryCheckpoint,
+    ) -> Result<WorkflowCheckpointAck> {
+        let mut messages = checkpoint
+            .history
+            .history_replacement
+            .clone()
+            .unwrap_or_default();
+        messages.extend(checkpoint.history.new_messages.clone());
+        Ok(WorkflowCheckpointAck {
+            history: checkpoint.history,
+            messages,
+            revision: None,
+        })
     }
 }
 

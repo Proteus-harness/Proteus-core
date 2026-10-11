@@ -90,7 +90,11 @@ async fn checkpoint_captures_only_declared_root_results_in_binding_order() {
     for invalid in [&forged_call, &calls[0]] {
         assert!(
             recorder
-                .tool_call_requested(attribution, invalid)
+                .tool_call_requested(
+                    attribution,
+                    crate::contracts::OperationOwner::Workflow,
+                    invalid
+                )
                 .await
                 .is_err()
         );
@@ -99,7 +103,11 @@ async fn checkpoint_captures_only_declared_root_results_in_binding_order() {
     let undeclared = ToolCall::new("other", "read_file", json!({"path": "c"}));
     for call in execution_calls.iter().chain(std::iter::once(&undeclared)) {
         recorder
-            .tool_call_requested(attribution, call)
+            .tool_call_requested(
+                attribution,
+                crate::contracts::OperationOwner::Workflow,
+                call,
+            )
             .await
             .unwrap();
         recorder

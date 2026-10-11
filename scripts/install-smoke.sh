@@ -56,12 +56,11 @@ test ! -e "${bin_dir}/proteus-reference-worker"
 test -L "${runtime_home}/current"
 test -x "${runtime_home}/current/proteus"
 test -x "${runtime_home}/current/proteus-reference-module"
+test -f "${config_home}/configs/config.toml"
+test -f "${config_home}/configs/codex.config.toml"
+test -f "${config_home}/configs/context-search-chatgpt.config.toml"
 test -f "${config_home}/configs/codex-explore.config.toml"
 test -f "${config_home}/configs/codex-coder.config.toml"
-test -f "${config_home}/configs/codex-chatgpt.config.toml"
-test -f "${config_home}/configs/context-search-chatgpt.config.toml"
-test -f "${config_home}/configs/codex-chatgpt-explore.config.toml"
-test -f "${config_home}/configs/codex-chatgpt-coder.config.toml"
 test -f "${config_home}/configs/fragments/openai-chatgpt.toml"
 test -f "${config_home}/configs/fragments/codex-peer-runtime.toml"
 test -f "${config_home}/configs/fragments/codex-explore-peer.toml"
@@ -85,12 +84,14 @@ run_and_capture auth-status "${output_dir}/auth-status.txt" \
   "${bin_dir}/proteus-reference-module" auth openai_codex status --auth-file "${smoke_root}/chatgpt.json"
 require_text "вход не выполнен" "${output_dir}/auth-status.txt"
 run_and_capture subscription-doctor "${output_dir}/subscription-doctor.txt" \
-  "${proteus}" --config codex-chatgpt doctor
+  "${proteus}" --config codex doctor
 require_text "openai_codex" "${output_dir}/subscription-doctor.txt"
 
+safe_config="${config_home}/configs/smoke-safe.toml"
 run_and_capture init "${output_dir}/init.txt" \
-  "${proteus}" --config "${config_home}/configs/config.toml" init safe
-test -f "${config_home}/configs/config.toml"
+  "${proteus}" --config "${safe_config}" init safe
+test -f "${safe_config}"
+export PROTEUS_CONFIG_PATH="${safe_config}"
 
 run_and_capture doctor "${output_dir}/doctor.txt" "${proteus}" doctor
 require_text "config loaded" "${output_dir}/doctor.txt"

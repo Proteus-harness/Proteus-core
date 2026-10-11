@@ -2,11 +2,8 @@ use super::{
     terminal::{TerminalModel, terminal_journal},
     *,
 };
-use crate::{
-    contracts::{
-        CompactionInput, ContextBuildInput, ModelCallOrigin, ToolExposureInput, ToolExposureRequest,
-    },
-    core::RuntimeCompactionHost,
+use crate::contracts::{
+    ContextBuildInput, ContextPreparationInput, ModelCallOrigin, ToolSelectionRequest,
 };
 
 const FAILURE: &str = "deterministic workflow failure";
@@ -17,7 +14,7 @@ enum Probe {
     Model,
     Context,
     Tool,
-    Exposure,
+    Selection,
     Compaction,
 }
 
@@ -63,23 +60,29 @@ impl Workflow for Probe {
                 );
                 let _ = ToolOrchestrator::default().execute(&ctx, &task, call).await;
             }
-            Self::Exposure => {
-                let input =
-                    ToolExposureInput::new(ToolExposureRequest::new(task), vec![probe_tool_spec()]);
-                let _ = ctx.tool_exposure.select(input).await;
+            Self::Selection => {
+                let host = crate::core::workflow_host::WorkflowHostRuntime::new(
+                    ctx.clone().into(),
+                    task.cwd.clone(),
+                );
+                let _ = host.select_tools(ToolSelectionRequest::new(task)).await;
             }
             Self::Compaction => {
-                let input = CompactionInput::new(
-                    task,
-                    proteus_contracts::model_standard::CanonicalModelRequest::new(
-                        ctx.model_ref.clone().expect("model selection"),
-                        history,
+                let input = ContextPreparationInput::new(
+                    history.clone(),
+                    Some(
+                        proteus_contracts::model_standard::CanonicalModelRequest::new(
+                            ctx.model_ref.clone().expect("model selection"),
+                            history,
+                        ),
                     ),
                 );
-                let _ = ctx
-                    .compactor
-                    .compact(input, Arc::new(RuntimeCompactionHost::new(ctx.clone())))
-                    .await;
+                let preparation = ctx.context_preparation.prepare(input).await?;
+                let target = preparation
+                    .target
+                    .expect("conversation-bound no-hook preparation has a target");
+                assert_eq!(target.execution_id, ctx.execution.scope.execution_id);
+                assert_eq!(target.revision, 1);
             }
         }
         anyhow::bail!(FAILURE)
@@ -149,30 +152,27 @@ async fn caught_unrecorded_tool_call_still_diverges() {
 
 #[tokio::test]
 async fn caught_unavailable_context_still_diverges() {
-    assert_caught_call_diverges(Probe::Context, "no replayable context bundle").await;
+    assert_caught_call_diverges(Probe::Context, "unexpected context build").await;
 }
 
 #[tokio::test]
 async fn caught_unavailable_exposure_still_diverges() {
     assert_caught_call_diverges(
-        Probe::Exposure,
-        "without a remaining recorded model request",
+        Probe::Selection,
+        "unexpected hook boundary before_tool_selection",
     )
     .await;
 }
 
 #[tokio::test]
-async fn caught_unavailable_compaction_still_diverges() {
-    assert_caught_call_diverges(
-        Probe::Compaction,
-        "without a remaining recorded model request",
-    )
-    .await;
+async fn preparation_without_active_hooks_is_a_model_free_noop() {
+    let report = replay_probe(Probe::Compaction).await;
+    assert!(report.comparison.matched, "{:?}", report.comparison.issues);
 }
 
 #[tokio::test]
 async fn incomplete_model_exchange_is_not_a_model_free_turn() {
-    for origin in [ModelCallOrigin::Direct, ModelCallOrigin::Compactor] {
+    for origin in [ModelCallOrigin::Direct, ModelCallOrigin::Auxiliary] {
         let journal = terminal_journal(
             TurnSettlementStatus::Error,
             origin,
@@ -198,10 +198,10 @@ async fn incomplete_model_exchange_is_not_a_model_free_turn() {
 }
 
 #[tokio::test]
-async fn compactor_failure_without_recorded_result_is_not_a_model_free_turn() {
+async fn auxiliary_workflow_owned_failure_is_rejected() {
     let journal = terminal_journal(
         TurnSettlementStatus::Error,
-        ModelCallOrigin::Compactor,
+        ModelCallOrigin::Auxiliary,
         TerminalModel::Outcome(ModelResponseOutcome::Error {
             failure: crate::model_standard::ModelFailure::other(FAILURE),
         }),
@@ -224,7 +224,7 @@ async fn compactor_failure_without_recorded_result_is_not_a_model_free_turn() {
     assert!(
         error
             .to_string()
-            .contains("compactor model exchanges require a recorded changed-compaction checkpoint"),
+            .contains("model origin differs from its operation owner"),
         "{error:#}"
     );
 }

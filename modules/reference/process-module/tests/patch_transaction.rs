@@ -1,4 +1,4 @@
-//! Real-process tool/v5 patch transactions with distinct direct/Codex algorithms.
+//! Real-process tool/v6 patch transactions with distinct direct/Codex algorithms.
 
 use std::{path::Path, time::Duration};
 

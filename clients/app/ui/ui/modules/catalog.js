@@ -44,7 +44,6 @@ export const builtins = [
   agentPage("agent-model", slotText.model, "./agent/model.js", "model"),
   agentPage("agent-workflow", slotText.workflow, "./agent/slot.js?slot=workflow", "workflow"),
   agentPage("agent-context", slotText.context, "./agent/slot.js?slot=context", "layers"),
-  agentPage("agent-compactor", slotText.compactor, "./agent/slot.js?slot=compactor", "compress"),
   agentPage("agent-tools", slotText.tool, "./agent/tools.js", "wrench"),
   agentPage("agent-plugins", pluginText, "./agent/plugins.js", "modules"),
   agentPage("agent-access", slotText.policy, "./agent/access.js", "shield"),

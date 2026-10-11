@@ -99,6 +99,9 @@ impl AgentRuntime {
                 .await?;
         }
         history.extend(messages);
+        self.session
+            .history_revision
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         Ok(())
     }
 }

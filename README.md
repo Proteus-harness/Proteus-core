@@ -94,13 +94,15 @@ executable берутся из того же каталога, в котором
 ```bash
 proteus-reference-module auth openai_codex login
 cd /path/to/project
-proteus --config codex-chatgpt "Расскажи о структуре этого проекта"
+proteus --config codex "Расскажи о структуре этого проекта"
 ```
 
 `proteus` без запроса открывает интерактивный CLI. Приложение запускается
 файлом `proteus-desktop` из собранной папки.
 
-Профили из `configs/` устанавливаются вместе с программой. Для создания новой
+Профили из `configs/` устанавливаются вместе с программой. Основной
+`config.toml` использует подписку ChatGPT и DCP; `--config codex` выбирает
+ту же подписочную сборку без DCP. Для создания новой
 конфигурации можно использовать `proteus init coding`: команда записывает
 `config.toml` и связанные файлы, **перезаписывая существующие**.
 Рабочий профиль лучше выбрать через `--config` или настроить явно.
@@ -140,8 +142,9 @@ search_provider = "python_rg"
 
 `components` содержит команды запуска, `exports` — доступные реализации
 слотов. `modules` выбирает single-selection реализацию, `tools.enabled` — tools,
-а настройки context — providers для автоматического чтения. Поиск и память
-не требуют собственных слотов. Внутренние настройки
+а настройки context — providers для автоматического чтения. Отдельных слотов
+поиска, памяти и patch нет: явные действия — tools, автоматическое чтение —
+context providers. Внутренние настройки
 алгоритма задаются в `module_config.<slot>.<module_id>`.
 
 Один процесс может предоставлять несколько слотов. Их вызовы управляются
@@ -150,7 +153,9 @@ Core, а разрешённые операции определяются кон
 
 Готовый [пример поиска на Python](examples/modules/search-process/README.md)
 и [полный профиль](examples/configs/proteus.process-search.example.toml)
-показывают подключение внешней программы. Контракты и порядок добавления
+показывают подключение внешней программы. [Поиск на tgrep](examples/modules/tgrep-search/README.md)
+заменяет только tool `search`, сохраняя существующие контракты.
+Контракты и порядок добавления
 модуля описаны в [modules.md](docs/architecture/modules.md).
 
 ## Полезные Команды
@@ -165,20 +170,20 @@ module-owned команды и prompt-команды профиля. В прил
 
 ```bash
 # Проверить настройки и команды запуска
-proteus --config codex-chatgpt doctor
+proteus --config codex doctor
 
 # Посмотреть доступные модули и инструменты
-proteus --config codex-chatgpt modules list
-proteus --config codex-chatgpt tools list
+proteus --config codex modules list
+proteus --config codex tools list
 
 # Посмотреть выбранную сборку до запуска модулей
-proteus --config codex-chatgpt inspect plan
+proteus --config codex inspect plan
 
 # Посмотреть схему подключений
-proteus --config codex-chatgpt inspect topology --format map
+proteus --config codex inspect topology --format map
 
 # Подключить агент к редактору по ACP
-proteus --config codex-chatgpt server acp
+proteus --config codex server acp
 ```
 
 Для работы непосредственно из исходников можно собрать сервер и модуль:

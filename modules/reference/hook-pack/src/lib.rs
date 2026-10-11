@@ -4,7 +4,9 @@ pub use config_schema::config_schema;
 use proteus_contracts::{
     contracts::{HookEvent, HookInput, HookResponse},
     model_standard::{InstructionBlock, InstructionKind},
-    process_module::{HookModule, ModuleRegistry, ProcessModuleError, ProcessModuleResult},
+    process_module::{
+        HookModule, HookModuleHost, ModuleRegistry, ProcessModuleError, ProcessModuleResult,
+    },
 };
 use serde::Deserialize;
 
@@ -32,7 +34,11 @@ fn error(error: impl std::fmt::Display) -> ProcessModuleError {
     ProcessModuleError::new(error.to_string())
 }
 impl HookModule for Instructions {
-    fn invoke_json(&self, input_json: String) -> ProcessModuleResult<String> {
+    fn invoke_json(
+        &self,
+        input_json: String,
+        _host: &mut dyn HookModuleHost,
+    ) -> ProcessModuleResult<String> {
         let input: HookInput = serde_json::from_str(&input_json).map_err(error)?;
         let result = match input.event {
             HookEvent::BeforeModel { request, .. } => {
@@ -53,7 +59,11 @@ impl HookModule for Instructions {
     }
 }
 impl HookModule for OutputBudget {
-    fn invoke_json(&self, input_json: String) -> ProcessModuleResult<String> {
+    fn invoke_json(
+        &self,
+        input_json: String,
+        _host: &mut dyn HookModuleHost,
+    ) -> ProcessModuleResult<String> {
         let input: HookInput = serde_json::from_str(&input_json).map_err(error)?;
         let result = match input.event {
             HookEvent::AfterTool { result, .. } if result.output.len() > self.0.max_bytes => {
@@ -110,6 +120,12 @@ mod tests {
         contracts::ExecutionAttribution,
         domain::{ToolCall, ToolResult, new_call_id, new_execution_id},
     };
+    struct NoHost;
+    impl HookModuleHost for NoHost {
+        fn is_cancelled(&self) -> ProcessModuleResult<bool> {
+            Ok(false)
+        }
+    }
     #[test]
     fn budget_preserves_utf8_and_strict_byte_limit() {
         let id = new_call_id();
@@ -126,7 +142,7 @@ mod tests {
             max_bytes: 7,
             head_bytes: 3,
         })
-        .invoke_json(serde_json::to_string(&input).unwrap())
+        .invoke_json(serde_json::to_string(&input).unwrap(), &mut NoHost)
         .unwrap();
         let HookResponse::ToolOutput { output } = serde_json::from_str(&response).unwrap() else {
             panic!("expected trimmed output")

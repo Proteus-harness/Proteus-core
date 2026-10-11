@@ -117,11 +117,9 @@ install_config() {
   cp "${project_dir}/${source_path}" "${dest_path}"
 }
 
+install_config "config.toml" "configs/config.toml"
 install_config "codex.config.toml" "configs/codex.config.toml"
-install_config "codex-chatgpt.config.toml" "configs/codex-chatgpt.config.toml"
 install_config "context-search-chatgpt.config.toml" "configs/context-search-chatgpt.config.toml"
-install_config "codex-chatgpt-explore.config.toml" "configs/codex-chatgpt-explore.config.toml"
-install_config "codex-chatgpt-coder.config.toml" "configs/codex-chatgpt-coder.config.toml"
 install_config "codex-explore.config.toml" "configs/codex-explore.config.toml"
 install_config "codex-coder.config.toml" "configs/codex-coder.config.toml"
 install_config "opencode.config.toml" "configs/opencode.config.toml"
@@ -143,7 +141,6 @@ install_managed_config_asset() {
   fi
   cp "${source_path}" "${dest_path}"
 }
-install_managed_config_asset "fragments/openai-proxy.toml"
 install_managed_config_asset "fragments/openai-chatgpt.toml"
 install_managed_config_asset "fragments/codex-runtime.toml"
 install_managed_config_asset "fragments/codex-profile.toml"
@@ -166,7 +163,7 @@ echo "Installed: ${bin_path}"
 echo "Snapshot:  ${release_dir}"
 echo "Module:    ${current_release}/proteus-reference-module"
 echo "Configs:   ${configs_dir}"
-echo "Next:      ${bin_path} --config codex-chatgpt doctor"
+echo "Next:      ${bin_path} --config codex doctor"
 case ":${PATH}:" in
   *:"${bin_dir}":*) ;;
   *) echo "Add this to your shell config if needed: export PATH=\"${bin_dir}:\$PATH\"" ;;

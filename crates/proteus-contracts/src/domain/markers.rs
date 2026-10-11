@@ -5,12 +5,12 @@
 //! через process/JSON границу без compile-time проверки.
 
 /// `CanonicalMessage::name` сообщений, порождённых context builder-ом, а не
-/// пользователем. Producer: workflow packs; consumers: compactor packs,
+/// пользователем. Producer: workflow packs; consumers: preparation hooks,
 /// history/token accounting.
 pub const CONTEXT_MESSAGE_NAME: &str = "context";
 
 /// Открывающий тег generated-блока с окружением (os/arch/shell/cwd).
-/// Producer: context builder (`environment` provider); consumer: compactor
+/// Producer: context builder (`environment` provider); consumer: preparation hook
 /// packs, сохраняющие блок при компакции.
 pub const ENVIRONMENT_CONTEXT_TAG: &str = "<environment_context>";
 

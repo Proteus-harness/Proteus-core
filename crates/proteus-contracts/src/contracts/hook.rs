@@ -7,9 +7,9 @@ use crate::{
 use anyhow::{Result, bail};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
-pub const PROCESS_HOOK_CONTRACT_VERSION: &str = "v4";
+pub const PROCESS_HOOK_CONTRACT_VERSION: &str = "v6";
 pub const PROCESS_HOOK_INVOKE_METHOD: &str = "hook.invoke";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -18,7 +18,7 @@ pub struct HookInput {
     pub event: HookEvent,
     pub attribution: ExecutionAttribution,
     pub cwd: PathBuf,
-    /// Read-only facts for BeforeModel. Never changed by a hook response.
+    /// Read-only conversation facts. Never changed by a hook response.
     #[serde(deserialize_with = "Option::deserialize")]
     pub conversation: Option<super::ConversationSnapshot>,
 }
@@ -28,6 +28,16 @@ pub enum HookEvent {
     TurnStarted {
         task: AgentTask,
         history: Vec<CanonicalMessage>,
+    },
+    BeforeToolSelection {
+        input: super::ToolSelectionInput,
+        output: super::ToolSelectionOutput,
+    },
+    BeforeContext {
+        input: super::ContextPreparationInput,
+        output: super::ContextPreparationOutput,
+        #[serde(deserialize_with = "Option::deserialize")]
+        target: Option<super::ContextPreparationTarget>,
     },
     BeforeModel {
         origin: ModelCallOrigin,
@@ -67,6 +77,12 @@ pub enum HookTurnStatus {
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
 pub enum HookResponse {
     Continue,
+    ToolSelection {
+        output: super::ToolSelectionOutput,
+    },
+    ContextPreparation {
+        output: super::ContextPreparationOutput,
+    },
     ModelContext {
         messages: Vec<CanonicalMessage>,
         instructions: Vec<InstructionBlock>,
@@ -92,6 +108,12 @@ impl<'de> Deserialize<'de> for HookResponse {
         #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
         enum Wire {
             Continue {},
+            ToolSelection {
+                output: super::ToolSelectionOutput,
+            },
+            ContextPreparation {
+                output: super::ContextPreparationOutput,
+            },
             ModelContext {
                 messages: Vec<CanonicalMessage>,
                 instructions: Vec<InstructionBlock>,
@@ -111,6 +133,8 @@ impl<'de> Deserialize<'de> for HookResponse {
         }
         Ok(match Wire::deserialize(deserializer)? {
             Wire::Continue {} => Self::Continue,
+            Wire::ToolSelection { output } => Self::ToolSelection { output },
+            Wire::ContextPreparation { output } => Self::ContextPreparation { output },
             Wire::ModelContext {
                 messages,
                 instructions,
@@ -136,6 +160,20 @@ pub fn apply_hook_response(event: &HookEvent, response: &HookResponse) -> Result
     let mut event = event.clone();
     match (&mut event, response) {
         (_, HookResponse::Continue) => {}
+        (
+            HookEvent::BeforeToolSelection { input, output },
+            HookResponse::ToolSelection { output: candidate },
+        ) => {
+            candidate.validate_against(&input.candidates)?;
+            candidate.validate_against(&output.tools)?;
+            *output = candidate.clone();
+        }
+        (
+            HookEvent::BeforeContext { input, output, .. },
+            HookResponse::ContextPreparation { output: candidate },
+        ) => {
+            *output = super::context_preparation::compose_outputs(input, output, candidate)?;
+        }
         (
             HookEvent::BeforeModel { request, .. },
             HookResponse::ModelContext {
@@ -230,7 +268,7 @@ pub trait HookHandler: Send + Sync {
     async fn invoke(
         &self,
         input: HookInput,
-        cancellation: super::CancellationToken,
+        host: Arc<dyn super::HookHost>,
     ) -> Result<HookResponse>;
 }
 #[async_trait]
@@ -254,6 +292,7 @@ impl ExecutionHooks for NoExecutionHooks {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct HookTrace {
+    pub owner: super::OperationOwner,
     pub input: HookInput,
     pub steps: Vec<HookStep>,
     pub output: Option<HookEvent>,
@@ -261,113 +300,22 @@ pub struct HookTrace {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct HookStep {
+    pub invocation_id: uuid::Uuid,
     pub module_id: String,
     pub outcome: HookStepOutcome,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
 pub enum HookStepOutcome {
-    Accepted { response: HookResponse },
-    Failed { message: String },
+    Accepted {
+        response: HookResponse,
+    },
+    Failed {
+        message: String,
+        #[serde(deserialize_with = "Option::deserialize")]
+        model_failure: Option<crate::model_standard::ModelFailure>,
+    },
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::domain::{ModelRef, ToolCall, ToolResult, new_call_id};
-    #[test]
-    fn responses_cannot_change_identity_or_status() {
-        let id = new_call_id();
-        let event = HookEvent::AfterTool {
-            call: ToolCall::new(id.clone(), "read", serde_json::json!({})),
-            result: ToolResult::error(id, "original"),
-        };
-        let transformed = apply_hook_response(
-            &event,
-            &HookResponse::ToolOutput {
-                output: "redacted".into(),
-            },
-        )
-        .unwrap();
-        let HookEvent::AfterTool { call, mut result } = transformed else {
-            panic!()
-        };
-        result.output = String::new();
-        assert_eq!(HookEvent::AfterTool { call, result }, event);
-        assert!(
-            apply_hook_response(
-                &event,
-                &HookResponse::BlockTool {
-                    reason: "no".into()
-                }
-            )
-            .is_err()
-        );
-        let model = HookEvent::BeforeModel {
-            origin: ModelCallOrigin::Direct,
-            request: CanonicalModelRequest::new(ModelRef::new("fake", "x"), vec![]),
-        };
-        assert!(
-            apply_hook_response(&model, &HookResponse::ToolOutput { output: "x".into() }).is_err()
-        );
-    }
-    #[test]
-    fn notification_and_blank_blocks_are_rejected_strictly() {
-        let notification = HookEvent::TurnSettled {
-            status: HookTurnStatus::Success,
-            output: None,
-            error: None,
-        };
-        assert!(
-            apply_hook_response(
-                &notification,
-                &HookResponse::ModelContext {
-                    messages: vec![],
-                    instructions: vec![]
-                }
-            )
-            .is_err()
-        );
-        let before = HookEvent::BeforeTool {
-            call: ToolCall::new(new_call_id(), "read", serde_json::json!({})),
-            spec: None,
-            blocked: None,
-        };
-        assert!(
-            apply_hook_response(
-                &before,
-                &HookResponse::BlockTool {
-                    reason: "  ".into()
-                }
-            )
-            .is_err()
-        );
-        assert!(
-            serde_json::from_str::<HookResponse>(r#"{"action":"continue","extra":true}"#).is_err()
-        );
-    }
-    #[test]
-    fn model_context_cannot_rewrite_existing_canonical_part() {
-        let original = CanonicalMessage::text(crate::model_standard::MessageRole::User, "original");
-        let event = HookEvent::BeforeModel {
-            origin: ModelCallOrigin::Direct,
-            request: CanonicalModelRequest::new(ModelRef::new("fake", "x"), vec![original.clone()]),
-        };
-        let mut changed = original;
-        changed.parts[0].payload = crate::model_standard::ContentPart::Text {
-            text: "rewritten".into(),
-        };
-        assert!(
-            apply_hook_response(
-                &event,
-                &HookResponse::ModelContext {
-                    messages: vec![changed],
-                    instructions: vec![]
-                }
-            )
-            .unwrap_err()
-            .to_string()
-            .contains("immutable part")
-        );
-    }
-}
+mod tests;

@@ -25,8 +25,8 @@ pub use report::*;
 use fixture::load_fixture;
 use normalize::changed_compactions_equal;
 use replay_runtime::{
-    ReplayApprovalTransport, ReplayCompactor, ReplayContextBuilder, ReplayHooks, ReplayModel,
-    ReplayState, ReplayToolExposure, register_replay_tools,
+    ReplayApprovalTransport, ReplayContextBuilder, ReplayContextPreparation, ReplayHooks,
+    ReplayModel, ReplayState, register_replay_tools,
 };
 
 /// Replays one recorded root turn through its selected Workflow module.
@@ -62,30 +62,59 @@ pub async fn replay_workflow(
     })?;
     let started = Instant::now();
 
-    let specs = fixture
+    let mut specs = fixture
         .snapshot
         .tools
         .iter()
         .map(|tool| (tool.spec.clone(), tool.model_visible))
         .collect::<Vec<_>>();
-    let registered_tool_names = specs
-        .iter()
-        .map(|(tool, _)| tool.name.clone())
-        .collect::<HashSet<_>>();
-    let state = Arc::new(ReplayState::new(
+    // Selection records prove the complete policy-visible candidate set, including
+    // tools omitted from the model request and never invoked during this turn.
+    for trace in &fixture.hooks {
+        if let HookEvent::BeforeToolSelection { input, .. } = &trace.input.event {
+            for spec in &input.candidates {
+                if let Some((registered, visible)) = specs
+                    .iter_mut()
+                    .find(|(registered, _)| registered.name == spec.name)
+                {
+                    anyhow::ensure!(
+                        registered == spec,
+                        "recorded tool selection candidate conflicts with registered schema: {}",
+                        spec.name
+                    );
+                    anyhow::ensure!(
+                        *visible,
+                        "recorded tool selection exposed private tool: {}",
+                        spec.name
+                    );
+                } else {
+                    specs.push((spec.clone(), true));
+                }
+            }
+        }
+    }
+    let mut state = ReplayState::new(
         fixture.exchanges.clone(),
         fixture.hooks.clone(),
         fixture.tools.clone(),
         fixture.compactions.clone(),
-        fixture.context.clone(),
-        registered_tool_names,
+        fixture.contexts.clone(),
         &fixture.snapshot.reasoning,
         fixture
             .initial_history
             .last()
             .expect("persisted current user message")
             .id,
+    );
+    state.bind_context(crate::contracts::ExecutionAttribution::for_turn(
+        fixture.execution_id,
+        fixture.session_id,
+        fixture.thread_id,
+        fixture.turn_id,
     ));
+    let state = Arc::new(state);
+    state.set_auxiliary(fixture.auxiliary.clone());
+    state.bind_history(fixture.execution_id, fixture.initial_revision);
     let tools = register_replay_tools(state.clone(), specs)?;
 
     let mut replay_config = config.clone();
@@ -124,8 +153,9 @@ pub async fn replay_workflow(
         state.clone(),
         fixture.snapshot.modules.hooks.clone(),
     ));
-    let approval: Arc<dyn crate::contracts::ApprovalTransport> =
-        Arc::new(ReplayApprovalTransport::new(state.clone()));
+    let approval: Arc<dyn crate::contracts::ApprovalTransport> = Arc::new(
+        ReplayApprovalTransport::new(state.clone(), fixture.snapshot.approval_available),
+    );
     let tool_authority = crate::core::BoundTools::new(
         tools.clone(),
         policy.clone(),
@@ -165,11 +195,14 @@ pub async fn replay_workflow(
     let mut execution_context =
         ExecutionContext::new(scope, 0, Some(model), tools, policy, approval);
     execution_context.hooks = hooks.clone();
-    let checkpoint_recorder = Arc::new(replay_runtime::ReplayCheckpointRecorder::new(
-        state.clone(),
-        fixture.initial_history.clone(),
-        fixture.checkpoints.clone(),
-    ));
+    let checkpoint_recorder = Arc::new(
+        replay_runtime::ReplayCheckpointRecorder::new(
+            state.clone(),
+            fixture.initial_history.clone(),
+            fixture.checkpoints.clone(),
+        )
+        .with_execution(fixture.execution_id),
+    );
     let mut workflow_context = AgentWorkflowContext::new(
         execution_context,
         fixture.session_id,
@@ -181,8 +214,10 @@ pub async fn replay_workflow(
         events,
         Arc::new(ReplayContextBuilder::new(state.clone())),
         Arc::new(HeadlessUserInputTransport),
-        Arc::new(ReplayCompactor::new(state.clone())),
-        Arc::new(ReplayToolExposure::new(state.clone())),
+        Arc::new(ReplayContextPreparation::new(
+            state.clone(),
+            fixture.snapshot.modules.hooks.clone(),
+        )),
         None,
     )
     .with_tool_recorder(checkpoint_recorder.clone())

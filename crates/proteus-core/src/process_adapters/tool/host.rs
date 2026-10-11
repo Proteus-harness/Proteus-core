@@ -14,6 +14,7 @@ use proteus_module_protocol::{
 use std::sync::Arc;
 
 pub(super) struct ToolHost {
+    pub operations: Option<Arc<dyn crate::contracts::ToolHost>>,
     pub conversation: Option<Arc<dyn ConversationReader>>,
     pub session_id: Option<crate::domain::SessionId>,
     pub call: ToolCall,
@@ -22,6 +23,22 @@ pub(super) struct ToolHost {
 
 impl AsyncHostRequestDispatcher for ToolHost {
     fn dispatch(&self, request: ComponentHostRequest) -> HostRequestFuture {
+        if matches!(
+            request.method.as_str(),
+            crate::contracts::OPERATION_HOST_COMPLETE_MODEL_METHOD
+                | crate::contracts::OPERATION_HOST_EXECUTE_TOOL_METHOD
+        ) {
+            return match &self.operations {
+                Some(host) => super::super::operation_host::OperationHost::Tool(host.clone())
+                    .dispatch(request),
+                None => Box::pin(async {
+                    Err(ProcessModuleRpcError::new(
+                        -32100,
+                        "tool operations are not bound",
+                    ))
+                }),
+            };
+        }
         let reader = self.conversation.clone();
         let call = self.call.clone();
         let cancellation = self.cancellation.clone();

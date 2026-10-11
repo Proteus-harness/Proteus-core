@@ -12,10 +12,10 @@ pub use invocation::*;
 
 use crate::{
     contracts::{
-        AgentControl, CancellationToken, ContextBuilder, EventEmitter, ExecutionContext,
-        HistoryCompactor, ModelContextObservation, NoopToolExecutionRecorder,
-        NoopWorkflowHistoryRecorder, ToolExecutionRecorder, ToolExposure, UserInputTransport,
-        WorkflowFailure, WorkflowHistoryRecorder,
+        AgentControl, CancellationToken, ContextBuilder, ContextPreparation, EventEmitter,
+        ExecutionContext, ModelContextObservation, NoopToolExecutionRecorder,
+        NoopWorkflowHistoryRecorder, ToolExecutionRecorder, UserInputTransport, WorkflowFailure,
+        WorkflowHistoryRecorder,
     },
     domain::{
         AgentOutput, AgentTask, Event, EventContext, HistoryCompactionReport, MessageId, ModelRef,
@@ -24,20 +24,20 @@ use crate::{
     model_standard::{CanonicalMessage, CanonicalModelRequest, InstructionBlock},
 };
 
-pub const PROCESS_WORKFLOW_CONTRACT_VERSION: &str = "v19";
+pub const PROCESS_WORKFLOW_CONTRACT_VERSION: &str = "v20";
 pub const PROCESS_WORKFLOW_METHOD: &str = "run";
 
 pub const WORKFLOW_HOST_RUNTIME_STATUS_METHOD: &str = "host.runtime.status";
 pub const WORKFLOW_HOST_BUILD_CONTEXT_METHOD: &str = "host.context.build";
 pub const WORKFLOW_HOST_COMPLETE_MODEL_METHOD: &str = "host.model.complete";
-pub const WORKFLOW_HOST_COMPACT_HISTORY_METHOD: &str = "host.history.compact";
+pub const WORKFLOW_HOST_PREPARE_CONTEXT_METHOD: &str = "host.context.prepare";
 pub const WORKFLOW_HOST_VISIBLE_TOOLS_METHOD: &str = "host.tools.visible";
 pub const WORKFLOW_HOST_SELECT_TOOLS_METHOD: &str = "host.tools.select";
 pub const WORKFLOW_HOST_EXECUTE_TOOL_METHOD: &str = "host.tools.execute";
 pub const WORKFLOW_HOST_EXECUTE_TOOLS_METHOD: &str = "host.tools.execute_batch";
 pub const WORKFLOW_HOST_EMIT_EVENT_METHOD: &str = "host.events.emit";
 
-/// Strict invocation payload for process Workflow contract v19.
+/// Strict invocation payload for process Workflow contract v20.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ProcessWorkflowInput {
@@ -47,7 +47,7 @@ pub struct ProcessWorkflowInput {
     pub runtime: ProcessWorkflowRuntimeInfo,
 }
 
-/// Provider-neutral invocation context visible to every Workflow v19 module.
+/// Provider-neutral invocation context visible to every Workflow v20 module.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ProcessWorkflowRuntimeInfo {
@@ -102,7 +102,7 @@ pub struct WorkflowHistoryInterruption {
     pub after_message_id: MessageId,
 }
 
-/// Strict terminal result envelope for process Workflow contract v19.
+/// Strict terminal result envelope for process Workflow contract v20.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ProcessWorkflowResponse {
@@ -145,8 +145,8 @@ pub struct WorkflowCompleteModelRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct WorkflowCompactHistoryRequest {
-    pub input: crate::contracts::CompactionInput,
+pub struct WorkflowPrepareContextRequest {
+    pub input: crate::contracts::ContextPreparationInput,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -158,7 +158,7 @@ pub struct WorkflowVisibleToolsRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WorkflowSelectToolsRequest {
-    pub request: crate::contracts::ToolExposureRequest,
+    pub request: crate::contracts::ToolSelectionRequest,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -208,8 +208,7 @@ pub struct AgentWorkflowContext {
     pub events: Arc<EventEmitter>,
     pub context: Arc<dyn ContextBuilder>,
     pub user_input: Arc<dyn UserInputTransport>,
-    pub compactor: Arc<dyn HistoryCompactor>,
-    pub tool_exposure: Arc<dyn ToolExposure>,
+    pub context_preparation: Arc<dyn ContextPreparation>,
     pub agent_control: Option<Arc<dyn AgentControl>>,
     /// Динамическая наблюдаемость session-owned очереди root steering.
     /// Workflow не управляет доставкой: core меняет счётчик и вставляет
@@ -234,8 +233,7 @@ impl AgentWorkflowContext {
         events: Arc<EventEmitter>,
         context: Arc<dyn ContextBuilder>,
         user_input: Arc<dyn UserInputTransport>,
-        compactor: Arc<dyn HistoryCompactor>,
-        tool_exposure: Arc<dyn ToolExposure>,
+        context_preparation: Arc<dyn ContextPreparation>,
         agent_control: Option<Arc<dyn AgentControl>>,
     ) -> Self {
         Self {
@@ -258,8 +256,7 @@ impl AgentWorkflowContext {
             events,
             context,
             user_input,
-            compactor,
-            tool_exposure,
+            context_preparation,
             agent_control,
             queued_user_messages: Arc::new(AtomicUsize::new(0)),
             thread_label: None,
@@ -418,7 +415,7 @@ mod process_contract_tests {
             value["runtime"].as_object_mut().unwrap().remove(field);
             assert!(
                 serde_json::from_value::<ProcessWorkflowInput>(value).is_err(),
-                "{field} is required in workflow v19"
+                "{field} is required in workflow v20"
             );
         }
     }

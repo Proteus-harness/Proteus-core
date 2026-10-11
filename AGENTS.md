@@ -30,6 +30,16 @@ Core -> Contract -> Module Implementation
 
 Core не должен знать детали конкретного поиска, памяти, модели, tools, policy или patch algorithm. Новая функциональность должна проходить через существующий slot или через явно добавленный contract.
 
+Отдельные слоты `search`, `memory` и `patch` удалены. Явный поиск,
+чтение/запись памяти и применение patch реализуются через `tool/v6`;
+автоматическое чтение поиска/памяти — через `context_provider/v4`.
+`rg_search`, `jsonl_memory`, `sqlite_memory`, `direct_patch` и `codex_patch` —
+имена implementations этих общих контрактов, а не отдельные слоты.
+Context builder не вызывает tool: provider — самостоятельный read-only export.
+Подготовка истории и отбор model-visible tools реализуются typed hooks
+`BeforeContext` и `BeforeToolSelection`; отдельных `compactor` и
+`tool_exposure` slots/export contracts нет.
+
 Текущие слоты остаются рабочей основой. При изменении общей границы исполнения
 не добавляйте обязательные conversation identity, history или model call:
 они нужны только операциям, чей контракт явно требует разговорного контекста
@@ -66,7 +76,7 @@ Transport и cardinality не смешиваются. Host-defined process contr
 composition(contract) = select_one | ordered_many
 ```
 
-Behavior slots используют `select_one`, кроме typed `hook/v4` chain с
+Behavior slots используют `select_one`, кроме typed `hook/v6` chain с
 явным порядком `modules.hooks`. `ordered_many` допустим только для
 typed chain surface с одинаковой authority всех участников, явным порядком,
 повторной validation и отдельным slot-governance evidence. Module не может

@@ -93,7 +93,7 @@ Conversation history, user/assistant messages, turns и compaction относя�
 Ненастроенная модель действительно отсутствует. Другие невыбранные services
 получают текущие `Null`/`No*`/empty реализации в registry. Это поведение сборки
 не означает, что обработчик данных обязан использовать поиск, память,
-compactor или AgentControl.
+context preparation или AgentControl.
 
 Публичный `AgentRuntime::run` принимает строку и открывает Turn с user message.
 Текстовый обход через `AgentTask.text` позволяет экспериментировать с обработкой

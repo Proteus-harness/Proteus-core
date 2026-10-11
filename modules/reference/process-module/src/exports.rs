@@ -2,13 +2,11 @@ use anyhow::{Result, anyhow, bail};
 use proteus_contracts::{
     contracts::{
         PROCESS_POLICY_EVALUATE_METHOD, PROCESS_POLICY_VISIBILITY_METHOD,
-        PROCESS_TOOL_INVOKE_METHOD, PROCESS_TOOL_LIST_METHOD, ProcessCompactionResponse,
-        ProcessComponentExportInitialize, ProcessComponentExportManifest,
-        ProcessContextChunksResponse, ProcessContextInput, ProcessContextResponse,
-        ProcessPolicyEvaluateInput, ProcessPolicyResponse, ProcessPolicyVisibilityInput,
-        ProcessToolExposureInput, ProcessToolExposureResponse, ProcessToolInvokeInput,
-        ProcessToolInvokeResponse, ProcessToolListResponse, ProcessWorkflowInput,
-        ProcessWorkflowResponse, WorkflowOutput,
+        PROCESS_TOOL_INVOKE_METHOD, PROCESS_TOOL_LIST_METHOD, ProcessComponentExportInitialize,
+        ProcessComponentExportManifest, ProcessContextChunksResponse, ProcessContextInput,
+        ProcessContextResponse, ProcessPolicyEvaluateInput, ProcessPolicyResponse,
+        ProcessPolicyVisibilityInput, ProcessToolInvokeInput, ProcessToolInvokeResponse,
+        ProcessToolListResponse, ProcessWorkflowInput, ProcessWorkflowResponse, WorkflowOutput,
     },
     domain::ToolSpec,
     process_module::{
@@ -20,9 +18,7 @@ use proteus_module_protocol::process_contract_authority;
 use serde_json::Value;
 
 use crate::{
-    hosts::{
-        CompactorHostBridge, ContextHostBridge, HostBridge, ToolHostBridge, WorkflowHostBridge,
-    },
+    hosts::{ContextHostBridge, HookHostBridge, HostBridge, ToolHostBridge, WorkflowHostBridge},
     registry::CollectedModules,
 };
 
@@ -75,27 +71,28 @@ impl ModuleExport {
             );
         }
         match self.binding.slot.as_str() {
-            "hook" => self.hook(params),
+            "hook" => self.hook(params, bridge),
             "model" => self.model(method, params, bridge),
             "tool" => self.tool(method, params, bridge),
             "policy" => self.policy(method, params),
-            "tool_exposure" => self.tool_exposure(params),
             "context" => self.context(params, bridge),
             "context_provider" => self.context_provider(method, params),
-            "compactor" => self.compactor(params, bridge),
             "workflow" => self.workflow(params, bridge),
             slot => bail!("reference-module does not dispatch slot {slot:?}"),
         }
     }
 
-    fn hook(&self, params: Value) -> Result<Value> {
+    fn hook(&self, params: Value, bridge: &HostBridge) -> Result<Value> {
         let input: proteus_contracts::contracts::HookInput = decode(params)?;
         let hook = self
             .modules
             .hooks
             .get(&self.binding.module_id)
             .ok_or_else(|| anyhow!("hook module missing"))?;
-        let output = hook.invoke_json(serde_json::to_string(&input)?)?;
+        let output = hook.invoke_json(
+            serde_json::to_string(&input)?,
+            &mut HookHostBridge(bridge.clone()),
+        )?;
         let response: proteus_contracts::contracts::HookResponse = serde_json::from_str(&output)?;
         proteus_contracts::contracts::apply_hook_response(&input.event, &response)?;
         encode(proteus_contracts::contracts::ProcessHookResponse { result: response })
@@ -221,19 +218,6 @@ impl ModuleExport {
         )?))
     }
 
-    fn tool_exposure(&self, params: Value) -> Result<Value> {
-        let input: ProcessToolExposureInput = decode(params)?;
-        let exposure = self
-            .modules
-            .exposures
-            .get(&self.binding.module_id)
-            .ok_or_else(|| anyhow!("tool exposure module was not registered"))?;
-        let output = exposure.select_json(serde_json::to_string(&input.input)?)?;
-        encode(ProcessToolExposureResponse::new(serde_json::from_str(
-            output.as_str(),
-        )?))
-    }
-
     fn context(&self, params: Value, bridge: &HostBridge) -> Result<Value> {
         let input: ProcessContextInput = decode(params)?;
         let builder = self
@@ -270,21 +254,6 @@ impl ModuleExport {
         let input: proteus_contracts::contracts::ProcessContextProviderRequest = decode(params)?;
         let output = provider.provide_json(serde_json::to_string(&input)?)?;
         encode(ProcessContextChunksResponse::new(serde_json::from_str(
-            output.as_str(),
-        )?))
-    }
-
-    fn compactor(&self, params: Value, bridge: &HostBridge) -> Result<Value> {
-        let mut input: proteus_contracts::contracts::CompactionInput = decode(params)?;
-        input.config = self.binding.module_config.clone();
-        let compactor = self
-            .modules
-            .compactors
-            .get(&self.binding.module_id)
-            .ok_or_else(|| anyhow!("compactor module was not registered"))?;
-        let mut host = CompactorHostBridge(bridge.clone());
-        let output = compactor.compact_json(serde_json::to_string(&input)?, &mut host)?;
-        encode(ProcessCompactionResponse::new(serde_json::from_str(
             output.as_str(),
         )?))
     }

@@ -74,18 +74,18 @@ invocation любого export той же session abstraction может lazily
 3. новый snapshot выполняет MCP initialize + `tools/list`;
 4. tools регистрируются с source `mcp:<server>` и safety floor
    `RunsCommands`;
-5. следующий turn видит их через policy и tool exposure.
+5. следующий turn видит их через policy и selection hooks.
 
 Model args не могут изменить downstream server/remote tool identity.
 
-## Deferred Tool Exposure
+## Отбор И Обнаружение Tools
 
-Tool exposure можно вычислять per model request без замены registry:
+Отбор model-visible tools выполняется per request через typed hook chain без замены registry:
 
 ```text
 registered tools
   -> policy visibility
-  -> ToolExposure
+  -> BeforeToolSelection hooks
   -> direct tools / workflow bridge tools
   -> ToolRegistry execution
 ```

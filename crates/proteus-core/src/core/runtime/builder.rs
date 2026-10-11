@@ -177,7 +177,12 @@ impl AgentRuntimeBuilder {
                 .transpose()?
         };
         let config_snapshot = session_store.as_ref().map(|_| {
-            SessionConfigSnapshot::from_runtime_config(&config, &registry, permission_mode)
+            SessionConfigSnapshot::from_runtime_config(
+                &config,
+                &registry,
+                permission_mode,
+                approval.can_request_approval(),
+            )
         });
         if resume_history
             && let (Some(session_store), Some(snapshot)) = (&session_store, &config_snapshot)

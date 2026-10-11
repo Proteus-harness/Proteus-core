@@ -1,7 +1,6 @@
 # DCP: Context View И `compress`
 
-Самостоятельный процессный модуль Node.js 22+, а не UI-расширение и не
-реализация слота `compactor`. Один component предоставляет `hook/hook.dcp`
+Самостоятельный процессный модуль Node.js 22+. Один component предоставляет `hook/hook.dcp`
 и `tool/dcp.tools`; права каждого export остаются правами его slot.
 
 ## Подключение
@@ -39,8 +38,15 @@ deduplication и purgeErrors. Автоматические стратегии з
 compression pipeline, а не добавляются произвольно перед каждым запросом.
 Hook применяет сохранённое состояние к следующему model request. Исходные
 canonical messages остаются в journal/history: меняется только outgoing view.
-Обычный compactor выбранного профиля остаётся отдельным механизмом и может
-создать настоящий history checkpoint.
+Выбранный preparation hook профиля может предложить замену working history;
+workflow принимает её через настоящий history checkpoint. DCP не изменяет
+историю на `BeforeContext` и возвращает `Continue`.
+После такого checkpoint DCP сверяет сохранённые ссылки с текущей canonical
+history: блоки, потерявшие необходимые сообщения, и зависимые родительские
+блоки перестают действовать. Оставшиеся валидные блоки сохраняются; summary
+preparation hook не становится причиной полного сброса pruning state. Валидный
+дочерний блок снова действует, если удалён только охватывавший его родитель;
+накопленная статистика сжатия сохраняется.
 
 ### Пользовательское Управление
 
@@ -66,13 +72,13 @@ app-server требует idle session. Остальные upstream команд
 
 Это перенос механизма DCP, **не совместимость со всей оболочкой OpenCode**:
 
-- `hook/v4` получает read-only snapshot текущего разговора; `tool/v5` читает
+- `hook/v6` получает read-only snapshot текущего разговора; `tool/v6` читает
   его через `host.conversation.read` с invocation-bound source message id,
   а пользовательское управление — через `host.conversation.snapshot`
   с bound session id, без требования assistant call.
   Произвольного чтения чужих sessions и записи истории нет.
 - Tool invocation принимает обязательные host-owned `skills: SkillRuntimeSettings`
-  общего `tool/v5`, хотя DCP не использует настройки навыков для pruning.
+  общего `tool/v6`, хотя DCP не использует настройки навыков для pruning.
 - Canonical ToolCall/ToolResult проецируются в upstream tool parts, затем
   восстанавливаются без потери identity существующих сообщений. Изменённые
   request-only parts получают новые ids; неизменённые media/reasoning сохраняются.
@@ -83,9 +89,10 @@ app-server требует idle session. Остальные upstream команд
 - Полный каталог OpenCode commands, TUI notifications, management RPC, manual
   mode, prompt override files и расширение результатов subagents не предоставляются.
   Неподдержанные config keys отклоняются, реального OpenCode client нет.
-- Platform adapters заменяют только logging, bundled prompt loading, notifications
-  и persistence. Bundler открывает upstream defaults/merge без вызова его
-  OpenCode config loader. Сами pruning/compression algorithms не переписаны.
+- Platform adapters обеспечивают logging, bundled prompt loading, notifications,
+  persistence, сопоставление поддержанных файловых DTO и согласование state с
+  canonical history Proteus. Bundler открывает upstream defaults/merge без вызова
+  его OpenCode config loader. Сами pruning/compression algorithms не переписаны.
 
 Допустимые настройки: `state_dir`, `debug`, `compress`, `strategies`,
 `turnProtection`, `protectedFilePatterns`; вложенные ключи проверяет upstream.
@@ -94,9 +101,21 @@ Defaults upstream сохранены, включая отключённые `pro
 явно включает сохранение текста в `<protect>`.
 
 Tool-name patterns используют реальные имена tools вашей сборки, например
-`compress.protectedTools = ["write_file", "edit_file"]`. `protectedFilePatterns`
-сохраняет upstream правила извлечения путей (`filePath`, `read/write/edit.path`,
-`patch.patchText`); произвольные названия/DTO tools автоматически не распознаются.
+`compress.protectedTools = ["write_file", "edit_file"]`. Для
+`protectedFilePatterns` module-owned adapter сопоставляет файловые DTO
+поставляемых tools с проверкой защиты upstream:
+
+| Tool | Источник путей |
+|---|---|
+| `read_file`, `write_file`, `edit_file` | `args.path` |
+| `read_many_files` | каждый путь из `args.paths` |
+| `apply_patch` | function `args.patch` или freeform `args.input`; пути из заголовков Codex patch `*** Add File`, `*** Update File`, `*** Delete File`, включая destination `*** Move to` |
+
+Этот bridge применяется только при проверке protected-file patterns: реальные
+tool names, canonical arguments и передаваемые модели calls не переименовываются.
+Upstream правила `filePath`, `read/write/edit.path` и `patch.patchText` также
+сохраняются. Произвольные имена и DTO внешних tools, shell-команды и другой patch
+синтаксис автоматически не распознаются.
 
 ## Хранение И Отмена
 
@@ -110,7 +129,11 @@ Namespace — session id, а не меняющийся при cold resume thread
 temporary file и atomic rename после успешной операции. Ошибка или отмена до
 commit не публикует изменения. Повреждённый/старый формат завершается явной
 ошибкой, без migration readers. Перезапущенный component читает сохранённые
-blocks; workflow replay использует записанные outcomes и не вызывает DCP.
+blocks. При каждой операции DCP сверяет block/tool references с текущей
+canonical history, поэтому валидность pruning state после compaction одинаково
+определяется в живом и перезапущенном component, без отдельного неперсистентного
+checkpoint cache. Хранилище использует строгий формат v1. Workflow replay
+использует записанные outcomes и не вызывает DCP.
 Одновременная запись одной session разными DCP components не поддерживается.
 
 ## Лицензия И Проверки
@@ -123,7 +146,11 @@ executable не линкуется в Rust reference-module.
 Overrides обновляют только неиспользуемое здесь upstream TUI dependency tree
 (`solid-js`, `seroval`, `@babel/core`), не DCP algorithms/version.
 
-`npm test` проверяет protected content, оба modes, fresh-state persistence,
-управление blocks, ошибки, отмену и wire multiplexing. `scripts/test.py full` готовит свежую
-Node-сборку до Rust tests; `hook_runtime` дополнительно проверяет actual
-model requests, cold history и replay `Success`/`Error` без повторных effects.
+`npm test` проверяет protected content, файловые DTO из таблицы выше, оба modes,
+fresh-state persistence, согласование блоков после удаления prefix history,
+управление blocks, ошибки, отмену и wire multiplexing. `scripts/test.py full`
+готовит свежую Node-сборку до Rust tests. `hook_runtime` дополнительно проверяет
+actual model requests, cold history и replay `Success`/`Error` без повторных
+effects; `hook_runtime::dcp::composition` сочетает DCP с реально сработавшими
+Rust Codex и Python suffix preparation hooks, checkpoint и новым runtime/component,
+использующим ту же session и сохранённое DCP state.

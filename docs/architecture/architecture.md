@@ -12,8 +12,8 @@
 Core -> Contract -> Module Implementation
 ```
 
-`proteus-core` знает, когда вызвать поиск, проверку разрешений или выполнение
-задачи, но не знает алгоритм конкретного модуля. Интерфейсы и форматы данных
+`proteus-core` исполняет tools, context providers, проверку разрешений и workflow,
+но не знает алгоритм конкретного модуля. Интерфейсы и форматы данных
 принадлежат `proteus-contracts`; модули обмениваются сообщениями с Core по
 протоколу v3. Версии контрактов слотов и разрешённые операции приведены в таблице
 [process-module-architecture.md](process-module-architecture.md).
@@ -64,7 +64,7 @@ selected Workflow (controller policy)
           v
 WorkflowHostRuntime
           |
-          +--> Model / Context / Compactor
+          +--> Model / Context / Preparation Hooks
           +--> ToolOrchestrator (agent adapter) -> BoundTools
           |                                      `-> ToolRegistry / Policy / Approval / Tool
           +--> Context Providers / AgentControl
@@ -282,7 +282,7 @@ cancel, invalid response или смерть process классифицирую�
 | Turn | `SessionSteering` создаёт id; `AgentRuntime` открывает/settle-ит | Одна conversational operation; follow-up получает новый id | Chat/application lifecycle, history attribution и canonical settlement |
 | Workflow | Selected `Workflow` implementation | Один standalone или conversational вызов | Controller policy: ReAct/single loop, Codex loop, plan/execute/review или другой algorithm; context задаётся `WorkflowInvocationContext` |
 | `ExecutionScope` | private `AgentRuntime` admission для Turn и typed top-level operations; standalone caller создаёт scope своего вызова | Один logical workload; child cancellation view сохраняет id | Distinct `ExecutionId` и cancellation без chat/process identity |
-| `ExecutionContext` | agent binding adapter вызывает generic factory `RuntimeRegistry::execution_context` из одного captured snapshot | Один logical execution | Binding для generic handles: model/search/memory/tools/policy/approval/grants |
+| `ExecutionContext` | agent binding adapter вызывает generic factory `RuntimeRegistry::execution_context` из одного captured snapshot | Один logical execution | Binding для generic handles: model/tools/policy/approval/grants; поиск и память доступны через tools |
 | `WorkflowInvocationContext` | `RuntimeRegistry` создаёт `Execution` для standalone или оборачивает conversational context в `Agent` | Один Workflow invocation | Выбор доступных execution services и дополнительного conversation state |
 | `AgentWorkflowContext` | `RuntimeRegistry` оборачивает уже bound `ExecutionContext`; `AgentRuntime` добавляет live Turn state | Один conversational Workflow invocation | Chat/application identity, context building, compaction, steering/presentation и один wrapped `ExecutionContext` |
 | `RuntimeSnapshot` | `RuntimeServices` | Immutable assembly/config view, удерживаемый всем ходом | Coherent `ModuleEpoch + AssemblyPlan + RuntimeRegistry + config snapshot`; не computation checkpoint |
@@ -310,16 +310,17 @@ Workflow policy
           |
           v
 Core mechanisms
-  model / tools / context / compaction / events / recording
+  model / tools / context / preparation / events / recording
 ```
 
 `ExecutionScope` и process lifecycle не требуют chat identity. Модель в
 `ExecutionContext` необязательна. `WorkflowInvocationContext::Execution`
 позволяет вызвать standalone Workflow без conversation и с пустой history;
-вариант `Agent` добавляет `AgentWorkflowContext` с `TurnId`. Операции с history,
-chat events и compaction требуют именно разговорного контекста.
+вариант `Agent` добавляет `AgentWorkflowContext` с `TurnId`. Root history
+checkpoints и chat events требуют разговорного контекста; подготовка частного
+материала через hooks допускает отсутствие conversation и модели.
 
-Вход и результат текущего `workflow/v19` остаются agent-shaped: обязательны
+Вход и результат текущего `workflow/v20` остаются agent-shaped: обязательны
 `AgentTask`, аргумент history `Vec<CanonicalMessage>` и terminal `AgentOutput`.
 Отдельный вызов через `RuntimeRegistry::workflow_execution_context`
 использует нижние capabilities/process substrate, но публичный
@@ -342,7 +343,7 @@ git_status
 
 Все команды всё равно возвращаются в host через `host.tools.execute` и проходят
 `ToolRegistry -> policy -> approval -> safety`; модуль не запускает shell
-самостоятельно. Success path не вызывает context, compactor, tool exposure или
+самостоятельно. Success path не вызывает context, preparation hooks, selection hooks или
 model и не читает history. Runnable profile:
 `examples/configs/proteus.project-check.example.toml`.
 
@@ -352,7 +353,7 @@ approval и ошибку инструмента; исходные tools и model
 
 `AppConfig` без `active_provider` собирается без model export. Ошибка тестов
 возвращается с выводом команды; при настроенной модели controller добавляет
-объяснение. `workflow/v19` использует общий `execution_id`, optional
+объяснение. `workflow/v20` использует общий `execution_id`, optional
 `conversation { session_id, thread_id, turn_id }` и optional `model_ref`.
 Самостоятельный workflow может передать пустую history. `AgentTask` и
 `AgentOutput` остаются общими task/result DTO этого slot.
@@ -366,8 +367,8 @@ implementations отсутствуют в replay-каталоге, итог и h
 
 | Owner | Поля |
 |---|---|
-| `ExecutionContext` | `scope`, `model_timeout_ms`, `model`, `tools`, `policy`, `approval`, `permission_grants` |
-| `AgentWorkflowContext` | `tool_recorder`, `session_id`, `thread_id`, `turn_id`, `model_ref`, `instructions`, `intent`, `permission_mode`, `reasoning`, `context_timeout_ms`, `events`, `context`, `user_input`, `compactor`, `tool_exposure`, `agent_control`, queued messages, `thread_label` |
+| `ExecutionContext` | `scope`, `model_timeout_ms`, `model`, `hooks`, `operations`, `tools`, `policy`, `approval`, `permission_grants` |
+| `AgentWorkflowContext` | `tool_recorder`, `session_id`, `thread_id`, `turn_id`, `model_ref`, `instructions`, `intent`, `permission_mode`, `reasoning`, `context_timeout_ms`, `events`, `context`, `user_input`, `context_preparation`, `agent_control`, queued messages, `thread_label` |
 
 `ExecutionScope` содержит identity и cancellation без chat types.
 `ExecutionContext` связывает generic handles с coherent runtime snapshot.
@@ -393,7 +394,7 @@ wall-clock deadline и воспроизводит записанный исхо�
 и optional agent projection. `SessionExecutionRecorder` и
 `SessionToolExecutionRecorder` связывают их с session-owned journal.
 
-Journal schema v3 сохраняет `ExecutionId` для TurnOpened, model и tool facts,
+Canonical journal сохраняет `ExecutionId` для TurnOpened, model и tool facts,
 ordered `CanonicalModelResponse.messages` и `CanonicalMessage.phase`.
 Conversational attribution optional: detached fact не требует выдуманного
 Turn. Projection проверяет mapping `TurnId -> ExecutionId`.
@@ -434,7 +435,7 @@ InvocationRef не взаимозаменяемы; broker lineage не пере�
 | State | Что это сейчас | Что это не означает |
 |---|---|---|
 | Chat History | Active `SessionState.history`, восстановленная fold-ом `history_mutated` | Не полный input любого model call |
-| Model Context | Один `CanonicalModelRequest` после context/tool exposure/compaction/shaping | Не durable conversation целиком |
+| Model Context | Один `CanonicalModelRequest` после context/selection/preparation/shaping | Не durable conversation целиком |
 | Journal | Canonical append-only turn/history/model/tool facts | Не event stream и не program counter |
 | Runtime State | Live services, session locks/history/steering, cancellation, grants, broker generations | Не автоматически durable state |
 | Memory | Module-owned durable storage с tools записи/чтения и optional context provider | Не chat history и не generic checkpoint store |
@@ -442,16 +443,19 @@ InvocationRef не взаимозаменяемы; broker lineage не пере�
 
 Prompt replay повторяет один сохранённый provider-neutral model request;
 workflow replay заново запускает Workflow с записанными model/tool outcomes.
-Core записывает typed origin model exchange (`direct`/`compactor`) на host
-callback boundary отдельно от `ExecutionScope` и provider request. Replay
-валидирует все пары, но последовательность workflow и checkpoint positions
-считает по `direct`; compaction берёт из записанных report/history. Внутренние
-summary exchanges остаются доступны учёту usage и eval, алгоритм compactor
-повторно не исполняется.
+Core записывает typed origin model exchange (`direct`/`auxiliary`) и
+`OperationOwner` на host callback boundary отдельно от `ExecutionScope` и
+provider request. Workflow-owned exchanges составляют последовательность
+workflow; дочерние model/tool records проверяются и потребляются вместе с
+outcome их hook/tool invocation. Preparation восстанавливается по typed
+`BeforeContext` trace, включая ошибку и отсутствие изменения, без повторного
+вызова выбранного алгоритма или его effects.
 Model outcome не обязателен: model-free Turn воспроизводится по tool facts,
-history и settlement. Без model request журнал не даёт replayable context,
-tool exposure и compaction input; запрос таких данных или незаписанный model/
-tool call отмечается как divergence, даже если Workflow перехватил ошибку.
+history и settlement. Selection и preparation восстанавливаются по typed traces,
+включая failure без последующего model request; context builder требует
+записанного request. Запрос
+незаписанных model/tool/context данных отмечается как divergence, даже если
+Workflow перехватил ошибку.
 Они проверяют эквивалентность и projection, но не продолжают suspended Rust
 future после crash. Program counter, stack, local workflow variables, steering
 queue и cancellation token journal не восстанавливает.
@@ -498,7 +502,8 @@ Exports одного component сохраняют shared process failure domain.
 Агент собирается из модулей, подключённых к слотам:
 
 - **Слот** задаёт контракт поведения: данные запроса и ответа, доступные
-  операции, правила отмены и ошибок. Например, `search` отвечает за поиск.
+  операции, правила отмены и ошибок. Например, `tool` задаёт выполнение
+  инструментов, среди которых `search`, `remember_fact` и `apply_patch`.
 - **Модуль** — отдельная программа с конкретным алгоритмом. Она работает
   в своём процессе и может реализовать один или несколько слотов.
 - **Профиль** — конфигурация, которая выбирает реализации слотов, модель,
@@ -514,6 +519,11 @@ Exports одного component сохраняют shared process failure domain.
 к модели. Оно само по себе не означает новый слот, службу или набор прав.
 Поставляемые примеры модулей имеют те же права, что и внешние реализации.
 
+Отдельных слотов `search`, `memory` и `patch` нет. `rg_search` — имя реализации
+tool `search`; та же программа может предоставить read-only `context_provider`
+для автоматического наполнения контекста. Context builder вызывает provider
+через host, а не tool. Выбор search tool не включает provider автоматически.
+
 ## Сколько Реализаций Подключается К Слоту
 
 Контракт задаёт выбор одной реализации или нескольких в установленном порядке:
@@ -522,9 +532,8 @@ Exports одного component сохраняют shared process failure domain.
 composition(contract) = select_one | ordered_many
 ```
 
-`workflow`, `model`, `context`, `policy`,
-`compactor` и `tool_exposure` используют `select_one`.
-`tool`, `context_provider` и цепочка обработчиков `hook/v4` используют `ordered_many`.
+`workflow`, `model`, `context`, `policy` используют `select_one`.
+`tool`, `context_provider` и цепочка обработчиков `hook/v6` используют `ordered_many`.
 `modules.hooks` задаёт порядок обработчиков. Core определяет точки их вызова
 и проверяет результаты; обработчики используют тот же протокол процессных модулей.
 
@@ -569,18 +578,21 @@ Module config остаётся opaque JSON object для реализации. C
 
 Отсутствие selection — состояние wiring, а не скрытая module identity:
 
-- search возвращает пустой результат;
-- memory ничего не хранит;
 - context пуст;
-- patch запрещён;
 - compaction не меняет history;
 - policy закрывает исполнение;
 - workflow не может выполнить turn;
-- tool exposure пропускает все policy-visible candidates;
+- без selection contributions `host.tools.select` возвращает все policy-visible candidates;
 
 Эти structural objects не входят в catalog, не отображаются как modules и не
 могут получить module-owned config. Если config явно выбрал id, любая проблема
 с ним является ошибкой; fallback к structural absence запрещён.
+
+Tools и context providers подключаются отдельными exports. Если search,
+memory или patch tool не подключён и не включён, его нет в ToolRegistry;
+вызов отсутствующего tool завершается ошибкой. Если автоматическое чтение
+не выбрано через `search_provider`/`memory_provider`, context builder его
+не выполняет. Скрытых пустых реализаций поиска, памяти или patch нет.
 
 Agent control не является slot-ом: пустой top-level `agent_control.roles`
 означает отсутствие service и model-facing facade, а configured service

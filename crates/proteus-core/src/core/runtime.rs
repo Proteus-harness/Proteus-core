@@ -42,9 +42,7 @@ pub use paths::{config_store_root, event_log_path};
 
 use execution::ExecutionAdmissionSnapshot;
 pub(crate) use history::{prepare_failed_history_update, prepare_history_update};
-pub(crate) use steering::{
-    QueuedMessagesSnapshot, SteeringQueueReceipt, UserMessageReservation, without_root_steering,
-};
+pub(crate) use steering::{QueuedMessagesSnapshot, SteeringQueueReceipt, UserMessageReservation};
 use steering::{SessionSteering, SteeringFinalizationGuard};
 
 pub struct AgentRuntime {
@@ -144,6 +142,7 @@ struct SessionState {
     run_lock: Arc<Mutex<()>>,
     session_started: Mutex<bool>,
     history: Arc<Mutex<Vec<CanonicalMessage>>>,
+    history_revision: Arc<std::sync::atomic::AtomicU64>,
     history_turn: Arc<Mutex<Option<crate::domain::TurnId>>>,
     model_context: Arc<Mutex<super::model_context::ModelContextState>>,
     interrupted_turns: Arc<Mutex<Vec<crate::contracts::WorkflowHistoryInterruption>>>,
@@ -165,6 +164,7 @@ impl SessionState {
             run_lock: Default::default(),
             session_started: Mutex::new(session_started),
             history: Arc::new(Mutex::new(history)),
+            history_revision: Default::default(),
             history_turn: Default::default(),
             model_context: Default::default(),
             interrupted_turns: Default::default(),
@@ -180,6 +180,10 @@ impl AgentRuntime {
     /// `AgentRuntime::builder(config, cwd)` and chain `.with_*` methods.
     pub fn builder(config: AppConfig, cwd: PathBuf) -> AgentRuntimeBuilder {
         AgentRuntimeBuilder::new(config, cwd)
+    }
+
+    pub(crate) fn approval_available(&self) -> bool {
+        self.services.approval.can_request_approval()
     }
 
     pub fn new(config: AppConfig, cwd: PathBuf) -> Result<Self> {

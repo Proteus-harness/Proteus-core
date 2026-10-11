@@ -13,13 +13,14 @@ await build({
   plugins: [{
     name: "proteus-platform",
     setup(api) {
-      api.onResolve({ filter: /(?:persistence|logger|notification|store)$/ }, ({ path, resolveDir }) => {
+      api.onResolve({ filter: /(?:persistence|logger|notification|store|protected-patterns)$/ }, ({ path, resolveDir }) => {
         const absolute = resolve(resolveDir, `${path}.ts`);
         const adapters = {
           [resolve(upstream, "state/persistence.ts")]: "persistence",
           [resolve(upstream, "logger.ts")]: "logger",
           [resolve(upstream, "ui/notification.ts")]: "notification",
           [resolve(upstream, "prompts/store.ts")]: "prompts",
+          [resolve(upstream, "protected-patterns.ts")]: "protected-patterns",
         };
         const adapter = adapters[absolute];
         if (adapter) return { path: resolve(`src/platform/${adapter}.mjs`) };

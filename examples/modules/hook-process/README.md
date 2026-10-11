@@ -1,6 +1,6 @@
 # Перенос Скриптовых Хуков
 
-Внешний JS/TS component для текущего `hook/v4`, без npm dependencies.
+Внешний JS/TS component для текущего `hook/v6`, без npm dependencies.
 Нужен Node.js **22.18+**: `.mjs` работает как JavaScript, `.ts` — через
 встроенный type stripping. TypeScript syntax с необходимой генерацией кода
 (например, `enum`) требует предварительной сборки в JS. Внешние dependencies
@@ -59,7 +59,7 @@ export default function setup(hooks) {
 }
 ```
 
-`setup` может быть async. `hooks.on(event, handler, {tools})` использует шесть
+`setup` может быть async. `hooks.on(event, handler, {tools})` использует восемь
 canonical событий. `tools` — непустой список точных имён только для
 `before_tool`/`after_tool`; фильтр применяется до handler. Регистрация
 заканчивается после setup; внутри export действует порядок регистрации,
@@ -73,8 +73,20 @@ invocations; shared state обработчиков синхронизирует 
 
 `console.log` перенаправлен в stderr, чтобы обычный отладочный вывод
 перенесённого кода не ломал protocol stdout. stdout зарезервирован за worker.
-Host callbacks у этого slot отсутствуют; UI, model calls и tool registration
-не появляются из-за использования SDK.
+`ctx.completeModel(request)` выполняет вспомогательный canonical model call;
+`ctx.executeTool(call)` проходит обычный tool registry/policy/approval path.
+Host связывает дочерние операции с текущей invocation, отменой и её сроком.
+Ошибка callback сохраняет typed RPC `data` в `error.data`; повторный throw
+передаёт её host без разбора текста. Model callback доступен в actionable фазах; tool callback — в `before_tool_selection`, `before_context`,
+`before_model` и `before_stop`, но не в tool hooks и lifecycle notifications.
+Неподдержанная фаза завершается явной ошибкой; UI и tool registration SDK не предоставляет.
+
+`before_tool_selection` вызывается перед подготовкой контекста. `input.candidates`
+содержит неизменяемый policy-visible набор, а `output.tools` — результат
+предыдущего handler. Ответ `{ action: "tool_selection", output: { tools,
+metadata } }` может сокращать или переставлять только текущий набор без
+изменения specs; metadata заменяется. SDK проверяет каждый handler, host —
+каждый export. Удалённый предыдущим участником tool восстановить нельзя.
 
 Types для редактора: [hooks.d.mts](hooks.d.mts), [ports.d.mts](ports.d.mts).
 Canonical DTO и окончательная validation принадлежат Rust contract/host;
@@ -198,14 +210,15 @@ prompt; Proteus сохраняет root turn и передаёт причину 
 | Proteus | Близкая upstream задача | Граница |
 |---|---|---|
 | `turn_started` | Наблюдение начала обработки | Notification после принятия ввода; не `SessionStart` и не admission gate |
+| `before_tool_selection` | Выбор показанных модели tools | Typed `tool_selection`: сужение/перестановка предыдущего набора без изменения specs |
+| `before_context` | Подготовка рабочей истории | Typed `context_preparation`; workflow принимает candidate через checkpoint |
 | `before_model` | Pi `context`, OpenCode context hooks | Canonical messages/instructions; схемы messages нужно сопоставлять явно |
 | `before_tool` | Pi `tool_call`, OpenCode before, Codex/Claude `PreToolUse` | Veto или замена args; затем обычные validation/policy/approval |
 | `after_tool` | Pi `tool_result`, OpenCode after, Codex/Claude post-tool обработка | Только текстовый `output`; фактический статус инструмента сохраняется |
 | `before_stop` | Stop-проверка готового ответа | `continue_turn` с причиной, тот же root turn, максимум 8 продолжений |
 | `turn_settled` | Наблюдение итогового результата | Notification; не actionable Stop, `agent_before_settle` или `session.idle` |
 
-Session/fork/switch, отдельные compaction hooks,
-provider/UI/command/tool registration требуют соответствующего Proteus
+Session/fork/switch и provider/UI/command/tool registration требуют соответствующего Proteus
 contract. Они не считаются успешно перенесёнными через приблизительный alias.
 
 ## Проверка
@@ -217,12 +230,12 @@ node --test examples/modules/hook-process/tests/*.test.mjs
 ./scripts/test.py -p proteus-core --test hook_runtime --test module_swap
 cargo run -p proteus-module-protocol --bin proteus-component-conformance -- \
   --component-id js-hooks \
-  --export '{"slot":"hook","module_id":"ported-pi","contract_version":"v3","module_config":{"entry":"examples/modules/hook-process/entries/pi.ts"}}' \
+  --export '{"slot":"hook","module_id":"ported-pi","contract_version":"v6","module_config":{"entry":"examples/modules/hook-process/entries/pi.ts"}}' \
   --probe-export hook/ported-pi --probe-method hook.invoke \
-  --probe-params '{"cwd":"/tmp","attribution":{"execution_id":"00000000-0000-0000-0000-000000000001","agent":null},"event":{"event":"before_tool","call":{"id":"00000000-0000-0000-0000-000000000002","name":"apply_patch","args":{},"surface":"function","raw_arguments":null},"spec":null,"blocked":null}}' \
+  --probe-params '{"cwd":"/tmp","attribution":{"execution_id":"00000000-0000-0000-0000-000000000001","agent":null},"conversation":null,"event":{"event":"before_tool","call":{"id":"00000000-0000-0000-0000-000000000002","name":"apply_patch","args":{},"surface":"function","raw_arguments":null},"spec":null,"blocked":null}}' \
   -- node examples/modules/hook-process/worker.mjs
 ```
 
 Node checks проверяют перенос handlers, явные ошибки, TS loading,
-multiplexing и targeted cancellation. Rust integration использует настоящий
+multiplexing, `BeforeContext`, model/tool callbacks и targeted cancellation. Rust integration использует настоящий
 component/slot, tool effect, canonical journal и workflow replay.

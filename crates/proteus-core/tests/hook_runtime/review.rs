@@ -62,7 +62,7 @@ async fn rewritten_arguments_execute_and_replay_with_original_model_provenance()
             journal
                 .iter()
                 .any(|r| matches!(&r.entry, JournalEntry::ToolCallRecorded(t)
-            if t.phase == ToolCallRecordPhase::Requested && t.call.args["path"] == "original.txt"))
+            if matches!(t.phase, ToolCallRecordPhase::Requested { .. }) && t.call.args["path"] == "original.txt"))
         );
         if invalid {
             assert!(approval.0.lock().unwrap().is_empty());
@@ -108,7 +108,11 @@ async fn stop_review_resumes_same_turn_and_limit_failure_retains_progress_in_rep
             .await
             .unwrap();
         let result = runtime.run("explain context".into()).await;
-        assert_eq!(result.is_err(), continuations == 99);
+        assert_eq!(
+            result.is_err(),
+            continuations == 99,
+            "workflow={workflow}, continuations={continuations}, result={result:?}"
+        );
         let journal = records(&runtime);
         assert_eq!(
             journal

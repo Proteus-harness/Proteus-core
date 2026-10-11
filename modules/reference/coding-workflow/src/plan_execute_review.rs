@@ -58,7 +58,7 @@ fn run_loop(
     let mut last_usage: Option<LastModelUsage> = None;
     let mut plan_tool_rounds_used = 0usize;
     for plan_round in 0..=MAX_PLAN_TOOL_ROUNDS {
-        let prepared = request_from_state(
+        let mut prepared = request_from_state(
             input,
             host,
             &turn.model_messages,
@@ -69,11 +69,13 @@ fn run_loop(
         )?;
         if turn.apply_compaction_report(
             prepared.compaction.as_ref(),
+            prepared.preparation_target.as_ref(),
             &prepared.request.messages,
             PersistentRepair::Rebuild,
         )? {
             last_usage = None;
             turn.checkpoint(host, &[])?;
+            prepared.request.messages = turn.model_messages.clone();
         }
         let mut plan_request = prepared.request;
         // Последняя итерация принудительно без tools: plan-фаза обязана
@@ -120,7 +122,7 @@ fn run_loop(
         turn.checkpoint_tools(host, input, &plan_response.tool_calls, "plan")?;
         for call in plan_response.tool_calls {
             let result = execute_or_handle_tool(host, input, &call, "plan")?;
-            turn.append_tool_results(std::iter::once(result));
+            turn.append_tool_results(std::iter::once(result))?;
             turn.checkpoint(host, &[])?;
         }
     }
@@ -128,7 +130,7 @@ fn run_loop(
     let mut draft_finish_reason = None;
     let mut tool_round_limit_reached = true;
     for _round in 0..MAX_TOOL_ROUNDS {
-        let prepared = request_from_state(
+        let mut prepared = request_from_state(
             input,
             host,
             &turn.model_messages,
@@ -139,11 +141,13 @@ fn run_loop(
         )?;
         if turn.apply_compaction_report(
             prepared.compaction.as_ref(),
+            prepared.preparation_target.as_ref(),
             &prepared.request.messages,
             PersistentRepair::Rebuild,
         )? {
             last_usage = None;
             turn.checkpoint(host, &[])?;
+            prepared.request.messages = turn.model_messages.clone();
         }
         let request = prepared.request;
         emit_event(
@@ -185,12 +189,12 @@ fn run_loop(
         turn.checkpoint_tools(host, input, &response.tool_calls, "execute")?;
         for call in response.tool_calls {
             let result = execute_or_handle_tool(host, input, &call, "execute")?;
-            turn.append_tool_results(std::iter::once(result));
+            turn.append_tool_results(std::iter::once(result))?;
             turn.checkpoint(host, &[])?;
         }
     }
 
-    let prepared = request_from_state(
+    let mut prepared = request_from_state(
         input,
         host,
         &turn.model_messages,
@@ -201,10 +205,12 @@ fn run_loop(
     )?;
     if turn.apply_compaction_report(
         prepared.compaction.as_ref(),
+        prepared.preparation_target.as_ref(),
         &prepared.request.messages,
         PersistentRepair::Rebuild,
     )? {
         turn.checkpoint(host, &[])?;
+        prepared.request.messages = turn.model_messages.clone();
     }
     let mut review_request = prepared.request.with_tool_choice(ToolChoice::None);
     review_request.tools.clear();

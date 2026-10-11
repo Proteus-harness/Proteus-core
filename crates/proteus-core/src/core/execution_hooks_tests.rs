@@ -30,7 +30,7 @@ impl HookHandler for Handler {
     async fn invoke(
         &self,
         input: HookInput,
-        cancellation: CancellationToken,
+        cancellation: Arc<dyn crate::contracts::HookHost>,
     ) -> Result<HookResponse> {
         assert!(!cancellation.is_cancelled());
         self.calls.lock().unwrap().push(self.name.into());
@@ -205,7 +205,11 @@ async fn canceled_execution_still_delivers_settled_cleanup_and_notifications_con
 struct InvalidContext;
 #[async_trait]
 impl HookHandler for InvalidContext {
-    async fn invoke(&self, _: HookInput, _: CancellationToken) -> Result<HookResponse> {
+    async fn invoke(
+        &self,
+        _: HookInput,
+        _: Arc<dyn crate::contracts::HookHost>,
+    ) -> Result<HookResponse> {
         let message = crate::model_standard::CanonicalMessage::text(
             crate::model_standard::MessageRole::User,
             "duplicate",

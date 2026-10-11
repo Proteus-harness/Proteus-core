@@ -1,14 +1,11 @@
 use std::{
-    future,
     path::{Path, PathBuf},
     sync::Arc,
-    time::{Duration, Instant},
 };
 
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use serde_json::{Value, json};
-use tokio::time::{sleep, timeout};
 
 use crate::{
     contracts::{
@@ -24,11 +21,11 @@ use crate::{
 use self::support::{metadata_with, truncate_utf8, visibility_decision_allows};
 
 mod hooks;
+mod invocation;
 mod support;
 
 const DEFAULT_TIMEOUT_MS: u64 = 30_000;
 const DEFAULT_MAX_OUTPUT_BYTES: usize = 200_000;
-const CANCELLATION_SETTLEMENT_GRACE: Duration = Duration::from_millis(500);
 
 /// Immutable execution binding for the tool capability.
 ///
@@ -83,6 +80,10 @@ impl ToolExecutionBinding {
         &self.scope
     }
 
+    pub(crate) fn recorder(&self) -> Arc<dyn ToolExecutionRecorder> {
+        self.recorder.clone()
+    }
+
     pub fn attribution(&self) -> ExecutionAttribution {
         self.attribution
     }
@@ -103,6 +104,9 @@ pub struct BoundTools {
     default_timeout_ms: u64,
     max_output_bytes: usize,
     hooks: Arc<dyn crate::contracts::ExecutionHooks>,
+    operations: Option<Arc<dyn crate::contracts::ToolHost>>,
+    conversation: Option<Arc<dyn crate::contracts::ConversationReader>>,
+    conversation_session_id: Option<crate::domain::SessionId>,
 }
 
 impl BoundTools {
@@ -122,6 +126,9 @@ impl BoundTools {
             default_timeout_ms: DEFAULT_TIMEOUT_MS,
             max_output_bytes: DEFAULT_MAX_OUTPUT_BYTES,
             hooks: Arc::new(crate::contracts::NoExecutionHooks),
+            operations: None,
+            conversation: None,
+            conversation_session_id: None,
         }
     }
 
@@ -137,6 +144,24 @@ impl BoundTools {
 
     pub fn with_hooks(mut self, hooks: Arc<dyn crate::contracts::ExecutionHooks>) -> Self {
         self.hooks = hooks;
+        self
+    }
+
+    pub fn with_operations(
+        mut self,
+        operations: Option<Arc<dyn crate::contracts::ToolHost>>,
+    ) -> Self {
+        self.operations = operations;
+        self
+    }
+
+    pub fn with_conversation(
+        mut self,
+        conversation: Option<Arc<dyn crate::contracts::ConversationReader>>,
+        session_id: Option<crate::domain::SessionId>,
+    ) -> Self {
+        self.conversation = conversation;
+        self.conversation_session_id = session_id;
         self
     }
 
@@ -233,7 +258,52 @@ impl BoundTools {
     where
         F: FnOnce(&mut ToolContext),
     {
-        if self.binding.scope.cancellation.is_cancelled() {
+        use super::model_call_scope::*;
+        let cancellation = operation_cancellation(&self.binding.scope.cancellation);
+        anyhow::ensure!(!cancellation.is_cancelled(), "tool execution canceled");
+        let mut lineage = current_tool_lineage();
+        if let Some(tool) = self.registry.get(&call.name) {
+            let identity = Arc::as_ptr(&tool) as *const () as usize;
+            anyhow::ensure!(
+                !lineage.contains(&identity),
+                "nested tool cycle for registry tool '{}'",
+                call.name
+            );
+            lineage.push(identity);
+        }
+        if let Some(raw_arguments) = call.raw_arguments.as_deref()
+            && let Ok(parsed_arguments) = serde_json::from_str(raw_arguments)
+        {
+            call.args = parsed_arguments;
+        }
+        self.binding
+            .recorder
+            .tool_call_requested(self.binding.attribution, current_operation_owner(), &call)
+            .await?;
+        with_operation_scope(
+            crate::contracts::OperationOwner::Tool {
+                call_id: call.id.clone(),
+            },
+            lineage,
+            cancellation,
+            self.execute_requested(cwd, call, observer, enrich),
+        )
+        .await
+    }
+
+    async fn execute_requested<F>(
+        &self,
+        cwd: PathBuf,
+        mut call: ToolCall,
+        observer: &dyn ToolExecutionObserver,
+        enrich: F,
+    ) -> Result<ToolResult>
+    where
+        F: FnOnce(&mut ToolContext),
+    {
+        if super::model_call_scope::operation_cancellation(&self.binding.scope.cancellation)
+            .is_cancelled()
+        {
             anyhow::bail!("tool execution canceled");
         }
 
@@ -242,10 +312,6 @@ impl BoundTools {
         {
             call.args = parsed_arguments;
         }
-        self.binding
-            .recorder
-            .tool_call_requested(self.binding.attribution, &call)
-            .await?;
         observer.tool_call_requested(&call).await?;
 
         let tool_spec = self.registry.spec(&call.name).ok();
@@ -273,7 +339,9 @@ impl BoundTools {
             return Ok(result);
         }
 
-        if self.binding.scope.cancellation.is_cancelled() {
+        if super::model_call_scope::operation_cancellation(&self.binding.scope.cancellation)
+            .is_cancelled()
+        {
             anyhow::bail!("tool execution canceled");
         }
         let decision = self.evaluate_access(&cwd, &call, tool_spec.clone());
@@ -306,9 +374,12 @@ impl BoundTools {
                     )
                     .with_origin(self.binding.origin.clone()),
                 );
+                let parent_cancellation = super::model_call_scope::operation_cancellation(
+                    &self.binding.scope.cancellation,
+                );
                 let approval = tokio::select! {
                     result = approval_request => result?,
-                    _ = self.binding.scope.cancellation.cancelled() => {
+                    _ = parent_cancellation.cancelled() => {
                         return Err(anyhow!("tool execution canceled"));
                     }
                 };
@@ -407,103 +478,6 @@ impl BoundTools {
             .recorder
             .tool_call_resolved(self.binding.attribution, call, resolution)
             .await
-    }
-
-    async fn invoke_allowed<F>(
-        &self,
-        observer: &dyn ToolExecutionObserver,
-        call: &ToolCall,
-        tool_spec: Option<ToolSpec>,
-        cwd: PathBuf,
-        enrich: F,
-    ) -> Result<ToolResult>
-    where
-        F: FnOnce(&mut ToolContext),
-    {
-        observer.tool_call_resolved(call).await?;
-        let tool = self
-            .registry
-            .get(&call.name)
-            .ok_or_else(|| anyhow!("unknown tool: {}", call.name))?;
-        let timeout_ms = tool_spec
-            .as_ref()
-            .and_then(|spec| spec.timeout_ms)
-            .unwrap_or(self.default_timeout_ms);
-        let started = Instant::now();
-        let tool_cancellation = self.binding.scope.cancellation.child_token();
-        let mut tool_ctx = ToolContext {
-            cwd: cwd.clone(),
-            attribution: self.binding.attribution,
-            cancellation: tool_cancellation.clone(),
-            user_input: None,
-            task: None,
-            agent_control: None,
-            conversation: None,
-            conversation_session_id: None,
-        };
-        enrich(&mut tool_ctx);
-        // Binding-owned fields remain authoritative after optional enrichment.
-        tool_ctx.attribution = self.binding.attribution;
-        tool_ctx.cancellation = tool_cancellation.clone();
-        let timeout_future = async move {
-            if timeout_ms == 0 {
-                future::pending::<()>().await;
-            } else {
-                sleep(Duration::from_millis(timeout_ms)).await;
-            }
-        };
-        tokio::pin!(timeout_future);
-        let invocation = tool.invoke(call, tool_ctx);
-        tokio::pin!(invocation);
-        enum InvocationOutcome<T> {
-            Completed(T),
-            TimedOut,
-            Canceled,
-        }
-        let outcome = tokio::select! {
-            result = &mut invocation => InvocationOutcome::Completed(result),
-            _ = &mut timeout_future => InvocationOutcome::TimedOut,
-            _ = self.binding.scope.cancellation.cancelled() => InvocationOutcome::Canceled,
-        };
-        let result = match outcome {
-            InvocationOutcome::Completed(result) => match result {
-                Ok(result) => result,
-                Err(error) => ToolResult::error(call.id.clone(), error.to_string())
-                    .with_metadata(json!({ "tool": call.name })),
-            },
-            InvocationOutcome::TimedOut => {
-                tool_cancellation.cancel();
-                // Keep polling process-backed tools long enough for the
-                // invocation handle to forward protocol cancel and settle.
-                // A tool that ignores cancellation is still bounded here.
-                let _ = timeout(CANCELLATION_SETTLEMENT_GRACE, &mut invocation).await;
-                ToolResult::error(
-                    call.id.clone(),
-                    format!("tool timed out after {timeout_ms}ms"),
-                )
-                .with_metadata(json!({
-                    "tool": call.name,
-                    "timed_out": true,
-                    "timeout_ms": timeout_ms,
-                }))
-            }
-            InvocationOutcome::Canceled => {
-                tool_cancellation.cancel();
-                let _ = timeout(CANCELLATION_SETTLEMENT_GRACE, &mut invocation).await;
-                ToolResult::error(call.id.clone(), "tool call canceled").with_metadata(json!({
-                    "tool": call.name,
-                    "canceled": true,
-                }))
-            }
-        };
-
-        let mut result = self.truncate_result(result);
-        result.metadata = metadata_with(
-            result.metadata,
-            "duration_ms",
-            json!(started.elapsed().as_millis() as u64),
-        );
-        self.finish(observer, &cwd, call, result).await
     }
 
     async fn record_result(

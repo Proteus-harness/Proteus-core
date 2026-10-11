@@ -1,6 +1,8 @@
 use crate::{
-    contracts::{CompactionInput, CompactionOutput},
-    core::RuntimeCompactionHost,
+    contracts::{
+        ContextPreparationInput, ContextPreparationOutput, HookEvent, HookInput, HookResponse,
+        HookStep, HookStepOutcome, HookTrace, WorkflowHistoryCheckpoint, WorkflowHistoryUpdate,
+    },
     domain::HistoryCompactionReport,
 };
 
@@ -62,15 +64,22 @@ impl Workflow for CompactionProbeWorkflow {
         let ctx = ctx.into_agent()?;
         let compaction_input =
             replay_compaction_input(&task, &history, ctx.model_ref.as_ref().unwrap());
-        let compacted = ctx
-            .compactor
-            .compact(
-                compaction_input.clone(),
-                Arc::new(RuntimeCompactionHost::new(ctx.clone())),
-            )
+        let preparation = ctx
+            .context_preparation
+            .prepare(compaction_input.clone())
             .await?;
+        let compacted = preparation.output;
         let mut report =
-            HistoryCompactionReport::from_compaction_output(&compaction_input, &compacted);
+            HistoryCompactionReport::from_context_preparation_output(&compaction_input, &compacted);
+        ctx.history_recorder
+            .checkpoint(WorkflowHistoryCheckpoint {
+                history: WorkflowHistoryUpdate::new(vec![])
+                    .with_history_replacement(compacted.messages.clone())
+                    .with_compactions(vec![report.clone()]),
+                tool_results: vec![],
+                preparation_target: preparation.target,
+            })
+            .await?;
         if matches!(self.mode, CompactionProbeMode::DivergeReport) {
             report.summary_source = Some("changed_implementation".to_owned());
         }
@@ -95,15 +104,17 @@ impl Workflow for CompactionProbeWorkflow {
 }
 
 fn replay_compaction_input(
-    task: &AgentTask,
+    _task: &AgentTask,
     history: &[CanonicalMessage],
     model_ref: &ModelRef,
-) -> CompactionInput {
-    CompactionInput::new(
-        task.clone(),
-        proteus_contracts::model_standard::CanonicalModelRequest::new(
-            model_ref.clone(),
-            history.to_vec(),
+) -> ContextPreparationInput {
+    ContextPreparationInput::new(
+        history.to_vec(),
+        Some(
+            proteus_contracts::model_standard::CanonicalModelRequest::new(
+                model_ref.clone(),
+                history.to_vec(),
+            ),
         ),
     )
     .with_reason(COMPACTION_REASON)
@@ -146,6 +157,7 @@ async fn compacted_journal_with_metadata(metadata: serde_json::Value) -> TestJou
     let spec = probe_tool_spec();
     let mut recorded_snapshot = snapshot(&spec);
     recorded_snapshot.modules.workflow = Some(COMPACTION_WORKFLOW_ID.to_owned());
+    recorded_snapshot.modules.hooks = vec!["replay.preparation".into()];
 
     store
         .append_execution_journal_entry(
@@ -165,6 +177,18 @@ async fn compacted_journal_with_metadata(metadata: serde_json::Value) -> TestJou
         .await
         .expect("user history");
 
+    let attribution = ExecutionAttribution::for_turn(execution_id, session_id, thread_id, turn_id);
+    append_preparation_hook(
+        &store,
+        attribution,
+        &task,
+        HookEvent::TurnStarted {
+            task: task.clone(),
+            history: vec![user.clone()],
+        },
+        HookResponse::Continue,
+    )
+    .await;
     let compaction_input = replay_compaction_input(
         &task,
         std::slice::from_ref(&user),
@@ -186,7 +210,7 @@ async fn compacted_journal_with_metadata(metadata: serde_json::Value) -> TestJou
         replacement_message_id: compacted_user.id,
     };
     let compacted_messages = vec![summary, compacted_user];
-    let mut compaction_output = CompactionOutput::changed(
+    let mut compaction_output = ContextPreparationOutput::changed(
         compacted_messages.clone(),
         Some("recorded compacted summary".to_owned()),
     );
@@ -198,13 +222,60 @@ async fn compacted_journal_with_metadata(metadata: serde_json::Value) -> TestJou
     compaction_output.trigger_tokens = Some(100);
     compaction_output.summary_source = Some("test_fixture".to_owned());
     compaction_output.metadata = metadata;
-    let report =
-        HistoryCompactionReport::from_compaction_output(&compaction_input, &compaction_output);
+    let report = HistoryCompactionReport::from_context_preparation_output(
+        &compaction_input,
+        &compaction_output,
+    );
     let response = CanonicalModelResponse::new(
         CanonicalMessage::text(MessageRole::Assistant, "compacted response"),
         Vec::new(),
         FinishReason::Stop,
     );
+    append_preparation_hook(
+        &store,
+        attribution,
+        &task,
+        HookEvent::BeforeContext {
+            input: compaction_input.clone(),
+            output: ContextPreparationOutput::unchanged(vec![user.clone()]),
+            target: Some(crate::contracts::ContextPreparationTarget {
+                execution_id,
+                revision: 1,
+            }),
+        },
+        HookResponse::ContextPreparation {
+            output: compaction_output.clone(),
+        },
+    )
+    .await;
+    store
+        .checkpoint_history(
+            thread_id,
+            turn_id,
+            &compacted_messages,
+            Some(report.clone()),
+            vec![],
+        )
+        .await
+        .unwrap();
+    let request = recorded_request(
+        session_id,
+        thread_id,
+        turn_id,
+        compacted_messages.clone(),
+        spec.clone(),
+    );
+    append_preparation_hook(
+        &store,
+        attribution,
+        &task,
+        HookEvent::BeforeModel {
+            origin: crate::contracts::ModelCallOrigin::Direct,
+            request,
+        },
+        HookResponse::Continue,
+    )
+    .await;
     append_exchange(
         &store,
         execution_id,
@@ -224,9 +295,35 @@ async fn compacted_journal_with_metadata(metadata: serde_json::Value) -> TestJou
     let mut final_history = compacted_messages;
     final_history.extend(response.messages);
     store
-        .replace_history(thread_id, Some(turn_id), &final_history, Some(report))
+        .checkpoint_history(thread_id, turn_id, &final_history, None, vec![])
         .await
         .expect("compacted history");
+    append_preparation_hook(
+        &store,
+        attribution,
+        &task,
+        HookEvent::BeforeStop {
+            task: task.clone(),
+            history: final_history.clone(),
+            output: AgentOutput::text("compacted"),
+            attempt: 0,
+            continuation: None,
+        },
+        HookResponse::Continue,
+    )
+    .await;
+    append_preparation_hook(
+        &store,
+        attribution,
+        &task,
+        HookEvent::TurnSettled {
+            status: crate::contracts::HookTurnStatus::Success,
+            output: Some(AgentOutput::text("compacted")),
+            error: None,
+        },
+        HookResponse::Continue,
+    )
+    .await;
     store
         .append_journal_entry(
             thread_id,
@@ -247,6 +344,37 @@ async fn compacted_journal_with_metadata(metadata: serde_json::Value) -> TestJou
         thread_id,
         turn_id,
     }
+}
+
+async fn append_preparation_hook(
+    store: &SessionStore,
+    attribution: ExecutionAttribution,
+    task: &AgentTask,
+    event: HookEvent,
+    response: HookResponse,
+) {
+    let output = crate::contracts::apply_hook_response(&event, &response).unwrap();
+    store
+        .append_execution_journal_entry(
+            attribution,
+            JournalEntry::HookInvoked(HookTrace {
+                owner: crate::contracts::OperationOwner::Workflow,
+                input: HookInput {
+                    event,
+                    attribution,
+                    cwd: task.cwd.clone(),
+                    conversation: None,
+                },
+                steps: vec![HookStep {
+                    invocation_id: uuid::Uuid::new_v4(),
+                    module_id: "replay.preparation".into(),
+                    outcome: HookStepOutcome::Accepted { response },
+                }],
+                output: Some(output),
+            }),
+        )
+        .await
+        .unwrap();
 }
 
 #[tokio::test]

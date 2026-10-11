@@ -68,6 +68,7 @@ impl ToolOrchestrator {
         )
         .with_limits(self.default_timeout_ms, self.max_output_bytes)
         .with_hooks(ctx.execution.hooks.clone())
+        .with_operations(ctx.execution.operations.clone())
     }
 }
 

@@ -53,9 +53,9 @@ async fn check_large_current_input_preflight(cold_preflight: bool) {
         .unwrap()["max_input_tokens"] = json!(100_000);
     config
         .module_config
-        .get_mut("compactor")
+        .get_mut("hook")
         .unwrap()
-        .get_mut("codex")
+        .get_mut("codex_compact")
         .unwrap()["trigger_tokens"] = json!(90_000);
     let config_path = root.path().join("config.json");
     std::fs::write(&config_path, serde_json::to_vec(&config).unwrap()).unwrap();

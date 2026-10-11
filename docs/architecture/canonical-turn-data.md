@@ -1,6 +1,6 @@
 # Canonical Turn Data
 
-Текущий формат — journal schema v18, config snapshot v7 и session metadata v4. Resume history,
+Текущий формат — journal schema v21, config snapshot v8 и session metadata v4. Resume history,
 transcript, eval, prompt replay и workflow replay читают canonical journal.
 
 Canonical context parts сохраняют обязательный `ContextChunk.render_mode`:
@@ -96,7 +96,7 @@ record_id
 session_seq
 timestamp_ms
 session_id
-execution_id? # обязателен для TurnOpened, model и tool facts
+execution_id? # обязателен для TurnOpened, context, model и tool facts
 thread_id?    # conversational attribution
 turn_id?      # conversational attribution
 kind
@@ -115,8 +115,12 @@ root/child threads. `record_id` идентифицирует record и дела�
 - `history_mutated` — append принятых user/steering или workflow messages либо
   replace после compaction; содержит previous/new revision и сами canonical
   messages;
+- `context_request_recorded` — точный `AgentTask` и host-generated `invocation_id`
+  до вызова execution-bound builder;
+- `context_response_recorded` — полный `ContextBundle` либо ошибка с отдельными
+  `message` / `causes`, связанная по `invocation_id`;
 - `model_request_recorded` — полный request после `RequestShaper`, до adapter
-  call, с `exchange_id` и обязательным typed `origin` (`direct` или `compactor`);
+  call, с `exchange_id` и обязательным typed `origin` (`direct` или `auxiliary`);
 - `model_message_recorded` — принятый completed item с `exchange_id`, до доставки workflow;
 - `model_response_recorded` — terminal canonical response или canonical error,
   связанный с `exchange_id`;
@@ -130,10 +134,20 @@ root/child threads. `record_id` идентифицирует record и дела�
 Tool call пишется до invocation, result — после. Поэтому после crash незакрытая
 пара означает «результат неизвестен» и никогда не разрешает replay
 автоматически повторить mutating tool. Аналогично request без response —
-оборванный model exchange, а не пустой ответ.
+оборванный model exchange, а не пустой ответ. Незакрытый context build также
+остаётся незавершённым фактом; projection возвращает его ID в
+`interrupted_context_builds`, не создавая пустой bundle или результат повторного вызова.
+
+Context build принадлежит workflow execution; attribution задаёт bound recorder
+через journal header. Прямой `ctx.context.build` и `host.context.build` получают
+одну обёртку со scope/attribution validation, cancellation и context timeout.
+Detached workflow не требует модели или conversation identity. Outcome
+подтверждается journal до доставки вызывающему workflow; чужой owner, orphan
+response и повтор request/response ID отклоняются общей validation.
 
 `origin` назначает Core на границе host callback: прямой вызов модели workflow
-получает `direct`, внутренний summary call — `compactor`. Небольшой invocation
+получает `direct`, callback hook/tool — `auxiliary`. Typed OperationOwner
+(Workflow, Hook с invocation_id, Tool с call_id) задаёт родительскую связь. Небольшой invocation
 scope отделён от `ExecutionScope`; происхождение не выводится из `module_id`
 или provider metadata и не меняет authority. Поле принадлежит journal envelope,
 а не `CanonicalModelRequest`: provider request и process/wire contracts не меняются.
@@ -304,7 +318,7 @@ journal через общий `SessionStore`/`JournalProjection` reader и вы�
 
 Сохранённый `CanonicalModelRequest` уже находится после `RequestShaper`, поэтому
 replay передаёт его напрямую model adapter-у. Context building, compaction,
-tool exposure, повторный shaping, workflow и `ToolOrchestrator` не запускаются.
+selection hooks, повторный shaping, workflow и `ToolOrchestrator` не запускаются.
 Так как `ModelRef` является частью exact request, `recorded_model` и
 `replay_model` в v0 совпадают; выбранный transport фиксируется отдельно в
 `replay_adapter`.
@@ -324,37 +338,43 @@ recorded/replay outcome и usage, text equality, local/hosted/citation counts и
 
 ### Workflow Replay v0
 
-Replay сохраняет записанный `ExecutionId`: он доступен workflow/v19 и может
+Replay сохраняет записанный `ExecutionId`: он доступен workflow/v20 и может
 участвовать в deterministic ids и terminal metadata.
 
 `proteus --config <profile> replay workflow
 <session-dir-or-journal-path> [--turn-id <id>] [--json]` повторяет один
 сохранённый root turn через записанный Workflow и Policy. Команда берёт module
-ids, model/reasoning, tool specs и default permission mode из
+ids, model/reasoning, tool specs, default permission mode и approval availability из
 `turn_opened.config_snapshot`; текущий profile нужен для доступных module
 factories, их settings и instruction blocks. Если journal содержит несколько
 turns, `--turn-id` обязателен. Неизвестный id, child turn, незавершённый
 model/tool record, overlap turns или runtime-owned `Canceled`/`Timeout`
 отклоняется без эвристики.
 
-До построения последовательности workflow replay проверяет завершённость всех
-model exchanges выбранного turn, включая `compactor`. В последовательность model
-outcomes и позиции checkpoint входят только `direct` exchanges. Результат
-compaction восстанавливается из записанных report/history; summary exchanges
-остаются в журнале и доступны prompt replay, учёту usage и eval. Replay не
-исполняет внутренний алгоритм compactor и не воспроизводит его typed error branches.
-Поддержанный путь требует записанного checkpoint с changed compaction и следующего
-model request с origin `direct`. Вложенный summary call без такого результата
-или следующего запроса отклоняется до запуска replay: его нельзя принять за
-успешный model-free turn.
+До построения последовательности replay проверяет завершённость всех model/tool
+операций и owner graph выбранного turn. Workflow-owned Direct exchanges остаются
+в последовательности workflow. Hook/Tool-owned Auxiliary exchanges потребляются
+с записанным родительским subtree ровно один раз, без повторного исполнения.
+BeforeToolSelection trace проверяет полный immutable input/candidates и
+возвращает точный отобранный набор; BeforeContext trace возвращает результат
+подготовки, включая failure или unchanged. Оба не требуют следующего Direct call. Подробности — в
+[hook-tool-operations.md](hook-tool-operations.md).
 
 Replay runtime строит выбранные Workflow и Policy, но не вызывает real provider
 adapters, subagents или настоящие tools. Model responses и tool results последовательно берутся из
-`model_response_recorded`/`tool_result_recorded`; context, compaction и tool
-exposure восстанавливаются из canonical request/history records. Approval
+`model_response_recorded`/`tool_result_recorded`; context возвращается по
+точным context request/response records, отбор tools и preparation — из typed hook traces. Approval
 проходит обычный `ApprovalPolicy -> ToolOrchestrator` path, но ответ transport-а
 и результат tool invocation уже записаны в journal. Поэтому mutating tool и
 provider-hosted side effect повторно не выполняются.
+
+Runner проверяет каждый context build input и consumption записанного outcome.
+Для concurrent builds с разными входами выбирается первый ещё не потреблённый
+record с точным `AgentTask`; одинаковые входы потребляются в порядке request
+records. Replay не воспроизводит timing завершения read-only builds.
+Незаписанный, изменённый или пропущенный вызов означает divergence, даже если
+workflow игнорирует ошибку и возвращает прежний итог. Model request не служит
+источником context bundle; compaction не требует placeholder chunks.
 
 Runner сравнивает каждый post-shaping model request, tool request/approval/
 resolution/result, changed compaction report, settlement, `AgentOutput` и

@@ -211,6 +211,7 @@ impl ToolExecutionRecorder for RecordingToolFacts {
     async fn tool_call_requested(
         &self,
         attribution: ExecutionAttribution,
+        _owner: proteus_contracts::contracts::OperationOwner,
         _call: &ToolCall,
     ) -> anyhow::Result<()> {
         self.push(attribution);

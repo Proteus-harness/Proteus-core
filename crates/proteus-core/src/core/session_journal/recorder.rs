@@ -1,16 +1,23 @@
 use anyhow::{Result, bail};
 use async_trait::async_trait;
 use proteus_contracts::{
-    contracts::{ExecutionAttribution, ExecutionRecorder, ModelCallOrigin, ToolExecutionRecorder},
-    domain::{ExchangeId, ExecutionId, ThreadId, ToolCall, ToolCallResolution, ToolResult, TurnId},
+    contracts::{
+        ContextBuildOutcome, ExecutionAttribution, ExecutionRecorder, ModelCallOrigin,
+        OperationOwner, ToolExecutionRecorder,
+    },
+    domain::{
+        AgentTask, ExchangeId, ExecutionId, ThreadId, ToolCall, ToolCallResolution, ToolResult,
+        TurnId,
+    },
     model_standard::{CanonicalModelRequest, CanonicalModelResponse, ModelFailure},
 };
 
 use crate::core::SessionStore;
 
 use super::{
-    JournalEntry, ModelRequestRecorded, ModelResponseOutcome, ModelResponseRecorded,
-    ToolCallRecordPhase, ToolCallRecorded, ToolResultRecorded,
+    ContextRequestRecorded, ContextResponseRecorded, JournalEntry, ModelRequestRecorded,
+    ModelResponseOutcome, ModelResponseRecorded, ToolCallRecordPhase, ToolCallRecorded,
+    ToolResultRecorded,
 };
 
 #[derive(Debug, Clone)]
@@ -45,6 +52,40 @@ impl SessionExecutionRecorder {
 
 #[async_trait]
 impl ExecutionRecorder for SessionExecutionRecorder {
+    async fn context_request_recorded(
+        &self,
+        invocation_id: uuid::Uuid,
+        task: &AgentTask,
+    ) -> Result<()> {
+        self.store
+            .append_execution_journal_entry(
+                self.attribution,
+                JournalEntry::ContextRequestRecorded(ContextRequestRecorded {
+                    invocation_id,
+                    task: task.clone(),
+                }),
+            )
+            .await?;
+        Ok(())
+    }
+
+    async fn context_response_recorded(
+        &self,
+        invocation_id: uuid::Uuid,
+        outcome: &ContextBuildOutcome,
+    ) -> Result<()> {
+        self.store
+            .append_execution_journal_entry(
+                self.attribution,
+                JournalEntry::ContextResponseRecorded(ContextResponseRecorded {
+                    invocation_id,
+                    outcome: outcome.clone(),
+                }),
+            )
+            .await?;
+        Ok(())
+    }
+
     async fn hook_recorded(&self, trace: &crate::contracts::HookTrace) -> Result<()> {
         if trace.input.attribution.execution_id != self.attribution.execution_id
             || trace.input.attribution.agent.map(|agent| agent.session_id)
@@ -67,6 +108,7 @@ impl ExecutionRecorder for SessionExecutionRecorder {
         &self,
         exchange_id: ExchangeId,
         origin: ModelCallOrigin,
+        owner: OperationOwner,
         request: &CanonicalModelRequest,
     ) -> Result<()> {
         self.store
@@ -75,6 +117,7 @@ impl ExecutionRecorder for SessionExecutionRecorder {
                 JournalEntry::ModelRequestRecorded(ModelRequestRecorded {
                     exchange_id,
                     origin,
+                    owner,
                     request: request.clone(),
                 }),
             )
@@ -196,6 +239,7 @@ impl ToolExecutionRecorder for SessionToolExecutionRecorder {
     async fn tool_call_requested(
         &self,
         attribution: ExecutionAttribution,
+        owner: OperationOwner,
         call: &ToolCall,
     ) -> Result<()> {
         self.validate_attribution(attribution)?;
@@ -204,7 +248,7 @@ impl ToolExecutionRecorder for SessionToolExecutionRecorder {
                 attribution,
                 JournalEntry::ToolCallRecorded(ToolCallRecorded {
                     call: call.clone(),
-                    phase: ToolCallRecordPhase::Requested,
+                    phase: ToolCallRecordPhase::Requested { owner },
                 }),
             )
             .await?;
@@ -319,6 +363,7 @@ mod tests {
         recorder
             .tool_call_requested(
                 root_attribution,
+                OperationOwner::Workflow,
                 &ToolCall::new(new_call_id(), "root", json!({})),
             )
             .await
@@ -326,6 +371,7 @@ mod tests {
         recorder
             .tool_call_requested(
                 child_attribution,
+                OperationOwner::Workflow,
                 &ToolCall::new(new_call_id(), "child", json!({})),
             )
             .await
@@ -362,7 +408,12 @@ mod tests {
         );
 
         recorder
-            .model_request_recorded(exchange_id, ModelCallOrigin::Direct, &request)
+            .model_request_recorded(
+                exchange_id,
+                ModelCallOrigin::Direct,
+                OperationOwner::Workflow,
+                &request,
+            )
             .await
             .unwrap();
         recorder
@@ -391,7 +442,7 @@ mod tests {
         let call = ToolCall::new(new_call_id(), "detached_probe", json!({}));
 
         recorder
-            .tool_call_requested(attribution, &call)
+            .tool_call_requested(attribution, OperationOwner::Workflow, &call)
             .await
             .unwrap();
         recorder

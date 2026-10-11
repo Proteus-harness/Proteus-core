@@ -18,12 +18,12 @@ priority = 100
 name = "opencode-experimental"
 
 [modules]
+hooks = ["codex_compact"]
 # Experimental OpenCode-shaped profile: reuse codex_context/codex compactor
 # и codex loop, opencode-специфика — policy, tool surface и prompt.
 workflow = "coding.codex_loop"
 context = "codex_context"
 policy = "opencode_policy"
-compactor = "codex"
 
 [components.reference-workflow]
 command = "proteus-reference-module"
@@ -49,7 +49,7 @@ env_allowlist = ["HOME", "PROTEUS_HOME"]
 
 [components.reference-capabilities.exports.tool.direct_patch]
 
-[components.reference-capabilities.exports.compactor.codex]
+[components.reference-capabilities.exports.hook.codex_compact]
 
 [components.reference-capabilities.exports.tool."reference.tools"]
 
@@ -101,7 +101,7 @@ project_instruction_files = ["AGENTS.override.md", "AGENTS.md", "CLAUDE.md", ".c
 
 # Экспериментальная сборка использует local Codex compactor с порогом 90% окна.
 # Это явное отличие от механизма compaction OpenCode.
-[module_config.compactor.codex]
+[module_config.hook.codex_compact]
 # trigger_tokens может задать меньший абсолютный порог.
 
 [app_server]

@@ -367,10 +367,6 @@ pub struct ModulesConfig {
     pub context: Option<String>,
     #[serde(default)]
     pub policy: Option<String>,
-    #[serde(default)]
-    pub compactor: Option<String>,
-    #[serde(default)]
-    pub tool_exposure: Option<String>,
 }
 
 impl Default for ModulesConfig {
@@ -380,8 +376,6 @@ impl Default for ModulesConfig {
             workflow: None,
             context: None,
             policy: None,
-            compactor: None,
-            tool_exposure: None,
         }
     }
 }
@@ -412,8 +406,6 @@ impl ModulesConfig {
             ModuleKind::Workflow => self.workflow.as_deref(),
             ModuleKind::Context => self.context.as_deref(),
             ModuleKind::Policy => self.policy.as_deref(),
-            ModuleKind::Compactor => self.compactor.as_deref(),
-            ModuleKind::ToolExposure => self.tool_exposure.as_deref(),
             ModuleKind::Model | ModuleKind::Tool => None,
             _ => None,
         }
@@ -434,8 +426,6 @@ impl ModulesConfig {
             ModuleKind::Workflow => self.workflow = Some(module_id),
             ModuleKind::Context => self.context = Some(module_id),
             ModuleKind::Policy => self.policy = Some(module_id),
-            ModuleKind::Compactor => self.compactor = Some(module_id),
-            ModuleKind::ToolExposure => self.tool_exposure = Some(module_id),
             ModuleKind::Model | ModuleKind::Tool => return false,
             _ => return false,
         }
@@ -444,13 +434,10 @@ impl ModulesConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ToolsConfig {
     #[serde(default = "default_tools")]
     pub enabled: Vec<String>,
-    #[serde(default = "default_tools_path")]
-    pub path: Option<PathBuf>,
-    #[serde(default)]
-    pub configured: Vec<ConfiguredToolConfig>,
     #[serde(default)]
     pub mcp_servers: Vec<ConfiguredMcpServerConfig>,
 }
@@ -459,55 +446,9 @@ impl Default for ToolsConfig {
     fn default() -> Self {
         Self {
             enabled: default_tools(),
-            path: default_tools_path(),
-            configured: Vec::new(),
             mcp_servers: Vec::new(),
         }
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ConfiguredToolConfig {
-    pub name: String,
-    pub description: String,
-    #[serde(default = "default_tool_input_schema")]
-    pub input_schema: serde_json::Value,
-    #[serde(default)]
-    pub surface: crate::domain::ToolSurface,
-    pub safety: crate::domain::ToolSafety,
-    #[serde(default)]
-    pub supports_parallel_tool_calls: bool,
-    #[serde(default)]
-    pub timeout_ms: Option<u64>,
-    #[serde(default)]
-    pub metadata: serde_json::Value,
-    pub executor: ConfiguredToolExecutorConfig,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum ConfiguredToolExecutorConfig {
-    Process {
-        command: String,
-        #[serde(default)]
-        args: Vec<String>,
-        #[serde(flatten)]
-        environment: ProcessEnvironmentConfig,
-    },
-    Mcp {
-        #[serde(default)]
-        server: Option<String>,
-        command: String,
-        #[serde(default)]
-        args: Vec<String>,
-        #[serde(flatten)]
-        environment: ProcessEnvironmentConfig,
-        tool: String,
-        #[serde(default = "default_mcp_protocol_version")]
-        protocol_version: String,
-        #[serde(default)]
-        max_response_bytes: Option<usize>,
-    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -589,22 +530,6 @@ fn default_model_stream() -> bool {
 
 fn default_tools() -> Vec<String> {
     Vec::new()
-}
-
-fn default_tools_path() -> Option<PathBuf> {
-    None
-}
-
-fn default_tool_input_schema() -> serde_json::Value {
-    serde_json::json!({
-        "type": "object",
-        "properties": {},
-        "additionalProperties": true
-    })
-}
-
-fn default_mcp_protocol_version() -> String {
-    rmcp::model::ProtocolVersion::default().to_string()
 }
 
 fn default_event_log_path() -> PathBuf {

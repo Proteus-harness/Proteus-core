@@ -440,7 +440,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
-name = "codex-compactor"
+name = "codex-context-preparation"
 version = "0.0.0-dev"
 dependencies = [
  "proteus-contracts",
@@ -457,15 +457,6 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror 2.0.18",
-]
-
-[[package]]
-name = "codex-tool-exposure"
-version = "0.0.0-dev"
-dependencies = [
- "proteus-contracts",
- "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -1972,9 +1963,8 @@ version = "0.0.0-dev"
 dependencies = [
  "anyhow",
  "async-trait",
- "codex-compactor",
+ "codex-context-preparation",
  "codex-patch",
- "codex-tool-exposure",
  "coding-workflow",
  "context-pack",
  "direct-patch",
@@ -1998,6 +1988,7 @@ dependencies = [
  "sqlite-memory",
  "tempfile",
  "tokio",
+ "tool-selection-hook",
 ]
 
 [[package]]
@@ -2933,6 +2924,15 @@ name = "toml_write"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5d99f8c9a7727884afe522e9bd5edbfc91a3312b36a77b5fb8926e4c31a41801"
+
+[[package]]
+name = "tool-selection-hook"
+version = "0.0.0-dev"
+dependencies = [
+ "proteus-contracts",
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "tower"

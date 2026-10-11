@@ -2,10 +2,11 @@ mod agent_control;
 pub(crate) mod agent_plugins;
 mod approval;
 mod assembly;
+mod bound_context;
 mod bound_model;
 mod bound_tools;
-mod compaction_host;
 mod config;
+mod context_preparation;
 pub(crate) use config::CONFIG_BUILDER_OVERLAY;
 mod config_snapshot;
 mod context_provider;
@@ -13,12 +14,12 @@ pub(crate) mod core_slots;
 mod eval_report;
 mod event_store;
 mod execution_hooks;
+mod extension_operations;
 mod model_call_scope;
 mod model_context;
 mod model_service;
 mod module_catalog;
 mod permission_mode;
-pub(crate) mod process_output;
 mod prompt_replay;
 mod provider_hosted_tools;
 mod registry;
@@ -45,10 +46,9 @@ pub use bound_model::{BoundModel, ModelExecutionBinding};
 pub use bound_tools::{BoundTools, ToolExecutionBinding};
 pub use config::{
     AgentControlConfig, AgentControlSurface, AgentProfileConfig, AppConfig, AppServerConfig,
-    ConfiguredMcpServerConfig, ConfiguredToolConfig, ConfiguredToolExecutorConfig, EventLogConfig,
-    InstructionSourceConfig, ModelConfig, ModulesConfig, PermissionsConfig,
-    ProcessEnvironmentConfig, ProfileConfig, PromptCommandConfig, ProviderProfileConfig,
-    RuntimeConfig, ToolsConfig, expand_user_path,
+    ConfiguredMcpServerConfig, EventLogConfig, InstructionSourceConfig, ModelConfig, ModulesConfig,
+    PermissionsConfig, ProcessEnvironmentConfig, ProfileConfig, PromptCommandConfig,
+    ProviderProfileConfig, RuntimeConfig, ToolsConfig, expand_user_path,
 };
 pub use config_snapshot::{
     CONFIG_SNAPSHOT_FILE, SessionConfigModules, SessionConfigSnapshot, SessionConfigTool,
@@ -70,11 +70,12 @@ pub use runtime::{
     config_store_root, event_log_path,
 };
 pub use session_journal::{
-    DEFAULT_BLOB_THRESHOLD_BYTES, HistoryMutated, HistoryMutationKind, JOURNAL_FILE,
-    JOURNAL_SCHEMA_VERSION, JournalEntry, JournalKind, JournalProjection, JournalRecord,
-    ModelRequestRecorded, ModelResponseOutcome, ModelResponseRecorded, SessionExecutionRecorder,
-    SessionToolExecutionRecorder, ToolCallRecordPhase, ToolCallRecorded, ToolResultRecorded,
-    TurnOpened, TurnSettled, TurnSettlementStatus,
+    ContextRequestRecorded, ContextResponseRecorded, DEFAULT_BLOB_THRESHOLD_BYTES, HistoryMutated,
+    HistoryMutationKind, JOURNAL_FILE, JOURNAL_SCHEMA_VERSION, JournalEntry, JournalKind,
+    JournalProjection, JournalRecord, ModelRequestRecorded, ModelResponseOutcome,
+    ModelResponseRecorded, SessionExecutionRecorder, SessionToolExecutionRecorder,
+    ToolCallRecordPhase, ToolCallRecorded, ToolResultRecorded, TurnOpened, TurnSettled,
+    TurnSettlementStatus,
 };
 pub use session_store::{
     SessionStore, canonicalize_session_dir_path, decode_workspace_path, delete_workspace_session,
@@ -99,7 +100,6 @@ pub use workflow_replay::{
 pub(crate) use approval::{CachedApprovalTransport, ChannelApprovalTransport, PendingApproval};
 pub(crate) use assembly::catalog_module_source;
 pub(crate) use bound_tools::ToolExecutionObserver;
-pub(crate) use compaction_host::RuntimeCompactionHost;
 pub(crate) use context_provider::RepoAwareContextProvider;
 pub(crate) use event_store::{FanoutEventSink, JsonlEventStore};
 pub(crate) use model_service::ModelService;
@@ -107,7 +107,7 @@ pub(crate) use module_catalog::{ModuleBuildContext, PolicyBuildContext};
 pub(crate) use permission_mode::ModeAwarePolicy;
 pub(crate) use runtime::{
     QueuedMessagesSnapshot, ReservedRunCompletion, SteeringQueueReceipt, UserMessageReservation,
-    prepare_failed_history_update, prepare_history_update, without_root_steering,
+    prepare_failed_history_update, prepare_history_update,
 };
 pub(crate) use tool_orchestrator::ToolOrchestrator;
 pub(crate) use user_input::{

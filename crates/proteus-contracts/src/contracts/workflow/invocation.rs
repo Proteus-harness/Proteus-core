@@ -1,6 +1,6 @@
 use super::{AgentWorkflowContext, ProcessWorkflowRuntimeInfo, WorkflowConversationIdentity};
 use crate::{
-    contracts::{ContextBuilder, ExecutionContext, ToolExposure},
+    contracts::{ContextBuilder, ExecutionContext},
     domain::{ModelRef, ReasoningConfig},
     model_standard::InstructionBlock,
 };
@@ -19,7 +19,6 @@ pub enum WorkflowInvocationContext {
 pub struct WorkflowExecutionContext {
     pub execution: ExecutionContext,
     pub context: Arc<dyn ContextBuilder>,
-    pub tool_exposure: Arc<dyn ToolExposure>,
     pub model_ref: Option<ModelRef>,
     pub reasoning: ReasoningConfig,
     pub instructions: Vec<InstructionBlock>,
@@ -56,12 +55,6 @@ impl WorkflowInvocationContext {
         match self {
             Self::Execution(ctx) => ctx.context.clone(),
             Self::Agent(ctx) => ctx.context.clone(),
-        }
-    }
-    pub fn tool_exposure(&self) -> Arc<dyn ToolExposure> {
-        match self {
-            Self::Execution(ctx) => ctx.tool_exposure.clone(),
-            Self::Agent(ctx) => ctx.tool_exposure.clone(),
         }
     }
     pub fn context_timeout_ms(&self) -> u64 {

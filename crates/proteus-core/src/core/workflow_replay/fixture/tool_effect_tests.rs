@@ -24,7 +24,9 @@ fn final_tool_projection_wins_but_raw_effect_survives_without_final_result() {
         record(JournalEntry::ToolCallRecorded(
             crate::core::ToolCallRecorded {
                 call: call.clone(),
-                phase: ToolCallRecordPhase::Requested,
+                phase: ToolCallRecordPhase::Requested {
+                    owner: crate::contracts::OperationOwner::Workflow,
+                },
             },
         )),
         record(JournalEntry::ToolCallRecorded(

@@ -42,6 +42,7 @@ pub struct ModelExecutionBinding {
     conversation: Option<Arc<dyn crate::contracts::ConversationReader>>,
     recorder: Arc<dyn ExecutionRecorder>,
     turn: Option<ModelTurnAttribution>,
+    tool_recorder: Arc<dyn crate::contracts::ToolExecutionRecorder>,
 }
 
 #[derive(Clone)]
@@ -63,6 +64,7 @@ impl ModelExecutionBinding {
             conversation: None,
             recorder,
             turn: None,
+            tool_recorder: Arc::new(crate::contracts::NoopToolExecutionRecorder),
         }
     }
 
@@ -78,6 +80,7 @@ impl ModelExecutionBinding {
             scope,
             conversation: None,
             recorder,
+            tool_recorder: Arc::new(crate::contracts::NoopToolExecutionRecorder),
             turn: Some(ModelTurnAttribution {
                 events,
                 session_id,
@@ -97,6 +100,23 @@ impl ModelExecutionBinding {
     ) -> Self {
         self.conversation = Some(reader);
         self
+    }
+
+    pub fn with_tool_recorder(
+        mut self,
+        recorder: Arc<dyn crate::contracts::ToolExecutionRecorder>,
+    ) -> Self {
+        self.tool_recorder = recorder;
+        self
+    }
+    pub(crate) fn tool_recorder(&self) -> Arc<dyn crate::contracts::ToolExecutionRecorder> {
+        self.tool_recorder.clone()
+    }
+
+    pub(crate) fn conversation_reader(
+        &self,
+    ) -> Option<Arc<dyn crate::contracts::ConversationReader>> {
+        self.conversation.clone()
     }
 
     pub fn recorder(&self) -> Arc<dyn ExecutionRecorder> {
@@ -250,15 +270,24 @@ impl BoundModel {
 
         self.binding
             .recorder
-            .model_request_recorded(exchange_id, current_model_call_origin(), &request)
+            .model_request_recorded(
+                exchange_id,
+                current_model_call_origin(),
+                crate::core::model_call_scope::current_operation_owner(),
+                &request,
+            )
             .await?;
 
         let validation_request = request.clone();
-        let cancellation = self.binding.scope.cancellation.clone();
+        let cancellation =
+            crate::core::model_call_scope::operation_cancellation(&self.binding.scope.cancellation);
         let recorder = self.binding.recorder();
         let stream = tokio::select! {
             biased;
-            _ = cancellation.cancelled() => return Err(model_cancelled()),
+            _ = cancellation.cancelled() => {
+                let failure = crate::model_standard::ModelFailure::from_error(&model_cancelled());
+                return Err(record_failure(&recorder, exchange_id, failure).await?.into());
+            },
             _ = wait_for_deadline(deadline), if deadline.is_some() => {
                 let error = model_timeout(self.model_timeout_ms);
                 let mut progress = CompletedMessageProgress::new(&validation_request);
@@ -309,12 +338,16 @@ impl Model for BoundModel {
 
     async fn stream(&self, request: CanonicalModelRequest) -> Result<ModelEventStream> {
         let deadline = self.deadline();
+        let auxiliary = current_model_call_origin() == crate::contracts::ModelCallOrigin::Auxiliary;
         let suppress = request
             .metadata
             .get("suppress_stream_deltas")
             .and_then(|value| value.as_bool())
             .unwrap_or(false);
         let stream = self.stream_with_deadline(request, deadline).await?;
+        if auxiliary {
+            return Ok(stream);
+        }
         Ok(presentation::present_stream(
             stream,
             self.binding.clone(),
@@ -384,7 +417,11 @@ fn bound_recording_stream(
             };
             let item = match next {
                 Next::Item(item) => item,
-                Next::Cancelled => Err(model_cancelled())?,
+                Next::Cancelled => {
+                    let failure = progress.attach_to_failure(crate::model_standard::ModelFailure::from_error(&model_cancelled()));
+                    Err(anyhow::Error::new(record_failure(&recorder, exchange_id, failure).await?))?;
+                    unreachable!();
+                },
                 Next::Deadline => {
                     drop(stream);
                     let error = model_timeout(model_timeout_ms);

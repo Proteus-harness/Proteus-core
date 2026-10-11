@@ -26,8 +26,7 @@ async fn checkpoint_compares_execution_before_any_tool_is_requested() {
             vec![],
             vec![],
             vec![],
-            None,
-            Default::default(),
+            vec![],
             &ReasoningConfig::default(),
             user.id,
         ));
@@ -35,6 +34,10 @@ async fn checkpoint_compares_execution_before_any_tool_is_requested() {
             state.clone(),
             vec![user.clone()],
             vec![RecordedCheckpoint {
+                previous_revision: 0,
+                revision: 1,
+                ack_messages: vec![user.clone(), source_message.clone()],
+                bindings: vec![],
                 messages: vec![user, source_message],
                 calls: vec![execution.clone()],
                 position: (0, 0, 0),
@@ -50,6 +53,7 @@ async fn checkpoint_compares_execution_before_any_tool_is_requested() {
             replay_execution.args = json!({"target": 3});
         }
         let checkpoint = WorkflowHistoryCheckpoint {
+            preparation_target: None,
             history: WorkflowHistoryUpdate::new(vec![CanonicalMessage::new(
                 MessageRole::Assistant,
                 vec![ContentPart::ToolCall {
@@ -90,6 +94,7 @@ async fn only_declared_in_flight_lifecycles_may_cross_a_checkpoint() {
         let tools = source
             .iter()
             .map(|call| RecordedToolInvocation {
+                owner: crate::contracts::OperationOwner::Workflow,
                 call: call.clone(),
                 approval_reason: None,
                 resolution: ToolCallResolution::Allowed,
@@ -103,8 +108,7 @@ async fn only_declared_in_flight_lifecycles_may_cross_a_checkpoint() {
             vec![],
             tools,
             vec![],
-            None,
-            Default::default(),
+            vec![],
             &ReasoningConfig::default(),
             user.id,
         ));
@@ -118,17 +122,31 @@ async fn only_declared_in_flight_lifecycles_may_cross_a_checkpoint() {
                     .collect(),
             )
         };
+        let prefix = vec![user.clone(), message(&source[..2])];
+        let source_bindings = source[..2]
+            .iter()
+            .cloned()
+            .map(WorkflowToolResultBinding::new)
+            .collect::<Vec<_>>();
         let expected = RecordedCheckpoint {
-            messages: vec![user.clone(), message(&source[..2])],
+            previous_revision: 0,
+            revision: 1,
+            ack_messages: prefix.clone(),
+            bindings: source_bindings.clone(),
+            messages: prefix.clone(),
             calls: source[..2].to_vec(),
             position: (0, 0, 0),
         };
-        let recorder = ReplayCheckpointRecorder::new(
-            state.clone(),
-            vec![user],
-            vec![expected.clone(), expected],
-        );
+        let mut second = expected.clone();
+        // Source acknowledgement exposes only A. Both stubbed results may
+        // already have settled, but B must not leak into this oracle boundary.
+        second
+            .ack_messages
+            .push(source_bindings[0].message(ToolResult::ok(source[0].id.clone(), &source[0].id)));
+        let recorder =
+            ReplayCheckpointRecorder::new(state.clone(), vec![user], vec![expected, second]);
         let checkpoint = WorkflowHistoryCheckpoint {
+            preparation_target: None,
             history: WorkflowHistoryUpdate::new(vec![message(&actual[..2])]),
             tool_results: actual[..2]
                 .iter()
@@ -143,7 +161,13 @@ async fn only_declared_in_flight_lifecycles_may_cross_a_checkpoint() {
                 .record_tool_resolved(&actual[index], &ToolCallResolution::Allowed)
                 .unwrap();
             let result = ToolResult::ok(actual[index].id.clone(), &source[index].id);
-            state.record_tool_result(&result).unwrap();
+            recorder
+                .tool_result_recorded(
+                    ExecutionAttribution::detached(crate::domain::new_execution_id()),
+                    &result,
+                )
+                .await
+                .unwrap();
         }
         if unrelated_crosses {
             state.record_tool_requested(&actual[2]).unwrap();
@@ -157,7 +181,20 @@ async fn only_declared_in_flight_lifecycles_may_cross_a_checkpoint() {
                     .contains("checkpoint moved across a model/tool boundary")
             );
         } else {
-            result.unwrap();
+            let ack = result.unwrap();
+            assert_eq!(
+                ack.messages.len(),
+                3,
+                "recorded ACK includes A and defers B despite both stubs finishing"
+            );
+            let result_part = &ack.messages[2].parts[0];
+            assert_eq!(ack.messages[2].id, checkpoint.tool_results[0].message_id);
+            assert_eq!(result_part.part_id, checkpoint.tool_results[0].part_id);
+            assert_eq!(
+                recorder.committed_history().len(),
+                4,
+                "both actual effects remain durably held internally"
+            );
             recorder.finish();
             assert!(state.lock().issues.is_empty());
             // Normalizing scheduling never excuses an omitted tool lifecycle.

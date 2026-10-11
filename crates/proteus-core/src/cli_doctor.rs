@@ -6,10 +6,8 @@ use std::{
 use anyhow::{Result, bail};
 use proteus_contracts::contracts::ToolRegistry;
 use proteus_core::core::{
-    AppConfig, AssemblyCheckSeverity, AssemblyPlan, ConfiguredToolExecutorConfig, ModuleCatalog,
-    event_log_path,
+    AppConfig, AssemblyCheckSeverity, AssemblyPlan, ModuleCatalog, event_log_path,
 };
-use proteus_process_host::ProcessSpec;
 use serde_json::Value;
 
 use crate::cli_init::{mixed_config_files_warning, single_config_file_for_warning};
@@ -279,41 +277,6 @@ pub(crate) fn check_external_commands(
             Err(error) => findings.error(format!(
                 "настройки запуска модуля {component_id}: {error:#}"
             )),
-        }
-    }
-
-    for tool in &config.tools.configured {
-        match &tool.executor {
-            ConfiguredToolExecutorConfig::Process {
-                command,
-                args,
-                environment,
-            } => {
-                check_command(
-                    findings,
-                    command,
-                    cwd,
-                    &format!("configured process tool '{}'", tool.name),
-                );
-                let spec = ProcessSpec::new(command.clone())
-                    .args(args.clone())
-                    .env_allowlist(environment.env_allowlist.clone())
-                    .envs(environment.env.clone());
-                if let Err(error) = spec.resolved_environment() {
-                    findings.error(format!(
-                        "configured process tool '{}' environment: {error:#}",
-                        tool.name
-                    ));
-                }
-            }
-            ConfiguredToolExecutorConfig::Mcp { command, .. } => {
-                check_command(
-                    findings,
-                    command,
-                    cwd,
-                    &format!("configured MCP tool '{}'", tool.name),
-                );
-            }
         }
     }
 

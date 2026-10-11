@@ -18,7 +18,7 @@ pub(crate) struct CoreSlotDescriptor {
     pub selection: CoreSlotSelection,
 }
 
-pub(crate) const CORE_SLOT_DESCRIPTORS: [CoreSlotDescriptor; 7] = [
+pub(crate) const CORE_SLOT_DESCRIPTORS: [CoreSlotDescriptor; 5] = [
     CoreSlotDescriptor {
         kind: ModuleKind::Hook,
         title: "Hooks",
@@ -43,24 +43,6 @@ pub(crate) const CORE_SLOT_DESCRIPTORS: [CoreSlotDescriptor; 7] = [
         responsibility: "Builds context chunks before model calls.",
         category: "pipeline",
         order: 1,
-        required: true,
-        selection: CoreSlotSelection::ModulesConfig,
-    },
-    CoreSlotDescriptor {
-        kind: ModuleKind::Compactor,
-        title: "Compactor",
-        responsibility: "Compacts long histories before model requests.",
-        category: "pipeline",
-        order: 2,
-        required: true,
-        selection: CoreSlotSelection::ModulesConfig,
-    },
-    CoreSlotDescriptor {
-        kind: ModuleKind::ToolExposure,
-        title: "Tool Exposure",
-        responsibility: "Chooses which registered tools are exposed to the model.",
-        category: "pipeline",
-        order: 3,
         required: true,
         selection: CoreSlotSelection::ModulesConfig,
     },

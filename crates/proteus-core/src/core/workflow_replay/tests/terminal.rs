@@ -50,6 +50,7 @@ pub(super) async fn terminal_journal(
             .append_execution_journal_entry(
                 attribution,
                 JournalEntry::ModelRequestRecorded(ModelRequestRecorded {
+                    owner: crate::contracts::OperationOwner::Workflow,
                     exchange_id,
                     origin,
                     request: recorded_request(session_id, thread_id, turn_id, vec![user], spec),

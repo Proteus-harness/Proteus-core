@@ -1,3 +1,4 @@
+mod context;
 pub(crate) mod history_capture;
 mod hooks;
 pub(crate) use hooks::apply_recorded_hook_response;
@@ -21,5 +22,7 @@ pub(crate) use storage::{
     journal_path, load_records,
 };
 
+#[cfg(test)]
+mod context_tests;
 #[cfg(test)]
 mod tests;

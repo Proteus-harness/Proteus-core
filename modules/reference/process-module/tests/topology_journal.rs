@@ -9,7 +9,7 @@ use std::{
 use async_trait::async_trait;
 use proteus_contracts::{
     contracts::{
-        COMPACTOR_HOST_COMPLETE_MODEL_METHOD, CONTEXT_HOST_PROVIDER_METHOD, CancellationToken,
+        CONTEXT_HOST_PROVIDER_METHOD, CancellationToken, OPERATION_HOST_COMPLETE_MODEL_METHOD,
         UserInputRequest, UserInputResponse, UserInputTransport,
         WORKFLOW_HOST_COMPLETE_MODEL_METHOD, WORKFLOW_HOST_EXECUTE_TOOL_METHOD,
     },
@@ -85,15 +85,14 @@ fn assert_separate_slot_authority(config: &AppConfig) {
             "context_provider",
             "context",
             "policy",
-            "compactor",
-            "tool_exposure",
+            "hook",
             "tool",
         ])
     );
 
     let workflow = current_process_contract_authority("workflow").expect("workflow authority");
     let context = current_process_contract_authority("context").expect("context authority");
-    let compactor = current_process_contract_authority("compactor").expect("compactor authority");
+    let hook = current_process_contract_authority("hook").expect("hook authority");
     let tool = current_process_contract_authority("tool").expect("tool authority");
 
     assert!(workflow.allows_host_method(WORKFLOW_HOST_COMPLETE_MODEL_METHOD));
@@ -101,16 +100,18 @@ fn assert_separate_slot_authority(config: &AppConfig) {
     assert!(!workflow.allows_host_method(CONTEXT_HOST_PROVIDER_METHOD));
     assert!(context.allows_host_method(CONTEXT_HOST_PROVIDER_METHOD));
     assert!(!context.allows_host_method(WORKFLOW_HOST_COMPLETE_MODEL_METHOD));
-    assert!(compactor.allows_host_method(COMPACTOR_HOST_COMPLETE_MODEL_METHOD));
-    assert!(!compactor.allows_host_method(WORKFLOW_HOST_EXECUTE_TOOL_METHOD));
+    assert!(hook.allows_host_method(OPERATION_HOST_COMPLETE_MODEL_METHOD));
+    assert!(hook.allows_host_method(WORKFLOW_HOST_EXECUTE_TOOL_METHOD));
     assert_eq!(
         tool.host_methods,
         &[
+            proteus_contracts::contracts::OPERATION_HOST_COMPLETE_MODEL_METHOD,
+            proteus_contracts::contracts::OPERATION_HOST_EXECUTE_TOOL_METHOD,
             proteus_contracts::contracts::TOOL_HOST_READ_CONVERSATION_METHOD,
             proteus_contracts::contracts::TOOL_HOST_CONVERSATION_SNAPSHOT_METHOD
         ]
     );
-    assert!(!tool.allows_host_method(WORKFLOW_HOST_COMPLETE_MODEL_METHOD));
+    assert!(tool.allows_host_method(WORKFLOW_HOST_COMPLETE_MODEL_METHOD));
 }
 
 struct BlockingUserInput {
@@ -265,7 +266,7 @@ async fn one_component_profile_preserves_pid_authority_cancellation_and_journal_
         .filter_map(|record| match &record.entry {
             JournalEntry::ToolCallRecorded(tool)
                 if record.turn_id == Some(canceled_turn)
-                    && tool.phase == ToolCallRecordPhase::Requested =>
+                    && matches!(tool.phase, ToolCallRecordPhase::Requested { .. }) =>
             {
                 Some(tool.call.id.clone())
             }
@@ -286,7 +287,7 @@ async fn one_component_profile_preserves_pid_authority_cancellation_and_journal_
         .find_map(|record| match &record.entry {
             JournalEntry::ToolCallRecorded(tool)
                 if record.turn_id == Some(successful_turn)
-                    && tool.phase == ToolCallRecordPhase::Requested
+                    && matches!(tool.phase, ToolCallRecordPhase::Requested { .. })
                     && tool.call.name == "read_file" =>
             {
                 Some(tool.call.id.clone())
@@ -332,7 +333,11 @@ async fn one_component_profile_preserves_pid_authority_cancellation_and_journal_
     )
     .await
     .expect("workflow replay");
-    assert!(replay.comparison.matched, "{:?}", replay.comparison.issues);
+    assert!(
+        replay.comparison.matched,
+        "issues={:?}; replay error={:?}",
+        replay.comparison.issues, replay.replay.error
+    );
     assert!(replay.source_journal_unchanged);
     assert_eq!(replay.recorded.status, TurnSettlementStatus::Success);
     assert_eq!(replay.replay.status, TurnSettlementStatus::Success);

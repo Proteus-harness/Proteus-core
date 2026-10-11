@@ -49,6 +49,7 @@ pub struct ExecutionContext {
     pub model_timeout_ms: u64,
     pub model: Option<Arc<dyn Model>>,
     pub hooks: Arc<dyn super::ExecutionHooks>,
+    pub operations: Option<Arc<dyn super::ToolHost>>,
     pub tools: ToolRegistry,
     pub policy: Arc<dyn ApprovalPolicy>,
     pub approval: Arc<dyn ApprovalTransport>,
@@ -77,6 +78,7 @@ impl ExecutionContext {
             model_timeout_ms,
             model,
             hooks: Arc::new(super::NoExecutionHooks),
+            operations: None,
             tools,
             policy,
             approval,
@@ -86,6 +88,11 @@ impl ExecutionContext {
 
     pub fn with_cancellation(mut self, cancellation: CancellationToken) -> Self {
         self.scope = ExecutionScope::new(self.scope.execution_id, cancellation);
+        self
+    }
+
+    pub fn with_operations(mut self, operations: Arc<dyn super::ToolHost>) -> Self {
+        self.operations = Some(operations);
         self
     }
 

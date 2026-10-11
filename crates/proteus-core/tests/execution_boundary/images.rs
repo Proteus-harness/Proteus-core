@@ -170,10 +170,10 @@ async fn codex_compaction_strips_working_images_but_keeps_original_journal_and_s
     let capture = workspace.path().join("compaction-requests.jsonl");
     let mut value = serde_json::to_value(config(true, &capture)).unwrap();
     value["modules"]["workflow"] = json!("coding.codex_loop");
-    value["modules"]["compactor"] = json!("codex");
+    value["modules"]["hooks"] = json!(["codex_compact"]);
     value["components"]["workflow"]["exports"]["workflow"] = json!({"coding.codex_loop":{}});
-    value["components"]["workflow"]["exports"]["compactor"] = json!({"codex":{}});
-    value["module_config"]["compactor"] = json!({"codex":{"trigger_tokens":1}});
+    value["components"]["workflow"]["exports"]["hook"] = json!({"codex_compact":{}});
+    value["module_config"]["hook"] = json!({"codex_compact":{"trigger_tokens":1}});
     let config: AppConfig = serde_json::from_value(value).unwrap();
     let thread = new_thread_id();
     let config_path = workspace.path().join("config.toml");

@@ -1,4 +1,6 @@
 use super::*;
+#[path = "dcp/composition.rs"]
+mod composition;
 use proteus_contracts::{
     contracts::{
         CancellationToken, ProcessModelDescriptor, TOOL_HOST_CONVERSATION_SNAPSHOT_METHOD,
@@ -158,6 +160,8 @@ async fn dcp_process_preserves_history_changes_only_outgoing_context_and_replays
     assert_eq!(
         authority.host_methods,
         &[
+            proteus_contracts::contracts::OPERATION_HOST_COMPLETE_MODEL_METHOD,
+            proteus_contracts::contracts::OPERATION_HOST_EXECUTE_TOOL_METHOD,
             TOOL_HOST_READ_CONVERSATION_METHOD,
             TOOL_HOST_CONVERSATION_SNAPSHOT_METHOD
         ]

@@ -10,6 +10,8 @@ use tokio::sync::Mutex;
 
 pub(super) struct TurnConversation {
     pub history: Arc<Mutex<Vec<CanonicalMessage>>>,
+    pub revision: Arc<std::sync::atomic::AtomicU64>,
+    pub store: Option<crate::core::SessionStore>,
     pub context: Arc<Mutex<crate::core::model_context::ModelContextState>>,
 }
 
@@ -21,6 +23,10 @@ impl ConversationReader for TurnConversation {
         let context = self.context.lock().await;
         Ok(ConversationSnapshot {
             messages: messages.clone(),
+            revision: match &self.store {
+                Some(store) => store.history_revision().await?,
+                None => self.revision.load(std::sync::atomic::Ordering::SeqCst),
+            },
             model_context: context.snapshot(),
         })
     }

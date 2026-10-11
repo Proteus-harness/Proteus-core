@@ -46,6 +46,7 @@ impl AppServerHandle {
             &config,
             assembly.registry(),
             config.permissions.mode,
+            self.runtime.approval_available(),
         );
         let report = self
             .runtime

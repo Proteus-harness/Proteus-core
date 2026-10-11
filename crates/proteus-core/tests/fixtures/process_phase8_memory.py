@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Concurrent memory tool/v5 component for admission tests."""
+"""Concurrent memory tool/v6 component for admission tests."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ MODULE_ID = "phase8-memory"
 EXPORT = {
     "slot": "tool",
     "module_id": MODULE_ID,
-    "contract_version": "v5",
+    "contract_version": "v6",
     "composition": "ordered_many",
     "module_features": [], "config_schema": None,
 }
@@ -41,7 +41,7 @@ def initialize(params):
         export.get("contract_version"),
         export.get("composition"),
     )
-    if identity != ("tool", MODULE_ID, "v5", "ordered_many"):
+    if identity != ("tool", MODULE_ID, "v6", "ordered_many"):
         raise ProtocolError(f"invalid Phase 8B memory export: {identity!r}")
     config = export.get("module_config")
     if not isinstance(config, dict) or not isinstance(config.get("record_path"), str):
@@ -66,7 +66,7 @@ def append_record(value):
 def validate_attribution(params):
     attribution = params.get("attribution")
     if not isinstance(attribution, dict) or set(attribution) != {"execution_id", "agent"}:
-        raise ProtocolError("tool/v5 attribution is mandatory and strict")
+        raise ProtocolError("tool/v6 attribution is mandatory and strict")
     if not isinstance(attribution.get("execution_id"), str) or attribution.get("agent") is not None:
         raise ProtocolError("Phase 8B top-level memory requires detached attribution")
     return attribution

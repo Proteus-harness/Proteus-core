@@ -19,9 +19,9 @@ pub(super) fn step_title(step: &AppAnalysisStep) -> String {
             request.model.model,
             if matches!(
                 origin,
-                proteus_contracts::contracts::ModelCallOrigin::Compactor
+                proteus_contracts::contracts::ModelCallOrigin::Auxiliary
             ) {
-                "сжатие"
+                "вспомогательный запрос"
             } else {
                 "основной запрос"
             }
@@ -30,6 +30,8 @@ pub(super) fn step_title(step: &AppAnalysisStep) -> String {
         AppAnalysisStepData::Compaction { .. } => "Сжатие истории".into(),
         AppAnalysisStepData::Hook { trace } => match &trace.input.event {
             proteus_contracts::contracts::HookEvent::TurnStarted { .. } => "Начало хода",
+            proteus_contracts::contracts::HookEvent::BeforeToolSelection { .. } => "Отбор инструментов",
+            proteus_contracts::contracts::HookEvent::BeforeContext { .. } => "Подготовка контекста",
             proteus_contracts::contracts::HookEvent::BeforeModel { .. } => "Перед запросом модели",
             proteus_contracts::contracts::HookEvent::BeforeTool { .. } => "Перед инструментом",
             proteus_contracts::contracts::HookEvent::AfterTool { .. } => "После инструмента",

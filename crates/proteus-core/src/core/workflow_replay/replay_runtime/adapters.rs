@@ -6,10 +6,10 @@ use futures_util::stream;
 
 use crate::{
     contracts::{
-        ApprovalRequest, ApprovalResponse, ApprovalTransport, CompactionHost, CompactionInput,
-        CompactionOutput, ContextBuildInput, ContextBuilder, ExecutionAttribution,
-        HistoryCompactor, Model, ModelEventStream, Tool, ToolContext, ToolExecutionRecorder,
-        ToolExposure, ToolExposureInput, ToolExposureOutput, ToolSource,
+        ApprovalRequest, ApprovalResponse, ApprovalTransport, ContextBuildInput, ContextBuilder,
+        ContextPreparation, ContextPreparationInput, ContextPreparationResult,
+        ExecutionAttribution, Model, ModelEventStream, OperationOwner, Tool, ToolContext,
+        ToolExecutionRecorder, ToolSource,
     },
     core::ModelResponseOutcome,
     domain::{ContextBundle, ModelRef, ToolCall, ToolCallResolution, ToolResult, ToolSpec},
@@ -64,46 +64,26 @@ impl ReplayContextBuilder {
 
 #[async_trait]
 impl ContextBuilder for ReplayContextBuilder {
-    async fn build(&self, _input: ContextBuildInput) -> Result<ContextBundle> {
-        self.state.context()
+    async fn build(&self, input: ContextBuildInput) -> Result<ContextBundle> {
+        self.state.context(input)
     }
 }
 
-pub(in crate::core::workflow_replay) struct ReplayCompactor {
+pub(in crate::core::workflow_replay) struct ReplayContextPreparation {
     state: Arc<ReplayState>,
+    module_ids: Vec<String>,
 }
 
-impl ReplayCompactor {
-    pub fn new(state: Arc<ReplayState>) -> Self {
-        Self { state }
+impl ReplayContextPreparation {
+    pub fn new(state: Arc<ReplayState>, module_ids: Vec<String>) -> Self {
+        Self { state, module_ids }
     }
 }
 
 #[async_trait]
-impl HistoryCompactor for ReplayCompactor {
-    async fn compact(
-        &self,
-        input: CompactionInput,
-        _host: Arc<dyn CompactionHost>,
-    ) -> Result<CompactionOutput> {
-        self.state.compact(input)
-    }
-}
-
-pub(in crate::core::workflow_replay) struct ReplayToolExposure {
-    state: Arc<ReplayState>,
-}
-
-impl ReplayToolExposure {
-    pub fn new(state: Arc<ReplayState>) -> Self {
-        Self { state }
-    }
-}
-
-#[async_trait]
-impl ToolExposure for ReplayToolExposure {
-    async fn select(&self, _input: ToolExposureInput) -> Result<ToolExposureOutput> {
-        self.state.tool_exposure()
+impl ContextPreparation for ReplayContextPreparation {
+    async fn prepare(&self, input: ContextPreparationInput) -> Result<ContextPreparationResult> {
+        self.state.prepare(input, self.module_ids.clone()).await
     }
 }
 
@@ -140,18 +120,19 @@ impl Tool for ReplayTool {
 
 pub(in crate::core::workflow_replay) struct ReplayApprovalTransport {
     state: Arc<ReplayState>,
+    available: bool,
 }
 
 impl ReplayApprovalTransport {
-    pub fn new(state: Arc<ReplayState>) -> Self {
-        Self { state }
+    pub fn new(state: Arc<ReplayState>, available: bool) -> Self {
+        Self { state, available }
     }
 }
 
 #[async_trait]
 impl ApprovalTransport for ReplayApprovalTransport {
     fn can_request_approval(&self) -> bool {
-        true
+        self.available
     }
 
     async fn request_approval(&self, request: ApprovalRequest) -> Result<ApprovalResponse> {
@@ -164,8 +145,25 @@ impl ToolExecutionRecorder for ReplayState {
     async fn tool_call_requested(
         &self,
         _attribution: ExecutionAttribution,
+        owner: OperationOwner,
         call: &ToolCall,
     ) -> Result<()> {
+        let mut inner = self.lock();
+        let index = match super::match_tool_index(&inner, call) {
+            Ok(index) => index,
+            Err(error) => return super::mismatch(&mut inner, error.to_string()),
+        };
+        if !super::operations::owners_equal(
+            &owner,
+            &inner.tools[index].recorded.owner,
+            &inner.actual_to_expected,
+        ) {
+            return super::mismatch(
+                &mut inner,
+                "tool request owner differs from recorded owner".into(),
+            );
+        }
+        drop(inner);
         self.record_tool_requested(call)
     }
 

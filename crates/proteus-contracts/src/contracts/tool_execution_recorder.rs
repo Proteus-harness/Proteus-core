@@ -24,6 +24,7 @@ pub trait ToolExecutionRecorder: Send + Sync {
     async fn tool_call_requested(
         &self,
         attribution: ExecutionAttribution,
+        owner: super::OperationOwner,
         call: &ToolCall,
     ) -> Result<()>;
 
@@ -56,6 +57,7 @@ impl ToolExecutionRecorder for NoopToolExecutionRecorder {
     async fn tool_call_requested(
         &self,
         _attribution: ExecutionAttribution,
+        _owner: super::OperationOwner,
         _call: &ToolCall,
     ) -> Result<()> {
         Ok(())

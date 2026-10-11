@@ -16,16 +16,16 @@ consumer, но сам по себе не вводит новый public contract
 | Контракт | Producer | Consumer | Форма |
 | --- | --- | --- | --- |
 | `<environment_context>` блок | `context-pack` provider `environment` | model-facing context render | текстовый envelope; компакторы определяют request context по scope, не по префиксу |
-| `<turn_aborted>` | нет (parity с upstream, producer отсутствует) | `codex-compactor` | префикс текста |
+| `<turn_aborted>` | нет (parity с upstream, producer отсутствует) | `codex-context-preparation` | префикс текста |
 | `# AGENTS.md instructions` | `context-pack` provider `project_instructions` в `codex_context` | model-facing context render | upstream-shaped текстовый envelope; не признак persistent/ephemeral history |
-| summary prefix (`SUMMARY_PREFIX`) | `codex-compactor` | `codex-compactor` | префикс текста (само-согласован, ок) |
-| `CanonicalPart.scope` | workflow/context construction | `codex-compactor`, Python `python_suffix`, `coding-workflow/history.rs` | непустое сообщение со всеми parts в `request` — ephemeral context; `message.name` не влияет на классификацию |
-| typed диагностика `CompactionOutput` | compactor modules | `HistoryCompactionReport`, workflow, replay | оценки, порог и описательные причины — явные поля; числа сообщений — фактические input/output; `metadata` переносится непрозрачно и не подменяет поля отчёта |
+| summary prefix (`SUMMARY_PREFIX`) | `codex-context-preparation` | `codex-context-preparation` | префикс текста (само-согласован, ок) |
+| `CanonicalPart.scope` | workflow/context construction | `codex-context-preparation`, Python `python_suffix`, `coding-workflow/history.rs` | непустое сообщение со всеми parts в `request` — ephemeral context; `message.name` не влияет на классификацию |
+| typed диагностика `ContextPreparationOutput` | preparation hooks | `HistoryCompactionReport`, workflow, replay | оценки, порог и описательные причины — явные поля; числа сообщений — фактические input/output; `metadata` переносится непрозрачно и не подменяет поля отчёта |
 | `ContextChunk.render_mode` | context builders/providers и search modules | model adapters | обязательный `ContextRenderMode`: `source_annotated` или `verbatim`; metadata не управляет model-visible текстом |
 | chunk source `repo_aware:*` / `codex_context:*`, metadata `provider`/`reason`/`context_profile` | `context-pack` | app-server `context_map`, UI/debug views | строковые префиксы и metadata keys |
-| tool metadata `hot`, `category`, `tags`, `aliases` | tool packs и `[tools.configured]` в config | `codex-tool-exposure` (`metadata_hot`) | metadata JSON у tool spec |
-| `ToolSpec.supports_parallel_tool_calls` | tool implementation / configured executor / MCP discovery | host batch и streamed workflow scheduling | обязательный boolean, независимый от safety; exposure сохраняет значение; default Rust constructor — `false` |
-| `always_include` / `allow` / `ask_before` / `deny` / `allow_sandboxed` списки | named config | `policy-pack`, `codex-tool-exposure` | имена tools; `proteus doctor` warn-ит на неизвестные. В codex profile collaboration-имена agent control валидны только при `agent_control.surface = "collaboration"` |
+| tool metadata `hot`, `category`, `tags`, `aliases` | tool implementations и MCP discovery | `tool-selection-hook` (`metadata_hot`) | metadata JSON у tool spec |
+| `ToolSpec.supports_parallel_tool_calls` | tool implementation / MCP discovery | host batch и streamed workflow scheduling | обязательный boolean, независимый от safety; selection hooks сохраняют значение; default Rust constructor — `false` |
+| `always_include` / `allow` / `ask_before` / `deny` / `allow_sandboxed` списки | named config | `policy-pack`, `tool-selection-hook` | имена tools; `proteus doctor` warn-ит на неизвестные. В codex profile collaboration-имена agent control валидны только при `agent_control.surface = "collaboration"` |
 | `with_escalated_permissions` + `justification` | `shell-tool` (аргументы tool) | `policy-pack` (`allow_sandboxed`), core `tool_orchestrator` | имена аргументов tool call |
 | `request_permissions` → `granted_permissions` | `policy-pack` tool | core `PolicyContext`, `policy-pack` при следующих вызовах | имя tool + семантика grant scope |
 | `approval.cache_scopes = ["workspace_write"]` | builtin `ApplyPatchTool` metadata | core `approval/cache` | metadata key + имя scope |
@@ -34,12 +34,13 @@ consumer, но сам по себе не вводит новый public contract
 | `lsp_diagnostics` → `ContentLengthFraming` | `rust-lsp` tool / named config | `proteus-process-host`, `rust-analyzer` | tool name, `RunsCommands`, LSP initialize + didOpen/didChange + publishDiagnostics |
 | opencode `groups.*.tools` (маппинг tool → permission-группа) | named config `opencode` | `policy-pack` (`opencode_policy`) | имена tools; `proteus doctor` проверяет вложенные `tools`-списки |
 | opencode `pattern_args` (`command`/`path`/`paths`) | named config `opencode` | `opencode_policy` читает эти ключи из `ToolCall.args` | имена аргументов tools из `shell-tool`/`file-tools`; при переименовании аргумента правила молча перестанут матчиться |
-| request metadata `tool_exposure` (telemetry селектора) | `coding-workflow` (`request_from_state`) | usage snapshots, event log, UI debug views | metadata key у `CanonicalModelRequest` |
+| request metadata `tool_selection` (telemetry отбора) | `coding-workflow` (`request_from_state`) | usage snapshots, event log, UI debug views | metadata key у `CanonicalModelRequest` |
 | structural shape и tool surface `CanonicalModelResponse` | model adapters | `ModelService`, workflow modules | общие contract helpers `validate_model_response_structure` / `validate_model_response_against_request`: непустой ordered `messages`, assistant role, finish reason/tool consistency, ordered tool-call projection, unique call ids, exact function/freeform round-trip для объявленного tool |
 | `ModelStreamEvent::MessageCompleted` | model adapter | BoundModel, workflow stream, journal/replay | authoritative ordered prefix terminal messages; неизменные ids/content, идемпотентный duplicate, исходные part ids после terminal parsing; дельты не разрешают tool execution |
-| `HookInput` / `HookResponse` / `HookTrace` | Core boundary / hook export | execution hooks, journal, replay, диагностика приложения | `hook/v4`, ordered chain с равной authority, immutable nullable conversation snapshot, фазовые мутации включая args и bounded continuation, immutable canonical identities, before-effect decisions и actual tool outcome до after-tool ожидания |
-| `WorkflowModelStreamCursor` / `WorkflowModelStreamItem` | workflow host | любые workflow exports | `workflow/v19`, один cursor на invocation, completed items до terminal, общий cancellation/cleanup и tool safety path |
-| `CanonicalMessage.phase` + ordered response item boundary | OpenAI Responses adapter | workflows, journal/transcript/replay, compactor, следующий model request | typed `MessagePhase::{Commentary, FinalAnswer}`; `None` для providers без классификации; consumers сохраняют все items, terminal output выбирает последнее непустое assistant message |
+| `HookInput` / `HookResponse` / `HookTrace` | Core boundary / hook export | execution hooks, journal, replay, диагностика приложения | `hook/v6`, ordered chain с равной authority, immutable nullable conversation snapshot, фазовые мутации включая отбор tools, args и bounded continuation, immutable canonical identities, before-effect decisions и actual tool outcome до after-tool ожидания |
+| File tool names/args и canonical message/tool ids | файловые tool exports, workflow/preparation history | DCP platform adapters | protection bridge для `read_file`/`write_file`/`edit_file.path`, `read_many_files.paths`, `apply_patch.patch`/`input`; реальные names/args сохраняются, block/tool references сверяются с текущей history перед upstream pipeline |
+| `WorkflowModelStreamCursor` / `WorkflowModelStreamItem` | workflow host | любые workflow exports | `workflow/v20`, один cursor на invocation, completed items до terminal, общий cancellation/cleanup и tool safety path |
+| `CanonicalMessage.phase` + ordered response item boundary | OpenAI Responses adapter | workflows, journal/transcript/replay, preparation hooks, следующий model request | typed `MessagePhase::{Commentary, FinalAnswer}`; `None` для providers без классификации; consumers сохраняют все items, terminal output выбирает последнее непустое assistant message |
 | `CanonicalModelResponse.end_turn` | model adapter (`openai.responses`) | strict `coding.codex_loop` | optional canonical field; `false` требует следующий model round без provider-specific parsing в consumer-е |
 | `ToolCall.raw_arguments` | model adapter (`openai.responses`) | tool orchestrator, request replay | optional исходная строка function arguments; является source of truth для parsed execution args, сохраняет malformed payload для failed tool output и следующего sampling round |
 | `WorkflowToolResultBinding.execution_call` | workflow module | checkpoint validation, tool recorder, journal/replay | обязательная точная операция с тем же `call_id`; canonical history хранит исходный call. Codex-loop использует для module-owned `shell`/`exec_command` → `apply_patch`, Core не разбирает команды |
@@ -60,8 +61,8 @@ consumer, но сам по себе не вводит новый public contract
 ожидаемый input, а consumer сохраняет нужное поведение в собранном profile.
 Успешный handshake и совпадение констант сами по себе этого не доказывают.
 
-`cargo test -p proteus-reference-module --test compactor_interop` запускает
-Rust и Python compactor через один process slot: переименование или отсутствие
+`python3 scripts/test.py -p proteus-reference-module --test context_preparation_interop` запускает
+Rust и Python preparation hooks через один process contract: переименование или отсутствие
 имени request context не меняет retention, а пользовательское имя `context`
 не превращает сообщение в служебное. Тот же тест проверяет typed отчёт обеих
 реализаций без чтения module-specific `metadata`. Стратегии сжатия не обязаны

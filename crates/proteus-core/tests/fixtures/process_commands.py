@@ -12,7 +12,7 @@ from component_runtime import run_component, ProtocolError
 def initialize(params):
     exports = []
     for item in params["exports"]:
-        expected = {"tool": ("probe.commands", "v5", "ordered_many"),
+        expected = {"tool": ("probe.commands", "v6", "ordered_many"),
                     "policy": ("probe.policy", "v2", "select_one")}.get(item["slot"])
         if expected != (item["module_id"], item["contract_version"], item["composition"]):
             raise ProtocolError("unexpected command fixture binding")

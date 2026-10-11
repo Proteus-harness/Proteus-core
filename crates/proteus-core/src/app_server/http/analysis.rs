@@ -68,6 +68,7 @@ fn project(
             continue;
         };
         match &record.entry {
+            JournalEntry::ContextRequestRecorded(_) | JournalEntry::ContextResponseRecorded(_) => {}
             JournalEntry::TurnOpened(opened) => {
                 indices.insert(turn_id, turns.len());
                 turns.push(AppAnalysisTurn {
@@ -130,6 +131,7 @@ fn turn_details(projection: &JournalProjection, turn_id: TurnId) -> Result<AppTu
             data,
         };
         match &record.entry {
+            JournalEntry::ContextRequestRecorded(_) | JournalEntry::ContextResponseRecorded(_) => {}
             JournalEntry::TurnOpened(opened) => {
                 detail = Some(AppTurnAnalysis {
                     turn_id,
@@ -203,7 +205,7 @@ fn turn_details(projection: &JournalProjection, turn_id: TurnId) -> Result<AppTu
                 } = &mut steps[index].data
                 {
                     match &tool.phase {
-                        ToolCallRecordPhase::Requested => {}
+                        ToolCallRecordPhase::Requested { .. } => {}
                         ToolCallRecordPhase::ApprovalRequested { reason } => {
                             *approval_reason = Some(reason.clone())
                         }

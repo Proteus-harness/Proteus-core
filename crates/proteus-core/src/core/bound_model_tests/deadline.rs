@@ -131,10 +131,11 @@ impl ExecutionRecorder for BlockingErrorRecorder {
         &self,
         exchange_id: ExchangeId,
         origin: ModelCallOrigin,
+        owner: crate::contracts::OperationOwner,
         request: &CanonicalModelRequest,
     ) -> Result<()> {
         self.inner
-            .model_request_recorded(exchange_id, origin, request)
+            .model_request_recorded(exchange_id, origin, owner, request)
             .await
     }
 

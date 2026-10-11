@@ -27,7 +27,9 @@ use crate::{
 };
 
 mod compaction;
+mod context_builds;
 mod model_free;
+mod selection;
 mod terminal;
 mod typed_failures;
 
@@ -81,7 +83,8 @@ impl Workflow for ProbeWorkflow {
             ctx.model_ref.clone().expect("model selection"),
             second_messages,
         )
-        .with_tools(vec![spec]);
+        .with_tools(vec![spec])
+        .with_metadata(json!({"result_metadata_bytes":result.metadata.to_string().len()}));
         let second_response = ctx.execution.require_model()?.complete(second).await?;
         new_messages.extend(second_response.messages);
         Ok(WorkflowOutput::new(probe_output(&result), new_messages))
@@ -182,7 +185,9 @@ impl TestJournal {
                 attribution,
                 JournalEntry::ToolCallRecorded(ToolCallRecorded {
                     call: call.clone(),
-                    phase: ToolCallRecordPhase::Requested,
+                    phase: ToolCallRecordPhase::Requested {
+                        owner: crate::contracts::OperationOwner::Workflow,
+                    },
                 }),
             )
             .await
@@ -232,7 +237,8 @@ impl TestJournal {
                 messages
             },
             spec,
-        );
+        )
+        .with_metadata(json!({"result_metadata_bytes":result.metadata.to_string().len()}));
         append_exchange(
             &store,
             execution_id,
@@ -361,6 +367,7 @@ async fn append_exchange(
         .append_execution_journal_entry(
             attribution,
             JournalEntry::ModelRequestRecorded(ModelRequestRecorded {
+                owner: crate::contracts::OperationOwner::Workflow,
                 exchange_id,
                 origin: crate::contracts::ModelCallOrigin::Direct,
                 request,
@@ -417,6 +424,7 @@ fn snapshot(spec: &ToolSpec) -> SessionConfigSnapshot {
             model_visible: true,
         }],
         permission_mode_default: PermissionMode::Normal,
+        approval_available: true,
     }
 }
 
@@ -476,7 +484,7 @@ async fn successful_turn_replays_model_and_tool_outcomes_without_side_effects() 
     assert_eq!(report.tool_calls.replayed, 1);
     assert_eq!(report.comparison.output_equal, Some(true));
     assert_eq!(report.comparison.history_equal, Some(true));
-    assert_ne!(
+    assert_eq!(
         report
             .recorded
             .output

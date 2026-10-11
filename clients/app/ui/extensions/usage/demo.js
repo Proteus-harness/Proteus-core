@@ -10,7 +10,7 @@ export function createServices({ signal }) {
   const usage = { session_id: 'demo', revision: 7, latest_turn_id: 'turn-2', requests: [
     request('ex-1', 'turn-1', start, 18400, 0, 920, 3), request('ex-2', 'turn-1', start + 40_000, 24100, 17800, 1480, 2),
     request('ex-3', 'turn-1', start + 95_000, 31800, 23500, 2260, 0), request('ex-4', 'turn-2', start + 600_000, 38900, 31200, 1150, 4),
-    request('ex-5', 'turn-2', start + 660_000, 52600, 37400, 640, 0, 'compactor', 'gpt-5.6-luna'), request('ex-6', 'turn-2', start + 700_000, 21300, 0, 1830, 1),
+    request('ex-5', 'turn-2', start + 660_000, 52600, 37400, 640, 0, 'auxiliary', 'gpt-5.6-luna'), request('ex-6', 'turn-2', start + 700_000, 21300, 0, 1830, 1),
   ] };
   return { 'agent.usage.read': view => ({
     async read() { signal.throwIfAborted(); view.throwIfAborted(); return structuredClone(usage); },

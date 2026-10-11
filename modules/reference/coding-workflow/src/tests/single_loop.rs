@@ -64,7 +64,7 @@ fn single_loop_calls_host_and_returns_new_messages() {
 }
 
 #[test]
-fn single_loop_adds_dynamic_meta_tools_when_tool_exposure_hides_candidates() {
+fn single_loop_adds_dynamic_meta_tools_when_tool_selection_hides_candidates() {
     let input = workflow_input("inspect history");
     let input_json = serde_json::to_string(&input).expect("input json");
     let read_file = test_tool("read_file", "Read file", ToolSafety::ReadOnly);

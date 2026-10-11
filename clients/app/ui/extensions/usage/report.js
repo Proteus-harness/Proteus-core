@@ -25,7 +25,7 @@ export function mountReport({ root, services, storage, signal }, wide = false) {
   const overview = node('div');
   const filters = node('div', null, 'usage-filters');
   const state = selector('Статус запроса', [['all', 'Все статусы'], ['problems', 'Проблемные запросы'], ['error', 'Ошибки'], ['canceled', 'Отмена'], ['timeout', 'Таймаут'], ['unfinished', 'Нет результата'], ['missing_usage', 'Нет данных о токенах'], ['completed', 'Завершённые']], 'all');
-  const origin = selector('Тип запроса', [['all', 'Все типы'], ['direct', 'Запрос модели'], ['compactor', 'Сжатие контекста']], 'all');
+  const origin = selector('Тип запроса', [['all', 'Все типы'], ['direct', 'Запрос модели'], ['auxiliary', 'Вспомогательный запрос']], 'all');
   const order = selector('Порядок запросов', [['oldest', 'По порядку выполнения'], ['newest', 'Сначала последние'], ['duration', 'Сначала долгие'], ['tokens', 'Сначала больше токенов'], ['cost', 'Сначала дороже']], 'oldest');
   const search = node('input'); search.type = 'search'; search.placeholder = 'ID запроса, хода или модель'; search.setAttribute('aria-label', 'Поиск запросов');
   const reset = node('button', 'Сбросить фильтры'); reset.type = 'button';

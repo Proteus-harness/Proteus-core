@@ -109,7 +109,7 @@ async fn route_inspect_topology_returns_json_and_mermaid() {
             || edge.get("to").and_then(Value::as_str) == Some("slot:tool")
     }));
     assert!(edges.iter().any(|edge| {
-        edge.get("from").and_then(Value::as_str) == Some("slot:tool_exposure")
+        edge.get("from").and_then(Value::as_str) == Some("slot:hook")
             && edge.get("to").and_then(Value::as_str) == Some("tools")
             && edge.get("kind").and_then(Value::as_str) == Some("runtime")
     }));
@@ -133,7 +133,7 @@ async fn route_inspect_topology_returns_json_and_mermaid() {
     assert_eq!(response.status(), StatusCode::OK);
     let body = response_bytes(response).await;
     let plan: Value = serde_json::from_slice(&body).expect("assembly plan JSON");
-    assert_eq!(plan["schema_version"], 3);
+    assert_eq!(plan["schema_version"], 4);
     assert_eq!(plan["hooks"], json!([]));
     assert_eq!(plan["profile"], "dev-basic");
     assert_eq!(plan["model"]["provider"], "fake");

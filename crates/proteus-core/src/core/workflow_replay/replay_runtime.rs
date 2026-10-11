@@ -1,12 +1,15 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     sync::{Mutex, MutexGuard},
 };
 
 use anyhow::{Result, anyhow, bail};
 
 use crate::{
-    contracts::{ApprovalResponse, ToolExposureOutput},
+    contracts::{
+        ApprovalResponse, ContextBuildInput, ContextBuildOutcome, ExecutionAttribution,
+        OperationOwner,
+    },
     core::ModelResponseOutcome,
     domain::{
         CacheHints, CallId, ContextBundle, HistoryCompactionReport, HostedToolKind, MessageId,
@@ -16,7 +19,7 @@ use crate::{
 };
 
 use super::{
-    fixture::{RecordedModelExchange, RecordedToolInvocation},
+    fixture::{RecordedContextBuild, RecordedModelExchange, RecordedToolInvocation},
     normalize::{
         calls_equal, messages_equal, outputs_equal, request_difference, requests_equal,
         results_equal, rewrite_result_call_ids,
@@ -24,29 +27,35 @@ use super::{
 };
 
 mod adapters;
+#[cfg(test)]
+mod context_tests;
 mod hooks;
 pub(super) use hooks::ReplayHooks;
 mod checkpoints;
-mod compaction;
+mod operations;
+mod preparation;
 pub(super) use checkpoints::{RecordedCheckpoint, ReplayCheckpointRecorder, recorded_checkpoints};
 
 pub(super) use adapters::{
-    ReplayApprovalTransport, ReplayCompactor, ReplayContextBuilder, ReplayModel,
-    ReplayToolExposure, register_replay_tools,
+    ReplayApprovalTransport, ReplayContextBuilder, ReplayContextPreparation, ReplayModel,
+    register_replay_tools,
 };
 
 pub(super) struct ReplayState {
     inner: Mutex<ReplayStateInner>,
     capabilities: ModelCapabilities,
-    context: Option<ContextBundle>,
-    registered_tool_names: HashSet<String>,
-    incoming_user_message_id: MessageId,
+    attribution: Option<ExecutionAttribution>,
 }
 
 struct ReplayStateInner {
+    contexts: Vec<(RecordedContextBuild, bool)>,
     hooks: Vec<(crate::contracts::HookTrace, bool)>,
     exchanges: Vec<RecordedModelExchange>,
     next_exchange: usize,
+    auxiliary: Vec<(RecordedModelExchange, bool)>,
+    target: Option<crate::contracts::ContextPreparationTarget>,
+    message_ids: HashMap<crate::domain::MessageId, crate::domain::MessageId>,
+    part_ids: HashMap<crate::domain::PartId, crate::domain::PartId>,
     tools: Vec<ExpectedToolState>,
     actual_to_expected: HashMap<CallId, CallId>,
     expected_to_actual: HashMap<CallId, CallId>,
@@ -79,10 +88,9 @@ impl ReplayState {
         hooks: Vec<crate::contracts::HookTrace>,
         tools: Vec<RecordedToolInvocation>,
         compactions: Vec<HistoryCompactionReport>,
-        context: Option<ContextBundle>,
-        registered_tool_names: HashSet<String>,
+        contexts: Vec<RecordedContextBuild>,
         snapshot_reasoning: &ReasoningConfig,
-        incoming_user_message_id: MessageId,
+        _incoming_user_message_id: MessageId,
     ) -> Self {
         let capabilities = exchanges
             .first()
@@ -98,9 +106,17 @@ impl ReplayState {
             .unwrap_or_else(ModelCapabilities::empty);
         Self {
             inner: Mutex::new(ReplayStateInner {
+                contexts: contexts
+                    .into_iter()
+                    .map(|context| (context, false))
+                    .collect(),
                 hooks: hooks.into_iter().map(|trace| (trace, false)).collect(),
                 exchanges,
                 next_exchange: 0,
+                auxiliary: Vec::new(),
+                target: None,
+                message_ids: HashMap::new(),
+                part_ids: HashMap::new(),
                 tools: tools
                     .into_iter()
                     .map(|recorded| ExpectedToolState {
@@ -123,65 +139,69 @@ impl ReplayState {
                 issues: Vec::new(),
             }),
             capabilities,
-            context,
-            registered_tool_names,
-            incoming_user_message_id,
+            attribution: None,
         }
+    }
+
+    pub fn bind_history(&self, execution_id: crate::domain::ExecutionId, revision: u64) {
+        self.lock().target = Some(crate::contracts::ContextPreparationTarget {
+            execution_id,
+            revision,
+        });
+    }
+
+    pub fn set_auxiliary(&self, exchanges: Vec<RecordedModelExchange>) {
+        self.lock().auxiliary = exchanges
+            .into_iter()
+            .map(|exchange| (exchange, false))
+            .collect();
     }
 
     pub fn capabilities(&self) -> ModelCapabilities {
         self.capabilities.clone()
     }
 
-    pub fn context(&self) -> Result<ContextBundle> {
-        // Each reviewed candidate belongs to its own context-build invocation;
-        // later candidates may include fresh workspace search results.
-        let candidate = self.lock().hooks.iter().find_map(|(trace, consumed)| {
-            if *consumed {
-                return None;
-            }
-            match &trace.input.event {
-                crate::contracts::HookEvent::BeforeStop { output, .. } => Some(output.clone()),
-                _ => None,
-            }
-        });
-        if let Some(output) = candidate {
-            return Ok(super::fixture::recorded_context(
-                &self.current_request()?,
-                Some(&output),
-            ));
-        }
-        match &self.context {
-            Some(context) => Ok(context.clone()),
-            None => mismatch(
-                &mut self.lock(),
-                "workflow requested context without a recorded model request; the journal has no replayable context bundle".to_owned(),
-            ),
-        }
+    pub fn bind_context(&mut self, attribution: ExecutionAttribution) {
+        self.attribution = Some(attribution);
     }
 
-    pub fn current_request(&self) -> Result<CanonicalModelRequest> {
+    pub fn context(&self, input: ContextBuildInput) -> Result<ContextBundle> {
         let mut inner = self.lock();
-        if let Some(request) = inner.hooks.iter().find_map(|(trace, consumed)| {
-            if *consumed {
-                return None;
-            }
-            match &trace.input.event {
-                crate::contracts::HookEvent::BeforeModel {
-                    origin: crate::contracts::ModelCallOrigin::Direct,
-                    request,
-                } => Some(request.clone()),
-                _ => None,
-            }
-        }) {
-            return Ok(request);
-        }
-        match inner.exchanges.get(inner.next_exchange) {
-            Some(exchange) => Ok(exchange.request.clone()),
-            None => mismatch(
+        if self.attribution != Some(input.attribution)
+            || input.scope.execution_id != input.attribution.execution_id
+        {
+            return mismatch(
                 &mut inner,
-                "workflow requested tool exposure or compaction without a remaining recorded model request".to_owned(),
-            ),
+                "context build attribution or scope differs from recorded execution".into(),
+            );
+        }
+        let Some(index) = inner
+            .contexts
+            .iter()
+            .position(|(recorded, consumed)| !consumed && recorded.task == input.task)
+        else {
+            let message = if inner.contexts.iter().any(|(_, consumed)| !consumed) {
+                "context build task input differs from recorded requests"
+            } else {
+                "workflow requested unexpected context build after the recorded script ended"
+            };
+            return mismatch(&mut inner, message.into());
+        };
+        let expected = inner.contexts[index].0.clone();
+        inner.contexts[index].1 = true;
+        match expected.outcome {
+            ContextBuildOutcome::Success { bundle } => Ok(bundle),
+            ContextBuildOutcome::Error { message, causes } => {
+                let mut chain = causes.into_iter().rev();
+                let mut error = match chain.next() {
+                    Some(cause) => anyhow!(cause),
+                    None => return Err(anyhow!(message)),
+                };
+                for cause in chain {
+                    error = error.context(cause);
+                }
+                Err(error.context(message))
+            }
         }
     }
 
@@ -220,23 +240,6 @@ impl ReplayState {
         Ok((expected.completed_messages, outcome))
     }
 
-    pub fn tool_exposure(&self) -> Result<ToolExposureOutput> {
-        let request = self.current_request()?;
-        let tools = request
-            .tools
-            .into_iter()
-            .filter(|tool| self.registered_tool_names.contains(&tool.name))
-            .collect();
-        let metadata = request
-            .metadata
-            .get("tool_exposure")
-            .cloned()
-            .unwrap_or(serde_json::Value::Null);
-        let mut output = ToolExposureOutput::new(tools);
-        output.metadata = metadata;
-        Ok(output)
-    }
-
     pub fn approval_response(&self, actual_call_id: &str) -> Result<ApprovalResponse> {
         let inner = self.lock();
         let expected = expected_tool(&inner, actual_call_id)?;
@@ -253,7 +256,18 @@ impl ReplayState {
     }
 
     pub fn replay_tool_result(&self, actual_call_id: &str) -> Result<ToolResult> {
-        let inner = self.lock();
+        let mut inner = self.lock();
+        let expected_id = expected_tool(&inner, actual_call_id)?
+            .recorded
+            .call
+            .id
+            .clone();
+        operations::consume_body(
+            &mut inner,
+            &OperationOwner::Tool {
+                call_id: expected_id,
+            },
+        );
         let expected = expected_tool(&inner, actual_call_id)?;
         if !expected.recorded.resolution.permits_side_effect() {
             bail!(
@@ -287,10 +301,33 @@ impl ReplayState {
 
     pub fn summary(&self) -> ReplaySummary {
         let mut inner = self.lock();
+        let remaining_contexts = inner
+            .contexts
+            .iter()
+            .filter(|(_, consumed)| !consumed)
+            .map(|(recorded, _)| recorded.invocation_id.to_string())
+            .collect::<Vec<_>>();
+        if !remaining_contexts.is_empty() {
+            inner.issues.push(format!(
+                "workflow left {} recorded context builds unconsumed: {}",
+                remaining_contexts.len(),
+                remaining_contexts.join(", ")
+            ));
+        }
         let remaining_hooks = inner.hooks.iter().filter(|(_, consumed)| !consumed).count();
         if remaining_hooks != 0 {
             inner.issues.push(format!(
                 "workflow left {remaining_hooks} recorded hook boundaries unconsumed"
+            ));
+        }
+        let remaining_auxiliary = inner
+            .auxiliary
+            .iter()
+            .filter(|(_, consumed)| !consumed)
+            .count();
+        if remaining_auxiliary != 0 {
+            inner.issues.push(format!(
+                "workflow left {remaining_auxiliary} owned auxiliary exchanges unconsumed"
             ));
         }
         let model_exchanges = inner.next_exchange;

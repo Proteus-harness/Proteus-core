@@ -159,7 +159,13 @@ fn hooks_preserve_config_order_and_only_include_selected_exports() {
         .find(|component| component.id == "hooks")
         .unwrap();
     for export in &hooks.exports {
-        assert!(export.host_methods.is_empty());
+        assert_eq!(
+            export.host_methods,
+            [
+                crate::contracts::OPERATION_HOST_COMPLETE_MODEL_METHOD,
+                crate::contracts::OPERATION_HOST_EXECUTE_TOOL_METHOD,
+            ]
+        );
         assert_eq!(
             export.composition,
             crate::contracts::ProcessModuleComposition::OrderedMany
