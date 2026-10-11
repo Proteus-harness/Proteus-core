@@ -125,8 +125,9 @@ python3 clients/native/scripts/portable.py --debug   # быстрее собра
 - `tool_display` — заголовки инструментов, разбор patch и плана;
 - `settings` — headless черновик и каталог страниц настроек агента поверх
   `/config/builder` и `/config/history`: страница на каждый слот (Model,
-  Workflow, Context, Context Providers, Compactor, Tools, Tool Exposure,
-  Policy, Hooks; неизвестные слоты добавляются по порядку), Plugins и
+  Workflow, Context, Context Providers, Tools, Policy, Hooks; неизвестные
+  слоты добавляются по порядку; сжатие истории и отбор инструментов —
+  обработчики на странице Hooks), Plugins и
   History с откатом; поля строятся по `config_schema` модулей, сохранение
   отправляет только изменённые разделы;
 - `preferences` — настройки самого клиента (тема и палитры, масштаб, анимации,

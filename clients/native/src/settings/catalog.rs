@@ -17,13 +17,7 @@ pub const CONTEXT_PROVIDER_SLOT: &str = "context_provider";
 pub const POLICY_SLOT: &str = "policy";
 
 /// Select-one slots with their own page, in navigation order.
-const SLOT_PAGES: [&str; 5] = [
-    "workflow",
-    "context",
-    "compactor",
-    "tool_exposure",
-    "policy",
-];
+const SLOT_PAGES: [&str; 3] = ["workflow", "context", "policy"];
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum PageId {
@@ -71,14 +65,6 @@ pub fn slot_text(slot: &str) -> Option<(&'static str, &'static str)> {
             "Context Providers",
             "Поставляют навыки, поиск и память. Какие из них читать автоматически, задают параметры модуля Context.",
         ),
-        "compactor" => (
-            "Compactor",
-            "Сокращает длинную историю без потери рабочего контекста.",
-        ),
-        "tool_exposure" => (
-            "Tool Exposure",
-            "Определяет, какие инструменты видит модель.",
-        ),
         POLICY_SLOT => (
             "Policy",
             "Режим прав профиля и политика, которая решает, какие действия требуют подтверждения. Режим текущего чата меняется в поле ввода.",
@@ -86,7 +72,7 @@ pub fn slot_text(slot: &str) -> Option<(&'static str, &'static str)> {
         TOOL_SLOT => ("Tools", "Инструменты, которые профиль разрешает агенту."),
         HOOK_SLOT => (
             "Hooks",
-            "Обработчики дополняют шаги агента: проверяют вызовы инструментов, добавляют инструкции и проверяют завершение. Вызываются по порядку списка.",
+            "Обработчики дополняют шаги агента: готовят историю и сжимают её, отбирают видимые модели инструменты, проверяют вызовы и завершение. Вызываются по порядку списка.",
         ),
         _ => return None,
     })
@@ -99,7 +85,7 @@ pub fn slot_title(snapshot: &ConfigBuilderSnapshot, slot: &str) -> String {
         .unwrap_or_else(|| slot.to_string())
 }
 
-/// Agent pages: the nine slots, then unknown select-one slots, plugins and
+/// Agent pages: the known slots, then unknown select-one slots, plugins and
 /// history.
 pub fn agent_pages(snapshot: &ConfigBuilderSnapshot) -> Vec<PageId> {
     let mut pages = vec![PageId::Model];
@@ -109,13 +95,8 @@ pub fn agent_pages(snapshot: &ConfigBuilderSnapshot) -> Vec<PageId> {
             .map(|slot| PageId::Slot(slot.to_string())),
     );
     pages.push(PageId::ContextProviders);
-    pages.push(PageId::Slot("compactor".to_string()));
     pages.push(PageId::Tools);
-    pages.extend(
-        ["tool_exposure", POLICY_SLOT]
-            .into_iter()
-            .map(|slot| PageId::Slot(slot.to_string())),
-    );
+    pages.push(PageId::Slot(POLICY_SLOT.to_string()));
     pages.push(PageId::Hooks);
     let mut unknown: Vec<&ConfigBuilderSlot> = snapshot
         .slots

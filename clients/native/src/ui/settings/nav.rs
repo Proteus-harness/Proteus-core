@@ -25,8 +25,6 @@ fn page_icon(page: &PageId) -> Icon {
         PageId::Slot(slot) => match slot.as_str() {
             "workflow" => Icon::new(Lucide::Workflow),
             "context" => Icon::new(Lucide::Layers),
-            "compactor" => Icon::new(Lucide::Shrink),
-            "tool_exposure" => Icon::new(IconName::Eye),
             "policy" => Icon::new(Lucide::Shield),
             _ => Icon::new(Lucide::Puzzle),
         },

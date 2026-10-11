@@ -232,7 +232,7 @@ impl AnalysisPage {
                 for hook in &trace.steps {
                     let (label, tone) = match &hook.outcome {
                         HookStepOutcome::Accepted { .. } => ("принят".to_string(), Tone::Success),
-                        HookStepOutcome::Failed { message } => (message.clone(), Tone::Danger),
+                        HookStepOutcome::Failed { message, .. } => (message.clone(), Tone::Danger),
                     };
                     card = card.child(
                         h_flex()

@@ -57,14 +57,14 @@ fn changes_send_only_changed_sections() {
 
     let limit = FieldPath::new("context", "a", "limit");
     draft.set_value(&limit, Some(json!(5)));
-    draft.set_value(&FieldPath::new("compactor", "b", "x"), None);
-    draft.set_module("compactor", "b");
+    draft.set_value(&FieldPath::new("workflow", "b", "x"), None);
+    draft.set_module("workflow", "b");
     draft.set_hook("hook.one", false);
     draft.mode = "auto".into();
 
     let request = draft.changes(&baseline);
     assert_eq!(
-        request.modules.get("compactor").map(String::as_str),
+        request.modules.get("workflow").map(String::as_str),
         Some("b")
     );
     assert!(!request.modules.contains_key("context"));
@@ -75,14 +75,14 @@ fn changes_send_only_changed_sections() {
             .and_then(|slot| slot.get("a")),
         Some(&json!({"limit": 5, "keep": true}))
     );
-    assert!(!request.module_config.contains_key("compactor"));
+    assert!(!request.module_config.contains_key("workflow"));
     assert_eq!(request.hooks, Some(Vec::new()));
     assert!(request.tools_enabled.is_none());
     assert!(request.permission_mode.is_some());
 
     draft.set_value(&limit, Some(json!(1)));
-    draft.set_module("compactor", "a");
-    draft.set_module("compactor", "b");
+    draft.set_module("workflow", "a");
+    draft.set_module("workflow", "b");
     assert!(draft.changes(&baseline).module_config.is_empty());
 }
 
@@ -143,9 +143,9 @@ fn pages_cover_known_slots_and_append_unknown_ones() {
     let snapshot = ConfigBuilderSnapshot {
         slots: vec![
             slot(
-                "compactor",
+                "workflow",
                 2,
-                vec![module("codex", "compactor", vec![trigger])],
+                vec![module("codex", "workflow", vec![trigger])],
             ),
             slot("later", 9, Vec::new()),
             slot("earlier", 7, Vec::new()),
@@ -162,15 +162,7 @@ fn pages_cover_known_slots_and_append_unknown_ones() {
         .collect();
     assert_eq!(
         slot_pages,
-        [
-            "workflow",
-            "context",
-            "compactor",
-            "tool_exposure",
-            "policy",
-            "earlier",
-            "later"
-        ]
+        ["workflow", "context", "policy", "earlier", "later"]
     );
     for page in [
         PageId::Model,
@@ -186,7 +178,7 @@ fn pages_cover_known_slots_and_append_unknown_ones() {
         "LATER"
     );
     assert!(
-        module_info(&snapshot, "compactor", "codex")
+        module_info(&snapshot, "workflow", "codex")
             .and_then(|info| info.schema)
             .is_some()
     );

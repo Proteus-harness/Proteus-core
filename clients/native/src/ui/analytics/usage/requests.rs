@@ -306,8 +306,8 @@ impl UsagePage {
                         summary.requests.to_string(),
                         Some(
                             [
-                                (summary.compactions > 0)
-                                    .then(|| format!("сжатие: {}", summary.compactions)),
+                                (summary.auxiliary > 0)
+                                    .then(|| format!("вспомогательные: {}", summary.auxiliary)),
                                 (summary.errors > 0).then(|| format!("ошибки: {}", summary.errors)),
                                 (summary.unfinished > 0)
                                     .then(|| format!("без результата: {}", summary.unfinished)),
@@ -361,7 +361,7 @@ impl UsagePage {
             .and_then(|turn| turns.iter().position(|id| *id == turn.to_string()))
             .map(|turn| format!("Ход {}", turn + 1))
             .unwrap_or_else(|| "Вне хода".into());
-        let compaction = matches!(request.origin, ModelCallOrigin::Compactor);
+        let auxiliary = matches!(request.origin, ModelCallOrigin::Auxiliary);
         let cost = request_cost(request);
         let usage = request.usage.as_ref();
         let cell = |label: &'static str, value: Option<u32>| {
@@ -414,8 +414,8 @@ impl UsagePage {
                         status_tone(request.status),
                         cx,
                     ))
-                    .when(compaction, |row| {
-                        row.child(badge("Сжатие контекста", Tone::Accent, cx))
+                    .when(auxiliary, |row| {
+                        row.child(badge("Вспомогательный", Tone::Accent, cx))
                     })
                     .child(note(
                         format!(
@@ -492,8 +492,8 @@ fn request_details(request: &ModelRequestUsage, cost: &Cost, cx: &App) -> Div {
         kv(
             "Тип",
             match request.origin {
-                ModelCallOrigin::Compactor => "Сжатие контекста",
-                _ => "Запрос модели",
+                ModelCallOrigin::Auxiliary => "Вспомогательный запрос",
+                ModelCallOrigin::Direct => "Запрос модели",
             },
             cx,
         ),

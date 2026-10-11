@@ -101,7 +101,7 @@ pub struct Summary {
     pub priced: usize,
     pub unfinished: usize,
     pub errors: usize,
-    pub compactions: usize,
+    pub auxiliary: usize,
 }
 
 fn add(slot: &mut Option<u64>, value: Option<u32>) {
@@ -119,8 +119,8 @@ pub fn summarize<'a>(requests: impl IntoIterator<Item = &'a ModelRequestUsage>) 
             ModelUsageStatus::Completed => {}
             _ => summary.errors += 1,
         }
-        if matches!(request.origin, ModelCallOrigin::Compactor) {
-            summary.compactions += 1;
+        if matches!(request.origin, ModelCallOrigin::Auxiliary) {
+            summary.auxiliary += 1;
         }
         if let Some(usage) = &request.usage {
             summary.reported += 1;
