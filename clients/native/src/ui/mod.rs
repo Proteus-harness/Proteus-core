@@ -36,7 +36,10 @@ gpui_kit::actions!(
         FocusPaneLeft,
         FocusPaneRight,
         FocusPaneUp,
-        FocusPaneDown
+        FocusPaneDown,
+        ZoomIn,
+        ZoomOut,
+        ZoomReset
     ]
 );
 
@@ -60,6 +63,11 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("ctrl-alt-right", FocusPaneRight, None),
         KeyBinding::new("ctrl-alt-up", FocusPaneUp, None),
         KeyBinding::new("ctrl-alt-down", FocusPaneDown, None),
+        KeyBinding::new("ctrl-=", ZoomIn, None),
+        // Shift+= arrives as `+`.
+        KeyBinding::new("ctrl-+", ZoomIn, None),
+        KeyBinding::new("ctrl--", ZoomOut, None),
+        KeyBinding::new("ctrl-0", ZoomReset, None),
     ]);
     extensions::bind_keys(cx);
 }
@@ -117,6 +125,9 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &FocusPaneDown, window, cx| {
                 this.focus_neighbor(Edge::Bottom, window, cx)
             }))
+            .on_action(|_: &ZoomIn, _, cx| prefs::update(cx, |prefs| prefs.view.zoom(1)))
+            .on_action(|_: &ZoomOut, _, cx| prefs::update(cx, |prefs| prefs.view.zoom(-1)))
+            .on_action(|_: &ZoomReset, _, cx| prefs::update(cx, |prefs| prefs.view.zoom(0)))
             .on_drop(cx.listener(|this, _: &tabs::SplitDrag, _, cx| this.finish_resize(cx)));
         match &self.status {
             Status::Starting => root.child(centered(
@@ -127,7 +138,7 @@ impl Render for Workspace {
             )),
             Status::Failed(error) => root.child(centered(
                 v_flex()
-                    .max_w(px(720.))
+                    .max_w(prefs::scaled(720.))
                     .gap_2()
                     .child(div().font_semibold().child("Proteus недоступен"))
                     .child(

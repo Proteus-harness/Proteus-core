@@ -12,6 +12,7 @@ use super::{FilesPanel, Tab};
 use crate::files::{ChangeStatus, EntryKind};
 use crate::ui::extensions::files::{path_label, status_color};
 use crate::ui::motion;
+use crate::ui::prefs;
 
 /// How long after a directory opens its rows still enter one by one.
 const ENTRANCE: Duration = Duration::from_millis(600);
@@ -63,8 +64,8 @@ impl FilesPanel {
         let line = h_flex()
             .id(("file-row", index))
             .w_full()
-            .h(px(ROW_HEIGHT))
-            .pl(px(8. + row.depth as f32 * INDENT))
+            .h(prefs::scaled(ROW_HEIGHT))
+            .pl(prefs::scaled(8. + row.depth as f32 * INDENT))
             .pr_3()
             .gap_1p5()
             .text_sm()
@@ -170,7 +171,7 @@ impl FilesPanel {
             let background = self.row_background(&change.path, focused, cx);
             h_flex()
                 .id(("files-change", index))
-                .h(px(ROW_HEIGHT))
+                .h(prefs::scaled(ROW_HEIGHT))
                 .flex_none()
                 .px_3()
                 .gap_2()

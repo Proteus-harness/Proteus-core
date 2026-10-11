@@ -10,6 +10,7 @@ use super::tab::{BAR_HEIGHT, DraggedTab, TabState};
 use crate::tabs::{Pane, TabLayout};
 use crate::ui::drag;
 use crate::ui::motion::Collapse;
+use crate::ui::prefs;
 use crate::ui::workspace::Workspace;
 
 impl Workspace {
@@ -28,7 +29,7 @@ impl Workspace {
             .map(|(strip, _)| strip.clone())
             .unwrap_or_default();
         h_flex()
-            .h(px(BAR_HEIGHT))
+            .h(prefs::scaled(BAR_HEIGHT))
             .flex_none()
             .bg(theme.tab_bar)
             .border_b_1()
@@ -48,7 +49,7 @@ impl Workspace {
                             .group(end_group.clone())
                             .relative()
                             .flex_1()
-                            .min_w(px(24.))
+                            .min_w(prefs::scaled(24.))
                             .h_full()
                             .child(drag::insertion_mark::<DraggedTab>(end_group, cx))
                             .on_drop(cx.listener(move |this, dragged: &DraggedTab, window, cx| {

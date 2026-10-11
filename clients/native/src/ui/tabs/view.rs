@@ -8,8 +8,8 @@ use gpui_kit::*;
 use super::motion::Frame;
 use super::{drop, split};
 use crate::tabs::{self, Axis, Node, Pane, PaneId, Size, TabLayout};
-use crate::ui::motion;
 use crate::ui::workspace::Workspace;
+use crate::ui::{motion, prefs};
 
 impl Workspace {
     /// The tree of panes with their bars, contents and dividers.
@@ -27,7 +27,9 @@ impl Workspace {
         let now = Instant::now();
         let running = self.tab_motion.tick(now);
         let frames = self.tab_area.get().and_then(|area| {
-            let size = (area.width.as_f32(), area.height.as_f32());
+            // The layout is measured at 100% scale.
+            let scale = prefs::scale(cx);
+            let size = (area.width.as_f32() / scale, area.height.as_f32() / scale);
             let target = layout.rects_spaced(size.0, size.1, split::DIVIDER);
             let panes = self.tab_motion.panes();
             panes.retarget(size, target, self.split_drag.is_some(), now);
@@ -78,22 +80,27 @@ impl Workspace {
             area = area.child(
                 div()
                     .absolute()
-                    .left(px(rect.x))
-                    .top(px(rect.y))
-                    .w(px(rect.w))
-                    .h(px(rect.h))
+                    .left(prefs::scaled(rect.x))
+                    .top(prefs::scaled(rect.y))
+                    .w(prefs::scaled(rect.w))
+                    .h(prefs::scaled(rect.h))
                     .overflow_hidden()
                     .opacity(frame.opacity)
-                    .child(div().w(px(target.w)).h(px(target.h)).child(content)),
+                    .child(
+                        div()
+                            .w(prefs::scaled(target.w))
+                            .h(prefs::scaled(target.h))
+                            .child(content),
+                    ),
             );
             if rect.x > half {
                 area = area.child(
                     div()
                         .absolute()
-                        .left(px(rect.x - half))
-                        .top(px(rect.y))
+                        .left(prefs::scaled(rect.x - half))
+                        .top(prefs::scaled(rect.y))
                         .w(px(1.))
-                        .h(px(rect.h))
+                        .h(prefs::scaled(rect.h))
                         .bg(line),
                 );
             }
@@ -101,9 +108,9 @@ impl Workspace {
                 area = area.child(
                     div()
                         .absolute()
-                        .left(px(rect.x))
-                        .top(px(rect.y - half))
-                        .w(px(rect.w))
+                        .left(prefs::scaled(rect.x))
+                        .top(prefs::scaled(rect.y - half))
+                        .w(prefs::scaled(rect.w))
                         .h(px(1.))
                         .bg(line),
                 );
@@ -170,7 +177,7 @@ impl Workspace {
                 div()
                     .map(|cell| match child.size {
                         Size::Weight(weight) => cell.flex_basis(relative(0.)).flex_grow(weight),
-                        Size::Fixed(px_len) => cell.flex_basis(px(px_len)).flex_grow(0.),
+                        Size::Fixed(len) => cell.flex_basis(prefs::scaled(len)).flex_grow(0.),
                     })
                     .flex_shrink(1.)
                     .min_w_0()

@@ -17,6 +17,7 @@ use crate::settings::catalog::{
     HOOK_SLOT, PackState, PageId, TOOL_SLOT, export_selected, find_tool, pack_summary, plural,
     safety_label, slot_page, slot_title,
 };
+use crate::ui::prefs;
 use gpui_kit::assets::IconName as Lucide;
 
 impl SettingsView {
@@ -256,7 +257,7 @@ impl SettingsView {
         }
         let target = name.to_string();
         h_flex()
-            .pl(px(40.))
+            .pl(prefs::scaled(40.))
             .pr_4()
             .py_1p5()
             .gap_2()

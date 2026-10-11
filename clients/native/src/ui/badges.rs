@@ -57,7 +57,7 @@ impl Workspace {
                 strip.child(
                     drop_slot(slot_name(place, "end"), place, None, cx)
                         .h_7()
-                        .when(dragging, |slot| slot.min_w(px(28.))),
+                        .when(dragging, |slot| slot.min_w(prefs::scaled(28.))),
                 )
             })
     }

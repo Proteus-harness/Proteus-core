@@ -6,6 +6,7 @@ use gpui_kit::component::*;
 use gpui_kit::*;
 
 use crate::tabs::{Axis, Size};
+use crate::ui::prefs;
 use crate::ui::workspace::Workspace;
 
 /// Smallest pane while resizing.
@@ -54,11 +55,12 @@ pub(super) fn track_resize<E: InteractiveElement>(
                 Axis::Row => (position.x - bounds.left(), bounds.size.width, MIN_WIDTH),
                 Axis::Column => (position.y - bounds.top(), bounds.size.height, MIN_HEIGHT),
             };
+            let scale = prefs::scale(cx);
             this.resize_split(
                 path.clone(),
                 index,
-                offset.as_f32(),
-                extent.as_f32(),
+                offset.as_f32() / scale,
+                extent.as_f32() / scale,
                 min,
                 cx,
             );
@@ -82,13 +84,13 @@ pub(super) fn divider(
     };
     let base = match axis {
         Axis::Row => h_flex()
-            .w(px(DIVIDER))
+            .w(prefs::scaled(DIVIDER))
             .h_full()
             .justify_center()
             .cursor(CursorStyle::ResizeLeftRight)
             .child(div().w(px(1.)).h_full().bg(line)),
         Axis::Column => v_flex()
-            .h(px(DIVIDER))
+            .h(prefs::scaled(DIVIDER))
             .w_full()
             .justify_center()
             .cursor(CursorStyle::ResizeUpDown)

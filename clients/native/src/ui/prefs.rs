@@ -6,6 +6,29 @@ use gpui_kit::*;
 
 use crate::preferences::{self, MotionPreference, Preferences, ThemePreference};
 
+const BASE_FONT: f32 = 16.;
+const BASE_MONO_FONT: f32 = 13.;
+
+/// Interface scale: 1.0 at 100%.
+pub fn scale(cx: &App) -> f32 {
+    current(cx).view.scale_factor()
+}
+
+/// A length given in px at 100% scale; follows the interface scale.
+pub fn scaled(value: f32) -> Rems {
+    rems(value / BASE_FONT)
+}
+
+/// Text size of chat messages and the composer.
+pub fn chat_text(cx: &App) -> Rems {
+    scaled(f32::from(current(cx).view.chat_text))
+}
+
+/// Widest conversation column.
+pub fn chat_width(cx: &App) -> Rems {
+    scaled(f32::from(current(cx).view.chat_width))
+}
+
 pub struct ClientPreferences {
     pub value: Preferences,
     /// Why the stored file was not used; shown on the client settings pages.
@@ -51,6 +74,15 @@ fn apply(value: &Preferences, previous: Option<&Preferences>, cx: &mut App) {
             ThemePreference::Dark => Theme::change(ThemeMode::Dark, None, cx),
             ThemePreference::Light => Theme::change(ThemeMode::Light, None, cx),
         }
+    }
+    // The root sets the window's rem from the theme font size, so this
+    // scales every rem-based size of the interface.
+    let scale = value.view.scale_factor();
+    if Theme::global(cx).font_size != px(BASE_FONT * scale) {
+        Theme::update(cx, |theme| {
+            theme.font_size = px(BASE_FONT * scale);
+            theme.mono_font_size = px(BASE_MONO_FONT * scale);
+        });
     }
     super::motion::set_level(value.motion);
     cx.set_reduce_motion(value.motion == MotionPreference::Off);

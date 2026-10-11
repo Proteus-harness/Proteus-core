@@ -29,7 +29,7 @@ pub(super) use session::{ChatState, Session};
 use super::motion::Recent;
 use super::prefs::{self, ClientPreferences};
 use crate::api::Api;
-use crate::preferences::SendMode;
+use crate::preferences::{SendMode, ViewPreferences};
 use user_input::UserInputDrafts;
 
 /// Content the host adds to the composer row, e.g. extension icons. It gets
@@ -61,6 +61,8 @@ pub(super) struct Chat {
     user_input: UserInputDrafts,
     notice: Option<SharedString>,
     extras: ComposerExtras,
+    /// Sizes the row heights were measured with.
+    view: ViewPreferences,
     _pump: Task<()>,
     _subscriptions: Vec<Subscription>,
 }
@@ -104,6 +106,13 @@ impl Chat {
                 let enter_sends = prefs::current(cx).send == SendMode::Enter;
                 this.composer
                     .update(cx, |state, cx| state.set_submit_on_enter(enter_sends, cx));
+                // Row heights are cached; sizes change with them.
+                let view = prefs::current(cx).view;
+                if this.view != view {
+                    this.view = view;
+                    this.scroller
+                        .update(cx, |scroller, cx| scroller.remeasure(cx));
+                }
             }),
         ];
         let pump = pump::start(api.clone(), session_dir.clone(), cx);
@@ -117,6 +126,7 @@ impl Chat {
             user_input: UserInputDrafts::default(),
             notice: None,
             extras,
+            view: prefs::current(cx).view,
             _pump: pump,
             _subscriptions: subscriptions,
         };

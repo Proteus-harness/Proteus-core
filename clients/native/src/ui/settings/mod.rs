@@ -11,6 +11,7 @@ mod nav;
 mod params;
 mod plugins;
 mod revisions;
+mod sizes;
 mod slots;
 mod tools;
 mod widgets;
@@ -72,6 +73,7 @@ pub struct SettingsView {
     history: HistoryState,
     tool_search: Entity<InputState>,
     tool_query: String,
+    sizes: sizes::SizeSliders,
     focus_handle: FocusHandle,
     _subscriptions: Vec<Subscription>,
 }
@@ -87,15 +89,17 @@ impl SettingsView {
     ) -> Self {
         let tool_search =
             cx.new(|cx| InputState::new(window, cx).placeholder("Поиск по имени или описанию"));
-        let subscriptions =
-            vec![
-                cx.subscribe_in(&tool_search, window, |this, state, event, _, cx| {
-                    if matches!(event, InputEvent::Change) {
-                        this.tool_query = state.read(cx).value().trim().to_string();
-                        cx.notify();
-                    }
-                }),
-            ];
+        let (sizes, mut subscriptions) = sizes::SizeSliders::new(window, cx);
+        subscriptions.extend([cx.subscribe_in(
+            &tool_search,
+            window,
+            |this, state, event, _, cx| {
+                if matches!(event, InputEvent::Change) {
+                    this.tool_query = state.read(cx).value().trim().to_string();
+                    cx.notify();
+                }
+            },
+        )]);
         // Keeps window shortcuts routed while no input inside the screen is focused.
         let focus_handle = cx.focus_handle();
         focus_handle.focus(window, cx);
@@ -115,6 +119,7 @@ impl SettingsView {
             history: HistoryState::Idle,
             tool_search,
             tool_query: String::new(),
+            sizes,
             focus_handle,
             _subscriptions: subscriptions,
         };

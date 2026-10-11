@@ -9,10 +9,8 @@ use proteus_contracts::app_protocol::AppTranscriptSubagent;
 use super::Chat;
 use super::tool_row::{render_tool, tool_line};
 use crate::transcript::{Entry, Role};
-use crate::ui::format;
 use crate::ui::motion::{self, chevron, fade_in_if, reveal};
-
-pub(in crate::ui) const CONTENT_WIDTH: f32 = 840.;
+use crate::ui::{format, prefs};
 
 impl Chat {
     pub(super) fn toggle_expanded(&mut self, key: u64, cx: &mut Context<Self>) {
@@ -69,7 +67,7 @@ impl Chat {
         };
         let body = match (&entry.role, &entry.tool, &entry.subagent) {
             (Role::User, _, _) => render_user(entry, cx),
-            (Role::Assistant, _, _) => render_assistant(entry),
+            (Role::Assistant, _, _) => render_assistant(entry, cx),
             (Role::System, Some(tool), _) => render_tool(entry.key, tool, expanded, cx),
             (Role::System, None, Some(agent)) => render_subagent(entry.key, agent, expanded, cx),
             (Role::System, None, None) => render_note(entry, cx),
@@ -83,7 +81,7 @@ impl Chat {
             .when(ix == 0, |row| row.pt_6())
             .when(last, |row| row.pb_6())
             .child(fade_in_if(
-                div().w_full().max_w(px(CONTENT_WIDTH)).child(body),
+                div().w_full().max_w(prefs::chat_width(cx)).child(body),
                 row_id("enter", key),
                 fresh,
             ))
@@ -137,20 +135,25 @@ fn render_user(entry: &Entry, cx: &App) -> AnyElement {
                 .rounded(theme.radius * 2.)
                 .bg(theme.secondary)
                 .text_color(theme.secondary_foreground)
-                .child(SelectableText::new(row_id("user", entry.key), text.clone()))
+                .child(
+                    div()
+                        .text_size(prefs::chat_text(cx))
+                        .child(SelectableText::new(row_id("user", entry.key), text.clone())),
+                )
                 .children(images),
         )
         .child(row_actions().child(copy_button("copy-user", entry.key, text)))
         .into_any_element()
 }
 
-fn render_assistant(entry: &Entry) -> AnyElement {
+fn render_assistant(entry: &Entry, cx: &App) -> AnyElement {
     let text = SharedString::from(&entry.text);
     let actions = (!entry.streaming && !entry.text.trim().is_empty())
         .then(|| row_actions().child(copy_button("copy-assistant", entry.key, text.clone())));
     v_flex()
         .group(ROW_GROUP)
         .w_full()
+        .text_size(prefs::chat_text(cx))
         .child(
             TextView::markdown(row_id("assistant", entry.key), text)
                 .selectable(true)

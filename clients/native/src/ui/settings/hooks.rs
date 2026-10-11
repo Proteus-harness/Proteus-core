@@ -7,6 +7,7 @@ use gpui_kit::*;
 use super::SettingsView;
 use super::widgets::{card, hashed_id, hint_text, mono, note, section};
 use crate::settings::catalog::{HOOK_SLOT, module_info};
+use crate::ui::prefs;
 
 impl SettingsView {
     pub(super) fn hooks_page(&self, cx: &Context<Self>) -> Vec<AnyElement> {
@@ -34,7 +35,7 @@ impl SettingsView {
                     .items_start()
                     .child(
                         div()
-                            .w(px(20.))
+                            .w(prefs::scaled(20.))
                             .text_sm()
                             .text_color(theme.muted_foreground)
                             .child(format!("{}.", ix + 1)),

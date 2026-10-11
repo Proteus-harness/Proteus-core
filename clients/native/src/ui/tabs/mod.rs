@@ -95,9 +95,11 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         let viewport = window.viewport_size();
-        let rects = self
-            .tab_layout(cx)
-            .rects_in(viewport.width.as_f32(), viewport.height.as_f32());
+        let scale = prefs::scale(cx);
+        let rects = self.tab_layout(cx).rects_in(
+            viewport.width.as_f32() / scale,
+            viewport.height.as_f32() / scale,
+        );
         let can_split = move |pane: PaneId| {
             rects
                 .iter()

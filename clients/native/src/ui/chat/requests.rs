@@ -7,7 +7,7 @@ use proteus_contracts::app_protocol::AppApprovalRequest;
 use proteus_contracts::contracts::UserInputRequest;
 
 use super::Chat;
-use super::thread::CONTENT_WIDTH;
+use crate::ui::prefs;
 use crate::ui::{format, motion};
 
 const PREVIEW_LINES: usize = 24;
@@ -41,8 +41,8 @@ impl Chat {
                 v_flex()
                     .id("requests")
                     .w_full()
-                    .max_w(px(CONTENT_WIDTH))
-                    .max_h(px(480.))
+                    .max_w(prefs::chat_width(cx))
+                    .max_h(prefs::scaled(480.))
                     .overflow_y_scroll()
                     .gap_2()
                     .children(cards),
@@ -235,7 +235,7 @@ fn render_approval(request: &AppApprovalRequest, cx: &mut Context<Chat>) -> AnyE
                     "approval-body-{}",
                     request.approval_id
                 )))
-                .max_h(px(280.))
+                .max_h(prefs::scaled(280.))
                 .overflow_y_scroll()
                 .px_3()
                 .py_2()

@@ -5,6 +5,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
+use crate::ui::prefs;
 use gpui_kit::component::button::Button;
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenu, PopupMenuItem};
 use gpui_kit::component::*;
@@ -173,7 +174,7 @@ pub(super) fn radio_card(
     let theme = cx.theme();
     let dot = div()
         .mt(px(2.))
-        .size(px(16.))
+        .size(prefs::scaled(16.))
         .flex_none()
         .rounded_full()
         .border_1()

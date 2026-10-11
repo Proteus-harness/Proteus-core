@@ -115,7 +115,7 @@ fn drag_key(id: &str) -> String {
 fn tooltip_body(details: &Details, cx: &App) -> Div {
     let muted = cx.theme().muted_foreground;
     v_flex()
-        .max_w(px(320.))
+        .max_w(prefs::scaled(320.))
         .gap_0p5()
         .child(div().text_sm().font_semibold().child(details.title.clone()))
         .children(

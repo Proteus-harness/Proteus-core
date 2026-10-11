@@ -11,6 +11,7 @@ use proteus_contracts::app_protocol::config_builder::ConfigBuilderTool;
 use super::SettingsView;
 use super::widgets::{Tone, card, changed_dot, chip, hashed_id, mono, note, section};
 use crate::settings::catalog::{PageId, missing_tools, safety_label, tool_matches};
+use crate::ui::prefs;
 
 const DESCRIPTION_FOLD: usize = 160;
 
@@ -47,7 +48,7 @@ impl SettingsView {
             .small()
             .cleanable(true)
             .prefix(Icon::new(IconName::Search).small())
-            .w(px(260.));
+            .w(prefs::scaled(260.));
         vec![
             section(
                 format!(

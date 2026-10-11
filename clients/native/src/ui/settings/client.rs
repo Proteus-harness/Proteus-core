@@ -4,6 +4,7 @@ use gpui_kit::component::*;
 use gpui_kit::*;
 
 use super::SettingsView;
+use super::sizes::slider;
 use super::widgets::{MenuOption, card, row, section, select_menu};
 use crate::preferences::{MotionPreference, Preferences, SendMode, ThemePreference};
 use crate::ui::prefs::{self, ClientPreferences};
@@ -20,6 +21,18 @@ const MOTIONS: [(MotionPreference, &str); 3] = [
     (MotionPreference::Off, "Выключены"),
 ];
 
+const SCALES: [(u16, &str); 9] = [
+    (75, "75%"),
+    (80, "80%"),
+    (90, "90%"),
+    (100, "100%"),
+    (110, "110%"),
+    (125, "125%"),
+    (150, "150%"),
+    (175, "175%"),
+    (200, "200%"),
+];
+
 const SEND_MODES: [(SendMode, &str); 2] = [
     (SendMode::Enter, "Enter"),
     (SendMode::CtrlEnter, "Ctrl + Enter"),
@@ -34,6 +47,16 @@ impl SettingsView {
                 None,
                 choice("pref-theme", &THEMES, current.theme, |prefs, value| {
                     prefs.theme = value
+                }),
+                false,
+                cx,
+            )
+            .into_any_element(),
+            row(
+                "Масштаб",
+                Some("Ctrl + = и Ctrl + − меняют масштаб, Ctrl + 0 возвращает 100%.".into()),
+                choice("pref-scale", &SCALES, current.view.scale, |prefs, value| {
+                    prefs.view.scale = value
                 }),
                 false,
                 cx,
@@ -73,7 +96,26 @@ impl SettingsView {
             cx,
         )
         .into_any_element()];
+        let sizes = [
+            row(
+                "Размер текста",
+                Some("Сообщения диалога и поле ввода.".into()),
+                slider(&self.sizes.chat_text, "px", cx),
+                false,
+                cx,
+            )
+            .into_any_element(),
+            row(
+                "Ширина диалога",
+                Some("Наибольшая ширина ленты и поля ввода.".into()),
+                slider(&self.sizes.chat_width, "px", cx),
+                false,
+                cx,
+            )
+            .into_any_element(),
+        ];
         let mut parts = self.preferences_problem(cx);
+        parts.push(section("Диалог", None, None, card(sizes, cx), cx).into_any_element());
         parts.push(section("Поле ввода", None, None, card(rows, cx), cx).into_any_element());
         parts
     }

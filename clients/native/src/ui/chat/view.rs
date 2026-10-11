@@ -3,8 +3,8 @@ use gpui_kit::component::*;
 use gpui_kit::*;
 
 use super::Chat;
-use super::thread::CONTENT_WIDTH;
 use crate::ui::motion;
+use crate::ui::prefs;
 
 impl Render for Chat {
     /// The conversation: thread, pending requests, notice and composer.
@@ -27,7 +27,7 @@ impl Render for Chat {
                 h_flex().w_full().justify_center().px_6().pt_2().child(
                     div()
                         .w_full()
-                        .max_w(px(CONTENT_WIDTH))
+                        .max_w(prefs::chat_width(cx))
                         .text_xs()
                         .text_color(cx.theme().danger)
                         .child(notice),

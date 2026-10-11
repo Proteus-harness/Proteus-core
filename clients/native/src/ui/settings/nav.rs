@@ -11,6 +11,7 @@ use gpui_kit::*;
 use super::widgets::changed_dot;
 use super::{SettingsEvent, SettingsView};
 use crate::settings::catalog::{CLIENT_PAGES, PageId, agent_pages, area_page, page_title};
+use crate::ui::prefs;
 
 const NAV_WIDTH: f32 = 232.;
 
@@ -115,14 +116,14 @@ impl SettingsView {
                 .map(|path| (path, snapshot.writable))
         });
         v_flex()
-            .w(px(NAV_WIDTH))
+            .w(prefs::scaled(NAV_WIDTH))
             .h_full()
             .flex_none()
             .bg(theme.sidebar)
             .border_r_1()
             .border_color(theme.sidebar_border)
             .child(
-                h_flex().h(px(44.)).px_2().items_center().child(
+                h_flex().h(prefs::scaled(44.)).px_2().items_center().child(
                     Button::new("settings-back")
                         .icon(IconName::ArrowLeft)
                         .label("Чат")

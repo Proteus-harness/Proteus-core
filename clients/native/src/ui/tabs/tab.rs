@@ -13,6 +13,7 @@ use gpui_kit::*;
 use super::menu;
 use crate::tabs::{self, PaneId, TabLayout};
 use crate::ui::chat::ChatState;
+use crate::ui::prefs;
 use crate::ui::workspace::Workspace;
 use crate::ui::{drag, extensions, panels};
 
@@ -32,8 +33,8 @@ impl Render for DraggedTab {
         let foreground = cx.theme().tab_active_foreground;
         drag::lifted(
             h_flex()
-                .h(px(BAR_HEIGHT - 4.))
-                .max_w(px(240.))
+                .h(prefs::scaled(BAR_HEIGHT - 4.))
+                .max_w(prefs::scaled(240.))
                 .px_3()
                 .gap_2()
                 .text_sm()
@@ -152,8 +153,12 @@ impl Workspace {
             .flex_none()
             .map(|tab| match (icon_only, state.pinned) {
                 (true, _) => tab.px_3(),
-                (false, true) => tab.max_w(px(140.)).px_3().gap_2(),
-                (false, false) => tab.max_w(px(240.)).pl_3().pr(px(4.)).gap_2(),
+                (false, true) => tab.max_w(prefs::scaled(140.)).px_3().gap_2(),
+                (false, false) => tab
+                    .max_w(prefs::scaled(240.))
+                    .pl_3()
+                    .pr(prefs::scaled(4.))
+                    .gap_2(),
             })
             .text_sm()
             .cursor_pointer()

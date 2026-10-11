@@ -6,7 +6,6 @@ use gpui_kit::*;
 use proteus_contracts::app_protocol::AppQueuedUserMessage;
 
 use super::Chat;
-use super::thread::CONTENT_WIDTH;
 use crate::ui::{format, prefs};
 
 impl Chat {
@@ -55,7 +54,7 @@ impl Chat {
             .child(
                 v_flex()
                     .w_full()
-                    .max_w(px(CONTENT_WIDTH))
+                    .max_w(prefs::chat_width(cx))
                     .gap_1()
                     .p_2()
                     .rounded(theme.radius * 3.)
@@ -65,6 +64,7 @@ impl Chat {
                     .children(queued.iter().map(|message| render_queued(message, cx)))
                     .child(
                         Textarea::new(&self.composer)
+                            .text_size(prefs::chat_text(cx))
                             .appearance(false)
                             .bordered(false),
                     )

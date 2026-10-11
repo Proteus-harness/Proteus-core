@@ -16,6 +16,7 @@ use super::SettingsView;
 use super::editors::TextInput;
 use super::widgets::{MenuOption, Tone, changed_dot, chip, hashed_id, row, select_menu};
 use crate::settings::{FieldKind, FieldPath, choice_title, default_hint, field_kind};
+use crate::ui::prefs;
 
 const LINE_INPUT_WIDTH: f32 = 260.;
 const CHOICE_WIDTH: f32 = 220.;
@@ -85,7 +86,7 @@ impl SettingsView {
             FieldKind::Text(_) => match text.map(|text| &text.input) {
                 Some(TextInput::Line(state)) => Input::new(state)
                     .small()
-                    .w(px(LINE_INPUT_WIDTH))
+                    .w(prefs::scaled(LINE_INPUT_WIDTH))
                     .into_any_element(),
                 Some(TextInput::Area(state)) => {
                     Textarea::new(state).small().w_full().into_any_element()
@@ -205,7 +206,7 @@ fn multi_choice(spec: &Rc<FieldSpec>, options: &[ConfigChoice]) -> AnyElement {
         let checked = selected.contains(&choice.value);
         let (handler, options, value) = (spec.clone(), options.to_vec(), choice.value.clone());
         let selected = selected.clone();
-        div().w(px(CHOICE_WIDTH)).child(
+        div().w(prefs::scaled(CHOICE_WIDTH)).child(
             Checkbox::new(hashed_id("multi", &(&spec.path, ix)))
                 .checked(checked)
                 .label(choice.title.clone())

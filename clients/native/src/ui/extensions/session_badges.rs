@@ -16,6 +16,7 @@ use crate::tool_display::StepStatus;
 use crate::ui::chat::context_usage::tokens;
 use crate::ui::chat::controls::mode_label;
 use crate::ui::motion::Number;
+use crate::ui::prefs;
 
 type Read = fn(&HostView, &App) -> (Face, Details);
 
@@ -72,7 +73,7 @@ pub(super) fn ring(id: &'static str, percent: f32, color: Hsla) -> impl IntoElem
     ProgressCircle::new(id)
         .value(percent)
         .color(color)
-        .size(px(22.))
+        .size(prefs::scaled(22.))
         .child(div().text_size(px(9.)).font_semibold().child(Number::new(
             ElementId::Name(format!("{id}-number").into()),
             percent,

@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 use std::fs;
+use std::ops::RangeInclusive;
 use std::path::PathBuf;
 
 use anyhow::{Context as _, Result, anyhow};
@@ -42,9 +43,76 @@ pub struct Preferences {
     pub theme: ThemePreference,
     pub motion: MotionPreference,
     pub send: SendMode,
+    pub view: ViewPreferences,
     pub extensions: ExtensionPreferences,
     pub tabs: TabLayout,
     pub sessions: SessionMarks,
+}
+
+/// Interface scale steps in percent, for the menu and Ctrl+=/Ctrl+-.
+pub const SCALES: [u16; 9] = [75, 80, 90, 100, 110, 125, 150, 175, 200];
+/// Text size of chat messages and the composer, px at 100%.
+pub const CHAT_TEXT: RangeInclusive<u16> = 12..=22;
+/// Widest conversation column, px at 100%.
+pub const CHAT_WIDTH: RangeInclusive<u16> = 420..=1600;
+
+/// Sizes of the interface.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ViewPreferences {
+    /// Interface scale in percent, one of [`SCALES`].
+    pub scale: u16,
+    pub chat_text: u16,
+    pub chat_width: u16,
+}
+
+impl Default for ViewPreferences {
+    fn default() -> Self {
+        Self {
+            scale: 100,
+            chat_text: 16,
+            chat_width: 820,
+        }
+    }
+}
+
+impl ViewPreferences {
+    pub fn scale_factor(&self) -> f32 {
+        f32::from(self.scale) / 100.
+    }
+
+    /// Moves the scale `steps` positions along [`SCALES`]; 0 resets it.
+    pub fn zoom(&mut self, steps: i32) {
+        if steps == 0 {
+            self.scale = Self::default().scale;
+            return;
+        }
+        let at = SCALES
+            .iter()
+            .position(|scale| *scale >= self.scale)
+            .unwrap_or(SCALES.len() - 1) as i32;
+        let to = (at + steps).clamp(0, SCALES.len() as i32 - 1);
+        self.scale = SCALES[to as usize];
+    }
+
+    fn validate(&self) -> Result<()> {
+        if !SCALES.contains(&self.scale) {
+            return Err(anyhow!("scale {} is not one of {SCALES:?}", self.scale));
+        }
+        if !CHAT_TEXT.contains(&self.chat_text) {
+            return Err(anyhow!(
+                "chat_text {} is outside {CHAT_TEXT:?}",
+                self.chat_text
+            ));
+        }
+        if !CHAT_WIDTH.contains(&self.chat_width) {
+            return Err(anyhow!(
+                "chat_width {} is outside {CHAT_WIDTH:?}",
+                self.chat_width
+            ));
+        }
+        Ok(())
+    }
 }
 
 /// Where the compact icon of an extension is shown.
@@ -168,6 +236,10 @@ pub fn load() -> Result<Preferences> {
                 .tabs
                 .validate()
                 .map_err(|error| anyhow!("invalid tab layout in {}: {error}", path.display()))?;
+            preferences
+                .view
+                .validate()
+                .with_context(|| format!("invalid view sizes in {}", path.display()))?;
             Ok(preferences)
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Preferences::default()),
@@ -186,7 +258,7 @@ pub fn save(preferences: &Preferences) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{BadgePlace, ExtensionPreferences};
+    use super::{BadgePlace, ExtensionPreferences, ViewPreferences};
 
     const KNOWN: [&str; 3] = ["context", "plan", "files"];
 
@@ -232,5 +304,23 @@ mod tests {
             extensions.badges_ordered(&["plan", "quota", "files"]),
             ["files", "plan", "quota"]
         );
+    }
+
+    #[test]
+    fn zoom_walks_the_scale_steps() {
+        let mut view = ViewPreferences::default();
+        view.zoom(1);
+        assert_eq!(view.scale, 110);
+        view.zoom(-3);
+        assert_eq!(view.scale, 80);
+        view.zoom(-5);
+        assert_eq!(view.scale, 75);
+        view.zoom(20);
+        assert_eq!(view.scale, 200);
+        view.zoom(0);
+        assert_eq!(view.scale, 100);
+        assert!(view.validate().is_ok());
+        view.chat_width = 100;
+        assert!(view.validate().is_err());
     }
 }

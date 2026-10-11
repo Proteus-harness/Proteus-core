@@ -11,6 +11,7 @@ use super::widgets::changed_dot;
 use super::{LoadState, SettingsView};
 use crate::settings::catalog::{PageId, area_labels, page_description, page_title};
 use crate::ui::motion::rise_in;
+use crate::ui::prefs;
 
 const COLUMN_WIDTH: f32 = 720.;
 
@@ -32,7 +33,7 @@ impl SettingsView {
                         v_flex()
                             .gap_3()
                             .items_center()
-                            .max_w(px(560.))
+                            .max_w(prefs::scaled(560.))
                             .child(div().text_color(cx.theme().danger).child(error.clone()))
                             .child(
                                 Button::new("settings-retry")
@@ -66,7 +67,7 @@ impl SettingsView {
         let key = format!("{:?}", self.page);
         let column = v_flex()
             .w_full()
-            .max_w(px(COLUMN_WIDTH))
+            .max_w(prefs::scaled(COLUMN_WIDTH))
             .gap_6()
             .child(
                 v_flex()
@@ -177,7 +178,7 @@ impl SettingsView {
         let read_only = snapshot.is_some_and(|snapshot| !snapshot.writable);
         h_flex()
             .flex_none()
-            .h(px(56.))
+            .h(prefs::scaled(56.))
             .px_6()
             .gap_3()
             .items_center()

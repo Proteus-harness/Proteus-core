@@ -15,6 +15,7 @@ use super::changes::{ChangesModel, changes_model};
 use super::{path_label, status_color};
 use crate::files::{DiffKind, FileContent, FileDiff, FileKind, language_for};
 use crate::ui::extensions::{Host, HostEvent};
+use crate::ui::prefs;
 
 const MAX_PREVIEW: &str = "512 КБ";
 
@@ -161,7 +162,7 @@ impl Render for FileDocument {
         let theme = cx.theme();
         let status = self.changes.read(cx).status(&self.path);
         let header = h_flex()
-            .h(px(36.))
+            .h(prefs::scaled(36.))
             .flex_none()
             .px_4()
             .gap_3()
