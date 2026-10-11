@@ -152,7 +152,7 @@ async fn caught_unrecorded_tool_call_still_diverges() {
 
 #[tokio::test]
 async fn caught_unavailable_context_still_diverges() {
-    assert_caught_call_diverges(Probe::Context, "no replayable context bundle").await;
+    assert_caught_call_diverges(Probe::Context, "unexpected context build").await;
 }
 
 #[tokio::test]

@@ -9,14 +9,15 @@ use crate::{
         normalize_session_dir_path,
     },
     domain::{
-        CallId, ContextBundle, ContextChunk, ExchangeId, ExecutionId, HistoryCompactionReport,
-        SessionId, ThreadId, ToolCall, ToolCallResolution, ToolResult, TurnId,
+        AgentTask, CallId, ExchangeId, ExecutionId, HistoryCompactionReport, SessionId, ThreadId,
+        ToolCall, ToolCallResolution, ToolResult, TurnId,
     },
     model_standard::{CanonicalMessage, CanonicalModelRequest, ContentPart, MessageRole},
 };
 
 use super::WorkflowReplayOptions;
 
+mod context_builds;
 mod model_exchanges;
 mod operations;
 use model_exchanges::select_exchanges;
@@ -36,13 +37,20 @@ pub(super) struct WorkflowReplayFixture {
     pub snapshot: SessionConfigSnapshot,
     pub initial_history: Vec<CanonicalMessage>,
     pub final_history: Vec<CanonicalMessage>,
-    pub context: Option<ContextBundle>,
+    pub contexts: Vec<RecordedContextBuild>,
     pub exchanges: Vec<RecordedModelExchange>,
     pub auxiliary: Vec<RecordedModelExchange>,
     pub initial_revision: u64,
     pub tools: Vec<RecordedToolInvocation>,
     pub compactions: Vec<HistoryCompactionReport>,
     pub settlement: TurnSettled,
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct RecordedContextBuild {
+    pub invocation_id: uuid::Uuid,
+    pub task: AgentTask,
+    pub outcome: crate::contracts::ContextBuildOutcome,
 }
 
 #[derive(Debug, Clone)]
@@ -119,21 +127,7 @@ pub(super) fn load_fixture(
         .iter()
         .map(|exchange| exchange.exchange_id)
         .collect();
-    let context_request = hooks
-        .iter()
-        .find_map(|trace| match &trace.input.event {
-            crate::contracts::HookEvent::BeforeModel { request, .. } => Some(request),
-            _ => None,
-        })
-        .or_else(|| exchanges.first().map(|exchange| &exchange.request));
-    let first_output = hooks
-        .iter()
-        .find_map(|trace| match &trace.input.event {
-            crate::contracts::HookEvent::BeforeStop { output, .. } => Some(output),
-            _ => None,
-        })
-        .or(settlement.output.as_ref());
-    let context = context_request.map(|request| recorded_context(request, first_output));
+    let contexts = context_builds::select(&projection.records, execution_id, thread_id, turn_id)?;
     let opened_index = projection
         .records
         .iter()
@@ -169,7 +163,7 @@ pub(super) fn load_fixture(
         snapshot,
         initial_history: history.initial,
         final_history: history.final_history,
-        context,
+        contexts,
         exchanges,
         auxiliary,
         initial_revision: history.initial_revision,
@@ -458,40 +452,6 @@ fn select_settlement_and_compactions(
         settlement.ok_or_else(|| anyhow!("turn {turn_id} has no terminal turn_settled record"))?,
         compactions,
     ))
-}
-
-pub(super) fn recorded_context(
-    request: &CanonicalModelRequest,
-    output: Option<&crate::domain::AgentOutput>,
-) -> ContextBundle {
-    let mut chunks = request
-        .messages
-        .iter()
-        .flat_map(|message| message.parts.iter())
-        .filter_map(|part| match &part.payload {
-            ContentPart::Context { chunk } => Some(chunk.clone()),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    let expected_chunks = output
-        .and_then(|output| output.metadata.get("context"))
-        .and_then(|context| context.get("chunks"))
-        .and_then(serde_json::Value::as_u64)
-        .and_then(|count| usize::try_from(count).ok())
-        .unwrap_or(chunks.len());
-    while chunks.len() < expected_chunks {
-        chunks.push(ContextChunk::new(
-            "workflow_replay.unavailable",
-            "context removed by recorded compaction",
-        ));
-    }
-    let mut bundle = ContextBundle::new(chunks);
-    bundle.token_estimate = output
-        .and_then(|output| output.metadata.get("context"))
-        .and_then(|context| context.get("initial_token_estimate"))
-        .and_then(serde_json::Value::as_u64)
-        .and_then(|tokens| u32::try_from(tokens).ok());
-    bundle
 }
 
 fn message_text(message: &CanonicalMessage) -> String {

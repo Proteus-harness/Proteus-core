@@ -119,6 +119,13 @@ Dev/test сохраняют line tables для backtraces без тяжёлой 
 
 ### Process И Modules
 
+Context build проверяют `proteus-core --lib bound_context`,
+`core::session_journal::context_tests` и `workflow_replay::tests::context_builds`:
+общая запись прямого/host вызова, model-free success/error, full bundle и цепочка
+ошибки, concurrent inputs, лишний/изменённый/пропущенный вызов даже при caught
+error, pending и cold read после interruption. Process wire/authority не меняются;
+подмена context implementation продолжает проверяться `module_swap` и profile swap.
+
 | Граница | Target / исходники |
 |---|---|
 | Framing, child lifecycle, bounded transport | `proteus-process-host`, включая собственный runner `tests/session.rs` |

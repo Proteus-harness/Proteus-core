@@ -27,6 +27,7 @@ use crate::{
 };
 
 mod compaction;
+mod context_builds;
 mod model_free;
 mod selection;
 mod terminal;

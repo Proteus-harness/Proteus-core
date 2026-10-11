@@ -64,8 +64,8 @@ impl ReplayContextBuilder {
 
 #[async_trait]
 impl ContextBuilder for ReplayContextBuilder {
-    async fn build(&self, _input: ContextBuildInput) -> Result<ContextBundle> {
-        self.state.context()
+    async fn build(&self, input: ContextBuildInput) -> Result<ContextBundle> {
+        self.state.context(input)
     }
 }
 

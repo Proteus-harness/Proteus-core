@@ -415,7 +415,7 @@ identity даёт явную ошибку; эти данные не обязат
 
 `ToolSpec` содержит обязательный boolean `supports_parallel_tool_calls`,
 независимый от `safety`. Он проходит через tool list, policy, selection hooks,
-canonical model request, workflow/preparation hooks, journal schema v20 и config
+canonical model request, workflow/preparation hooks, journal schema v21 и config
 snapshot v8. Rust
 constructor задаёт `false`, модуль обязан передать поле в JSON явно. Selector
 сохраняет зарегистрированное значение; несовпадение отклоняется. Старые
@@ -850,11 +850,11 @@ event; это причина, а не команда Core повторить з�
 без завершения, сохраняя остальные
 ошибки данных и deadline отдельными. Codex workflow принимает решение о повторе
 с подтверждённой историей; preparation hook сохраняет свою политику повторов.
-Действуют `model/v12`, `workflow/v20`, `hook/v6`, `tool/v6` и journal schema v20,
+Действуют `model/v12`, `workflow/v20`, `hook/v6`, `tool/v6` и journal schema v21,
 без readers старых форм.
 Передача `ToolCall` в существующем `CanonicalMessage` не меняет wire/storage DTO.
 
-Journal schema v20 записывает `ModelMessageRecorded { exchange_id, message }`
+Journal schema v21 записывает `ModelMessageRecorded { exchange_id, message }`
 до доставки completed item и сохраняет полный `ModelFailure`; workflow replay
 воспроизводит последовательность completed items и возвращает тот же
 `kind`, текст и `completed_messages`. Ветвление workflow по типу ошибки прямого

@@ -24,6 +24,26 @@ pub(crate) struct ContextExecutionRecorder {
 
 #[async_trait]
 impl ExecutionRecorder for ContextExecutionRecorder {
+    async fn context_request_recorded(
+        &self,
+        invocation_id: uuid::Uuid,
+        task: &crate::domain::AgentTask,
+    ) -> Result<()> {
+        self.inner
+            .context_request_recorded(invocation_id, task)
+            .await
+    }
+
+    async fn context_response_recorded(
+        &self,
+        invocation_id: uuid::Uuid,
+        outcome: &crate::contracts::ContextBuildOutcome,
+    ) -> Result<()> {
+        self.inner
+            .context_response_recorded(invocation_id, outcome)
+            .await
+    }
+
     async fn hook_recorded(&self, trace: &crate::contracts::HookTrace) -> Result<()> {
         self.inner.hook_recorded(trace).await
     }

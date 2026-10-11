@@ -5,10 +5,9 @@
 
 mod model_stream;
 
-use std::{future::Future, path::PathBuf, time::Duration};
+use std::{future::Future, path::PathBuf};
 
 use anyhow::{Result, anyhow};
-use tokio::time::timeout;
 
 use crate::{
     contracts::{
@@ -87,32 +86,24 @@ impl WorkflowHostRuntime {
         &self,
         task: AgentTask,
     ) -> Result<crate::domain::ContextBundle> {
-        let ctx = self.ctx.clone();
-        self.run_active(async move {
-            let execution = ctx.execution();
-            let attribution = match ctx.agent() {
-                Ok(agent) => ExecutionAttribution::for_turn(
-                    execution.scope.execution_id,
-                    agent.session_id,
-                    agent.thread_id,
-                    agent.turn_id,
-                ),
-                Err(_) => ExecutionAttribution::detached(execution.scope.execution_id),
-            };
-            let timeout_ms = ctx.context_timeout_ms();
-
-            timeout(
-                Duration::from_millis(timeout_ms),
-                ctx.context().build(ContextBuildInput {
-                    task,
-                    scope: execution.scope.clone(),
-                    attribution,
-                }),
-            )
+        let ctx = &self.ctx;
+        let execution = ctx.execution();
+        let attribution = match ctx.agent() {
+            Ok(agent) => ExecutionAttribution::for_turn(
+                execution.scope.execution_id,
+                agent.session_id,
+                agent.thread_id,
+                agent.turn_id,
+            ),
+            Err(_) => ExecutionAttribution::detached(execution.scope.execution_id),
+        };
+        ctx.context()
+            .build(ContextBuildInput {
+                task,
+                scope: execution.scope.clone(),
+                attribution,
+            })
             .await
-            .map_err(|_| anyhow!("context build timed out after {}ms", timeout_ms))?
-        })
-        .await
     }
 
     pub(crate) async fn start_model_stream(

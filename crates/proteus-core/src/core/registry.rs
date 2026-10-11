@@ -39,6 +39,16 @@ pub struct RuntimeRegistry {
 }
 
 impl RuntimeRegistry {
+    pub(crate) fn bind_context(&self, binding: &ModelExecutionBinding) -> Arc<dyn ContextBuilder> {
+        Arc::new(super::bound_context::BoundContext::new(
+            self.context.clone(),
+            binding.scope().clone(),
+            binding.attribution(),
+            binding.recorder(),
+            self.runtime_config.context_timeout_ms,
+        ))
+    }
+
     pub(crate) fn bind_hooks(
         &self,
         scope: crate::contracts::ExecutionScope,
@@ -309,15 +319,13 @@ impl RuntimeRegistry {
         approval: Arc<dyn crate::contracts::ApprovalTransport>,
         permission_mode: crate::domain::PermissionMode,
     ) -> Result<crate::contracts::WorkflowInvocationContext> {
-        let execution = self.execution_context(
-            ModelExecutionBinding::detached(scope),
-            approval,
-            permission_mode,
-        )?;
+        let binding = ModelExecutionBinding::detached(scope);
+        let context = self.bind_context(&binding);
+        let execution = self.execution_context(binding, approval, permission_mode)?;
         Ok(crate::contracts::WorkflowInvocationContext::Execution(
             crate::contracts::WorkflowExecutionContext {
                 execution,
-                context: self.context.clone(),
+                context,
                 model_ref: self.model_config.as_ref().map(|cfg| cfg.model_ref()),
                 reasoning: self
                     .model_config
@@ -335,13 +343,14 @@ impl RuntimeRegistry {
     /// Wraps an already-bound generic execution in the chat/application
     /// dependencies required by the selected `Workflow`.
     ///
-    /// Turn attribution, recorders, policy mode and model binding are resolved
-    /// before this factory is called; this method must not create a second
+    /// Turn attribution, recorders, policy mode, model and context bindings are
+    /// resolved before this factory is called; this method must not create a second
     /// `ExecutionScope` or re-read mutable runtime state.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn agent_workflow_context(
         &self,
         execution: ExecutionContext,
+        context: Arc<dyn ContextBuilder>,
         session_id: SessionId,
         thread_id: ThreadId,
         turn_id: TurnId,
@@ -370,7 +379,7 @@ impl RuntimeRegistry {
             reasoning,
             self.runtime_config.context_timeout_ms,
             events,
-            self.context.clone(),
+            context,
             user_input,
             preparation,
             self.agent_control.clone(),

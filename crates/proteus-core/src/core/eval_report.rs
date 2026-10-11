@@ -102,6 +102,7 @@ impl EvalAccumulator {
         );
 
         match &record.entry {
+            JournalEntry::ContextRequestRecorded(_) | JournalEntry::ContextResponseRecorded(_) => {}
             JournalEntry::TurnOpened(_) => {
                 if let Some(turn_id) = record.turn_id {
                     self.turns.entry(turn_id).or_default();

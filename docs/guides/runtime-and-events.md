@@ -357,7 +357,7 @@ conversation-bound `before_model` и `before_context` он содержит cano
 history, revision и context observations; `BeforeToolSelection` получает
 optional bound snapshot; у остальных events и standalone
 операций — `null`. Hook response
-меняет только разрешённые поля event. Journal schema v20 записывает snapshot
+меняет только разрешённые поля event. Journal schema v21 записывает snapshot
 как часть trace; replay использует записанный transformed outcome как oracle,
 не вызывает handlers и не воспроизводит их package-owned storage effects.
 
@@ -411,13 +411,14 @@ failed и unchanged результаты, которым не нужен changed
 Если runtime запущен с config path, рядом с config root создаётся дерево
 `sessions/<workspace>/<session>/` (подробно про layout, resume и lifecycle —
 раздел «Session Store» ниже). Source of truth — `journal.jsonl`, где одна
-строка является строгим record schema v20 с `record_id`, монотонным
+строка является строгим record schema v21 с `record_id`, монотонным
 `session_seq`, timestamp, mandatory session id, optional execution/thread/turn
-ids, `kind` и payload. `TurnOpened`, model и tool facts требуют
+ids, `kind` и payload. `TurnOpened`, context, model и tool facts требуют
 `ExecutionId`; history/settlement остаются chat facts без execution owner.
 Detached execution facts имеют execution id, но не выдумывают thread/turn.
 
-Journal фиксирует `turn_opened`, typed `hook_invoked`, revisioned `history_mutated`, точные shaped
+Journal фиксирует `turn_opened`, typed `hook_invoked`, revisioned `history_mutated`,
+пару `context_request_recorded` / `context_response_recorded`, точные shaped
 model request/completed items/terminal response, tool request/approval/resolution/result и
 `turn_settled`. Conversation history для resume получается fold-ом
 `history_mutated`; request-scoped context в неё не попадает. Compaction пишет
@@ -1032,12 +1033,12 @@ journal. ОС освобождает владение при закрытии pr
 находится в parent directory, а время создания/изменения берётся из metadata
 файловой системы. Новая session получает 10-значный numeric basename,
 детерминированный из внутреннего UUID; полный `SessionId` сохраняется в
-`session.json` schema v4 вместе с `journal_schema_version = 20`. Перед записью runtime
+`session.json` schema v4 вместе с `journal_schema_version = 21`. Перед записью runtime
 проверяет metadata, поэтому коллизия коротких имён завершается ошибкой и не
 смешивает histories.
 
 Reader принимает только basename из 10 ASCII-цифр с обязательным
-`session.json` schema v4 и journal schema v20. UUID-basename directories,
+`session.json` schema v4 и journal schema v21. UUID-basename directories,
 прежние session/journal schemas и неизвестные wire/storage формы
 отвергаются явно: pre-release cutover не содержит legacy decoder или dual-read.
 Обычный каталог и автоматический выбор последней session пропускают
@@ -1283,7 +1284,9 @@ settings и instruction blocks, необходимые для построени
 Policy. Их process implementations запускаются; реальные model adapters,
 context providers, subagents и tool implementations не создаются: model
 responses, approval decisions и tool results последовательно подставляются из
-journal; context восстанавливается из canonical request, selection — по typed
+journal; полный context bundle или ошибка возвращаются по записанным context
+request/response facts с проверкой точного task input и однократного consumption;
+selection — по typed
 `BeforeToolSelection` trace, preparation — по typed `BeforeContext` trace. `origin`
 различает `direct` и `auxiliary`, а `OperationOwner` связывает exchange с
 workflow, hook invocation или tool call. Workflow-owned exchanges составляют
@@ -1312,14 +1315,15 @@ history проходит общий runtime validator. Допустимая но
 
 Turn без model exchanges также поддерживается: например, `coding.project_check`
 воспроизводит passing tests или остановку на tool failure по tool facts и
-settlement. Фиктивная модель не вызывается. Без записанного model request
-нельзя восстановить context builder; selection и preparation без модели
-воспроизводятся по записанным `BeforeToolSelection` и `BeforeContext` traces. Запрос
+settlement. Фиктивная модель не вызывается. Context build не требует последующего
+model request: успех и ошибка воспроизводятся по собственным records.
+Selection и preparation без модели воспроизводятся по записанным
+`BeforeToolSelection` и `BeforeContext` traces. Запрос
 незаписанных данных отмечается как divergence. Незаписанный model/tool call также остаётся
 divergence, даже если Workflow перехватил ошибку и вернул прежний итог.
 
 Текущий workflow replay не эмулирует root steering decorator: turn с доставленным steering или
-follow-up отклоняется fail-closed. Незавершённые model/tool pairs, overlap turns
+follow-up отклоняется fail-closed. Незавершённые context/model/tool pairs, overlap turns
 и отсутствующий snapshot также являются ошибкой выбора fixture. Terminal
 workflow `Error` поддерживается при завершённой последовательности records,
 включая сравнение явно возвращённого workflow history update.

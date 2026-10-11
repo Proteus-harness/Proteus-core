@@ -22,7 +22,7 @@ fn state(hooks: Vec<HookTrace>, tools: Vec<RecordedToolInvocation>) -> Arc<Repla
         hooks,
         tools,
         vec![],
-        None,
+        vec![],
         &ReasoningConfig::default(),
         new_message_id(),
     ))

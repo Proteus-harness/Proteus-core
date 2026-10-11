@@ -334,6 +334,16 @@ Completion review повторно запускает проверки в том
 
 ### Context И Context Provider
 
+Workflow получает execution-bound context builder. Прямой `ctx.context.build`
+и callback `host.context.build` записывают точный `AgentTask` и outcome через
+общий recorder, до запуска builder и до возврата результата соответственно.
+Outcome содержит весь `ContextBundle` или исходную ошибку с цепочкой causes.
+Attribution фиксирует host; wrapper проверяет её вместе с execution identity,
+timeout и cancellation. Detached workflow не требует модели или чата.
+Диагностическое построение вне workflow использует исходный builder и не
+создаёт workflow journal facts. Process contracts `context/v3` и
+`context_provider/v4` сохраняют прежние DTO и authority.
+
 `ContextChunk.render_mode` — обязательное typed поле: `source_annotated`
 добавляет `Context from <source> (<path>):\n` (path необязателен), `verbatim`
 передаёт `content` дословно. Rust-конструктор `ContextChunk::new` выбирает

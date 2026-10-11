@@ -2,6 +2,7 @@ mod agent_control;
 pub(crate) mod agent_plugins;
 mod approval;
 mod assembly;
+mod bound_context;
 mod bound_model;
 mod bound_tools;
 mod config;
@@ -69,11 +70,12 @@ pub use runtime::{
     config_store_root, event_log_path,
 };
 pub use session_journal::{
-    DEFAULT_BLOB_THRESHOLD_BYTES, HistoryMutated, HistoryMutationKind, JOURNAL_FILE,
-    JOURNAL_SCHEMA_VERSION, JournalEntry, JournalKind, JournalProjection, JournalRecord,
-    ModelRequestRecorded, ModelResponseOutcome, ModelResponseRecorded, SessionExecutionRecorder,
-    SessionToolExecutionRecorder, ToolCallRecordPhase, ToolCallRecorded, ToolResultRecorded,
-    TurnOpened, TurnSettled, TurnSettlementStatus,
+    ContextRequestRecorded, ContextResponseRecorded, DEFAULT_BLOB_THRESHOLD_BYTES, HistoryMutated,
+    HistoryMutationKind, JOURNAL_FILE, JOURNAL_SCHEMA_VERSION, JournalEntry, JournalKind,
+    JournalProjection, JournalRecord, ModelRequestRecorded, ModelResponseOutcome,
+    ModelResponseRecorded, SessionExecutionRecorder, SessionToolExecutionRecorder,
+    ToolCallRecordPhase, ToolCallRecorded, ToolResultRecorded, TurnOpened, TurnSettled,
+    TurnSettlementStatus,
 };
 pub use session_store::{
     SessionStore, canonicalize_session_dir_path, decode_workspace_path, delete_workspace_session,

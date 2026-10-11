@@ -1,5 +1,5 @@
 use proteus_contracts::{
-    contracts::{ModelCallOrigin, OperationOwner},
+    contracts::{ContextBuildOutcome, ModelCallOrigin, OperationOwner},
     domain::{
         AgentOutput, AgentTask, ExchangeId, ExecutionId, HistoryCompactionReport, RecordId,
         SessionId, ThreadId, ToolCall, ToolCallResolution, ToolResult, TurnId,
@@ -10,7 +10,21 @@ use proteus_contracts::{
 };
 use serde::{Deserialize, Serialize};
 
-pub const JOURNAL_SCHEMA_VERSION: u32 = 20;
+pub const JOURNAL_SCHEMA_VERSION: u32 = 21;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ContextRequestRecorded {
+    pub invocation_id: uuid::Uuid,
+    pub task: AgentTask,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ContextResponseRecorded {
+    pub invocation_id: uuid::Uuid,
+    pub outcome: ContextBuildOutcome,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -115,6 +129,8 @@ pub enum JournalKind {
     HookInvoked,
     TurnOpened,
     HistoryMutated,
+    ContextRequestRecorded,
+    ContextResponseRecorded,
     ModelRequestRecorded,
     ModelMessageRecorded,
     ModelResponseRecorded,
@@ -135,6 +151,8 @@ pub enum JournalEntry {
     HookInvoked(proteus_contracts::contracts::HookTrace),
     TurnOpened(TurnOpened),
     HistoryMutated(HistoryMutated),
+    ContextRequestRecorded(ContextRequestRecorded),
+    ContextResponseRecorded(ContextResponseRecorded),
     ModelRequestRecorded(ModelRequestRecorded),
     ModelMessageRecorded(ModelMessageRecorded),
     ModelResponseRecorded(ModelResponseRecorded),
@@ -150,6 +168,8 @@ impl JournalEntry {
             Self::HookInvoked(_) => JournalKind::HookInvoked,
             Self::TurnOpened(_) => JournalKind::TurnOpened,
             Self::HistoryMutated(_) => JournalKind::HistoryMutated,
+            Self::ContextRequestRecorded(_) => JournalKind::ContextRequestRecorded,
+            Self::ContextResponseRecorded(_) => JournalKind::ContextResponseRecorded,
             Self::ModelRequestRecorded(_) => JournalKind::ModelRequestRecorded,
             Self::ModelMessageRecorded(_) => JournalKind::ModelMessageRecorded,
             Self::ModelResponseRecorded(_) => JournalKind::ModelResponseRecorded,

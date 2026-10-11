@@ -1,6 +1,6 @@
 # Операции Hooks И Tools
 
-Действующая граница: `hook/v6`, `tool/v6`, `workflow/v20`, journal schema v20.
+Действующая граница: `hook/v6`, `tool/v6`, `workflow/v20`, journal schema v21.
 Отдельные slots `compactor` и `tool_exposure`, их selections, exports и
 adapters удалены.
 Алгоритм подготовки выбирается обычным hook export в `modules.hooks`.

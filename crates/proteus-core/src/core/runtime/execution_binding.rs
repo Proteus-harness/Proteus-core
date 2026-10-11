@@ -70,6 +70,7 @@ impl AgentRuntime {
         )
         .with_conversation(conversation.clone())
         .with_tool_recorder(tool_recorder.clone());
+        let bound_context = snapshot.runtime.registry.bind_context(&model_binding);
         let execution = snapshot.runtime.registry.execution_context_for_model(
             model_binding,
             self.services.approval.clone(),
@@ -82,6 +83,7 @@ impl AgentRuntime {
             .registry
             .agent_workflow_context(
                 execution,
+                bound_context,
                 self.session.session_id,
                 self.session.thread_id,
                 turn_id,

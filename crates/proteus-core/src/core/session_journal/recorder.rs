@@ -2,18 +2,22 @@ use anyhow::{Result, bail};
 use async_trait::async_trait;
 use proteus_contracts::{
     contracts::{
-        ExecutionAttribution, ExecutionRecorder, ModelCallOrigin, OperationOwner,
-        ToolExecutionRecorder,
+        ContextBuildOutcome, ExecutionAttribution, ExecutionRecorder, ModelCallOrigin,
+        OperationOwner, ToolExecutionRecorder,
     },
-    domain::{ExchangeId, ExecutionId, ThreadId, ToolCall, ToolCallResolution, ToolResult, TurnId},
+    domain::{
+        AgentTask, ExchangeId, ExecutionId, ThreadId, ToolCall, ToolCallResolution, ToolResult,
+        TurnId,
+    },
     model_standard::{CanonicalModelRequest, CanonicalModelResponse, ModelFailure},
 };
 
 use crate::core::SessionStore;
 
 use super::{
-    JournalEntry, ModelRequestRecorded, ModelResponseOutcome, ModelResponseRecorded,
-    ToolCallRecordPhase, ToolCallRecorded, ToolResultRecorded,
+    ContextRequestRecorded, ContextResponseRecorded, JournalEntry, ModelRequestRecorded,
+    ModelResponseOutcome, ModelResponseRecorded, ToolCallRecordPhase, ToolCallRecorded,
+    ToolResultRecorded,
 };
 
 #[derive(Debug, Clone)]
@@ -48,6 +52,40 @@ impl SessionExecutionRecorder {
 
 #[async_trait]
 impl ExecutionRecorder for SessionExecutionRecorder {
+    async fn context_request_recorded(
+        &self,
+        invocation_id: uuid::Uuid,
+        task: &AgentTask,
+    ) -> Result<()> {
+        self.store
+            .append_execution_journal_entry(
+                self.attribution,
+                JournalEntry::ContextRequestRecorded(ContextRequestRecorded {
+                    invocation_id,
+                    task: task.clone(),
+                }),
+            )
+            .await?;
+        Ok(())
+    }
+
+    async fn context_response_recorded(
+        &self,
+        invocation_id: uuid::Uuid,
+        outcome: &ContextBuildOutcome,
+    ) -> Result<()> {
+        self.store
+            .append_execution_journal_entry(
+                self.attribution,
+                JournalEntry::ContextResponseRecorded(ContextResponseRecorded {
+                    invocation_id,
+                    outcome: outcome.clone(),
+                }),
+            )
+            .await?;
+        Ok(())
+    }
+
     async fn hook_recorded(&self, trace: &crate::contracts::HookTrace) -> Result<()> {
         if trace.input.attribution.execution_id != self.attribution.execution_id
             || trace.input.attribution.agent.map(|agent| agent.session_id)

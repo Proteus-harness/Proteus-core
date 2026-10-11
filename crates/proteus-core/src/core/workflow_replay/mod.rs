@@ -93,19 +93,26 @@ pub async fn replay_workflow(
             }
         }
     }
-    let state = Arc::new(ReplayState::new(
+    let mut state = ReplayState::new(
         fixture.exchanges.clone(),
         fixture.hooks.clone(),
         fixture.tools.clone(),
         fixture.compactions.clone(),
-        fixture.context.clone(),
+        fixture.contexts.clone(),
         &fixture.snapshot.reasoning,
         fixture
             .initial_history
             .last()
             .expect("persisted current user message")
             .id,
+    );
+    state.bind_context(crate::contracts::ExecutionAttribution::for_turn(
+        fixture.execution_id,
+        fixture.session_id,
+        fixture.thread_id,
+        fixture.turn_id,
     ));
+    let state = Arc::new(state);
     state.set_auxiliary(fixture.auxiliary.clone());
     state.bind_history(fixture.execution_id, fixture.initial_revision);
     let tools = register_replay_tools(state.clone(), specs)?;
