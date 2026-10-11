@@ -274,7 +274,9 @@ impl Workspace {
                         .small()
                         .icon(IconName::Plus)
                         .label("Новая сессия")
-                        .on_click(cx.listener(|this, _, window, cx| this.new_session(window, cx))),
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.new_session(Some(pane), window, cx)
+                        })),
                 )
             })
     }

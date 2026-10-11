@@ -1,8 +1,6 @@
 //! The bar above the tabs: the logo menu, the open folder, extension icons
 //! and the settings button. It also moves the window.
 
-use std::rc::Rc;
-
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenu, PopupMenuItem};
@@ -19,8 +17,6 @@ use crate::ui::workspace::{Status, Workspace};
 
 /// Logo cell size before zoom.
 const LOGO_CELL: f32 = 2.;
-
-type Run = Rc<dyn Fn(&mut Window, &mut App)>;
 
 impl Workspace {
     pub(in crate::ui) fn render_top_bar(&self, cx: &Context<Self>) -> impl IntoElement + use<> {
@@ -41,14 +37,6 @@ impl Workspace {
                 },
             )
         });
-        let settings: Run = {
-            let workspace = workspace.clone();
-            Rc::new(move |window, cx| {
-                workspace
-                    .update(cx, |this, cx| this.open_settings(window, cx))
-                    .ok();
-            })
-        };
         let ready = matches!(self.status, Status::Ready);
         let busy = self.chats.values().any(|chat| {
             matches!(chat.view.read(cx).session.state(), ChatState::Busy(_))
@@ -76,10 +64,7 @@ impl Workspace {
         let left = h_flex()
             .gap_1()
             .items_center()
-            .child(logo_button(
-                busy,
-                logo_menu(projects, ready.then_some(settings)),
-            ))
+            .child(logo_button(busy, logo_menu(projects)))
             .child(folder);
         let right = h_flex()
             .gap_1()
@@ -106,7 +91,7 @@ impl Workspace {
 /// The bar of the folder picker: only the logo menu.
 pub(in crate::ui) fn picker_top_bar(projects: Projects, cx: &App) -> impl IntoElement + use<> {
     bar(
-        logo_button(false, logo_menu(Some(projects), None)),
+        logo_button(false, logo_menu(Some(projects))),
         div(),
         cx.theme(),
     )
@@ -134,23 +119,13 @@ fn logo_button(
         .dropdown_menu_with_anchor(Anchor::TopLeft, menu)
 }
 
-/// Projects, settings, the version and quitting.
+/// Projects, the version and quitting; settings have their own button.
 fn logo_menu(
     projects: Option<Projects>,
-    settings: Option<Run>,
 ) -> impl Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static {
     move |mut menu, _, cx| {
         if let Some(projects) = &projects {
             menu = projects.items(menu, cx).separator();
-        }
-        if let Some(settings) = settings.clone() {
-            menu = menu
-                .item(
-                    PopupMenuItem::new("Настройки")
-                        .icon(Icon::new(Lucide::Settings))
-                        .on_click(move |_, window, cx| settings(window, cx)),
-                )
-                .separator();
         }
         menu.label(concat!("Proteus native ", env!("CARGO_PKG_VERSION")))
             .item(

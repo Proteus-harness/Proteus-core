@@ -1,6 +1,6 @@
 //! Menus of the tab strip: the context menu of a tab (pinning, closing,
-//! splitting) and the «+» menu with a new session, the panels and the
-//! settings.
+//! splitting) and the «+» menu with a new session, a terminal and the
+//! panels.
 
 use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
 use gpui_kit::*;
@@ -81,8 +81,8 @@ impl TabMenu {
     }
 }
 
-/// The «+» menu of the strip of `pane`: a closed panel opens in this pane,
-/// an open one comes forward where it is.
+/// The «+» menu of the strip of `pane`: everything opens in this pane,
+/// except an open panel, which comes forward where it is.
 pub(super) fn new_tab_menu(
     menu: PopupMenu,
     pane: PaneId,
@@ -91,10 +91,12 @@ pub(super) fn new_tab_menu(
 ) -> PopupMenu {
     let open = {
         let workspace = workspace.clone();
-        move |run: fn(&mut Workspace, &mut Window, &mut Context<Workspace>)| {
+        move |run: fn(&mut Workspace, PaneId, &mut Window, &mut Context<Workspace>)| {
             let workspace = workspace.clone();
             move |_: &ClickEvent, window: &mut Window, cx: &mut App| {
-                workspace.update(cx, |this, cx| run(this, window, cx)).ok();
+                workspace
+                    .update(cx, |this, cx| run(this, pane, window, cx))
+                    .ok();
             }
         }
     };
@@ -103,15 +105,18 @@ pub(super) fn new_tab_menu(
         .map(|workspace| workspace.read(cx).tab_layout(cx));
     let mut menu = menu
         .item(
-            PopupMenuItem::new("Новая сессия")
-                .on_click(open(|this, window, cx| this.new_session(window, cx))),
+            PopupMenuItem::new("Новая сессия").on_click(open(|this, pane, window, cx| {
+                this.new_session(Some(pane), window, cx)
+            })),
         )
         .item(
             PopupMenuItem::new("Терминал")
                 .icon(gpui_kit::component::Icon::new(
                     gpui_kit::assets::IconName::SquareTerminal,
                 ))
-                .on_click(open(|this, window, cx| this.open_terminal(window, cx))),
+                .on_click(open(|this, pane, window, cx| {
+                    this.open_terminal(Some(pane), window, cx)
+                })),
         )
         .separator();
     for panel in panels::available(cx) {
@@ -132,10 +137,7 @@ pub(super) fn new_tab_menu(
                 }),
         );
     }
-    menu.separator().item(
-        PopupMenuItem::new("Настройки")
-            .on_click(open(|this, window, cx| this.open_settings(window, cx))),
-    )
+    menu
 }
 
 impl Workspace {

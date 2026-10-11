@@ -205,7 +205,7 @@ impl Workspace {
                 self.status = Status::Ready;
                 self.restore_chats(boot.restored, window, cx);
                 if let Some(dir) = boot.startup {
-                    self.add_chat(dir, window, cx);
+                    self.add_chat(dir, None, window, cx);
                 } else {
                     self.focus_active_chat(window, cx);
                 }

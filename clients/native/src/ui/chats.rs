@@ -11,7 +11,7 @@ use super::extensions::{HostEvent, OpenDocument};
 use super::format;
 use super::workspace::{Status, Workspace};
 use crate::preferences::BadgePlace;
-use crate::tabs::{self, TabLayout};
+use crate::tabs::{self, PaneId, TabLayout};
 
 /// A chat view and the subscription to its events.
 pub(super) struct OpenChat {
@@ -62,13 +62,15 @@ impl Workspace {
 
     /// Opens a resumed or new session as a regular tab with the keyboard in
     /// its composer.
-    pub(super) fn add_chat(&mut self, dir: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn add_chat(
+        &mut self,
+        dir: PathBuf,
+        pane: Option<PaneId>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let id = self.insert_chat(dir, window, cx);
-        let open = OpenDocument {
-            preview: false,
-            focus: true,
-        };
-        self.show_tab(&id, open, window, cx);
+        self.show_tab_in(&id, pane, window, cx);
     }
 
     /// Shows the chat of a session, resuming the session first when its tab
@@ -126,7 +128,13 @@ impl Workspace {
         self.open_chat(dir, open, window, cx);
     }
 
-    pub(super) fn new_session(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// Starts a session; its chat opens in `pane` when the user chose one.
+    pub(super) fn new_session(
+        &mut self,
+        pane: Option<PaneId>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.close_settings(cx);
         let source = self.active_chat_dir().map(Path::to_path_buf);
         self.call_in(
@@ -136,9 +144,9 @@ impl Workspace {
                 let opened = api.new_session(source.as_deref())?;
                 Ok((opened, api.sessions()?))
             },
-            |this, (opened, sessions), window, cx| {
+            move |this, (opened, sessions), window, cx| {
                 this.sessions = sessions;
-                this.add_chat(opened.session_dir, window, cx);
+                this.add_chat(opened.session_dir, pane, window, cx);
             },
         );
     }

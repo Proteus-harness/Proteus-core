@@ -90,9 +90,9 @@ impl Render for Workspace {
                     this.toggle_panel(&tab, window, cx);
                 }
             }))
-            .on_action(cx.listener(|this, _: &NewSession, window, cx| this.new_session(window, cx)))
+            .on_action(cx.listener(|this, _: &NewSession, window, cx| this.new_session(None, window, cx)))
             .on_action(
-                cx.listener(|this, _: &NewTerminal, window, cx| this.open_terminal(window, cx)),
+                cx.listener(|this, _: &NewTerminal, window, cx| this.open_terminal(None, window, cx)),
             )
             .on_action(cx.listener(|this, _: &NextTab, window, cx| this.step_tab(1, window, cx)))
             .on_action(

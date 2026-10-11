@@ -11,7 +11,7 @@ use gpui_kit::*;
 use crate::preferences::BadgePlace;
 use crate::ui::chat::ChatState;
 use crate::ui::workspace::Workspace;
-use crate::ui::{panels, prefs};
+use crate::ui::panels;
 
 impl Workspace {
     pub(in crate::ui) fn render_status_bar(&self, cx: &Context<Self>) -> impl IntoElement + use<> {
@@ -39,9 +39,10 @@ impl Workspace {
                         }
                     }))
             });
+        // Same height as the top bar.
         h_flex()
             .flex_none()
-            .min_h(prefs::scaled(30.))
+            .h(TITLE_BAR_HEIGHT)
             .px_1()
             .gap_1()
             .items_center()

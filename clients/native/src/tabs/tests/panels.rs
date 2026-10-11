@@ -58,6 +58,20 @@ fn chats_and_documents_skip_panes_of_panels() {
 }
 
 #[test]
+fn a_chosen_pane_takes_the_tab_even_among_panels() {
+    let mut layout = TabLayout::default();
+    layout.open(A, |_| true);
+    layout.open_in("terminal:1", PaneId(1), |_| true);
+    assert_eq!(
+        shape(&layout),
+        "row(264px 1[@sessions^, @files^, terminal:1*] | 0[a*])"
+    );
+    // An open tab only comes forward where it is.
+    layout.open_in(A, PaneId(1), |_| true);
+    assert_eq!(layout.pane_of(A), Some(PaneId(0)));
+}
+
+#[test]
 fn without_a_pane_for_chats_one_is_added_on_the_right() {
     let mut layout = TabLayout::default();
     layout.move_tab(FILES, PaneId(0), None);

@@ -51,14 +51,17 @@ fn main() {
             })
             .detach();
 
+            // The top bar draws the window controls and moves the window itself.
+            let base = gpui_kit::component::TitleBar::window_options();
             let window_options = WindowOptions {
                 app_id: Some(APP_ID.to_owned()),
-                titlebar: Some(TitlebarOptions {
+                titlebar: base.titlebar.map(|titlebar| TitlebarOptions {
                     title: Some("Proteus".into()),
-                    ..Default::default()
+                    ..titlebar
                 }),
+                window_decorations: Some(WindowDecorations::Client),
                 window_bounds: Some(WindowBounds::centered(size(px(1180.), px(820.)), cx)),
-                ..Default::default()
+                ..base
             };
             gpui_kit::open_window(window_options, cx, |window, cx| {
                 cx.new(|cx| Launcher::new(launch.workspace, launch.target, window, cx))

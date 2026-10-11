@@ -45,6 +45,18 @@ impl TabLayout {
         }
     }
 
+    /// Opens `id` in `pane`, chosen by the user, or shows it where it is
+    /// open; without that pane it goes where [`Self::open`] puts it.
+    pub fn open_in(&mut self, id: &str, pane: PaneId, can_split: impl Fn(PaneId) -> bool) {
+        if let Some(open) = self.pane_of(id) {
+            self.activate(open, id);
+        } else if self.pane(pane).is_some() {
+            self.put(id, pane, None, false);
+        } else {
+            self.open(id, can_split);
+        }
+    }
+
     fn open_target(&self, id: &str, can_split: impl Fn(PaneId) -> bool) -> Target {
         let shows_chat = |pane: PaneId| self.active(pane).is_some_and(is_chat);
         // The focused pane first, then the others in reading order.

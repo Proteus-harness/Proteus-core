@@ -94,7 +94,7 @@ impl Workspace {
                             .small()
                             .tooltip("Новая сессия (Ctrl+N)")
                             .on_click(
-                                cx.listener(|this, _, window, cx| this.new_session(window, cx)),
+                                cx.listener(|this, _, window, cx| this.new_session(None, window, cx)),
                             ),
                     ),
             )

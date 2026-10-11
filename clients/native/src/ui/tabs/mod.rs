@@ -76,14 +76,20 @@ impl Workspace {
         Some(view)
     }
 
-    /// Opens a fresh shell in a new terminal tab.
-    pub(super) fn open_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// Opens a fresh shell in a new terminal tab, in `pane` when the user
+    /// chose one.
+    pub(super) fn open_terminal(
+        &mut self,
+        pane: Option<PaneId>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let id = extensions::next_terminal(&self.tab_layout(cx));
-        let open = OpenDocument {
-            preview: false,
-            focus: true,
-        };
-        self.open_document(&id, open, window, cx);
+        if self.ensure_document(&id, window, cx).is_none() {
+            return;
+        }
+        self.close_settings(cx);
+        self.show_tab_in(&id, pane, window, cx);
     }
 
     /// Opens a document as a tab, or shows it where it is open.
@@ -109,17 +115,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let viewport = window.viewport_size();
-        let scale = prefs::scale(cx);
-        let rects = self.tab_layout(cx).rects_in(
-            viewport.width.as_f32() / scale,
-            viewport.height.as_f32() / scale,
-        );
-        let can_split = move |pane: PaneId| {
-            rects
-                .iter()
-                .any(|(id, rect)| *id == pane && rect.w >= SPLIT_WIDTH)
-        };
+        let can_split = self.can_split(window, cx);
         self.update_tabs(cx, |tabs| {
             if open.preview {
                 tabs.open_preview(id, can_split);
@@ -130,6 +126,41 @@ impl Workspace {
         });
         if open.focus {
             self.focus_tab(id, window, cx);
+        }
+    }
+
+    /// Opens a kept tab in `pane`, or like [`Self::show_tab`] without one,
+    /// and focuses it.
+    pub(super) fn show_tab_in(
+        &mut self,
+        id: &str,
+        pane: Option<PaneId>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let can_split = self.can_split(window, cx);
+        self.update_tabs(cx, |tabs| {
+            match pane {
+                Some(pane) => tabs.open_in(id, pane, can_split),
+                None => tabs.open(id, can_split),
+            }
+            tabs.keep(id);
+        });
+        self.focus_tab(id, window, cx);
+    }
+
+    /// Whether a pane is wide enough to split off a new one.
+    fn can_split(&self, window: &Window, cx: &App) -> impl Fn(PaneId) -> bool + use<> {
+        let viewport = window.viewport_size();
+        let scale = prefs::scale(cx);
+        let rects = self.tab_layout(cx).rects_in(
+            viewport.width.as_f32() / scale,
+            viewport.height.as_f32() / scale,
+        );
+        move |pane: PaneId| {
+            rects
+                .iter()
+                .any(|(id, rect)| *id == pane && rect.w >= SPLIT_WIDTH)
         }
     }
 
