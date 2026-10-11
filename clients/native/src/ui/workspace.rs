@@ -123,6 +123,9 @@ pub struct Workspace {
     pub(super) split_drag: Option<u16>,
     /// A tab is being dragged, so groups show where it can go.
     pub(super) tab_drag: bool,
+    /// Scroll of each group's tab strip and the active tab it last showed,
+    /// so a newly active tab is scrolled into view.
+    pub(super) tab_strips: [(ScrollHandle, Option<String>); 2],
     pub(super) focus_handle: FocusHandle,
     pump: Option<Task<()>>,
     _startup: Task<()>,
@@ -200,6 +203,7 @@ impl Workspace {
             badges: HashMap::new(),
             split_drag: None,
             tab_drag: false,
+            tab_strips: Default::default(),
             focus_handle: cx.focus_handle(),
             pump: None,
             _startup: startup,

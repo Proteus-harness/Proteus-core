@@ -132,6 +132,7 @@ impl Workspace {
                     .min_w_0()
                     .h_full()
                     .overflow_x_scroll()
+                    .track_scroll(&self.tab_strips[group].0)
                     .children(tabs.tabs.iter().map(|id| {
                         let active = tabs.active.as_deref() == Some(id.as_str());
                         let preview = layout.preview.as_deref() == Some(id.as_str());

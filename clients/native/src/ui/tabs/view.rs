@@ -33,6 +33,19 @@ impl Workspace {
         if !cx.has_active_drag() {
             self.tab_drag = false;
         }
+        for (group, tabs) in layout.groups.iter().enumerate() {
+            let (strip, shown) = &mut self.tab_strips[group];
+            if *shown != tabs.active {
+                if let Some(ix) = tabs
+                    .active
+                    .as_ref()
+                    .and_then(|active| tabs.tabs.iter().position(|id| id == active))
+                {
+                    strip.scroll_to_item(ix);
+                }
+                shown.clone_from(&tabs.active);
+            }
+        }
         let ratio = f32::from(layout.split) / 1000.;
         let mut row = h_flex()
             .id("tab-groups")
