@@ -6,6 +6,7 @@ mod files;
 mod graphics;
 mod launch;
 mod preferences;
+mod recent;
 mod sessions;
 mod settings;
 mod tabs;
@@ -15,19 +16,19 @@ mod ui;
 
 use gpui_kit::*;
 
-use launch::LaunchOptions;
-use ui::Workspace;
+use launch::Launch;
+use ui::Launcher;
 
 const APP_ID: &str = "dev.proteus.native";
 
 fn main() {
     graphics::prepare_environment();
-    let options = match LaunchOptions::from_args() {
+    let launch = match Launch::from_args() {
         Ok(options) => options,
         Err(error) => {
             eprintln!("proteus-native: {error:#}");
             eprintln!(
-                "usage: proteus-native [WORKSPACE] [--config PROFILE | --origin URL --token TOKEN]"
+                "usage: proteus-native [WORKSPACE | --choose-workspace] [--config PROFILE | --origin URL --token TOKEN]"
             );
             std::process::exit(2);
         }
@@ -55,7 +56,7 @@ fn main() {
                 ..Default::default()
             };
             gpui_kit::open_window(window_options, cx, |window, cx| {
-                cx.new(|cx| Workspace::new(options, window, cx))
+                cx.new(|cx| Launcher::new(launch.workspace, launch.target, window, cx))
             })
             .expect("open window");
             cx.activate(true);

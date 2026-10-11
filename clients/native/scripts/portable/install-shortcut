@@ -1,0 +1,31 @@
+#!/bin/sh
+# Adds Proteus to the application menu of this user. Run it again after
+# moving the folder; `--remove` takes the shortcut away.
+set -eu
+
+here=$(dirname "$(readlink -f "$0")")
+data=${XDG_DATA_HOME:-"${HOME}/.local/share"}
+entry="${data}/applications/proteus-native.desktop"
+icon="${data}/icons/hicolor/256x256/apps/proteus-native.png"
+
+if [ "${1:-}" = "--remove" ]; then
+  rm -f "${entry}" "${icon}"
+  echo "Removed: ${entry}"
+  exit 0
+fi
+
+mkdir -p "$(dirname "${entry}")" "$(dirname "${icon}")"
+cp "${here}/share/icons/proteus-native.png" "${icon}"
+cat > "${entry}" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Proteus
+Comment=Native client of the Proteus agent
+Exec="${here}/proteus-native" --choose-workspace
+Icon=proteus-native
+Terminal=false
+Categories=Development;
+StartupWMClass=dev.proteus.native
+EOF
+update-desktop-database "$(dirname "${entry}")" 2>/dev/null || true
+echo "Installed: ${entry}"

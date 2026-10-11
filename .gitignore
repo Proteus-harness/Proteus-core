@@ -5,6 +5,7 @@ target/
 /clients/app/dist.next/
 /clients/app/dist.previous/
 /clients/app/build/
+/clients/native/build/
 /clients/app/scripts/__pycache__/
 /clients/app/node_modules/
 /clients/app/src-tauri/resources/

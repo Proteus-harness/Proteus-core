@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use anyhow::{Context as _, Result, anyhow};
 use serde::{Deserialize, Serialize};
 
+use crate::recent::RecentWorkspaces;
 use crate::sessions::SessionMarks;
 use crate::tabs::TabLayout;
 
@@ -47,6 +48,7 @@ pub struct Preferences {
     pub extensions: ExtensionPreferences,
     pub tabs: TabLayout,
     pub sessions: SessionMarks,
+    pub recent: RecentWorkspaces,
 }
 
 /// Interface scale steps in percent, for the menu and Ctrl+=/Ctrl+-.

@@ -20,6 +20,33 @@ cargo build --release
 настроек desktop-приложения. Сервер получает `PR_SET_PDEATHSIG` и
 завершается вместе с клиентом.
 
+С флагом `--choose-workspace` клиент вместо workspace показывает выбор
+папки: недавние workspace и системный диалог «Открыть папку…». Так его
+запускает ярлык из меню приложений. Недавние папки хранятся в настройках
+клиента.
+
+## Portable
+
+```bash
+python3 clients/native/scripts/portable.py           # release
+python3 clients/native/scripts/portable.py --debug   # быстрее собрать
+```
+
+Скрипт собирает `proteus`, `proteus-reference-module` и клиент, затем
+складывает `clients/native/build/Proteus/` и архив
+`clients/native/build/Proteus-native-linux-<arch>.tar.gz`:
+
+- `proteus-native` — запуск: ставит профили из `share/configs` в
+  `${PROTEUS_CONFIG_HOME:-~/.config/Proteus-agent}/configs` (именованные
+  профили копируются только если их нет, каталоги `fragments`, `prompts` и
+  т. п. обновляются — то же правило, что у desktop-приложения), задаёт
+  `PROTEUS_BIN` и `PATH` на свои `bin/` и запускает клиент с аргументами;
+- `install-shortcut` — ярлык в меню приложений текущего пользователя
+  (`~/.local/share/applications/proteus-native.desktop` и значок); ярлык
+  открывает выбор папки. После переноса папки запустите его снова,
+  `--remove` убирает ярлык;
+- `bin/` — клиент, сервер агента и reference-модуль одной сборки.
+
 Устройство:
 
 - `transcript` — headless модель ленты: snapshot и live fold runtime

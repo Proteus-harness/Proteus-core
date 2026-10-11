@@ -5,6 +5,7 @@ mod chats;
 mod drag;
 mod extensions;
 mod format;
+mod launcher;
 mod motion;
 mod panels;
 mod prefs;
@@ -18,7 +19,8 @@ use gpui_kit::*;
 
 use crate::tabs::Edge;
 use workspace::Status;
-pub use workspace::Workspace;
+pub use launcher::Launcher;
+use workspace::Workspace;
 
 gpui_kit::actions!(
     proteus_native,
