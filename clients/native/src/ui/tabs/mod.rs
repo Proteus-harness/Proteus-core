@@ -76,6 +76,16 @@ impl Workspace {
         Some(view)
     }
 
+    /// Opens a fresh shell in a new terminal tab.
+    pub(super) fn open_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let id = extensions::next_terminal(&self.tab_layout(cx));
+        let open = OpenDocument {
+            preview: false,
+            focus: true,
+        };
+        self.open_document(&id, open, window, cx);
+    }
+
     /// Opens a document as a tab, or shows it where it is open.
     pub(super) fn open_document(
         &mut self,

@@ -29,6 +29,7 @@ gpui_kit::actions!(
         ToggleFiles,
         ToggleSessions,
         NewSession,
+        NewTerminal,
         NextSettingsPage,
         PreviousSettingsPage,
         NextTab,
@@ -54,6 +55,7 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("ctrl-shift-e", ToggleFiles, None),
         KeyBinding::new("ctrl-shift-h", ToggleSessions, None),
         KeyBinding::new("ctrl-n", NewSession, None),
+        KeyBinding::new("ctrl-`", NewTerminal, None),
         KeyBinding::new("alt-down", NextSettingsPage, Some(SETTINGS_CONTEXT)),
         KeyBinding::new("alt-up", PreviousSettingsPage, Some(SETTINGS_CONTEXT)),
         KeyBinding::new("ctrl-tab", NextTab, None),
@@ -105,6 +107,9 @@ impl Render for Workspace {
                 }
             }))
             .on_action(cx.listener(|this, _: &NewSession, window, cx| this.new_session(window, cx)))
+            .on_action(
+                cx.listener(|this, _: &NewTerminal, window, cx| this.open_terminal(window, cx)),
+            )
             .on_action(cx.listener(|this, _: &NextTab, window, cx| this.step_tab(1, window, cx)))
             .on_action(
                 cx.listener(|this, _: &PreviousTab, window, cx| this.step_tab(-1, window, cx)),

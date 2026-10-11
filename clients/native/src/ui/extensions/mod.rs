@@ -13,6 +13,7 @@ mod quota;
 mod session_badges;
 mod session_info;
 mod shared;
+mod terminal;
 
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::*;
@@ -20,6 +21,7 @@ use std::sync::OnceLock;
 
 pub(super) use badge::DraggedBadge;
 pub(super) use host::{Host, HostEvent, OpenDocument};
+pub(super) use terminal::next_tab as next_terminal;
 
 use super::prefs;
 use crate::preferences::BadgePlace;
@@ -77,7 +79,7 @@ pub(super) struct Manifest {
     pub badge: Option<BadgeSurface>,
 }
 
-fn builtin() -> [Manifest; 6] {
+fn builtin() -> [Manifest; 7] {
     [
         Manifest {
             id: session_info::CONTEXT,
@@ -156,6 +158,18 @@ fn builtin() -> [Manifest; 6] {
                 build: session_badges::build_agent,
                 place: BadgePlace::Header,
             }),
+        },
+        Manifest {
+            id: terminal::ID,
+            title: "Терминал",
+            description: "Оболочка в рабочей папке во вкладке.",
+            icon: Lucide::SquareTerminal,
+            panel: None,
+            document: Some(DocumentSurface {
+                build: terminal::build_document,
+                label: terminal::document_label,
+            }),
+            badge: None,
         },
     ]
 }

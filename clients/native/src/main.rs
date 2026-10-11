@@ -11,6 +11,7 @@ mod recent;
 mod sessions;
 mod settings;
 mod tabs;
+mod terminal;
 mod tool_display;
 mod transcript;
 mod ui;

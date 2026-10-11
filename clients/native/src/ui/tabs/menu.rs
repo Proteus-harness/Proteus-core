@@ -106,6 +106,13 @@ pub(super) fn new_tab_menu(
             PopupMenuItem::new("Новая сессия")
                 .on_click(open(|this, window, cx| this.new_session(window, cx))),
         )
+        .item(
+            PopupMenuItem::new("Терминал")
+                .icon(gpui_kit::component::Icon::new(
+                    gpui_kit::assets::IconName::SquareTerminal,
+                ))
+                .on_click(open(|this, window, cx| this.open_terminal(window, cx))),
+        )
         .separator();
     for panel in panels::available(cx) {
         let opened = layout
