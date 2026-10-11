@@ -10,7 +10,7 @@ use gpui_kit::base::{ElementExt as _, TooltipOverlay, TooltipRequest, TooltipTra
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::{
     AnyElement, AnyView, App, AppContext as _, Bounds, ElementId, Entity, Global, IntoElement,
-    MouseButton, ParentElement as _, Pixels, SharedString, StatefulInteractiveElement, Window,
+    ParentElement as _, Pixels, SharedString, StatefulInteractiveElement, Window,
     div, px,
 };
 
@@ -20,6 +20,11 @@ const ENTER: Duration = Duration::from_millis(150);
 const SLIDE: Duration = Duration::from_millis(200);
 
 struct Overlay(Entity<TooltipOverlay>);
+
+thread_local! {
+    /// The element pressed last; its tooltip stays away until the pointer leaves.
+    static PRESSED: Cell<Option<Bounds<Pixels>>> = const { Cell::new(None) };
+}
 
 impl Global for Overlay {}
 
@@ -70,16 +75,23 @@ fn update(cx: &mut App, window: &mut Window, f: impl FnOnce(&mut TooltipOverlay,
 }
 
 pub(crate) trait Tip: StatefulInteractiveElement + gpui_kit::ParentElement + Sized {
-    /// Shows `build` beside this element while the pointer rests on it.
+    /// Shows `build` beside this element while the pointer rests on it. A
+    /// press hides it until the pointer leaves, so it never covers the menu
+    /// or drag the press starts.
     fn tip(self, build: impl Fn(&mut Window, &mut App) -> AnyView + 'static) -> Self {
         let build = Rc::new(build);
         let bounds: Rc<Cell<Bounds<Pixels>>> = Rc::default();
-        let measured = bounds.clone();
+        let (measured, pressed) = (bounds.clone(), bounds.clone());
         self.on_prepaint(move |rect, _, _| measured.set(rect))
             .on_hover(move |hovered, window, cx| {
                 let hovered = *hovered;
                 let build = build.clone();
                 let trigger = bounds.get();
+                if !hovered {
+                    PRESSED.set(None);
+                } else if PRESSED.get() == Some(trigger) {
+                    return;
+                }
                 update(cx, window, move |overlay, window, cx| {
                     if hovered {
                         let request = TooltipRequest::new(trigger, move |window, cx| build(window, cx));
@@ -89,7 +101,9 @@ pub(crate) trait Tip: StatefulInteractiveElement + gpui_kit::ParentElement + Siz
                     }
                 });
             })
-            .on_mouse_down(MouseButton::Left, |_, window, cx| {
+            // Capture: the element's own controls may stop the press.
+            .capture_any_mouse_down(move |_, window, cx| {
+                PRESSED.set(Some(pressed.get()));
                 update(cx, window, |overlay, _, cx| overlay.hide(cx));
             })
     }

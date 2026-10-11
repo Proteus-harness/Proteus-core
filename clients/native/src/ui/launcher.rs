@@ -220,7 +220,7 @@ impl Focusable for Launcher {
 }
 
 impl Render for Launcher {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         match &self.stage {
             Stage::Ready(workspace) => div()
                 .relative()
@@ -249,7 +249,7 @@ impl Render for Launcher {
                     .relative()
                     .size_full()
                     .track_focus(&self.focus)
-                    .child(chrome::picker_top_bar(projects, cx))
+                    .child(chrome::picker_top_bar(projects, window, cx))
                     .child(
                         div()
                             .flex_1()

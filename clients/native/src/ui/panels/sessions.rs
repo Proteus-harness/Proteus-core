@@ -1,5 +1,5 @@
-//! The session list panel: sessions of the workspace, a new-session button
-//! and the way to the settings.
+//! The session list panel: sessions of the workspace and a new-session
+//! button.
 
 use std::time::Duration;
 
@@ -108,36 +108,6 @@ impl Workspace {
                     .pb_2()
                     .gap_0p5()
                     .children(items),
-            )
-            .child(
-                h_flex()
-                    .flex_none()
-                    .px_2()
-                    .py_2()
-                    .border_t_1()
-                    .border_color(theme.sidebar_border)
-                    .child(
-                        h_flex()
-                            .id("open-settings")
-                            .w_full()
-                            .h_8()
-                            .px_2()
-                            .gap_2()
-                            .rounded(theme.radius)
-                            .text_sm()
-                            .text_color(theme.sidebar_foreground)
-                            .cursor_pointer()
-                            .hover(|item| item.bg(theme.list_hover))
-                            .child(
-                                Icon::new(IconName::Settings)
-                                    .small()
-                                    .text_color(theme.muted_foreground),
-                            )
-                            .child("Настройки")
-                            .on_click(
-                                cx.listener(|this, _, window, cx| this.open_settings(window, cx)),
-                            ),
-                    ),
             )
     }
 

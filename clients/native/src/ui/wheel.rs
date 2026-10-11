@@ -3,7 +3,7 @@
 //! them as pixel steps over a few frames, so whatever scrolls under the
 //! pointer glides as in a browser. Touchpad scrolling already comes in
 //! pixels and passes through untouched, as does every wheel when motion is
-//! off.
+//! off. Holding Ctrl scrolls several times faster.
 
 use std::cell::RefCell;
 use std::time::Instant;
@@ -16,6 +16,8 @@ use super::motion;
 /// so a notch settles in about 0.2 s.
 const GLIDE_SECONDS: f32 = 0.07;
 const SETTLED: Pixels = px(0.5);
+/// How much faster scrolling goes while Ctrl is held.
+const FAST: f32 = 5.;
 
 #[derive(Default)]
 struct Glide {
@@ -29,23 +31,49 @@ thread_local! {
     static GLIDE: RefCell<Glide> = RefCell::default();
 }
 
-/// An invisible layer for the window root that turns wheel lines into a glide.
+/// An invisible layer for the window root that turns wheel lines into a glide
+/// and speeds up any scrolling while Ctrl is held.
 pub(super) fn layer() -> impl IntoElement {
     canvas(
         |_, _, _| (),
         |_, _, window, _| {
             window.on_mouse_event(|event: &ScrollWheelEvent, phase, window, cx| {
-                if phase != DispatchPhase::Capture || !motion::plays() {
+                if phase != DispatchPhase::Capture {
                     return;
                 }
-                if !matches!(event.delta, ScrollDelta::Lines(_)) {
+                let fast = event.modifiers.control;
+                let lines = matches!(event.delta, ScrollDelta::Lines(_));
+                let glide = lines && motion::plays();
+                if !glide && !fast {
                     return;
                 }
                 cx.stop_propagation();
-                let delta = event.delta.pixel_delta(window.line_height());
+                // Replayed events go out without Ctrl so this layer lets them
+                // through.
+                let modifiers = Modifiers {
+                    control: false,
+                    ..event.modifiers
+                };
+                let speed = if fast { FAST } else { 1. };
+                if !glide {
+                    let delta = match event.delta {
+                        ScrollDelta::Lines(lines) => ScrollDelta::Lines(lines * speed),
+                        ScrollDelta::Pixels(pixels) => ScrollDelta::Pixels(pixels * speed),
+                    };
+                    let replay = ScrollWheelEvent {
+                        delta,
+                        modifiers,
+                        ..event.clone()
+                    };
+                    window.defer(cx, move |window, cx| {
+                        window.dispatch_event(PlatformInput::ScrollWheel(replay), cx);
+                    });
+                    return;
+                }
+                let delta = event.delta.pixel_delta(window.line_height()) * speed;
                 let start = GLIDE.with_borrow_mut(|glide| {
                     glide.remaining += delta;
-                    glide.modifiers = event.modifiers;
+                    glide.modifiers = modifiers;
                     !std::mem::replace(&mut glide.running, true)
                 });
                 if start {

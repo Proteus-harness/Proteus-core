@@ -121,7 +121,7 @@ impl Render for Workspace {
             .on_action(|_: &ZoomOut, _, cx| prefs::update(cx, |prefs| prefs.view.zoom(-1)))
             .on_action(|_: &ZoomReset, _, cx| prefs::update(cx, |prefs| prefs.view.zoom(0)))
             .on_drop(cx.listener(|this, _: &tabs::SplitDrag, _, cx| this.finish_resize(cx)));
-        let root = root.child(self.render_top_bar(cx));
+        let root = root.child(self.render_top_bar(window, cx));
         match &self.status {
             Status::Starting => root.child(centered(
                 h_flex()
@@ -137,7 +137,7 @@ impl Render for Workspace {
                     .child(
                         div()
                             .text_sm()
-                            .text_color(theme.muted_foreground)
+                            .text_color(cx.theme().muted_foreground)
                             .child(error.clone()),
                     ),
             )),

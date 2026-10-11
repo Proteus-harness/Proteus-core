@@ -93,6 +93,8 @@ pub(super) fn badge_frame(
                 .on_click(move |_, window, cx| click_host.activate(id, window, cx))
         })
         .hover(move |style| style.bg(hover).text_color(foreground))
+        // Keeps the title bar from taking the press as a window move.
+        .on_mouse_down(MouseButton::Left, |_, window, _| window.prevent_default())
         .when(lifted, |badge| badge.opacity(drag::SOURCE_OPACITY))
         .child(face())
         .tip_element(move |_, cx| tooltip_body(&details, cx))

@@ -1,5 +1,5 @@
 //! The bar above the tabs: the logo menu, the open folder and extension
-//! icons. It also moves the window.
+//! icons, drawn inside the window's own title bar.
 
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
@@ -10,9 +10,9 @@ use gpui_kit::*;
 
 use super::logo::logo;
 use super::projects::{Projects, WorkspaceRequest, folder_name};
+use super::title::title_bar;
 use crate::preferences::BadgePlace;
 use crate::ui::chat::ChatState;
-use crate::ui::prefs;
 use crate::ui::tip::Tip as _;
 use crate::ui::workspace::{Status, Workspace};
 
@@ -20,8 +20,11 @@ use crate::ui::workspace::{Status, Workspace};
 const LOGO_CELL: f32 = 2.;
 
 impl Workspace {
-    pub(in crate::ui) fn render_top_bar(&self, cx: &Context<Self>) -> impl IntoElement + use<> {
-        let theme = cx.theme();
+    pub(in crate::ui) fn render_top_bar(
+        &self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
         let workspace = cx.weak_entity();
         let projects = self.switchable.then(|| {
             let (open, choose) = (workspace.clone(), workspace.clone());
@@ -65,7 +68,7 @@ impl Workspace {
         let left = h_flex()
             .gap_1()
             .items_center()
-            .child(logo_button(busy, logo_menu(projects)))
+            .child(logo_button(busy, logo_menu(projects, ready.then_some(workspace))))
             .child(folder);
         let right = h_flex()
             .gap_1()
@@ -73,28 +76,22 @@ impl Workspace {
             .when(ready, |right| {
                 right.child(self.render_badge_strip(BadgePlace::Header, cx))
             });
-        bar(left, right, theme)
+        title_bar(left, right, window, cx)
     }
 }
 
 /// The bar of the folder picker: only the logo menu.
-pub(in crate::ui) fn picker_top_bar(projects: Projects, cx: &App) -> impl IntoElement + use<> {
-    bar(
-        logo_button(false, logo_menu(Some(projects))),
+pub(in crate::ui) fn picker_top_bar(
+    projects: Projects,
+    window: &mut Window,
+    cx: &mut App,
+) -> impl IntoElement + use<> {
+    title_bar(
+        logo_button(false, logo_menu(Some(projects), None)),
         div(),
-        cx.theme(),
+        window,
+        cx,
     )
-}
-
-fn bar(left: impl IntoElement, right: impl IntoElement, theme: &Theme) -> TitleBar {
-    TitleBar::new()
-        .h(prefs::scaled(super::BAR_HEIGHT))
-        .pl_1()
-        .pr_1()
-        .bg(theme.title_bar)
-        .border_color(theme.title_bar_border)
-        .child(left)
-        .child(right)
 }
 
 fn logo_button(
@@ -109,13 +106,27 @@ fn logo_button(
         .dropdown_menu_with_anchor(Anchor::TopLeft, menu)
 }
 
-/// Projects, the version and quitting; settings have their own button.
+/// Projects, the settings of a running workspace, the version and quitting.
 fn logo_menu(
     projects: Option<Projects>,
+    settings: Option<WeakEntity<Workspace>>,
 ) -> impl Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static {
     move |mut menu, _, cx| {
         if let Some(projects) = &projects {
             menu = projects.items(menu, cx).separator();
+        }
+        if let Some(workspace) = settings.clone() {
+            menu = menu
+                .item(
+                    PopupMenuItem::new("Настройки")
+                        .icon(Icon::new(Lucide::Settings))
+                        .on_click(move |_, window, cx| {
+                            workspace
+                                .update(cx, |this, cx| this.toggle_settings(window, cx))
+                                .ok();
+                        }),
+                )
+                .separator();
         }
         menu.label(concat!("Proteus native ", env!("CARGO_PKG_VERSION")))
             .item(
