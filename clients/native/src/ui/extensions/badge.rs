@@ -32,6 +32,20 @@ impl Render for DraggedBadge {
     }
 }
 
+impl DraggedBadge {
+    /// Faint copy of the icon marking where a drop puts it.
+    pub(in crate::ui) fn ghost(&self, cx: &App) -> Div {
+        let theme = cx.theme();
+        badge_box()
+            .rounded(theme.radius)
+            .border_1()
+            .border_color(theme.primary.opacity(0.5))
+            .bg(theme.primary.opacity(0.12))
+            .text_color(theme.primary)
+            .child((self.face)())
+    }
+}
+
 /// Tooltip lines of an icon: a title and optional details.
 pub(super) struct Details {
     pub title: SharedString,

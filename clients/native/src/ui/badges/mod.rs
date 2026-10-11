@@ -55,10 +55,14 @@ impl Workspace {
         let tag = slot_name(place);
         let generation = frame.generation;
         let gap = |index: usize| {
+            let room = match &frame.ghost {
+                Some(ghost) => div().px(px(1.)).child(ghost.ghost(cx)),
+                None => div().w(frame.gap_width).h_7(),
+            };
             Slide::new(
                 SharedString::from(format!("badge-gap-{tag}-{index}-{generation}")),
                 frame.open_gap == Some(index),
-                div().w(frame.gap_width).h_7(),
+                room,
             )
         };
         let mut row = Vec::new();
@@ -88,42 +92,57 @@ impl Workspace {
             row.push(gap(index).into_any_element());
         }
         let hover_others = others.clone();
+        let dragging = frame.dragging.is_some();
         h_flex()
             .id(SharedString::from(format!("badge-strip-{tag}")))
+            .relative()
             .flex_none()
             .h_7()
             .items_center()
-            .when(frame.dragging.is_some() && others.is_empty(), |strip| {
+            .when(dragging && others.is_empty(), |strip| {
                 strip.min_w(prefs::scaled(28.))
             })
             .children(row)
-            .on_drag_move::<DraggedBadge>(move |event, window, _| {
+            .on_drag_move::<DraggedBadge>(move |event, window, cx| {
                 arrange::hover(
                     place,
                     &hover_others,
                     holds_source,
+                    event.drag(cx),
                     event.bounds,
                     event.event.position,
                     window,
                 )
             })
-            .on_drop(move |dragged: &DraggedBadge, _, cx| {
-                let Some(index) = arrange::drop_index(place) else {
-                    return;
-                };
-                let before = others
-                    .iter()
-                    .copied()
-                    .filter(|id| *id != dragged.id)
-                    .nth(index);
-                let known = extensions::badge_ids();
-                prefs::update(cx, |preferences| {
-                    preferences
-                        .extensions
-                        .move_badge(&known, dragged.id, place, before)
-                });
-            })
+            .when(dragging, |strip| strip.child(drop_catcher(place, others)))
     }
+}
+
+/// Drop target reaching a little past the row on every side, laid over it
+/// while an icon is dragged.
+fn drop_catcher(place: BadgePlace, others: Vec<&'static str>) -> impl IntoElement {
+    div()
+        .absolute()
+        .top(-arrange::REACH_Y)
+        .bottom(-arrange::REACH_Y)
+        .left(-arrange::REACH_X)
+        .right(-arrange::REACH_X)
+        .on_drop(move |dragged: &DraggedBadge, _, cx| {
+            let Some(index) = arrange::drop_index(place) else {
+                return;
+            };
+            let before = others
+                .iter()
+                .copied()
+                .filter(|id| *id != dragged.id)
+                .nth(index);
+            let known = extensions::badge_ids();
+            prefs::update(cx, |preferences| {
+                preferences
+                    .extensions
+                    .move_badge(&known, dragged.id, place, before)
+            });
+        })
 }
 
 fn slot_name(place: BadgePlace) -> &'static str {

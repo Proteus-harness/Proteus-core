@@ -22,7 +22,11 @@ struct SlideState {
 }
 
 impl Slide {
-    pub(in crate::ui) fn new(id: impl Into<ElementId>, open: bool, child: impl IntoElement) -> Self {
+    pub(in crate::ui) fn new(
+        id: impl Into<ElementId>,
+        open: bool,
+        child: impl IntoElement,
+    ) -> Self {
         Self {
             id: id.into(),
             open,
