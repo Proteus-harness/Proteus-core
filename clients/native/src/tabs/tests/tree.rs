@@ -1,11 +1,11 @@
-use super::super::{Edge, Node, PaneId, TabLayout, drop_edge};
+use super::super::{Edge, Node, PaneId, Size, TabLayout, drop_edge};
 use super::shape;
 
 /// One pane holding the given tabs, the first one shown.
 fn single(tabs: &[&str]) -> TabLayout {
-    let mut layout = TabLayout::default();
+    let mut layout = super::blank();
     for tab in tabs {
-        layout.open(tab, false);
+        layout.open(tab, |_| false);
     }
     layout.activate(PaneId(0), tabs[0]);
     layout
@@ -20,8 +20,15 @@ fn grid() -> TabLayout {
     layout
 }
 
-fn weights(layout: &TabLayout, path: &[usize]) -> Vec<f32> {
-    layout.weights(path).expect("split exists")
+pub(super) fn weights(layout: &TabLayout, path: &[usize]) -> Vec<f32> {
+    let sizes = layout.sizes(path).expect("split exists");
+    sizes
+        .into_iter()
+        .map(|size| match size {
+            Size::Weight(weight) => weight,
+            Size::Fixed(px) => -px,
+        })
+        .collect()
 }
 
 #[test]
@@ -33,7 +40,7 @@ fn splits_by_four_edges() {
     );
     assert_eq!(layout.focused, PaneId(3));
 
-    layout.open("e", false);
+    layout.open("e", |_| false);
     layout.split("e", PaneId(0), Edge::Left);
     assert_eq!(
         shape(&layout),
@@ -85,7 +92,7 @@ fn normalization_collapses_and_merges_splits() {
 #[test]
 fn moving_tabs_between_panes() {
     let mut layout = grid();
-    layout.open("e", false);
+    layout.open("e", |_| false);
     assert_eq!(
         shape(&layout),
         "row(col(0[a*] / 2[c*]) | col(3[d, e*] / 1[b*]))"
@@ -134,11 +141,11 @@ fn focus_moves_by_geometry() {
 #[test]
 fn resizing_keeps_minimum_sizes() {
     let mut layout = grid();
-    layout.resize(&[], 0, 0.3, 0.1);
+    layout.resize(&[], 0, 0.3, 1., 0.1);
     assert_close(&weights(&layout, &[]), &[0.6, 1.4]);
-    layout.resize(&[], 0, 0.01, 0.1);
+    layout.resize(&[], 0, 0.01, 1., 0.1);
     assert_close(&weights(&layout, &[]), &[0.2, 1.8]);
-    layout.resize(&[0], 0, 0.99, 0.25);
+    layout.resize(&[0], 0, 0.99, 1., 0.25);
     assert_close(&weights(&layout, &[0]), &[1.5, 0.5]);
 
     // A side with two panes along the axis needs twice the room.
@@ -150,20 +157,22 @@ fn resizing_keeps_minimum_sizes() {
         shape(&layout),
         "row(col(row(0[a*] | 3[d*]) / 2[c*]) | 1[b*])"
     );
-    layout.resize(&[], 0, 0., 0.1);
+    layout.resize(&[], 0, 0., 1., 0.1);
     assert_close(&weights(&layout, &[]), &[0.4, 1.6]);
-    layout.resize(&[], 0, 1., 0.1);
+    layout.resize(&[], 0, 1., 1., 0.1);
     assert_close(&weights(&layout, &[]), &[1.8, 0.2]);
 
     // Weights that do not fit the split are ignored.
-    layout.set_weights(&[], &[1., 1., 1.]);
-    layout.set_weights(&[], &[1., 0.]);
+    let w = Size::Weight;
+    layout.set_sizes(&[], &[w(1.), w(1.), w(1.)]);
+    layout.set_sizes(&[], &[w(1.), w(0.)]);
+    layout.set_sizes(&[], &[w(1.), Size::Fixed(300.)]);
     assert_close(&weights(&layout, &[]), &[1.8, 0.2]);
-    layout.set_weights(&[], &[1., 3.]);
+    layout.set_sizes(&[], &[w(1.), w(3.)]);
     assert_close(&weights(&layout, &[]), &[1., 3.]);
 }
 
-fn assert_close(actual: &[f32], expected: &[f32]) {
+pub(super) fn assert_close(actual: &[f32], expected: &[f32]) {
     assert_eq!(actual.len(), expected.len(), "{actual:?}");
     for (a, b) in actual.iter().zip(expected) {
         assert!((a - b).abs() < 1e-4, "{actual:?} != {expected:?}");
@@ -205,7 +214,7 @@ fn validation_rejects_broken_layouts() {
         let Node::Split(split) = &mut layout.root else {
             unreachable!()
         };
-        split.children[0].weight = 0.;
+        split.children[0].size = Size::Weight(0.);
     }));
     assert!(broken(|layout| {
         let Node::Split(split) = &mut layout.root else {
@@ -226,8 +235,8 @@ fn validation_rejects_broken_layouts() {
 #[test]
 fn layouts_round_trip_and_reject_other_shapes() {
     let mut layout = grid();
-    layout.resize(&[], 0, 0.3, 0.1);
-    layout.open_preview("files:x", false);
+    layout.resize(&[], 0, 0.3, 1., 0.1);
+    layout.open_preview("files:x", |_| false);
     let text = serde_json::to_string(&layout).unwrap();
     let back: TabLayout = serde_json::from_str(&text).unwrap();
     assert_eq!(serde_json::to_string(&back).unwrap(), text);

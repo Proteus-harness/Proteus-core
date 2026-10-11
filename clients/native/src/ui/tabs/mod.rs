@@ -1,11 +1,14 @@
-//! Tabs of the main area: chats and extension documents (files) in a tree
-//! of panes. The layout lives in the client preferences; this module turns
-//! user actions into layout changes and keeps the focus where the user is.
+//! Tabs of the window: chats, panels and extension documents (files) in a
+//! tree of panes. The layout lives in the client preferences; this module
+//! turns user actions into layout changes and keeps the focus where the
+//! user is.
 
 mod bar;
 mod controls;
 mod drop;
+mod menu;
 mod split;
+mod tab;
 mod view;
 
 pub(super) use drop::TabDrop;
@@ -14,8 +17,8 @@ pub(super) use split::{SplitDrag, SplitResize};
 use gpui_kit::*;
 
 use super::extensions::{self, Host, OpenDocument, SurfaceView};
-use super::prefs;
 use super::workspace::Workspace;
+use super::{panels, prefs};
 use crate::tabs::{self, Edge, PaneId, TabLayout};
 
 /// Width a pane needs before a new tab may split it.
@@ -28,7 +31,7 @@ impl Workspace {
         let mut layout = prefs::current(cx).tabs.clone();
         layout.retain(|id| tab_available(id, cx));
         if let Some(resize) = &self.split_drag {
-            layout.set_weights(&resize.path, &resize.weights);
+            layout.set_sizes(&resize.path, &resize.sizes);
         }
         layout
     }
@@ -87,7 +90,15 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let can_split = self.focused_width(window, cx) >= px(SPLIT_WIDTH);
+        let viewport = window.viewport_size();
+        let rects = self
+            .tab_layout(cx)
+            .rects_in(viewport.width.as_f32(), viewport.height.as_f32());
+        let can_split = move |pane: PaneId| {
+            rects
+                .iter()
+                .any(|(id, rect)| *id == pane && rect.w >= SPLIT_WIDTH)
+        };
         self.update_tabs(cx, |tabs| {
             if open.preview {
                 tabs.open_preview(id, can_split);
@@ -99,13 +110,6 @@ impl Workspace {
         if open.focus {
             self.focus_tab(id, window, cx);
         }
-    }
-
-    /// Rough width of the focused pane.
-    fn focused_width(&self, window: &Window, cx: &App) -> Pixels {
-        let layout = self.tab_layout(cx);
-        let share = layout.rect(layout.focused).map_or(1., |rect| rect.w);
-        (window.viewport_size().width - px(super::sidebar::SIDEBAR_WIDTH)) * share
     }
 
     pub(super) fn activate_tab(
@@ -216,21 +220,10 @@ impl Workspace {
             if let Some(chat) = self.chats.get(id) {
                 chat.view.update(cx, |chat, cx| chat.focus(window, cx));
             }
+        } else if tabs::is_panel(id) {
+            self.focus_panel(id, window, cx);
         } else if let Some(view) = self.ensure_document(id, window, cx) {
             view.focus.focus(window, cx);
-        }
-    }
-
-    /// Brings an extension forward: its view in the left sidebar.
-    pub(super) fn activate_extension(
-        &mut self,
-        id: &'static str,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if extensions::find(id).is_some_and(|manifest| manifest.sidebar.is_some()) {
-            self.close_settings(cx);
-            self.show_sidebar(Some(id), window, cx);
         }
     }
 }
@@ -238,5 +231,5 @@ impl Workspace {
 /// Whether a tab id stands for something that can be shown. Chats whose
 /// sessions are gone are closed when the workspace starts.
 pub(super) fn tab_available(id: &str, cx: &App) -> bool {
-    tabs::is_chat(id) || extensions::document(id, cx).is_some()
+    tabs::is_chat(id) || panels::info(id, cx).is_some() || extensions::document(id, cx).is_some()
 }

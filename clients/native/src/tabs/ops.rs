@@ -1,9 +1,10 @@
 //! Changes of the layout. Each one leaves a normalized tree: no empty panes
-//! besides a lone root, no single-child or nested same-axis splits.
+//! besides one kept for chats and documents while there are none, no
+//! single-child or nested same-axis splits.
 
-use super::is_chat;
 use super::layout::TabLayout;
-use super::tree::{Edge, Pane, PaneId};
+use super::pane::Pane;
+use super::tree::{Edge, PaneId};
 
 impl TabLayout {
     pub fn focus(&mut self, pane: PaneId) {
@@ -19,101 +20,6 @@ impl TabLayout {
         if target.has(id) {
             target.show(id);
             self.focused = pane;
-        }
-    }
-
-    /// Shows `id` where it is open, or opens it. A chat joins the chat in
-    /// view; a document avoids covering a chat: it goes to another pane, or
-    /// splits the only one when `can_split` says it is wide enough.
-    pub fn open(&mut self, id: &str, can_split: bool) {
-        if let Some(pane) = self.pane_of(id) {
-            self.activate(pane, id);
-            return;
-        }
-        match self.open_target(id, can_split) {
-            Some(pane) => self.put(id, pane, None),
-            None => {
-                let focused = self.focused;
-                let pane = self.new_pane(id);
-                self.root.insert_beside(focused, Edge::Right, pane);
-            }
-        }
-    }
-
-    /// Pane a new tab goes to; `None` splits the focused pane.
-    fn open_target(&self, id: &str, can_split: bool) -> Option<PaneId> {
-        let focused = self.focused;
-        let shows_chat = |pane: PaneId| self.active(pane).is_some_and(is_chat);
-        let others: Vec<PaneId> = self
-            .panes()
-            .into_iter()
-            .map(|pane| pane.id)
-            .filter(|pane| *pane != focused)
-            .collect();
-        if is_chat(id) {
-            if !shows_chat(focused)
-                && let Some(pane) = others.iter().copied().find(|pane| shows_chat(*pane))
-            {
-                return Some(pane);
-            }
-            return Some(focused);
-        }
-        if !shows_chat(focused) {
-            return Some(focused);
-        }
-        if let Some(pane) = others.iter().copied().find(|pane| !shows_chat(*pane)) {
-            return Some(pane);
-        }
-        let neighbor = [Edge::Right, Edge::Left, Edge::Bottom, Edge::Top]
-            .into_iter()
-            .find_map(|edge| self.neighbor(focused, edge));
-        match neighbor {
-            Some(pane) => Some(pane),
-            None if can_split => None,
-            None => Some(focused),
-        }
-    }
-
-    /// Opens `id` in place of the preview tab, or like [`Self::open`] when
-    /// there is none; `id` becomes the preview. An open tab just comes
-    /// forward and keeps its kind.
-    pub fn open_preview(&mut self, id: &str, can_split: bool) {
-        if let Some(pane) = self.pane_of(id) {
-            self.activate(pane, id);
-            return;
-        }
-        let replaced = self
-            .preview
-            .take()
-            .and_then(|old| Some((self.pane_of(&old)?, old)));
-        match replaced {
-            Some((pane, old)) => {
-                let target = self.root.pane_mut(pane).expect("pane exists");
-                let ix = target
-                    .tabs
-                    .iter()
-                    .position(|tab| *tab == old)
-                    .expect("tab is open");
-                target.tabs[ix] = id.to_string();
-                if target.previous.as_deref() == Some(old.as_str()) {
-                    target.previous = None;
-                }
-                if target.active.as_deref() == Some(old.as_str()) {
-                    target.active = Some(id.to_string());
-                    self.focused = pane;
-                } else {
-                    self.activate(pane, id);
-                }
-            }
-            None => self.open(id, can_split),
-        }
-        self.preview = Some(id.to_string());
-    }
-
-    /// Turns the preview tab `id` into a regular one.
-    pub fn keep(&mut self, id: &str) {
-        if self.preview.as_deref() == Some(id) {
-            self.preview = None;
         }
     }
 
@@ -133,8 +39,8 @@ impl TabLayout {
             return;
         }
         let ids = self.pane_ids();
-        self.detach(id);
-        self.put(id, pane, before);
+        let pinned = self.detach(id);
+        self.put(id, pane, before, pinned);
         self.settle(&ids);
     }
 
@@ -144,8 +50,8 @@ impl TabLayout {
             return;
         }
         let ids = self.pane_ids();
-        self.detach(id);
-        let new = self.new_pane(id);
+        let pinned = self.detach(id);
+        let new = self.new_pane(id, pinned);
         self.root.insert_beside(pane, edge, new);
         self.settle(&ids);
     }
@@ -157,20 +63,37 @@ impl TabLayout {
         }
     }
 
-    /// Closes a pane; its tabs join the pane before it, or after it.
+    /// Closes a pane; its tabs join the nearest pane of the same kind
+    /// (holding only panels or not), else the pane before it, or after it.
     pub fn close_pane(&mut self, pane: PaneId) {
         let ids = self.pane_ids();
         let Some(ix) = ids.iter().position(|id| *id == pane) else {
             return;
         };
-        let Some(&target) = ids.get(ix.wrapping_sub(1)).or_else(|| ids.get(ix + 1)) else {
+        let panels = |id: PaneId| self.pane(id).is_some_and(Pane::holds_panels);
+        let kind = panels(pane);
+        let nearest: Vec<PaneId> = ids[..ix]
+            .iter()
+            .rev()
+            .copied()
+            .chain(ids[ix + 1..].iter().copied())
+            .collect();
+        let Some(target) = nearest
+            .iter()
+            .copied()
+            .find(|id| panels(*id) == kind)
+            .or_else(|| nearest.first().copied())
+        else {
             return;
         };
         let closed = self.root.pane_mut(pane).expect("pane exists");
         let tabs = std::mem::take(&mut closed.tabs);
+        let pinned = std::mem::take(&mut closed.pinned);
         let active = closed.active.take();
         let merged = self.root.pane_mut(target).expect("pane exists");
-        merged.tabs.extend(tabs);
+        for (ix, tab) in tabs.iter().enumerate() {
+            merged.insert(tab, None, ix < pinned);
+        }
         if self.focused == pane
             && let Some(active) = active
         {
@@ -227,38 +150,54 @@ impl TabLayout {
         self.settle(&ids);
     }
 
-    fn pane_ids(&self) -> Vec<PaneId> {
+    /// The empty pane that stays for chats and documents when no pane has
+    /// any: the focused one, else the first.
+    fn placeholder(&self) -> Option<PaneId> {
+        if self.content_panes().any(|pane| !pane.tabs.is_empty()) {
+            return None;
+        }
+        let empty = self.panes().into_iter().filter(|pane| pane.tabs.is_empty());
+        empty
+            .min_by_key(|pane| pane.id != self.focused)
+            .map(|pane| pane.id)
+    }
+
+    pub(super) fn pane_ids(&self) -> Vec<PaneId> {
         self.panes().into_iter().map(|pane| pane.id).collect()
     }
 
-    fn new_pane(&mut self, id: &str) -> Pane {
+    pub(super) fn new_pane(&mut self, id: &str, pinned: bool) -> Pane {
         let mut pane = Pane::new(PaneId(self.next_id));
         self.next_id += 1;
         pane.tabs.push(id.to_string());
+        pane.pinned = usize::from(pinned);
         pane.active = Some(id.to_string());
         self.focused = pane.id;
         pane
     }
 
     /// Puts a tab that is not open into `pane` and shows it there.
-    fn put(&mut self, id: &str, pane: PaneId, before: Option<&str>) {
+    pub(super) fn put(&mut self, id: &str, pane: PaneId, before: Option<&str>, pinned: bool) {
         let target = self.root.pane_mut(pane).expect("pane exists");
-        target.insert(id, before);
+        target.insert(id, before, pinned);
         target.show(id);
         self.focused = pane;
     }
 
-    fn detach(&mut self, id: &str) {
+    /// Takes a tab out of its pane; returns whether it was pinned.
+    pub(super) fn detach(&mut self, id: &str) -> bool {
         self.keep(id);
-        if let Some(pane) = self.pane_of(id) {
-            self.root.pane_mut(pane).expect("pane exists").remove(id);
+        match self.pane_of(id) {
+            Some(pane) => self.root.pane_mut(pane).expect("pane exists").remove(id),
+            None => false,
         }
     }
 
     /// Normalizes the tree; when the focused pane is gone, the focus goes
     /// to the nearest surviving pane of the order `before` the change.
-    fn settle(&mut self, before: &[PaneId]) {
-        self.root.normalize();
+    pub(super) fn settle(&mut self, before: &[PaneId]) {
+        let keep = self.placeholder();
+        self.root.normalize(keep);
         let now = self.pane_ids();
         if now.contains(&self.focused) {
             return;

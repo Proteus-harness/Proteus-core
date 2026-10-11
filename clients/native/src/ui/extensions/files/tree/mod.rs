@@ -21,10 +21,10 @@ enum Tab {
     Changes,
 }
 
-/// Left sidebar view of the workspace: lazily listed tree with git marks
+/// Panel of the workspace files: lazily listed tree with git marks
 /// and the list of changes. Files open as tabs: a single click shows a
 /// preview tab that the next click replaces, a double click or Enter keeps it.
-pub(in crate::ui::extensions) struct FilesSidebar {
+pub(in crate::ui::extensions) struct FilesPanel {
     host: Host,
     session_dir: Option<PathBuf>,
     tree: FileTree,
@@ -52,7 +52,7 @@ pub(in crate::ui::extensions) struct FilesSidebar {
     _subscriptions: Vec<Subscription>,
 }
 
-impl FilesSidebar {
+impl FilesPanel {
     pub(in crate::ui::extensions) fn new(
         host: Host,
         window: &mut Window,

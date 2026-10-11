@@ -170,9 +170,7 @@ pub fn page_description(snapshot: Option<&ConfigBuilderSnapshot>, page: &PageId)
         }
         PageId::Appearance => "Тема и анимации интерфейса. Сохраняются на этом устройстве.",
         PageId::Chat => "Отправка сообщений. Сохраняется на этом устройстве.",
-        PageId::Extensions => {
-            "Значки, виджеты боковой панели и вкладки. Сохраняются на этом устройстве."
-        }
+        PageId::Extensions => "Значки, панели и вкладки. Сохраняются на этом устройстве.",
     };
     text.to_string()
 }

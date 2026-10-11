@@ -1,4 +1,4 @@
-//! Data models shared by the views of one extension, e.g. its sidebar view,
+//! Data models shared by the views of one extension, e.g. its panel,
 //! its document tabs and its icon, so all of them show the same data and
 //! fetch it once.
 

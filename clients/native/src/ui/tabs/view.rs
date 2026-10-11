@@ -4,7 +4,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use super::{drop, split};
-use crate::tabs::{self, Axis, Node, Pane, PaneId, TabLayout};
+use crate::tabs::{self, Axis, Node, Pane, PaneId, Size, TabLayout};
 use crate::ui::motion;
 use crate::ui::workspace::Workspace;
 
@@ -86,8 +86,10 @@ impl Workspace {
             let content = self.render_node(&child.node, child_path, layout, window, cx);
             container = container.child(
                 div()
-                    .flex_basis(relative(0.))
-                    .flex_grow(child.weight)
+                    .map(|cell| match child.size {
+                        Size::Weight(weight) => cell.flex_basis(relative(0.)).flex_grow(weight),
+                        Size::Fixed(px_len) => cell.flex_basis(px(px_len)).flex_grow(0.),
+                    })
                     .flex_shrink(1.)
                     .min_w_0()
                     .min_h_0()
@@ -110,6 +112,7 @@ impl Workspace {
     ) -> Div {
         let id = pane.id;
         let content = match pane.active.as_deref() {
+            Some(tab) if tabs::is_panel(tab) => self.render_panel(tab, window, cx),
             Some(tab) if tabs::is_chat(tab) => match self.chats.get(tab) {
                 Some(chat) => div()
                     .size_full()
@@ -165,7 +168,7 @@ impl Workspace {
                     .text_sm()
                     .text_center()
                     .text_color(theme.muted_foreground)
-                    .child("Откройте сессию или файл в боковой панели."),
+                    .child("Откройте сессию или файл на панелях «Сессии» и «Файлы»."),
             )
             .children(self.notice.clone().map(|notice| {
                 div()

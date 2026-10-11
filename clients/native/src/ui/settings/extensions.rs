@@ -52,13 +52,12 @@ fn extension_row(ix: usize, manifest: &'static Manifest, cx: &App) -> Div {
         .flex_wrap()
         .child((manifest.icon)().small().text_color(theme.muted_foreground))
         .child(div().text_sm().child(manifest.title))
-        .children(manifest.sidebar.as_ref().map(|sidebar| {
-            chip(
-                format!("Боковая панель · {}", sidebar.title),
-                Tone::Muted,
-                cx,
-            )
-        }))
+        .children(
+            manifest
+                .panel
+                .as_ref()
+                .map(|panel| chip(format!("Панель · {}", panel.title), Tone::Muted, cx)),
+        )
         .children(
             manifest
                 .document

@@ -123,7 +123,7 @@ impl Render for FilesBadge {
             (None, Some(_)) => details.line("Это не git-репозиторий."),
             (None, None) => details,
         };
-        details = details.line("Клик открывает дерево слева.");
+        details = details.line("Клик открывает панель файлов.");
         let face = Rc::new(move || {
             icon_with_count(
                 Icon::new(Lucide::FolderTree),

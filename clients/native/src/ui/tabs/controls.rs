@@ -1,12 +1,14 @@
-//! Buttons at the end of a pane's tab bar: splitting and closing the pane,
-//! and extension icons in the top-right pane.
+//! Buttons at the end of a pane's tab bar: the «+» menu, splitting and
+//! closing the pane, and extension icons in the top-right pane.
 
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::menu::DropdownMenu as _;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
+use super::menu;
 use crate::preferences::BadgePlace;
 use crate::tabs::{Edge, Pane, TabLayout};
 use crate::ui::workspace::Workspace;
@@ -22,6 +24,8 @@ impl Workspace {
         let id = pane.id;
         let key = id.0 as usize;
         let can_split = pane.tabs.len() > 1;
+        // The only pane for chats stays while empty, so closing it does nothing.
+        let closable = layout.pane_count() > 1 && !pane.tabs.is_empty();
         let corner = layout
             .rect(id)
             .is_some_and(|rect| rect.y <= 1e-4 && rect.x + rect.w >= 1. - 1e-4);
@@ -38,11 +42,21 @@ impl Workspace {
                     }
                 }))
         };
+        let workspace = cx.weak_entity();
+        let add = Button::new(("pane-add", key))
+            .ghost()
+            .xsmall()
+            .icon(IconName::Plus)
+            .tooltip("Новая вкладка")
+            .dropdown_menu_with_anchor(Anchor::TopRight, move |popup, _, cx| {
+                menu::new_tab_menu(popup, id, &workspace, cx)
+            });
         h_flex()
             .flex_none()
             .h_full()
             .px_1()
             .gap_1()
+            .child(add)
             .child(split(
                 "pane-split-right",
                 Lucide::Columns2,
@@ -55,7 +69,7 @@ impl Workspace {
                 "Разделить вниз",
                 Edge::Bottom,
             ))
-            .when(layout.pane_count() > 1, |controls| {
+            .when(closable, |controls| {
                 controls.child(
                     Button::new(("pane-close", key))
                         .ghost()

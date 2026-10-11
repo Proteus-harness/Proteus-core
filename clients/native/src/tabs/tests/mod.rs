@@ -1,14 +1,18 @@
 use std::path::Path;
 
-use super::{Node, PaneId, TabLayout, chat, chat_dir, split_document};
+use super::{Node, PaneId, Size, TabLayout, chat, chat_dir, panel, panel_name, split_document};
 
+mod panels;
+mod pins;
+mod sizes;
 mod tree;
 
 const A: &str = "chat:/s/a";
 const B: &str = "chat:/s/b";
 
-/// Compact picture of the tree: `0[a, b*]` is pane 0 showing `b`, `row(…)`
-/// and `col(…)` are splits.
+/// Compact picture of the tree: `0[a, b*]` is pane 0 showing `b`, `^`
+/// marks pinned tabs and `@` panels; `row(…)` and `col(…)` are splits,
+/// `264px ` marks a fixed child.
 fn shape(layout: &TabLayout) -> String {
     fn node(tree: &Node) -> String {
         match tree {
@@ -16,13 +20,19 @@ fn shape(layout: &TabLayout) -> String {
                 let tabs: Vec<String> = pane
                     .tabs
                     .iter()
-                    .map(|tab| {
+                    .enumerate()
+                    .map(|(ix, tab)| {
+                        let pin = if ix < pane.pinned { "^" } else { "" };
                         let mark = if pane.active.as_ref() == Some(tab) {
                             "*"
                         } else {
                             ""
                         };
-                        format!("{}{mark}", tab.strip_prefix("chat:/s/").unwrap_or(tab))
+                        let name = match panel_name(tab) {
+                            Some(name) => format!("@{name}"),
+                            None => tab.strip_prefix("chat:/s/").unwrap_or(tab).to_string(),
+                        };
+                        format!("{name}{pin}{mark}")
                     })
                     .collect();
                 format!("{}[{}]", pane.id.0, tabs.join(", "))
@@ -35,7 +45,10 @@ fn shape(layout: &TabLayout) -> String {
                 let children: Vec<String> = split
                     .children
                     .iter()
-                    .map(|child| node(&child.node))
+                    .map(|child| match child.size {
+                        Size::Fixed(px) => format!("{px}px {}", node(&child.node)),
+                        Size::Weight(_) => node(&child.node),
+                    })
                     .collect();
                 format!("{name}({})", children.join(sep))
             }
@@ -45,9 +58,14 @@ fn shape(layout: &TabLayout) -> String {
     node(&layout.root)
 }
 
+/// One empty pane, no panels.
+fn blank() -> TabLayout {
+    TabLayout::with_panels(&[])
+}
+
 fn with_chat() -> TabLayout {
-    let mut layout = TabLayout::default();
-    layout.open(A, false);
+    let mut layout = blank();
+    layout.open(A, |_| false);
     layout
 }
 
@@ -57,6 +75,11 @@ fn ids_tell_chats_from_documents() {
     assert_eq!(chat_dir(A), Some(Path::new("/s/a")));
     assert_eq!(chat_dir("files:src/a.rs"), None);
     assert_eq!(split_document(A), None);
+    assert_eq!(panel("files"), "panel:files");
+    assert_eq!(panel_name("panel:files"), Some("files"));
+    assert_eq!(panel_name(A), None);
+    assert_eq!(chat_dir("panel:files"), None);
+    assert_eq!(split_document("panel:files"), None);
     assert_eq!(
         split_document("files:src/a:b.rs"),
         Some(("files", "src/a:b.rs"))
@@ -66,36 +89,36 @@ fn ids_tell_chats_from_documents() {
 #[test]
 fn opening_avoids_covering_a_chat() {
     let mut layout = with_chat();
-    layout.open("files", false);
+    layout.open("files", |_| false);
     assert_eq!(shape(&layout), "0[a, files*]");
 
     let mut layout = with_chat();
-    layout.open("files", true);
+    layout.open("files", |_| true);
     assert_eq!(shape(&layout), "row(0[a*] | 1[files*])");
     assert_eq!(layout.focused, PaneId(1));
 
     // Opening an open tab only shows it; the chat pane stays as it is.
     layout.focus(PaneId(0));
-    layout.open("notes", true);
-    layout.open("files", true);
+    layout.open("notes", |_| true);
+    layout.open("files", |_| true);
     assert_eq!(shape(&layout), "row(0[a*] | 1[files*, notes])");
 
     // Another chat joins the chat in view, even from the documents pane.
-    layout.open(B, true);
+    layout.open(B, |_| true);
     assert_eq!(shape(&layout), "row(0[a, b*] | 1[files*, notes])");
 
     // With chats everywhere, a document covers the neighbor's chat.
     layout.move_tab(A, PaneId(1), None);
     layout.focus(PaneId(0));
-    layout.open("todo", true);
+    layout.open("todo", |_| true);
     assert_eq!(shape(&layout), "row(0[b*] | 1[files, notes, a, todo*])");
 }
 
 #[test]
 fn closing_falls_back_and_drops_empty_panes() {
     let mut layout = with_chat();
-    layout.open("files", false);
-    layout.open("notes", false);
+    layout.open("files", |_| false);
+    layout.open("notes", |_| false);
     layout.activate(PaneId(0), "files");
     layout.activate(PaneId(0), "notes");
     layout.close("notes");
@@ -115,8 +138,8 @@ fn closing_falls_back_and_drops_empty_panes() {
 #[test]
 fn retain_drops_gone_chats_and_documents() {
     let mut layout = with_chat();
-    layout.open(B, false);
-    layout.open("files", true);
+    layout.open(B, |_| false);
+    layout.open("files", |_| true);
     layout.retain(|id| id != B && id != "files");
     assert_eq!(shape(&layout), "0[a*]");
     layout.retain(|_| false);
@@ -125,11 +148,11 @@ fn retain_drops_gone_chats_and_documents() {
 
 #[test]
 fn active_chat_follows_focus_and_survives_hiding() {
-    let mut layout = TabLayout::default();
+    let mut layout = blank();
     assert_eq!(layout.active_chat(None), None);
-    layout.open(A, true);
-    layout.open("files", true);
-    layout.open(B, true);
+    layout.open(A, |_| true);
+    layout.open("files", |_| true);
+    layout.open(B, |_| true);
     assert_eq!(shape(&layout), "row(0[a, b*] | 1[files*])");
     assert_eq!(layout.focused, PaneId(0));
     assert_eq!(layout.active_chat(Some(A)).as_deref(), Some(B));
@@ -152,15 +175,15 @@ fn active_chat_follows_focus_and_survives_hiding() {
 #[test]
 fn preview_tab_is_replaced_until_kept() {
     let mut layout = with_chat();
-    layout.open_preview("files:a.rs", false);
-    layout.open_preview("files:b.rs", false);
+    layout.open_preview("files:a.rs", |_| false);
+    layout.open_preview("files:b.rs", |_| false);
     assert_eq!(shape(&layout), "0[a, files:b.rs*]");
     assert_eq!(layout.preview.as_deref(), Some("files:b.rs"));
 
     // A kept tab stays; the next preview opens next to it.
     layout.keep("files:b.rs");
-    layout.open_preview("files:c.rs", false);
-    layout.open_preview("files:b.rs", false);
+    layout.open_preview("files:c.rs", |_| false);
+    layout.open_preview("files:b.rs", |_| false);
     assert_eq!(shape(&layout), "0[a, files:b.rs*, files:c.rs]");
     assert_eq!(layout.preview.as_deref(), Some("files:c.rs"));
 
@@ -169,8 +192,8 @@ fn preview_tab_is_replaced_until_kept() {
     assert_eq!(layout.preview, None);
 
     // Chats preview the same way; moving a preview keeps it.
-    layout.open_preview(B, false);
-    layout.open_preview("chat:/s/c", false);
+    layout.open_preview(B, |_| false);
+    layout.open_preview("chat:/s/c", |_| false);
     assert_eq!(shape(&layout), "0[a, files:b.rs, c*]");
     layout.split("chat:/s/c", PaneId(0), super::Edge::Bottom);
     assert_eq!(layout.preview, None);

@@ -1,10 +1,11 @@
 //! Dividers between the children of a split: dragging one resizes its
-//! neighbors, a double click shares the split evenly.
+//! neighbors, a double click shares the split evenly and gives fixed panes
+//! their default width.
 
 use gpui_kit::component::*;
 use gpui_kit::*;
 
-use crate::tabs::Axis;
+use crate::tabs::{Axis, Size};
 use crate::ui::workspace::Workspace;
 
 /// Smallest pane while resizing.
@@ -26,10 +27,11 @@ impl Render for SplitDrag {
     }
 }
 
-/// Weights of a split while its divider is dragged; stored when released.
+/// Sizes of a split's children while its divider is dragged; stored when
+/// released.
 pub(in crate::ui) struct SplitResize {
     pub path: Vec<usize>,
-    pub weights: Vec<f32>,
+    pub sizes: Vec<Size>,
 }
 
 /// Follows a dragged divider of the split at `path`; goes on the split's
@@ -116,26 +118,26 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         let mut layout = self.tab_layout(cx);
-        let Some(children) = layout.weights(&path).map(|weights| weights.len()) else {
+        let Some(children) = layout.sizes(&path).map(|sizes| sizes.len()) else {
             return;
         };
         let content = extent - (children - 1) as f32 * DIVIDER;
         if content <= 0. {
             return;
         }
-        let at = (offset - (index as f32 + 0.5) * DIVIDER) / content;
-        layout.resize(&path, index, at, min / content);
-        let Some(weights) = layout.weights(&path) else {
+        let at = offset - (index as f32 + 0.5) * DIVIDER;
+        layout.resize(&path, index, at, content, min);
+        let Some(sizes) = layout.sizes(&path) else {
             return;
         };
-        self.split_drag = Some(SplitResize { path, weights });
+        self.split_drag = Some(SplitResize { path, sizes });
         cx.notify();
     }
 
     /// Stores the size of the split whose divider was released.
     pub(in crate::ui) fn finish_resize(&mut self, cx: &mut Context<Self>) {
         if let Some(resize) = self.split_drag.take() {
-            self.update_tabs(cx, |tabs| tabs.set_weights(&resize.path, &resize.weights));
+            self.update_tabs(cx, |tabs| tabs.set_sizes(&resize.path, &resize.sizes));
         }
     }
 

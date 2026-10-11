@@ -1,6 +1,6 @@
 //! Compact extension icons, shown under the composer or in the tab bar.
 //! Details live in the hover tooltip; a click brings the extension forward
-//! when it has a view; the context menu moves, hides or pins the icon, and
+//! when it has a panel; the context menu moves, hides or pins the icon, and
 //! unpinned icons can be dragged between both places.
 
 use std::rc::Rc;
@@ -74,7 +74,7 @@ pub(super) fn badge_frame(
 ) -> impl IntoElement + use<> {
     let theme = cx.theme();
     let (hover, foreground) = (theme.list_hover, theme.foreground);
-    let opens = super::find(id).is_some_and(|manifest| manifest.sidebar.is_some());
+    let opens = super::find(id).is_some_and(|manifest| manifest.panel.is_some());
     let pinned = prefs::current(cx).extensions.is_pinned(id);
     let lifted = drag::is_source(&drag_key(id), cx);
     let (click_host, menu_host) = (host.clone(), host.clone());
@@ -131,11 +131,11 @@ fn badge_menu(menu: PopupMenu, id: &'static str, host: &Host, cx: &App) -> Popup
         return menu;
     };
     let mut menu = menu;
-    if let Some(sidebar) = &manifest.sidebar {
+    if let Some(panel) = &manifest.panel {
         let host = host.clone();
         menu = menu
             .item(
-                PopupMenuItem::new(format!("Открыть «{}» слева", sidebar.title))
+                PopupMenuItem::new(format!("Открыть панель «{}»", panel.title))
                     .on_click(move |_, window, cx| host.activate(id, window, cx)),
             )
             .separator();

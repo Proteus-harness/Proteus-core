@@ -98,7 +98,7 @@ impl Host {
             .flatten()
     }
 
-    /// Brings an extension forward, e.g. shows its sidebar view.
+    /// Brings an extension forward: opens or shows its panel.
     pub(in crate::ui) fn activate(&self, id: &'static str, window: &mut Window, cx: &mut App) {
         self.workspace
             .update(cx, |workspace, cx| {
@@ -141,11 +141,18 @@ impl HostView<'_> {
     }
 
     /// Argument of the document tab active in the focused area, when the
-    /// tab belongs to `extension`.
+    /// tab belongs to `extension`. With a pane of panels focused, the first
+    /// such document in view counts.
     pub(in crate::ui) fn active_document(&self, extension: &str, cx: &App) -> Option<String> {
         let layout = self.workspace.tab_layout(cx);
-        let active = layout.active(layout.focused)?;
-        let (owner, argument) = crate::tabs::split_document(active)?;
-        (owner == extension).then(|| argument.to_string())
+        let owned = |id: &str| {
+            let (owner, argument) = crate::tabs::split_document(id)?;
+            (owner == extension).then(|| argument.to_string())
+        };
+        let focused = layout.pane(layout.focused)?;
+        if focused.holds_panels() {
+            return layout.visible().find_map(owned);
+        }
+        owned(focused.active.as_deref()?)
     }
 }

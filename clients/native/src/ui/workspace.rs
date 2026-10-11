@@ -86,11 +86,9 @@ pub struct Workspace {
     pub(super) window_title: String,
     pub(super) settings: Option<Entity<SettingsView>>,
     pub(super) settings_subscription: Option<Subscription>,
-    /// Extension view shown in the sidebar instead of the sessions.
-    pub(super) sidebar_view: Option<&'static str>,
-    /// Extension views, document tabs and icons built so far; the tab
+    /// Extension panels, document tabs and icons built so far; the tab
     /// layout itself is a client preference.
-    pub(super) sidebars: HashMap<&'static str, SurfaceView>,
+    pub(super) panels: HashMap<&'static str, SurfaceView>,
     pub(super) documents: HashMap<String, SurfaceView>,
     pub(super) badges: HashMap<&'static str, AnyView>,
     /// Size of the split whose divider is being dragged.
@@ -147,8 +145,7 @@ impl Workspace {
             window_title: String::new(),
             settings: None,
             settings_subscription: None,
-            sidebar_view: None,
-            sidebars: HashMap::new(),
+            panels: HashMap::new(),
             documents: HashMap::new(),
             badges: HashMap::new(),
             split_drag: None,

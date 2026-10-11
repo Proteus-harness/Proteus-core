@@ -5,8 +5,10 @@ use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
 
-use super::is_chat;
-use super::tree::{Node, Pane, PaneId};
+use super::pane::Pane;
+use super::size::Size;
+use super::tree::{Axis, Child, Node, PaneId, Split};
+use super::{DEFAULT_PANELS, PANEL_WIDTH, is_chat, is_panel, panel, panel_name};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -23,30 +25,69 @@ pub struct TabLayout {
 
 impl Default for TabLayout {
     fn default() -> Self {
-        Self {
-            root: Node::Pane(Pane::new(PaneId(0))),
-            focused: PaneId(0),
-            preview: None,
-            next_id: 1,
-        }
+        Self::with_panels(&DEFAULT_PANELS)
     }
 }
 
 impl TabLayout {
+    /// A fresh layout: the panels `panels`, pinned, in a fixed pane on the
+    /// left, and an empty pane for chats and documents next to it.
+    pub fn with_panels(panels: &[&str]) -> Self {
+        let content = Pane::new(PaneId(0));
+        if panels.is_empty() {
+            return Self {
+                root: Node::Pane(content),
+                focused: PaneId(0),
+                preview: None,
+                next_id: 1,
+            };
+        }
+        let mut side = Pane::new(PaneId(1));
+        side.tabs = panels.iter().map(|name| panel(name)).collect();
+        side.pinned = panels.len();
+        side.active = side.tabs.first().cloned();
+        let children = vec![
+            Child {
+                size: Size::Fixed(PANEL_WIDTH),
+                node: Node::Pane(side),
+            },
+            Child {
+                size: Size::Weight(1.),
+                node: Node::Pane(content),
+            },
+        ];
+        Self {
+            root: Node::Split(Split {
+                axis: Axis::Row,
+                children,
+            }),
+            focused: PaneId(0),
+            preview: None,
+            next_id: 2,
+        }
+    }
+
     pub fn validate(&self) -> Result<(), String> {
         self.root.validate()?;
         let mut ids = HashSet::new();
         let mut seen = HashSet::new();
-        for pane in self.panes() {
+        let panes = self.panes();
+        for pane in &panes {
             if !ids.insert(pane.id) {
                 return Err(format!("pane {} appears twice", pane.id.0));
             }
             if pane.id.0 >= self.next_id {
                 return Err(format!("pane {} is not below next_id", pane.id.0));
             }
+            if pane.pinned > pane.tabs.len() {
+                return Err(format!("pane {} pins more tabs than it has", pane.id.0));
+            }
             for tab in &pane.tabs {
                 if !seen.insert(tab.as_str()) {
                     return Err(format!("tab `{tab}` is open twice"));
+                }
+                if panel_name(tab).is_some_and(str::is_empty) {
+                    return Err("a panel tab has no name".into());
                 }
             }
             match &pane.active {
@@ -59,20 +100,36 @@ impl TabLayout {
                 _ => {}
             }
         }
+        let empty = panes.iter().filter(|pane| pane.tabs.is_empty()).count();
+        if empty > 1 {
+            return Err("more than one pane is empty".into());
+        }
+        if empty == 1 && self.content_panes().any(|pane| !pane.tabs.is_empty()) {
+            return Err("an empty pane is next to chats or documents".into());
+        }
         if !ids.contains(&self.focused) {
             return Err(format!("focused pane {} does not exist", self.focused.0));
         }
-        if let Some(preview) = &self.preview
-            && !seen.contains(preview.as_str())
-        {
-            return Err(format!("preview tab `{preview}` is not open"));
+        match &self.preview {
+            Some(preview) if !seen.contains(preview.as_str()) => {
+                Err(format!("preview tab `{preview}` is not open"))
+            }
+            Some(preview) if is_panel(preview) => Err(format!("panel `{preview}` is a preview")),
+            Some(preview) if self.is_pinned(preview) => {
+                Err(format!("preview tab `{preview}` is pinned"))
+            }
+            _ => Ok(()),
         }
-        Ok(())
     }
 
     /// Panes in reading order.
     pub fn panes(&self) -> Vec<&Pane> {
         self.root.panes()
+    }
+
+    /// Panes for chats and documents: all but those holding only panels.
+    pub fn content_panes(&self) -> impl Iterator<Item = &Pane> {
+        self.panes().into_iter().filter(|pane| !pane.holds_panels())
     }
 
     pub fn pane_count(&self) -> usize {
@@ -92,6 +149,10 @@ impl TabLayout {
 
     pub fn contains(&self, tab: &str) -> bool {
         self.pane_of(tab).is_some()
+    }
+
+    pub fn is_pinned(&self, tab: &str) -> bool {
+        self.panes().into_iter().any(|pane| pane.is_pinned(tab))
     }
 
     pub fn active(&self, pane: PaneId) -> Option<&str> {

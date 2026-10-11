@@ -2,12 +2,12 @@ use std::time::Duration;
 
 use gpui_kit::*;
 
-use super::FilesSidebar;
+use super::FilesPanel;
 
 /// Pause after the last keystroke before asking the server.
 const DEBOUNCE: Duration = Duration::from_millis(150);
 
-impl FilesSidebar {
+impl FilesPanel {
     /// The tree currently shows server matches rather than listings.
     pub(super) fn searching(&self) -> bool {
         self.search

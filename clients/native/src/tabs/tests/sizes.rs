@@ -1,0 +1,140 @@
+use super::super::geometry::Rect;
+use super::super::{Edge, Node, PaneId, Size, TabLayout};
+use super::shape;
+use super::tree::{assert_close, weights};
+
+const A: &str = "chat:/s/a";
+
+/// `row(264px 1[panels] | 0[a*])`.
+fn with_chat() -> TabLayout {
+    let mut layout = TabLayout::default();
+    layout.open(A, |_| true);
+    layout
+}
+
+fn widths(layout: &TabLayout, width: f32) -> Vec<f32> {
+    let rects: Vec<Rect> = layout
+        .rects_in(width, 800.)
+        .into_iter()
+        .map(|(_, rect)| rect)
+        .collect();
+    rects.iter().map(|rect| rect.w).collect()
+}
+
+#[test]
+fn fixed_panes_keep_their_pixels() {
+    let layout = with_chat();
+    assert_close(&widths(&layout, 1264.), &[264., 1000.]);
+    assert_close(&widths(&layout, 2264.), &[264., 2000.]);
+    // Too narrow a window shrinks the fixed pane last of all.
+    assert_close(&widths(&layout, 200.), &[200., 0.]);
+}
+
+#[test]
+fn dividers_resize_fixed_panes_in_pixels() {
+    let mut layout = with_chat();
+    layout.resize(&[], 0, 300., 1264., 240.);
+    assert_eq!(
+        layout.sizes(&[]),
+        Some(vec![Size::Fixed(300.), Size::Weight(1.)])
+    );
+    layout.resize(&[], 0, 100., 1264., 240.);
+    assert_eq!(layout.sizes(&[]).unwrap()[0], Size::Fixed(240.));
+    layout.reset(&[]);
+    assert_eq!(
+        layout.sizes(&[]),
+        Some(vec![Size::Fixed(264.), Size::Weight(1.)])
+    );
+
+    // Between weighted panes, a fixed one stays as it is.
+    layout.open("files:x", |_| true);
+    assert_eq!(
+        shape(&layout),
+        "row(264px 1[@sessions^*, @files^] | 0[a*] | 2[files:x*])"
+    );
+    layout.resize(&[], 1, 264. + 250., 1264., 240.);
+    assert_eq!(layout.sizes(&[]).unwrap()[0], Size::Fixed(264.));
+    assert_close(&weights(&layout, &[])[1..], &[0.5, 1.5]);
+    assert_close(&widths(&layout, 1264.), &[264., 250., 750.]);
+}
+
+#[test]
+fn splitting_beside_a_fixed_pane() {
+    let mut layout = with_chat();
+    layout.open("files:x", |_| false);
+    layout.split("files:x", PaneId(1), Edge::Right);
+    assert_eq!(
+        shape(&layout),
+        "row(264px 1[@sessions^*, @files^] | 2[files:x*] | 0[a*])"
+    );
+    assert_close(&weights(&layout, &[])[1..], &[1., 1.]);
+
+    // Stacked inside the fixed pane, the column keeps the pixels.
+    let mut layout = with_chat();
+    layout.split("panel:files", PaneId(1), Edge::Bottom);
+    assert_eq!(
+        shape(&layout),
+        "row(264px col(1[@sessions^*] / 2[@files^*]) | 0[a*])"
+    );
+}
+
+#[test]
+fn normalizing_keeps_splits_resizable() {
+    // Without weighted children, fixed ones share by their pixels.
+    let mut layout = with_chat();
+    layout.split("panel:files", PaneId(0), Edge::Right);
+    let Node::Split(split) = &mut layout.root else {
+        unreachable!()
+    };
+    split.children[2].size = Size::Fixed(300.);
+    assert_eq!(
+        shape(&layout),
+        "row(264px 1[@sessions^*] | 0[a*] | 300px 2[@files^*])"
+    );
+    layout.move_tab(A, PaneId(1), None);
+    assert_close(&weights(&layout, &[]), &[264. / 282., 300. / 282.]);
+
+    // A split merged into a fixed child of its parent turns fixed too.
+    let mut layout = with_chat();
+    layout.split("panel:files", PaneId(1), Edge::Bottom);
+    layout.open_panel("panel:notes", Some(PaneId(2)));
+    layout.split("panel:notes", PaneId(2), Edge::Right);
+    layout.close("panel:sessions");
+    assert_eq!(
+        shape(&layout),
+        "row(132px 2[@files^*] | 132px 3[@notes^*] | 0[a*])"
+    );
+}
+
+#[test]
+fn validation_checks_sizes() {
+    let broken = |size: [Size; 2]| {
+        let mut layout = with_chat();
+        let Node::Split(split) = &mut layout.root else {
+            unreachable!()
+        };
+        split.children[0].size = size[0];
+        split.children[1].size = size[1];
+        layout.validate().is_err()
+    };
+    assert!(!broken([Size::Fixed(10.), Size::Weight(0.5)]));
+    assert!(broken([Size::Fixed(10.), Size::Fixed(20.)]));
+    assert!(broken([Size::Fixed(0.), Size::Weight(1.)]));
+    assert!(broken([Size::Fixed(f32::NAN), Size::Weight(1.)]));
+    assert!(broken([Size::Fixed(10.), Size::Weight(f32::INFINITY)]));
+}
+
+#[test]
+fn fresh_layouts_round_trip() {
+    let layout = with_chat();
+    let text = serde_json::to_string(&layout).unwrap();
+    assert!(text.contains(r#""size":{"fixed":264.0}"#), "{text}");
+    let back: TabLayout = serde_json::from_str(&text).unwrap();
+    assert_eq!(back, layout);
+
+    // Weights of the earlier form are not read.
+    let old = text.replace(r#""size":{"fixed":264.0}"#, r#""weight":1.0"#);
+    assert!(serde_json::from_str::<TabLayout>(&old).is_err());
+    let unpinned = text.replace(r#""pinned":0,"#, "");
+    assert!(serde_json::from_str::<TabLayout>(&unpinned).is_err());
+}

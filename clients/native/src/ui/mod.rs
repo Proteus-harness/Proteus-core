@@ -6,9 +6,9 @@ mod drag;
 mod extensions;
 mod format;
 mod motion;
+mod panels;
 mod prefs;
 mod settings;
-mod sidebar;
 mod tabs;
 mod workspace;
 
@@ -24,7 +24,8 @@ gpui_kit::actions!(
     proteus_native,
     [
         ToggleSettings,
-        ToggleFileTree,
+        ToggleFiles,
+        ToggleSessions,
         NewSession,
         NextSettingsPage,
         PreviousSettingsPage,
@@ -45,7 +46,8 @@ pub fn init(cx: &mut App) {
     prefs::init(cx);
     cx.bind_keys([
         KeyBinding::new("ctrl-,", ToggleSettings, None),
-        KeyBinding::new("ctrl-shift-e", ToggleFileTree, None),
+        KeyBinding::new("ctrl-shift-e", ToggleFiles, None),
+        KeyBinding::new("ctrl-shift-h", ToggleSessions, None),
         KeyBinding::new("ctrl-n", NewSession, None),
         KeyBinding::new("alt-down", NextSettingsPage, Some(SETTINGS_CONTEXT)),
         KeyBinding::new("alt-up", PreviousSettingsPage, Some(SETTINGS_CONTEXT)),
@@ -79,9 +81,17 @@ impl Render for Workspace {
                     this.open_settings(window, cx);
                 }
             }))
-            .on_action(cx.listener(|this, _: &ToggleFileTree, window, cx| {
+            .on_action(cx.listener(|this, _: &ToggleFiles, window, cx| {
+                if this.settings.is_none()
+                    && let Some(tab) = panels::first_extension_panel(cx)
+                {
+                    this.toggle_panel(&tab, window, cx);
+                }
+            }))
+            .on_action(cx.listener(|this, _: &ToggleSessions, window, cx| {
                 if this.settings.is_none() {
-                    this.toggle_sidebar_view(window, cx);
+                    let tab = crate::tabs::panel(crate::tabs::SESSIONS);
+                    this.toggle_panel(&tab, window, cx);
                 }
             }))
             .on_action(cx.listener(|this, _: &NewSession, window, cx| this.new_session(window, cx)))
@@ -137,10 +147,9 @@ impl Render for Workspace {
             Status::Ready => {
                 self.sync_window_title(window);
                 self.sync_badges(window, cx);
-                let sidebar = self.render_sidebar(window, cx);
                 let tabs = self.render_tabs(window, cx);
                 root.child(motion::rise_in(
-                    h_flex().size_full().child(sidebar).child(tabs),
+                    h_flex().size_full().child(tabs),
                     "chat-screen",
                 ))
             }

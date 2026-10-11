@@ -3,7 +3,7 @@
 
 use gpui_kit::*;
 
-use super::{FilesSidebar, Tab};
+use super::{FilesPanel, Tab};
 use crate::files::EntryKind;
 
 pub(super) const LIST_CONTEXT: &str = "ProteusFilesList";
@@ -47,7 +47,7 @@ struct Stop {
     depth: usize,
 }
 
-impl FilesSidebar {
+impl FilesPanel {
     /// Registers the list actions on the focused column.
     pub(super) fn list_actions(&self, element: Div, cx: &mut Context<Self>) -> Div {
         element

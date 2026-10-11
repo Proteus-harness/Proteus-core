@@ -7,14 +7,14 @@ use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
-use super::{FilesSidebar, Tab};
+use super::{FilesPanel, Tab};
 use crate::files::{ChangeStatus, EntryKind};
 use crate::ui::extensions::files::{path_label, status_color};
 
 const ROW_HEIGHT: f32 = 26.;
 const INDENT: f32 = 14.;
 
-impl FilesSidebar {
+impl FilesPanel {
     fn row_background(&self, path: &str, focused: bool, cx: &App) -> Option<Hsla> {
         let theme = cx.theme();
         if self.selected.as_deref() == Some(path) {
@@ -176,7 +176,7 @@ impl FilesSidebar {
     }
 }
 
-impl Render for FilesSidebar {
+impl Render for FilesPanel {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.follow_active(cx);
         let danger = cx.theme().danger;

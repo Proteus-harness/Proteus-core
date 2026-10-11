@@ -5,7 +5,7 @@ use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
-use super::bar::DraggedTab;
+use super::tab::DraggedTab;
 use crate::tabs::{self, Edge, PaneId};
 use crate::ui::workspace::Workspace;
 

@@ -13,8 +13,8 @@ pub(super) use tree::bind_keys;
 
 pub(super) const ID: &str = "files";
 
-pub(super) fn build_sidebar(host: Host, window: &mut Window, cx: &mut App) -> SurfaceView {
-    let view = cx.new(|cx| tree::FilesSidebar::new(host, window, cx));
+pub(super) fn build_panel(host: Host, window: &mut Window, cx: &mut App) -> SurfaceView {
+    let view = cx.new(|cx| tree::FilesPanel::new(host, window, cx));
     SurfaceView {
         focus: view.read(cx).focus_handle.clone(),
         view: view.into(),
