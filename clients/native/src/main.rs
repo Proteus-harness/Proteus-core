@@ -4,12 +4,12 @@ mod backend;
 mod connection;
 mod graphics;
 mod launch;
+mod preferences;
 mod settings;
 mod tool_display;
 mod transcript;
 mod ui;
 
-use gpui_kit::component::{Theme, ThemeMode};
 use gpui_kit::*;
 
 use launch::LaunchOptions;
@@ -34,8 +34,7 @@ fn main() {
         .with_assets(assets::AppAssets)
         .run(move |cx| {
             gpui_kit::init(cx);
-            ui::bind_keys(cx);
-            Theme::change(ThemeMode::Dark, None, cx);
+            ui::init(cx);
             cx.on_window_closed(|cx, _| {
                 if cx.windows().is_empty() {
                     cx.quit();

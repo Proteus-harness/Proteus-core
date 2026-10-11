@@ -20,12 +20,16 @@ impl Workspace {
             .map(|pending| pending.queued_user_messages.as_slice())
             .unwrap_or_default();
 
+        let keys = match super::prefs::current(cx).send {
+            crate::preferences::SendMode::Enter => "Enter",
+            crate::preferences::SendMode::CtrlEnter => "Ctrl+Enter",
+        };
         let send = Button::new("send")
             .icon(IconName::ArrowUp)
             .tooltip(if running {
-                "В очередь (Enter)"
+                format!("В очередь ({keys})")
             } else {
-                "Отправить (Enter)"
+                format!("Отправить ({keys})")
             })
             .primary()
             .small()

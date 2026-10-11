@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use anyhow::{Result, anyhow, bail};
 use proteus_contracts::app_protocol::config::ConfigSummary;
-use proteus_contracts::app_protocol::config_builder::ConfigBuilderSnapshot;
+use proteus_contracts::app_protocol::config_builder::{ConfigBuilderSnapshot, ConfigHistory};
 use proteus_contracts::app_protocol::http::{
     ApprovalRequest, CancelRequest, DeleteQueuedMessageRequest, NewSessionRequest,
     ResumeSessionRequest, SendRequest, SessionOpened, SetConfigBuilderRequest, SetModelRequest,
@@ -170,6 +170,10 @@ impl Api {
     /// Opens the session event stream; blocks until the server answers.
     pub fn config_builder(&self, session_dir: &Path) -> Result<ConfigBuilderSnapshot> {
         self.get("/config/builder", Some(session_dir))
+    }
+
+    pub fn config_history(&self, session_dir: &Path) -> Result<ConfigHistory> {
+        self.get("/config/history", Some(session_dir))
     }
 
     /// Persists profile changes; the server answers with the fresh snapshot

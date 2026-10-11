@@ -1,12 +1,12 @@
 //! Headless agent settings: schema-driven fields, the editable draft and the
-//! page layout rendered by `ui::settings`.
+//! presentation catalog rendered by `ui::settings`.
 
+pub mod catalog;
 mod draft;
-mod layout;
+pub mod history;
 mod schema;
 
 pub use draft::{Draft, FieldPath};
-pub use layout::{Choice, Group, Item, Page, PageIcon, pages, search};
 pub use schema::{
     FieldKind, TextFormat, choice_title, default_hint, field_kind, format_value, parse_text,
 };

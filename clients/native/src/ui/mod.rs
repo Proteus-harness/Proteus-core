@@ -5,6 +5,7 @@ mod controls;
 mod format;
 mod motion;
 mod panel;
+mod prefs;
 mod requests;
 mod settings;
 mod sidebar;
@@ -25,14 +26,25 @@ pub use workspace::Workspace;
 
 gpui_kit::actions!(
     proteus_native,
-    [ToggleSettings, ToggleInfoPanel, NewSession]
+    [
+        ToggleSettings,
+        ToggleInfoPanel,
+        NewSession,
+        NextSettingsPage,
+        PreviousSettingsPage
+    ]
 );
 
-pub fn bind_keys(cx: &mut App) {
+pub(crate) const SETTINGS_CONTEXT: &str = "ProteusSettings";
+
+pub fn init(cx: &mut App) {
+    prefs::init(cx);
     cx.bind_keys([
         KeyBinding::new("ctrl-,", ToggleSettings, None),
         KeyBinding::new("ctrl-alt-b", ToggleInfoPanel, None),
         KeyBinding::new("ctrl-n", NewSession, None),
+        KeyBinding::new("alt-down", NextSettingsPage, Some(SETTINGS_CONTEXT)),
+        KeyBinding::new("alt-up", PreviousSettingsPage, Some(SETTINGS_CONTEXT)),
     ]);
 }
 

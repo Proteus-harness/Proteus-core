@@ -8,7 +8,20 @@ use gpui_kit::{AssetSource, Result, SharedString};
 
 gpui_kit::assets::icon_assets!(
     ExtraIcons,
-    [Brain, Layers, Puzzle, Shield, Webhook, Workflow, Wrench]
+    [
+        Brain,
+        Clock,
+        GripVertical,
+        Layers,
+        MessageSquare,
+        Package,
+        Puzzle,
+        Shield,
+        Shrink,
+        Webhook,
+        Workflow,
+        Wrench
+    ]
 );
 
 pub struct AppAssets;

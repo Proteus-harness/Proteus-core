@@ -1,3 +1,4 @@
+use chrono::{Datelike, Local, TimeZone, Timelike};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use proteus_contracts::app_protocol::AppSessionSummary;
@@ -60,6 +61,38 @@ pub fn clip_block(text: &str, max_lines: usize, max_chars: usize) -> String {
     }
     out.truncate(out.trim_end().len());
     out
+}
+
+const MONTHS: [&str; 12] = [
+    "янв.",
+    "февр.",
+    "мар.",
+    "апр.",
+    "мая",
+    "июн.",
+    "июл.",
+    "авг.",
+    "сент.",
+    "окт.",
+    "нояб.",
+    "дек.",
+];
+
+/// Local date and time like "11 окт., 14:05".
+pub fn local_time(seconds: u64) -> String {
+    let Some(time) = i64::try_from(seconds)
+        .ok()
+        .and_then(|seconds| Local.timestamp_opt(seconds, 0).single())
+    else {
+        return seconds.to_string();
+    };
+    format!(
+        "{} {}, {:02}:{:02}",
+        time.day(),
+        MONTHS[time.month0() as usize],
+        time.hour(),
+        time.minute()
+    )
 }
 
 #[cfg(test)]

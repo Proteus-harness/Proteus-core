@@ -1,11 +1,16 @@
 use proteus_contracts::app_protocol::config_builder::{
     ConfigBuilderModule, ConfigBuilderModuleSelection, ConfigBuilderSlot, ConfigBuilderSnapshot,
-    ConfigBuilderTool,
+    ConfigBuilderState, ConfigBuilderTool, ConfigBuilderToolPack,
 };
 use proteus_contracts::domain::{ConfigField, ConfigValueSchema, ModuleConfigSchema};
 use serde_json::json;
 
-use super::{Draft, FieldPath, Item, TextFormat, format_value, pages, parse_text, search};
+use super::catalog::{
+    PackState, PageId, agent_pages, module_info, pack_summary, page_title, plural,
+};
+use super::draft::Area;
+use super::history::describe_changes;
+use super::{Draft, FieldPath, TextFormat, format_value, parse_text};
 
 fn integer(minimum: Option<i64>, maximum: Option<i64>) -> TextFormat {
     TextFormat::Integer { minimum, maximum }
@@ -106,98 +111,175 @@ fn module(id: &str, slot: &str, fields: Vec<ConfigField>) -> ConfigBuilderModule
     }
 }
 
+fn slot(id: &str, order: u32, modules: Vec<ConfigBuilderModule>) -> ConfigBuilderSlot {
+    ConfigBuilderSlot {
+        id: id.into(),
+        title: id.to_uppercase(),
+        responsibility: String::new(),
+        active_module: modules.first().map(|module| module.id.clone()),
+        required: true,
+        category: String::new(),
+        order,
+        modules,
+    }
+}
+
+fn tool(name: &str, runtime_managed: bool) -> ConfigBuilderTool {
+    ConfigBuilderTool {
+        name: name.into(),
+        source: "process".into(),
+        owner: None,
+        safety: "ReadOnly".into(),
+        description: String::new(),
+        enabled: true,
+        runtime_managed,
+        registered: true,
+    }
+}
+
 #[test]
-fn pages_follow_slot_order_and_selected_module() {
+fn pages_cover_known_slots_and_append_unknown_ones() {
     let trigger = ConfigField::new("trigger", "Порог", "", ConfigValueSchema::integer(1));
-    let verbose =
-        ConfigField::new("verbose", "Подробно", "", ConfigValueSchema::Boolean {}).advanced();
     let snapshot = ConfigBuilderSnapshot {
         slots: vec![
-            ConfigBuilderSlot {
-                id: "compactor".into(),
-                title: "Compactor".into(),
-                responsibility: String::new(),
-                active_module: Some("codex".into()),
-                required: true,
-                category: String::new(),
-                order: 2,
-                modules: vec![
-                    module("codex", "compactor", vec![trigger, verbose]),
-                    module("plain", "compactor", Vec::new()),
-                ],
-            },
-            ConfigBuilderSlot {
-                id: "workflow".into(),
-                title: "Workflow".into(),
-                responsibility: "Loop".into(),
-                active_module: None,
-                required: true,
-                category: String::new(),
-                order: 0,
-                modules: Vec::new(),
-            },
-            ConfigBuilderSlot {
-                id: "unknown".into(),
-                title: "Unknown".into(),
-                responsibility: String::new(),
-                active_module: None,
-                required: false,
-                category: String::new(),
-                order: 9,
-                modules: Vec::new(),
-            },
+            slot(
+                "compactor",
+                2,
+                vec![module("codex", "compactor", vec![trigger])],
+            ),
+            slot("later", 9, Vec::new()),
+            slot("earlier", 7, Vec::new()),
         ],
-        active_modules: vec![ConfigBuilderModuleSelection {
-            slot: "compactor".into(),
-            id: "codex".into(),
-        }],
-        tools: vec![ConfigBuilderTool {
-            name: "spawn_agent".into(),
-            source: "runtime".into(),
-            owner: None,
-            safety: String::new(),
-            description: String::new(),
-            enabled: true,
-            runtime_managed: true,
-            registered: true,
-        }],
         ..ConfigBuilderSnapshot::default()
     };
-    let mut draft = Draft::from_snapshot(&snapshot);
-    let baseline = draft.clone();
-    let layout: Vec<_> = pages(&snapshot, &draft)
-        .into_iter()
-        .map(|page| (page.id, page.groups.len()))
+    let pages = agent_pages(&snapshot);
+    let slot_pages: Vec<&str> = pages
+        .iter()
+        .filter_map(|page| match page {
+            PageId::Slot(slot) => Some(slot.as_str()),
+            _ => None,
+        })
         .collect();
     assert_eq!(
-        layout,
-        vec![
-            ("context".to_string(), 1),
-            ("tools".to_string(), 1),
-            ("workflow".to_string(), 1),
-            ("unknown".to_string(), 1),
+        slot_pages,
+        [
+            "workflow",
+            "context",
+            "compactor",
+            "tool_exposure",
+            "policy",
+            "earlier",
+            "later"
         ]
     );
-    let all = pages(&snapshot, &draft);
-    let compactor = &all[0].groups[0];
-    assert_eq!(compactor.title.as_deref(), Some("Сжатие истории"));
-    assert!(matches!(compactor.items[0], Item::Module { .. }));
-    assert_eq!(compactor.items.len(), 2);
-    assert_eq!(compactor.advanced.len(), 1);
-    assert!(matches!(
-        all[1].groups[0].items[0],
-        Item::Tool { locked: true, .. }
-    ));
-    assert!(matches!(all[2].groups[0].items[0], Item::Note(_)));
-    assert_eq!(all[3].title, "Unknown");
+    for page in [
+        PageId::Model,
+        PageId::ContextProviders,
+        PageId::Tools,
+        PageId::Hooks,
+    ] {
+        assert!(pages.contains(&page));
+    }
+    assert_eq!(pages.last(), Some(&PageId::History));
+    assert_eq!(
+        page_title(Some(&snapshot), &PageId::Slot("later".into())),
+        "LATER"
+    );
+    assert!(
+        module_info(&snapshot, "compactor", "codex")
+            .and_then(|info| info.schema)
+            .is_some()
+    );
+}
 
-    let found = search(&all, "подробно");
-    assert_eq!(found.len(), 1);
-    assert_eq!(found[0].title.as_deref(), Some("Контекст · Сжатие истории"));
+#[test]
+fn hooks_move_and_areas_follow_edits() {
+    let mut baseline = Draft::default();
+    baseline.hooks = vec!["a".into(), "b".into(), "c".into()];
+    let mut draft = baseline.clone();
+    draft.move_hook("c", -1);
+    draft.move_hook("a", -1);
+    assert_eq!(draft.hooks, ["a", "c", "b"]);
+    draft.set_value(
+        &FieldPath::new("model", "openai", "effort"),
+        Some(json!("high")),
+    );
+    draft.set_tool("grep", true);
+    assert_eq!(
+        draft.areas(&baseline),
+        [Area::Tools, Area::Hooks, Area::Slot("model".into())]
+    );
+}
 
-    draft.set_module("compactor", "plain");
-    let all = pages(&snapshot, &draft);
-    assert_eq!(all[0].groups[0].items.len(), 1);
-    assert!(all[0].changed(&draft, &baseline));
-    assert!(!all[1].changed(&draft, &baseline));
+#[test]
+fn revision_restores_old_state_and_describes_it() {
+    let snapshot = ConfigBuilderSnapshot {
+        active_modules: vec![ConfigBuilderModuleSelection {
+            slot: "context".into(),
+            id: "repo".into(),
+        }],
+        module_config: [(
+            "context".to_string(),
+            [("repo".to_string(), json!({"limit": 5}))]
+                .into_iter()
+                .collect(),
+        )]
+        .into_iter()
+        .collect(),
+        tools_enabled: vec!["grep".into(), "shell".into()],
+        permission_mode: "auto".into(),
+        ..ConfigBuilderSnapshot::default()
+    };
+    let state = ConfigBuilderState {
+        active_modules: vec![ConfigBuilderModuleSelection {
+            slot: "context".into(),
+            id: "simple".into(),
+        }],
+        tools_enabled: vec!["grep".into()],
+        permission_mode: "normal".into(),
+        ..ConfigBuilderState::default()
+    };
+    let saved = Draft::from_snapshot(&snapshot);
+    let restored = Draft::from_revision(&snapshot, &state);
+    assert_eq!(restored.module_config("context", "repo"), Some(&json!({})));
+    let request = restored.changes(&saved);
+    assert_eq!(
+        request
+            .module_config
+            .get("context")
+            .and_then(|slot| slot.get("repo")),
+        Some(&json!({}))
+    );
+    assert_eq!(
+        describe_changes(&snapshot, &restored, &saved),
+        [
+            "Режим прав: По правилам → Правки без вопросов",
+            "Tools: + shell",
+            "Context: simple → repo; параметры: limit",
+        ]
+    );
+}
+
+#[test]
+fn pack_switch_leaves_runtime_tools_alone() {
+    let snapshot = ConfigBuilderSnapshot {
+        tools: vec![
+            tool("grep", false),
+            tool("spawn_agent", true),
+            tool("shell", false),
+        ],
+        ..ConfigBuilderSnapshot::default()
+    };
+    let pack = ConfigBuilderToolPack {
+        id: "pack".into(),
+        tools: vec!["grep".into(), "spawn_agent".into(), "shell".into()],
+    };
+    let mut draft = Draft::from_snapshot(&snapshot);
+    draft.set_tool("grep", true);
+    let summary = pack_summary(&snapshot, &draft, &pack);
+    assert_eq!(summary.state, PackState::Mixed);
+    assert_eq!(summary.switchable, ["grep", "shell"]);
+    assert_eq!((summary.enabled, summary.total), (2, 3));
+    assert_eq!(plural(3, "пакет", "пакета", "пакетов"), "3 пакета");
+    assert_eq!(plural(11, "пакет", "пакета", "пакетов"), "11 пакетов");
 }

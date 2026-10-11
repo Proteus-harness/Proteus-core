@@ -1,4 +1,3 @@
-use chrono::{Datelike, Local, TimeZone, Timelike};
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::progress::Progress;
 use gpui_kit::component::*;
@@ -6,23 +5,10 @@ use gpui_kit::*;
 use proteus_contracts::contracts::{ModelQuotaBucket, ModelQuotaSnapshot};
 
 use super::{muted, row};
+use crate::ui::format::local_time;
 use crate::ui::workspace::Workspace;
 
 const WEEK_SECONDS: u64 = 604_800;
-const MONTHS: [&str; 12] = [
-    "янв.",
-    "февр.",
-    "мар.",
-    "апр.",
-    "мая",
-    "июн.",
-    "июл.",
-    "авг.",
-    "сент.",
-    "окт.",
-    "нояб.",
-    "дек.",
-];
 
 #[derive(Default)]
 pub(super) struct QuotaState {
@@ -89,7 +75,7 @@ impl Workspace {
             (None, Some(snapshot)) => div()
                 .text_xs()
                 .text_color(theme.muted_foreground)
-                .child(format!("Данные на {}", timestamp(snapshot.observed_at))),
+                .child(format!("Данные на {}", local_time(snapshot.observed_at))),
             (None, None) => div(),
         };
         let body = v_flex().gap_2().child(content).child(
@@ -235,27 +221,11 @@ fn percent(value: f64) -> String {
     format!("{}%", number(value))
 }
 
-fn timestamp(seconds: u64) -> String {
-    let Some(time) = i64::try_from(seconds)
-        .ok()
-        .and_then(|seconds| Local.timestamp_opt(seconds, 0).single())
-    else {
-        return seconds.to_string();
-    };
-    format!(
-        "{} {}, {:02}:{:02}",
-        time.day(),
-        MONTHS[time.month0() as usize],
-        time.hour(),
-        time.minute()
-    )
-}
-
 fn reset_label(resets_at: Option<u64>, now: u64) -> String {
     match resets_at {
         None => "Время сброса не указано".to_owned(),
         Some(at) if at <= now => "Время сброса прошло · ожидаем новые данные".to_owned(),
-        Some(at) => format!("Сброс {}", timestamp(at)),
+        Some(at) => format!("Сброс {}", local_time(at)),
     }
 }
 

@@ -1,8 +1,20 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use proteus_contracts::app_protocol::config_builder::ConfigBuilderSnapshot;
+use proteus_contracts::app_protocol::addons::AppAddonsUpdate;
+use proteus_contracts::app_protocol::config_builder::{ConfigBuilderSnapshot, ConfigBuilderState};
 use proteus_contracts::app_protocol::http::SetConfigBuilderRequest;
 use serde_json::{Map, Value};
+
+/// Profile area touched by an edit.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Area {
+    Provider,
+    Mode,
+    Tools,
+    Hooks,
+    Addons,
+    Slot(String),
+}
 
 /// Address of one module config value: `module_config[slot][module][key]`.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -31,6 +43,9 @@ pub struct Draft {
     pub tools: BTreeSet<String>,
     pub provider: Option<String>,
     pub mode: String,
+    /// Skills, MCP servers and agent plugin packages; edited only by history
+    /// rollback here.
+    pub addons: AppAddonsUpdate,
 }
 
 impl Draft {
@@ -46,6 +61,7 @@ impl Draft {
             tools: snapshot.tools_enabled.iter().cloned().collect(),
             provider: snapshot.active_provider.clone(),
             mode: snapshot.permission_mode.clone(),
+            addons: snapshot.addon_settings.clone(),
         }
     }
 
@@ -108,6 +124,84 @@ impl Draft {
         }
     }
 
+    /// Whole parameter object of one module (`module_config[slot][module]`).
+    pub fn module_config(&self, slot: &str, module: &str) -> Option<&Value> {
+        self.config.get(slot)?.get(module)
+    }
+
+    pub fn set_module_config(&mut self, slot: &str, module: &str, value: Map<String, Value>) {
+        self.config
+            .entry(slot.to_string())
+            .or_default()
+            .insert(module.to_string(), Value::Object(value));
+    }
+
+    /// Moves an enabled hook up (`offset < 0`) or down the chain.
+    pub fn move_hook(&mut self, id: &str, offset: isize) {
+        let Some(from) = self.hooks.iter().position(|hook| hook == id) else {
+            return;
+        };
+        let to = from.saturating_add_signed(offset);
+        if to < self.hooks.len() && to != from {
+            let hook = self.hooks.remove(from);
+            self.hooks.insert(to, hook);
+        }
+    }
+
+    /// Draft that would bring the profile back to a replaced history state.
+    /// The builder cannot clear a slot selection, so slots missing from the
+    /// old state keep their current module; modules configured now but absent
+    /// from the old state get an explicit empty object.
+    pub fn from_revision(snapshot: &ConfigBuilderSnapshot, state: &ConfigBuilderState) -> Self {
+        let mut draft = Self::from_snapshot(snapshot);
+        for selection in &state.active_modules {
+            draft
+                .modules
+                .insert(selection.slot.clone(), selection.id.clone());
+        }
+        let mut config = state.module_config.clone();
+        for (slot, modules) in &snapshot.module_config {
+            let target = config.entry(slot.clone()).or_default();
+            for module in modules.keys() {
+                target
+                    .entry(module.clone())
+                    .or_insert_with(|| Value::Object(Map::new()));
+            }
+        }
+        draft.config = config;
+        draft.hooks = state.hooks.clone();
+        draft.tools = state.tools_enabled.iter().cloned().collect();
+        draft.provider = state.active_provider.clone();
+        draft.mode = state.permission_mode.clone();
+        draft.addons = state.addon_settings.clone();
+        draft
+    }
+
+    /// Profile areas that differ from `baseline`, in a stable order.
+    pub fn areas(&self, baseline: &Draft) -> Vec<Area> {
+        let request = self.changes(baseline);
+        let mut areas = BTreeSet::new();
+        if request.active_provider.is_some() {
+            areas.insert(Area::Provider);
+        }
+        if request.permission_mode.is_some() {
+            areas.insert(Area::Mode);
+        }
+        if request.tools_enabled.is_some() {
+            areas.insert(Area::Tools);
+        }
+        if request.hooks.is_some() {
+            areas.insert(Area::Hooks);
+        }
+        if request.addon_settings.is_some() {
+            areas.insert(Area::Addons);
+        }
+        for slot in request.modules.keys().chain(request.module_config.keys()) {
+            areas.insert(Area::Slot(slot.clone()));
+        }
+        areas.into_iter().collect()
+    }
+
     /// Minimal save request: only sections that differ from `baseline`.
     /// The server replaces a whole slot map in `module_config`, so a changed
     /// slot is sent in full.
@@ -142,6 +236,9 @@ impl Draft {
         if self.mode != baseline.mode {
             request.permission_mode = serde_json::from_value(Value::String(self.mode.clone())).ok();
         }
+        if self.addons != baseline.addons {
+            request.addon_settings = Some(self.addons.clone());
+        }
         request
     }
 
@@ -153,6 +250,7 @@ impl Draft {
             || request.tools_enabled.is_some()
             || request.active_provider.is_some()
             || request.permission_mode.is_some()
+            || request.addon_settings.is_some()
     }
 }
 

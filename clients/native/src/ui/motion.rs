@@ -2,17 +2,44 @@
 //!
 //! Animation state lives with the element id, so an id that changes (another
 //! page, a reopened section) plays the transition again.
+//!
+//! The motion preference is read on every call: «уменьшенные» keeps fades and
+//! drops movement, «выключены» also sets gpui's reduce-motion flag so every
+//! animation renders its final frame.
 
 use std::collections::HashMap;
 use std::f32::consts::FRAC_PI_2;
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::{Duration, Instant};
 
 use gpui_kit::component::animation::{EffectTransition, ease_out_cubic};
 use gpui_kit::component::*;
 use gpui_kit::*;
 
+use crate::preferences::MotionPreference;
+
 const ENTER: Duration = Duration::from_millis(180);
 const SPRING: SpringConfig = SpringConfig::new(420., 34., 1.);
+
+static LEVEL: AtomicU8 = AtomicU8::new(0);
+
+pub(super) fn set_level(level: MotionPreference) {
+    let value = match level {
+        MotionPreference::Full => 0,
+        MotionPreference::Reduced => 1,
+        MotionPreference::Off => 2,
+    };
+    LEVEL.store(value, Ordering::Relaxed);
+}
+
+/// Whether elements may move (slide, rotate, resize) while animating.
+fn moves() -> bool {
+    LEVEL.load(Ordering::Relaxed) == 0
+}
+
+fn shift(distance: f32) -> Pixels {
+    px(if moves() { distance } else { 0. })
+}
 
 /// Fade plus a short rise; for pages and freshly shown blocks.
 pub(super) fn rise_in<E: IntoElement + Styled + 'static>(
@@ -21,7 +48,7 @@ pub(super) fn rise_in<E: IntoElement + Styled + 'static>(
 ) -> AnimationElement<E> {
     EffectTransition::new(ENTER)
         .ease(ease_out_cubic)
-        .slide_y(px(6.), px(0.))
+        .slide_y(shift(6.), px(0.))
         .fade(0., 1.)
         .apply(element, id)
 }
@@ -49,26 +76,17 @@ pub(super) fn fade_in_if<E: IntoElement + Styled + 'static>(
     )
 }
 
-/// Bottom bar entering from below.
-pub(super) fn slide_up<E: IntoElement + Styled + 'static>(
-    element: E,
-    id: impl Into<ElementId>,
-) -> AnimationElement<E> {
-    EffectTransition::new(Duration::from_millis(220))
-        .ease(ease_out_cubic)
-        .slide_y(px(16.), px(0.))
-        .fade(0., 1.)
-        .apply(element, id)
-}
-
 /// Disclosure chevron that turns towards the open state.
-pub(super) fn chevron(id: impl Into<ElementId>, open: bool, color: Hsla) -> impl IntoElement {
-    Icon::new(IconName::ChevronRight)
-        .xsmall()
-        .text_color(color)
-        .with_spring(id, SpringAnimation::new(SPRING).to(open), |icon, phase| {
-            icon.rotate(radians(phase.interpolate(0., FRAC_PI_2)))
-        })
+pub(super) fn chevron(id: impl Into<ElementId>, open: bool, color: Hsla) -> AnyElement {
+    let icon = Icon::new(IconName::ChevronRight).xsmall().text_color(color);
+    if !moves() {
+        let angle = if open { FRAC_PI_2 } else { 0. };
+        return icon.rotate(radians(angle)).into_any_element();
+    }
+    icon.with_spring(id, SpringAnimation::new(SPRING).to(open), |icon, phase| {
+        icon.rotate(radians(phase.interpolate(0., FRAC_PI_2)))
+    })
+    .into_any_element()
 }
 
 /// Width spring for side panels; `open` drives 0 → `width`.
@@ -77,12 +95,19 @@ pub(super) fn reveal_width<E: IntoElement + Styled + 'static>(
     id: impl Into<ElementId>,
     open: bool,
     width: Pixels,
-) -> impl IntoElement {
-    element.with_spring(
-        id,
-        SpringAnimation::new(SPRING).to(open).from(false),
-        move |element, phase| element.w(phase.clamp(0.0..=1.0).interpolate(px(0.), width)),
-    )
+) -> AnyElement {
+    if !moves() {
+        return element
+            .w(if open { width } else { px(0.) })
+            .into_any_element();
+    }
+    element
+        .with_spring(
+            id,
+            SpringAnimation::new(SPRING).to(open).from(false),
+            move |element, phase| element.w(phase.clamp(0.0..=1.0).interpolate(px(0.), width)),
+        )
+        .into_any_element()
 }
 
 /// Keys that changed a moment ago: lets list rows animate only right after

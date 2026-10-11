@@ -17,11 +17,13 @@ use proteus_contracts::domain::{Event as RuntimeEvent, ThreadId};
 use super::context_usage::ContextUsage;
 use super::motion::Recent;
 use super::panel::InfoPanel;
+use super::prefs::ClientPreferences;
 use super::settings::SettingsView;
 use super::user_input::UserInputDrafts;
 use crate::api::Api;
 use crate::connection::{self, BackendGuard, PumpItem};
 use crate::launch::LaunchOptions;
+use crate::preferences::SendMode;
 use crate::transcript::{Change, Transcript};
 
 pub(super) enum Status {
@@ -120,22 +122,35 @@ pub struct Workspace {
 impl Workspace {
     pub fn new(options: LaunchOptions, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let scroller = cx.new(|cx| MessageScrollerState::new(0, cx));
+        let enter_sends = super::prefs::current(cx).send == SendMode::Enter;
         let composer = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .auto_grow(1, 12)
                 .placeholder("Сообщение для Proteus")
-                .submit_on_enter(true)
+                .submit_on_enter(enter_sends)
         });
         let subscriptions = vec![
             cx.subscribe_in(
                 &composer,
                 window,
                 |this, _, event: &InputEvent, window, cx| {
-                    if let InputEvent::PressEnter { shift: false, .. } = event {
+                    let InputEvent::PressEnter { secondary, shift } = *event else {
+                        return;
+                    };
+                    let sends = match super::prefs::current(cx).send {
+                        SendMode::Enter => !shift,
+                        SendMode::CtrlEnter => secondary,
+                    };
+                    if sends {
                         this.send(window, cx);
                     }
                 },
             ),
+            cx.observe_global::<ClientPreferences>(|this, cx| {
+                let enter_sends = super::prefs::current(cx).send == SendMode::Enter;
+                this.composer
+                    .update(cx, |state, cx| state.set_submit_on_enter(enter_sends, cx));
+            }),
             cx.on_app_quit(|this, _| {
                 let backend = this.backend.take();
                 async move { drop(backend) }

@@ -1,4 +1,4 @@
-//! Controls for module `config_schema` fields.
+//! Rows for module `config_schema` fields.
 
 use std::rc::Rc;
 
@@ -12,11 +12,12 @@ use gpui_kit::*;
 use proteus_contracts::domain::{ConfigChoice, ConfigField};
 use serde_json::Value;
 
-use super::rows::{MenuOption, hashed_id, row, select_menu};
-use super::{SettingsView, TextInput};
+use super::SettingsView;
+use super::editors::TextInput;
+use super::widgets::{MenuOption, Tone, changed_dot, chip, hashed_id, row, select_menu};
 use crate::settings::{FieldKind, FieldPath, choice_title, default_hint, field_kind};
 
-const LINE_INPUT_WIDTH: f32 = 280.;
+const LINE_INPUT_WIDTH: f32 = 260.;
 const CHOICE_WIDTH: f32 = 220.;
 
 /// Everything one field control needs inside its event handlers.
@@ -30,9 +31,9 @@ struct FieldSpec {
 impl FieldSpec {
     fn set(&self, value: Option<Value>, cx: &mut App) {
         let path = self.path.clone();
-        let _ = self
-            .view
-            .update(cx, |this, cx| this.set_field(&path, value, cx));
+        let _ = self.view.update(cx, |this, cx| {
+            this.update_draft(cx, |draft| draft.set_value(&path, value))
+        });
     }
 
     fn reset(&self, cx: &mut App) {
@@ -56,8 +57,9 @@ impl SettingsView {
         field: &ConfigField,
         cx: &Context<Self>,
     ) -> AnyElement {
+        let theme = cx.theme();
         let kind = field_kind(&field.value);
-        let text = self.inputs.get(path);
+        let text = self.editors.fields.get(path);
         let spec = Rc::new(FieldSpec {
             path: path.clone(),
             field: field.clone(),
@@ -91,42 +93,72 @@ impl SettingsView {
                 None => div().into_any_element(),
             },
         };
-        let reset = spec.value.is_some().then(|| {
-            let handler = spec.clone();
-            Button::new(spec.id("reset"))
-                .icon(IconName::Undo2)
-                .ghost()
-                .xsmall()
-                .tooltip("Сбросить к значению модуля")
-                .on_click(move |_, _, cx| handler.reset(cx))
-        });
+        let unit = field
+            .unit
+            .clone()
+            .filter(|unit| !unit.is_empty() && !vertical)
+            .map(|unit| {
+                div()
+                    .text_xs()
+                    .text_color(theme.muted_foreground)
+                    .child(unit)
+            });
+        let handler = spec.clone();
+        let reset = Button::new(spec.id("reset"))
+            .icon(IconName::Undo2)
+            .ghost()
+            .xsmall()
+            .disabled(spec.value.is_none())
+            .tooltip(format!("Сбросить «{}»", field.title))
+            .on_click(move |_, _, cx| handler.reset(cx));
         let error = text
             .and_then(|text| text.error.clone())
-            .map(|error| div().text_xs().text_color(cx.theme().danger).child(error));
+            .map(|error| div().text_xs().text_color(theme.danger).child(error));
         let control = v_flex()
             .gap_1()
             .when(vertical, |column| column.w_full())
             .when(!vertical, |column| column.items_end())
             .child(
                 h_flex()
-                    .gap_1()
-                    .items_start()
-                    .when(vertical, |line| line.w_full())
+                    .gap_1p5()
+                    .items_center()
+                    .when(vertical, |line| line.w_full().items_start())
                     .child(
                         div()
                             .when(vertical, |cell| cell.flex_1().min_w_0())
                             .child(control),
                     )
-                    .children(reset),
+                    .children(unit)
+                    .child(reset),
             )
             .children(error);
 
         let changed = self.draft.value(path) != self.baseline.value(path);
+        let origin = if spec.value.is_some() {
+            Some(chip("Своё значение", Tone::Accent, cx))
+        } else if field.required && field.default.is_none() {
+            Some(chip("Нужно задать", Tone::Warning, cx))
+        } else {
+            None
+        };
+        let title = h_flex()
+            .id(spec.id("title"))
+            .gap_2()
+            .items_center()
+            .child(field.title.clone())
+            .children(origin)
+            .when(changed, |title| title.child(changed_dot(cx)))
+            .tooltip({
+                let key = field.key.clone();
+                move |window, cx| {
+                    gpui_kit::component::tooltip::Tooltip::new(key.clone()).build(window, cx)
+                }
+            });
+        let description = field.description.trim();
         row(
-            field.title.clone(),
-            Some(describe(field).into()),
+            title,
+            (!description.is_empty()).then(|| description.to_string().into()),
             control,
-            changed,
             vertical,
             cx,
         )
@@ -134,28 +166,14 @@ impl SettingsView {
     }
 }
 
-fn describe(field: &ConfigField) -> String {
-    let mut text = field.description.trim().to_string();
-    if let Some(unit) = field.unit.as_deref().filter(|unit| !unit.is_empty()) {
-        if !text.is_empty() {
-            text.push(' ');
-        }
-        text.push_str(&format!("({unit})"));
-    }
-    if text.is_empty() {
-        text = field.key.clone();
-    }
-    text
-}
-
 fn choice_menu(spec: &Rc<FieldSpec>, options: &[ConfigChoice]) -> AnyElement {
     let label = match &spec.value {
         Some(value) => choice_title(options, value)
             .map(str::to_string)
-            .unwrap_or_else(|| value.to_string()),
+            .unwrap_or_else(|| format!("Неизвестное значение: {value}")),
         None => match default_hint(&spec.field) {
             Some(hint) => format!("По умолчанию ({hint})"),
-            None => "По умолчанию".to_string(),
+            None => "Не задано".to_string(),
         },
     };
     let mut items = Vec::with_capacity(options.len() + 1);
@@ -175,7 +193,6 @@ fn choice_menu(spec: &Rc<FieldSpec>, options: &[ConfigChoice]) -> AnyElement {
     select_menu(spec.id("choice"), label, items, move |value, cx| {
         handler.set(value, cx)
     })
-    .into_any_element()
 }
 
 fn multi_choice(spec: &Rc<FieldSpec>, options: &[ConfigChoice]) -> AnyElement {
