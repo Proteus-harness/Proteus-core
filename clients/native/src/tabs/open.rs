@@ -80,7 +80,7 @@ impl TabLayout {
             .find(|pane| panes.contains(pane));
         match neighbor {
             Some(pane) => Target::Pane(pane),
-            None if can_split(base) => Target::Split(base),
+            None if can_split(base) && !self.is_locked(base) => Target::Split(base),
             None => Target::Pane(base),
         }
     }

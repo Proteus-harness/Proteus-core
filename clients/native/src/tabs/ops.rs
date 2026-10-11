@@ -198,6 +198,7 @@ impl TabLayout {
     pub(super) fn settle(&mut self, before: &[PaneId]) {
         let keep = self.placeholder();
         self.root.normalize(keep);
+        self.forget_stale_locks();
         let now = self.pane_ids();
         if now.contains(&self.focused) {
             return;

@@ -14,6 +14,10 @@ pub struct Pane {
     /// out when closing the others.
     pub pinned: usize,
     pub active: Option<String>,
+    /// The user locked the pane's size: it keeps its pixels and is not
+    /// split further. See [`super::TabLayout::pane_locked`].
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub locked: bool,
     /// Shown again when the active tab closes.
     #[serde(skip)]
     pub previous: Option<String>,
@@ -26,6 +30,7 @@ impl Pane {
             tabs: Vec::new(),
             pinned: 0,
             active: None,
+            locked: false,
             previous: None,
         }
     }

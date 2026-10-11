@@ -60,6 +60,8 @@ impl Workspace {
         let next = match target {
             Some(edge) => {
                 let layout = self.tab_layout(cx);
+                // A locked pane is not split: its edges take the tab in.
+                let edge = edge.filter(|_| !layout.is_locked(pane));
                 let useful = match edge {
                     Some(_) => layout.can_split(id, pane),
                     None => layout.pane_of(id) != Some(pane),

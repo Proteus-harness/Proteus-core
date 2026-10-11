@@ -1,26 +1,28 @@
 //! Locking a pane's size: a locked pane keeps its pixels along its split
-//! when the window grows or its neighbours close, an unlocked one keeps its
-//! share of the room.
+//! when the window grows or its neighbours close, and is not split further;
+//! an unlocked one keeps its share of the room.
 
 use super::geometry::Rect;
 use super::layout::TabLayout;
 use super::size::{Size, balance, extents};
-use super::tree::{Axis, Node, PaneId};
+use super::tree::{Axis, Child, Node, PaneId};
 
 impl TabLayout {
     /// Whether `pane` is locked, or `None` when locking means nothing: it
     /// fills the tree alone, or nothing beside it would take the rest.
     pub fn pane_locked(&self, pane: PaneId) -> Option<bool> {
-        let path = self.root.path_to(pane)?;
-        let (&ix, parent) = path.split_last()?;
-        let split = self.root.split_at(parent)?;
-        let locked = split.children[ix].size.is_fixed();
-        let shared = split
-            .children
+        let (children, ix) = self.siblings(pane)?;
+        let locked = self.pane(pane)?.locked && children[ix].size.is_fixed();
+        let shared = children
             .iter()
             .enumerate()
             .any(|(at, child)| at != ix && !child.size.is_fixed());
         (locked || shared).then_some(locked)
+    }
+
+    /// Whether `pane` is locked, so nothing splits it.
+    pub fn is_locked(&self, pane: PaneId) -> bool {
+        self.pane_locked(pane) == Some(true)
     }
 
     /// Locks or unlocks `pane` at the size it has when the tree is
@@ -59,6 +61,33 @@ impl TabLayout {
             }
         }
         balance(&mut split.children);
+        if let Some(target) = self.root.pane_mut(pane) {
+            target.locked = locked;
+        }
+    }
+
+    /// Forgets locks that stopped meaning anything after a change, e.g. of
+    /// a pane left alone in the tree.
+    pub(super) fn forget_stale_locks(&mut self) {
+        let stale: Vec<PaneId> = self
+            .panes()
+            .into_iter()
+            .filter(|pane| pane.locked)
+            .map(|pane| pane.id)
+            .filter(|&pane| !self.is_locked(pane))
+            .collect();
+        for pane in stale {
+            if let Some(pane) = self.root.pane_mut(pane) {
+                pane.locked = false;
+            }
+        }
+    }
+
+    /// The children of the split holding `pane`, and its index among them.
+    fn siblings(&self, pane: PaneId) -> Option<(&[Child], usize)> {
+        let path = self.root.path_to(pane)?;
+        let (&ix, parent) = path.split_last()?;
+        Some((&self.root.split_at(parent)?.children, ix))
     }
 }
 

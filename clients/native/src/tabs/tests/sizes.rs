@@ -184,6 +184,30 @@ fn a_locked_pane_keeps_its_pixels_until_unlocked() {
     assert_eq!(layout.pane_locked(layout.pane_of(A).unwrap()), None);
     assert_close(&widths(&layout, 1600.), &[1000., 600.]);
 
+    // Nothing splits a locked pane.
+    let c = "chat:/s/c";
+    layout.open(c, |_| false);
+    layout.move_tab(c, pane, None);
+    assert!(!layout.can_split(c, pane));
+    layout.split(c, pane, Edge::Bottom);
+    assert_eq!(layout.pane_count(), 2);
+
+    // Alone in the tree the lock means nothing and is forgotten.
+    layout.close(A);
+    assert_eq!(layout.pane_locked(pane), None);
+    assert!(!layout.panes()[0].locked);
+    assert!(layout.can_split(c, pane));
+}
+
+#[test]
+fn unlocking_a_pane_lets_it_keep_its_share() {
+    let mut layout = TabLayout::with_panels(&[]);
+    let b = "chat:/s/b";
+    layout.open(A, |_| false);
+    layout.open(b, |_| false);
+    layout.split(b, layout.pane_of(b).unwrap(), Edge::Right);
+    let pane = layout.pane_of(b).unwrap();
+    layout.lock_pane(pane, true, 1200., 800., 0.);
     // Unlocked, it keeps its current share as the window changes.
     layout.lock_pane(pane, false, 1600., 800., 0.);
     assert_close(&widths(&layout, 800.), &[500., 300.]);

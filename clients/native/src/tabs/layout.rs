@@ -166,9 +166,13 @@ impl TabLayout {
             .filter_map(|pane| pane.active.as_deref())
     }
 
-    /// Whether moving `tab` to an edge of `pane` changes anything: a pane
-    /// cannot be split off its only tab.
+    /// Whether moving `tab` to an edge of `pane` changes anything and is
+    /// allowed: a pane cannot be split off its only tab, a locked pane not
+    /// at all.
     pub fn can_split(&self, tab: &str, pane: PaneId) -> bool {
+        if self.is_locked(pane) {
+            return false;
+        }
         match self.pane(pane) {
             Some(target) if target.has(tab) => target.tabs.len() > 1,
             Some(_) => self.contains(tab),
