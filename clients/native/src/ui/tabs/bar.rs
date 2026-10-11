@@ -29,11 +29,21 @@ impl Workspace {
             .map(|(strip, _)| strip.clone())
             .unwrap_or_default();
         h_flex()
+            .relative()
             .h(prefs::scaled(BAR_HEIGHT))
             .flex_none()
             .bg(theme.tab_bar)
-            .border_b_1()
-            .border_color(theme.border)
+            // The divider is drawn under the tabs, so the active tab opens
+            // into its content.
+            .child(
+                div()
+                    .absolute()
+                    .left_0()
+                    .right_0()
+                    .bottom_0()
+                    .h(px(1.))
+                    .bg(theme.border),
+            )
             .child(
                 h_flex()
                     .id(("tab-strip", id.0 as usize))

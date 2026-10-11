@@ -9,6 +9,7 @@ use super::sizes::slider;
 use super::widgets::{MenuOption, card, row, section, select_menu};
 use crate::preferences::{MotionPreference, Notifications, Preferences, SendMode, ThemePreference};
 use crate::ui::prefs::{self, ClientPreferences};
+use crate::ui::theme::{self, ThemeProblems};
 
 const THEMES: [(ThemePreference, &str); 3] = [
     (ThemePreference::System, "Как в системе"),
@@ -59,6 +60,29 @@ impl SettingsView {
             )
             .into_any_element(),
             row(
+                "Тёмная палитра",
+                None,
+                theme_choice("pref-dark-theme", true, &current.themes.dark, cx, |prefs, name| {
+                    prefs.themes.dark = name
+                }),
+                false,
+                cx,
+            )
+            .into_any_element(),
+            row(
+                "Светлая палитра",
+                Some(
+                    "Свои темы в формате gpui-kit кладите в ~/.config/dev.proteus.native/themes/; они читаются при запуске."
+                        .into(),
+                ),
+                theme_choice("pref-light-theme", false, &current.themes.light, cx, |prefs, name| {
+                    prefs.themes.light = name
+                }),
+                false,
+                cx,
+            )
+            .into_any_element(),
+            row(
                 "Масштаб",
                 Some("Ctrl + = и Ctrl + − меняют масштаб, Ctrl + 0 возвращает 100%.".into()),
                 choice("pref-scale", &SCALES, current.view.scale, |prefs, value| {
@@ -83,6 +107,13 @@ impl SettingsView {
             .into_any_element(),
         ];
         let mut parts = self.preferences_problem(cx);
+        parts.extend(cx.global::<ThemeProblems>().0.iter().map(|problem| {
+            div()
+                .text_sm()
+                .text_color(cx.theme().danger)
+                .child(format!("Тема не прочитана: {problem}"))
+                .into_any_element()
+        }));
         parts.push(section("Интерфейс", None, None, card(rows, cx), cx).into_any_element());
         parts
     }
@@ -181,6 +212,26 @@ impl SettingsView {
             .into_iter()
             .collect()
     }
+}
+
+fn theme_choice(
+    id: &'static str,
+    dark: bool,
+    current: &str,
+    cx: &App,
+    apply: fn(&mut Preferences, String),
+) -> AnyElement {
+    let items = theme::names(dark, cx)
+        .into_iter()
+        .map(|name| MenuOption {
+            label: theme::label(&name),
+            checked: name.as_ref() == current,
+            value: name,
+        })
+        .collect();
+    select_menu(id.into(), theme::label(current), items, move |name, cx| {
+        prefs::update(cx, |prefs| apply(prefs, name.to_string()))
+    })
 }
 
 fn choice<T: Copy + PartialEq + 'static>(

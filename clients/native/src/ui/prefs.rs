@@ -68,7 +68,10 @@ pub fn update(cx: &mut App, change: impl FnOnce(&mut Preferences)) {
 }
 
 fn apply(value: &Preferences, previous: Option<&Preferences>, cx: &mut App) {
-    if previous.is_none_or(|previous| previous.theme != value.theme) {
+    if previous.is_none_or(|previous| {
+        previous.theme != value.theme || previous.themes != value.themes
+    }) {
+        super::theme::select(&value.themes, cx);
         match value.theme {
             ThemePreference::System => Theme::sync_system_appearance(None, cx),
             ThemePreference::Dark => Theme::change(ThemeMode::Dark, None, cx),

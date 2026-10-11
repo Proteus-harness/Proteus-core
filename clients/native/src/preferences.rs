@@ -22,6 +22,26 @@ pub enum ThemePreference {
     Light,
 }
 
+pub const DEFAULT_DARK_THEME: &str = "Proteus Graphite";
+pub const DEFAULT_LIGHT_THEME: &str = "Proteus Light";
+
+/// Colour theme for each appearance, by theme name.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ThemeNames {
+    pub dark: String,
+    pub light: String,
+}
+
+impl Default for ThemeNames {
+    fn default() -> Self {
+        Self {
+            dark: DEFAULT_DARK_THEME.to_owned(),
+            light: DEFAULT_LIGHT_THEME.to_owned(),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MotionPreference {
@@ -52,6 +72,7 @@ pub enum Notifications {
 #[serde(default, deny_unknown_fields)]
 pub struct Preferences {
     pub theme: ThemePreference,
+    pub themes: ThemeNames,
     pub motion: MotionPreference,
     pub send: SendMode,
     pub notifications: Notifications,
@@ -235,12 +256,17 @@ fn move_before(saved: &mut Vec<String>, known: &[&str], id: &str, before: Option
     *saved = items.into_iter().map(str::to_string).collect();
 }
 
-fn path() -> Option<PathBuf> {
+/// Directory of the client's files on this device.
+pub fn config_dir() -> Option<PathBuf> {
     let base = std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
         .filter(|path| path.is_absolute())
         .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))?;
-    Some(base.join("dev.proteus.native").join("preferences.json"))
+    Some(base.join(crate::APP_ID))
+}
+
+fn path() -> Option<PathBuf> {
+    Some(config_dir()?.join("preferences.json"))
 }
 
 /// Saved preferences; a missing file means defaults.

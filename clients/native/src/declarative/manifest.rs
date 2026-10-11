@@ -73,11 +73,7 @@ pub struct Problem {
 
 /// Where the user keeps extensions.
 pub fn root() -> Option<PathBuf> {
-    let config = std::env::var_os("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .filter(|path| path.is_absolute())
-        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))?;
-    Some(config.join(crate::APP_ID).join("extensions"))
+    Some(crate::preferences::config_dir()?.join("extensions"))
 }
 
 /// Reads every `<root>/<id>/extension.json`, sorted by folder name. A

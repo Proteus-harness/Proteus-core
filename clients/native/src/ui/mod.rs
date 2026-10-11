@@ -14,6 +14,8 @@ mod panels;
 mod prefs;
 mod settings;
 mod tabs;
+mod theme;
+mod wheel;
 mod workspace;
 
 use gpui_kit::component::spinner::Spinner;
@@ -52,6 +54,7 @@ gpui_kit::actions!(
 pub(crate) const SETTINGS_CONTEXT: &str = "ProteusSettings";
 
 pub fn init(cx: &mut App) {
+    theme::init(cx);
     // Command shortcuts are bound by `prefs::init` from the preferences.
     prefs::init(cx);
     cx.bind_keys([

@@ -119,7 +119,7 @@ impl Workspace {
         let theme = cx.theme();
         let label = self.tab_label(id, cx);
         let tab_group = SharedString::from(format!("tab-{id}"));
-        let (hover, primary) = (theme.list_hover, theme.primary);
+        let (hover, primary, foreground) = (theme.list_hover, theme.primary, theme.foreground);
         let lifted = drag::is_source(&format!("tab:{id}"), cx);
         let icon_only = state.pinned && tabs::is_panel(id);
         let icon = match self.chat_state(id, cx) {
@@ -162,15 +162,13 @@ impl Workspace {
             })
             .text_sm()
             .cursor_pointer()
-            .border_r_1()
-            .border_color(theme.border)
             .map(|tab| {
                 if state.active {
                     tab.bg(theme.tab_active)
                         .text_color(theme.tab_active_foreground)
                 } else {
                     tab.text_color(theme.tab_foreground)
-                        .hover(move |style| style.bg(hover))
+                        .hover(move |style| style.bg(hover).text_color(foreground))
                 }
             })
             .when(lifted, |tab| tab.opacity(drag::SOURCE_OPACITY))
@@ -216,7 +214,7 @@ impl Workspace {
                         .absolute()
                         .left_0()
                         .right_0()
-                        .bottom_0()
+                        .top_0()
                         .h(px(2.))
                         .bg(primary),
                 )
