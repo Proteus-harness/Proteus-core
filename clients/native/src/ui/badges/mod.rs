@@ -91,6 +91,7 @@ impl Workspace {
         }
         let hover_others = others.clone();
         let dragging = frame.dragging.is_some();
+        let zone = dragging.then(|| drop_zone(frame.hovered, cx));
         h_flex()
             .id(SharedString::from(format!("badge-strip-{tag}")))
             .relative()
@@ -98,8 +99,9 @@ impl Workspace {
             .h_7()
             .items_center()
             .when(dragging && others.is_empty(), |strip| {
-                strip.min_w(prefs::scaled(28.))
+                strip.min_w(prefs::scaled(56.))
             })
+            .children(zone)
             .children(row)
             .on_drag_move::<DraggedBadge>(move |event, window, cx| {
                 arrange::hover(
@@ -114,6 +116,27 @@ impl Workspace {
             })
             .when(dragging, |strip| strip.child(drop_catcher(place, others)))
     }
+}
+
+/// Outline of a row that takes the dragged icon, drawn under the icons
+/// while any icon is dragged; brighter on the row it would land in.
+fn drop_zone(hovered: bool, cx: &App) -> impl IntoElement {
+    let theme = cx.theme();
+    let (fill, border) = if hovered {
+        (theme.drop_target.opacity(0.35), theme.drag_border)
+    } else {
+        (theme.drop_target.opacity(0.12), theme.drag_border.opacity(0.45))
+    };
+    div()
+        .absolute()
+        .top(-arrange::ZONE_Y)
+        .bottom(-arrange::ZONE_Y)
+        .left(-arrange::ZONE_X)
+        .right(-arrange::ZONE_X)
+        .rounded(theme.radius)
+        .border_1()
+        .border_color(border)
+        .bg(fill)
 }
 
 /// Drop target reaching a little past the row on every side, laid over it

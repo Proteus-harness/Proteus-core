@@ -12,8 +12,12 @@ use crate::ui::{drag, prefs};
 
 /// How far around a row the pointer still counts as over it, so a drop
 /// that misses the icons by a little still lands.
-pub(super) const REACH_X: Pixels = px(12.);
-pub(super) const REACH_Y: Pixels = px(10.);
+pub(super) const REACH_X: Pixels = px(20.);
+pub(super) const REACH_Y: Pixels = px(14.);
+/// How far the drawn drop zone of a row reaches past it; less than the
+/// reach, so the zone stays inside the bars.
+pub(super) const ZONE_X: Pixels = px(6.);
+pub(super) const ZONE_Y: Pixels = px(2.);
 
 /// Where the dragged icon would land.
 #[derive(Clone, Copy, PartialEq)]
@@ -52,6 +56,8 @@ pub(super) struct Frame {
     pub dragging: Option<&'static str>,
     /// Gap among the other icons of this row that stays open.
     pub open_gap: Option<usize>,
+    /// The dragged icon would land in this row.
+    pub hovered: bool,
     pub generation: u64,
     /// Width of the dragged icon, the room a gap opens to.
     pub gap_width: Pixels,
@@ -79,12 +85,14 @@ pub(super) fn frame(place: BadgePlace, ids: &[&'static str], cx: &App) -> Frame 
             Target::Start => dragging.and_then(|id| ids.iter().position(|known| *known == id)),
             _ => None,
         };
+        let hovered = matches!(state.target, Target::At(at, _) if at == place);
         let gap_width = dragging
             .and_then(|id| state.bounds.get(id))
             .map_or(px(28. * prefs::scale(cx)), |bounds| bounds.size.width);
         Frame {
             dragging,
             open_gap,
+            hovered,
             generation: state.generation,
             gap_width,
             ghost: state.dragged.clone(),
