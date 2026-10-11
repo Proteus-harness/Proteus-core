@@ -9,11 +9,12 @@ use proteus_contracts::app_protocol::config::ConfigSummary;
 
 use super::{Control, SelectorBadge};
 use crate::ui::chat::Chat;
-use crate::ui::chat::controls::{MODES, efforts, mode_from_value, models};
+use crate::ui::chat::controls::{MODES, efforts, mode_from_value, models, models_provider};
 use crate::ui::prefs;
 
 /// Room between the icon and its chooser.
 const GAP: f32 = 4.;
+const MODEL_WIDTH: f32 = 280.;
 
 impl SelectorBadge {
     pub(super) fn render_popup(
@@ -49,8 +50,12 @@ impl SelectorBadge {
                         .occlude()
                         .popover_style(cx)
                         .p_1()
-                        .min_w(prefs::scaled(240.))
-                        .max_w(prefs::scaled(360.))
+                        // The model chooser keeps one width so the effort
+                        // pill does not change with the model names.
+                        .map(|popup| match self.control {
+                            Control::Mode => popup.min_w(prefs::scaled(240.)),
+                            Control::Model => popup.w(prefs::scaled(MODEL_WIDTH)),
+                        })
                         .text_sm()
                         // A press on the icon toggles it itself.
                         .on_mouse_down_out(move |event, _, cx| {
@@ -75,7 +80,11 @@ impl SelectorBadge {
         let mut content = Vec::new();
         let models = models(config);
         if !models.is_empty() {
-            content.push(heading("Модель", cx).into_any_element());
+            let title: SharedString = match models_provider(config) {
+                Some(provider) => format!("Модель · {provider}").into(),
+                None => "Модель".into(),
+            };
+            content.push(heading(title, cx).into_any_element());
             let rows = models
                 .into_iter()
                 .enumerate()
@@ -128,7 +137,7 @@ fn mode_choices(
         .collect()
 }
 
-fn heading(text: &'static str, cx: &App) -> Div {
+fn heading(text: SharedString, cx: &App) -> Div {
     div()
         .px_2()
         .pt_1()

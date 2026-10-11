@@ -70,31 +70,53 @@ pub(in crate::ui) fn model_label(config: &ConfigSummary) -> String {
     config
         .model
         .as_ref()
-        .map(|model| {
-            if model.label.is_empty() {
-                model.name.clone()
-            } else {
-                model.label.clone()
-            }
-        })
+        .map(|model| short_label(&model.provider, &model.name, &model.label).to_owned())
         .unwrap_or_else(|| "модель".to_owned())
 }
 
+/// A model's label without its provider: profiles without a model catalog
+/// label models as `provider/name`, and the provider is shown once above the
+/// list instead.
+fn short_label<'a>(provider: &str, name: &'a str, label: &'a str) -> &'a str {
+    let qualified = label
+        .strip_prefix(provider)
+        .and_then(|rest| rest.strip_prefix('/'));
+    if label.is_empty() || qualified.is_some() {
+        qualified.filter(|rest| !rest.is_empty()).unwrap_or(name)
+    } else {
+        label
+    }
+}
+
+/// Provider every offered model shares, for the heading of the model list.
+pub(in crate::ui) fn models_provider(config: &ConfigSummary) -> Option<&str> {
+    let mut providers = config
+        .model_options
+        .iter()
+        .map(|option| option.provider.as_str());
+    let first = providers.next()?;
+    providers.all(|provider| provider == first).then_some(first)
+}
+
 /// Models offered to the session as `(name, label)`; hidden ones only when
-/// already chosen.
+/// already chosen. Labels keep the provider only when models of several
+/// providers are offered.
 pub(in crate::ui) fn models(config: &ConfigSummary) -> Vec<(String, String)> {
     let current = config.model.as_ref().map(|model| &model.name);
+    let shared = models_provider(config).is_some();
     config
         .model_options
         .iter()
         .filter(|option| !option.hidden || Some(&option.name) == current)
         .map(|option| {
-            let label = if option.label.is_empty() {
+            let label = if shared {
+                short_label(&option.provider, &option.name, &option.label)
+            } else if option.label.is_empty() {
                 &option.name
             } else {
                 &option.label
             };
-            (option.name.clone(), label.clone())
+            (option.name.clone(), label.to_owned())
         })
         .collect()
 }

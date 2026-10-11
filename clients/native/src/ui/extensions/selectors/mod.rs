@@ -41,6 +41,10 @@ struct SelectorBadge {
     scrub: Option<usize>,
     /// Step already sent to the server, shown until the session reports it.
     pending: Option<usize>,
+    /// Where the effort pill was laid out, for pointer positions.
+    track: Rc<Cell<Bounds<Pixels>>>,
+    /// Step the effort thumb is drawn at while it slides.
+    thumb: Rc<Cell<Option<f32>>>,
 }
 
 impl SelectorBadge {
@@ -49,6 +53,7 @@ impl SelectorBadge {
             self.open = open;
             self.scrub = None;
             self.pending = None;
+            self.thumb.set(None);
             cx.notify();
         }
     }
@@ -121,7 +126,10 @@ impl Render for SelectorBadge {
             Control::Model => (
                 model_face(&config),
                 Details::new("Модель и рассуждения")
-                    .line(format!("Профиль {}", config.profile))
+                    .line(match &config.model {
+                        Some(model) => format!("Профиль {} · {}", config.profile, model.provider),
+                        None => format!("Профиль {}", config.profile),
+                    })
                     .line(format!(
                         "Сейчас: {}, {}",
                         model_label(&config),
@@ -187,6 +195,8 @@ fn build(host: Host, id: &'static str, control: Control, cx: &mut App) -> AnyVie
         bounds: Rc::default(),
         scrub: None,
         pending: None,
+        track: Rc::default(),
+        thumb: Rc::default(),
     })
     .into()
 }
