@@ -1,11 +1,7 @@
-use gpui_kit::component::progress::ProgressCircle;
-use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::*;
 use gpui_kit::*;
 use proteus_contracts::app_protocol::AppContextUsageSnapshot;
 use proteus_contracts::domain::TokenUsageSnapshot;
-
-use super::Workspace;
 
 /// Context window fill: the provider measurement when known, otherwise the
 /// local estimate. Without a known window size there is nothing to show.
@@ -58,19 +54,6 @@ impl ContextUsage {
             _ => theme.muted_foreground,
         }
     }
-
-    fn describe(self) -> String {
-        let mut text = format!(
-            "Контекст: {} из {} ({:.0}%)",
-            tokens(self.used),
-            tokens(self.max),
-            self.percent()
-        );
-        if let Some(trigger) = self.trigger {
-            text.push_str(&format!(" · автокомпакт при {}", tokens(trigger)));
-        }
-        text
-    }
 }
 
 pub(super) fn tokens(value: u32) -> String {
@@ -81,37 +64,15 @@ pub(super) fn tokens(value: u32) -> String {
     }
 }
 
-impl Workspace {
-    pub(super) fn render_context_usage(&self, cx: &Context<Self>) -> Option<impl IntoElement> {
-        let usage = self.session.as_ref()?.context?;
-        let color = usage.color(cx.theme());
-        let description = SharedString::from(usage.describe());
-        Some(
-            div()
-                .id("context-usage")
-                .p_1()
-                .child(
-                    ProgressCircle::new("context-ring")
-                        .value(usage.percent())
-                        .color(color)
-                        .size_4(),
-                )
-                .tooltip(move |window, cx| Tooltip::new(description.clone()).build(window, cx)),
-        )
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::ContextUsage;
 
     #[test]
-    fn describes_usage_with_compaction_trigger() {
+    fn usage_needs_a_known_window() {
         let usage = ContextUsage::new(14_021, Some(200_000), Some(180_000)).unwrap();
-        assert_eq!(
-            usage.describe(),
-            "Контекст: 14k из 200k (7%) · автокомпакт при 180k"
-        );
+        assert_eq!(usage.percent().round(), 7.);
+        assert_eq!(super::tokens(usage.used), "14k");
         assert_eq!(ContextUsage::new(10, Some(0), None), None);
         assert_eq!(ContextUsage::new(10, None, None), None);
     }

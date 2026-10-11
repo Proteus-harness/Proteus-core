@@ -1,22 +1,26 @@
 use std::time::Duration;
 
+use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::progress::Progress;
 use gpui_kit::component::*;
 use gpui_kit::*;
 use proteus_contracts::contracts::{ModelQuotaBucket, ModelQuotaSnapshot};
 
+use super::badge::{Details, badge_frame};
 use super::frame::{is_open, muted, row, widget_frame};
 use super::host::{Host, HostEvent};
+use super::session_badges::ring;
+use super::shared::shared;
 use crate::ui::format::local_time;
 
 pub(super) const ID: &str = "quota";
 const WEEK_SECONDS: u64 = 604_800;
 const REFRESH: Duration = Duration::from_secs(60);
 
-/// Model quota of the active profile. It is refreshed only while the panel
-/// is visible: when it opens, by timer and after runs.
-pub(super) struct QuotaWidget {
+/// Model quota of the active profile, shared by the panel widget and the
+/// icon: refreshed by timer, after runs and when the panel opens.
+struct QuotaModel {
     host: Host,
     /// `Some(None)`: the active provider reports no quota.
     loaded: Option<Option<ModelQuotaSnapshot>>,
@@ -26,38 +30,38 @@ pub(super) struct QuotaWidget {
     _events: Option<Subscription>,
 }
 
-pub(super) fn build(host: Host, window: &mut Window, cx: &mut App) -> AnyView {
-    cx.new(|cx| {
-        let events = host.subscribe(cx, |this: &mut QuotaWidget, event, cx| {
-            if event != HostEvent::SessionOpened {
-                this.refresh(cx);
-            }
-        });
-        let timer = cx.spawn(async move |this, cx| {
-            loop {
-                cx.background_executor().timer(REFRESH).await;
-                if this.update(cx, |this, cx| this.refresh(cx)).is_err() {
-                    break;
+fn model(host: Host, window: &mut Window, cx: &mut App) -> Entity<QuotaModel> {
+    shared(cx, |cx| {
+        cx.new(|cx| {
+            let events = host.subscribe(cx, |this: &mut QuotaModel, event, cx| {
+                if event != HostEvent::SessionOpened {
+                    this.refresh(cx);
                 }
+            });
+            let timer = cx.spawn(async move |this, cx| {
+                loop {
+                    cx.background_executor().timer(REFRESH).await;
+                    if this.update(cx, |this, cx| this.refresh(cx)).is_err() {
+                        break;
+                    }
+                }
+            });
+            cx.defer_in(window, |this, _, cx| this.refresh(cx));
+            QuotaModel {
+                host,
+                loaded: None,
+                error: None,
+                loading: false,
+                _timer: timer,
+                _events: events,
             }
-        });
-        cx.defer_in(window, |this, _, cx| this.refresh(cx));
-        QuotaWidget {
-            host,
-            loaded: None,
-            error: None,
-            loading: false,
-            _timer: timer,
-            _events: events,
-        }
+        })
     })
-    .into()
 }
 
-impl QuotaWidget {
+impl QuotaModel {
     fn refresh(&mut self, cx: &mut Context<Self>) {
-        let visible = self.host.read(cx, |host| host.panel_open()) == Some(true);
-        if self.loading || !visible {
+        if self.loading {
             return;
         }
         let (Some(api), Some(dir)) = (self.host.api(cx), self.host.session_dir(cx)) else {
@@ -86,17 +90,38 @@ impl QuotaWidget {
         cx.notify();
     }
 
+    fn snapshot(&self) -> Option<&ModelQuotaSnapshot> {
+        self.loaded.as_ref().and_then(Option::as_ref)
+    }
+}
+
+/// Panel widget with every quota window.
+pub(super) struct QuotaWidget {
+    model: Entity<QuotaModel>,
+    _observe: Subscription,
+}
+
+pub(super) fn build(host: Host, window: &mut Window, cx: &mut App) -> AnyView {
+    let model = model(host, window, cx);
+    cx.new(|cx| QuotaWidget {
+        _observe: cx.observe(&model, |_, _, cx| cx.notify()),
+        model,
+    })
+    .into()
+}
+
+impl QuotaWidget {
     fn body(&self, cx: &Context<Self>) -> AnyElement {
-        let snapshot = self.loaded.as_ref().and_then(Option::as_ref);
+        let model = self.model.read(cx);
         let theme = cx.theme();
-        let content = match &self.loaded {
-            None if self.error.is_none() => muted("Загрузка…", cx).into_any_element(),
+        let content = match &model.loaded {
+            None if model.error.is_none() => muted("Загрузка…", cx).into_any_element(),
             None => div().into_any_element(),
             Some(None) => muted("Текущий провайдер не предоставляет сведения о лимитах.", cx)
                 .into_any_element(),
             Some(Some(snapshot)) => render_snapshot(snapshot, cx).into_any_element(),
         };
-        let status = match (&self.error, snapshot) {
+        let status = match (&model.error, model.snapshot()) {
             (Some(error), _) => div()
                 .text_xs()
                 .text_color(theme.danger)
@@ -107,6 +132,7 @@ impl QuotaWidget {
                 .child(format!("Данные на {}", local_time(snapshot.observed_at))),
             (None, None) => div(),
         };
+        let quota = self.model.clone();
         v_flex()
             .gap_2()
             .child(content)
@@ -121,8 +147,10 @@ impl QuotaWidget {
                             .xsmall()
                             .icon(IconName::RefreshCw)
                             .tooltip("Обновить")
-                            .loading(self.loading)
-                            .on_click(cx.listener(|this, _, _, cx| this.refresh(cx))),
+                            .loading(model.loading)
+                            .on_click(move |_, _, cx| {
+                                quota.update(cx, |model, cx| model.refresh(cx))
+                            }),
                     ),
             )
             .into_any_element()
@@ -132,13 +160,76 @@ impl QuotaWidget {
 impl Render for QuotaWidget {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let summary = self
-            .loaded
-            .as_ref()
-            .and_then(Option::as_ref)
+            .model
+            .read(cx)
+            .snapshot()
             .and_then(weekly_remaining)
             .map(|left| format!("осталось {}", percent(left)).into());
         let body = is_open(ID, cx).then(|| self.body(cx));
         widget_frame(ID, "Лимиты модели".into(), summary, body, cx)
+    }
+}
+
+/// Icon: a ring of the used share of the tightest weekly window.
+struct QuotaBadge {
+    host: Host,
+    model: Entity<QuotaModel>,
+    _observe: Subscription,
+}
+
+pub(super) fn build_badge(host: Host, window: &mut Window, cx: &mut App) -> AnyView {
+    let model = model(host.clone(), window, cx);
+    cx.new(|cx| QuotaBadge {
+        host,
+        _observe: cx.observe(&model, |_, _, cx| cx.notify()),
+        model,
+    })
+    .into()
+}
+
+impl Render for QuotaBadge {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let model = self.model.read(cx);
+        let theme = cx.theme();
+        let left = model.snapshot().and_then(weekly_remaining);
+        let mut details = Details::new(match left {
+            Some(left) => format!("Лимиты: осталось {}", percent(left)),
+            None => "Лимиты модели".to_owned(),
+        });
+        match (&model.error, &model.loaded) {
+            (Some(error), _) => details = details.line(format!("Не удалось получить: {error}")),
+            (None, None) => details = details.line("Загрузка…"),
+            (None, Some(None)) => {
+                details = details.line("Провайдер не сообщает лимиты.");
+            }
+            (None, Some(Some(snapshot))) => {
+                for bucket in &snapshot.buckets {
+                    for window in &bucket.windows {
+                        details = details.line(format!(
+                            "{} · {}: осталось {} · {}",
+                            bucket_name(bucket),
+                            duration(window.duration_seconds, &window.id),
+                            percent(remaining(window.used_percent)),
+                            reset_label(window.resets_at, now_seconds()),
+                        ));
+                    }
+                }
+            }
+        }
+        let face = match left {
+            Some(left) => {
+                let color = if left <= 10. {
+                    theme.danger
+                } else if left <= 25. {
+                    theme.warning
+                } else {
+                    theme.muted_foreground
+                };
+                ring("quota-badge-ring", (100. - left) as f32, color).into_any_element()
+            }
+            None => Icon::new(Lucide::Gauge).small().into_any_element(),
+        };
+        badge_frame(ID, face, details, &self.host, cx)
     }
 }
 

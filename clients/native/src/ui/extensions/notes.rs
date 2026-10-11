@@ -2,11 +2,11 @@ use std::path::PathBuf;
 use std::time::Duration;
 use std::{env, fs, io};
 
-use gpui_kit::component::input::{InputEvent, Textarea, TextareaState};
+use gpui_kit::component::input::{Editor, EditorState, InputEvent};
 use gpui_kit::component::*;
 use gpui_kit::*;
 
-use super::frame::{is_open, widget_frame};
+use super::PageView;
 use super::host::Host;
 
 pub(super) const ID: &str = "notes";
@@ -19,28 +19,40 @@ enum NotesStatus {
 }
 
 /// Personal notes kept by this client, shared by all workspaces.
-pub(super) struct NotesWidget {
-    editor: Entity<TextareaState>,
+pub(super) struct NotesPage {
+    editor: Entity<EditorState>,
     status: NotesStatus,
     save: Option<Task<()>>,
     _subscription: Subscription,
 }
 
-pub(super) fn build(_: Host, window: &mut Window, cx: &mut App) -> AnyView {
-    cx.new(|cx| NotesWidget::new(window, cx)).into()
+pub(super) fn build(_: Host, window: &mut Window, cx: &mut App) -> PageView {
+    let page = cx.new(|cx| NotesPage::new(window, cx));
+    let focus = page.read(cx).editor.read(cx).focus_handle(cx);
+    PageView {
+        view: page.into(),
+        focus,
+    }
 }
 
-impl NotesWidget {
+pub(super) fn build_badge(host: Host, _: &mut Window, cx: &mut App) -> AnyView {
+    super::session_badges::plain_badge(host, ID, cx)
+}
+
+impl NotesPage {
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let (text, status) = match load() {
             Ok(text) => (text, NotesStatus::Idle),
             Err(error) => (String::new(), NotesStatus::Failed(error.to_string())),
         };
         let editor = cx.new(|cx| {
-            TextareaState::new(window, cx)
-                .auto_grow(6, 20)
-                .placeholder("Идеи, ссылки, что проверить…")
-                .default_value(text)
+            let mut editor = EditorState::new(window, cx)
+                .language("text")
+                .line_number(false)
+                .soft_wrap(true)
+                .placeholder("Идеи, ссылки, что проверить…");
+            editor.set_value(text, window, cx);
+            editor
         });
         let subscription = cx.subscribe(&editor, |this, editor, event: &InputEvent, cx| {
             if matches!(event, InputEvent::Change) {
@@ -75,28 +87,40 @@ impl NotesWidget {
     }
 }
 
-impl Render for NotesWidget {
+impl Render for NotesPage {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let body = is_open(ID, cx).then(|| {
-            let theme = cx.theme();
-            let (status, color) = match &self.status {
-                NotesStatus::Idle => (
-                    "Сохраняются в этом клиенте".to_owned(),
-                    theme.muted_foreground,
+        let theme = cx.theme();
+        let (status, color) = match &self.status {
+            NotesStatus::Idle => (
+                "Сохраняются в этом клиенте".to_owned(),
+                theme.muted_foreground,
+            ),
+            NotesStatus::Saved => ("Сохранено".to_owned(), theme.muted_foreground),
+            NotesStatus::Failed(error) => (
+                format!("Не удалось сохранить заметку: {error}"),
+                theme.danger,
+            ),
+        };
+        v_flex()
+            .size_full()
+            .child(
+                h_flex()
+                    .flex_none()
+                    .px_6()
+                    .pt_4()
+                    .pb_2()
+                    .gap_3()
+                    .child(div().flex_1().font_semibold().child("Заметки"))
+                    .child(div().text_xs().text_color(color).child(status)),
+            )
+            .child(
+                div().flex_1().min_h_0().px_4().pb_4().child(
+                    Editor::new(&self.editor)
+                        .bordered(false)
+                        .appearance(false)
+                        .h_full(),
                 ),
-                NotesStatus::Saved => ("Сохранено".to_owned(), theme.muted_foreground),
-                NotesStatus::Failed(error) => (
-                    format!("Не удалось сохранить заметку: {error}"),
-                    theme.danger,
-                ),
-            };
-            v_flex()
-                .gap_1()
-                .child(Textarea::new(&self.editor).small().w_full())
-                .child(div().text_xs().text_color(color).child(status))
-                .into_any_element()
-        });
-        widget_frame(ID, "Заметки".into(), None, body, cx)
+            )
     }
 }
 

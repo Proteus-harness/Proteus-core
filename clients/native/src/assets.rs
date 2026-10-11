@@ -9,8 +9,10 @@ use gpui_kit::{AssetSource, Result, SharedString};
 gpui_kit::assets::icon_assets!(
     ExtraIcons,
     [
+        ArrowLeftRight,
         Brain,
         Clock,
+        Columns2,
         FolderTree,
         Gauge,
         GitCompare,

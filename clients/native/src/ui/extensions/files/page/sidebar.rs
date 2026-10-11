@@ -12,6 +12,7 @@ use crate::files::{ChangeStatus, EntryKind};
 use crate::ui::extensions::files::{path_label, status_color};
 
 const TREE_WIDTH: f32 = 320.;
+const TREE_MIN_WIDTH: f32 = 200.;
 const ROW_HEIGHT: f32 = 26.;
 const INDENT: f32 = 14.;
 
@@ -169,7 +170,9 @@ impl FilesPage {
             .track_focus(&self.focus_handle)
             .child(list);
         v_flex()
-            .w(px(TREE_WIDTH))
+            .w(relative(0.4))
+            .min_w(px(TREE_MIN_WIDTH))
+            .max_w(px(TREE_WIDTH))
             .flex_none()
             .h_full()
             .border_r_1()

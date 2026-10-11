@@ -20,26 +20,32 @@ pub(in crate::ui) struct DraggedWidget {
 
 impl Render for DraggedWidget {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = cx.theme();
-        h_flex()
-            .px_3()
-            .py_1p5()
-            .gap_2()
-            .rounded(theme.radius)
-            .border_1()
-            .border_color(theme.border)
-            .bg(theme.popover)
-            .shadow_md()
-            .text_xs()
-            .font_semibold()
-            .text_color(theme.popover_foreground)
-            .child(
-                Icon::new(Lucide::GripVertical)
-                    .xsmall()
-                    .text_color(theme.muted_foreground),
-            )
-            .child(self.title.clone())
+        drag_preview(self.title.clone(), cx)
     }
+}
+
+/// The pill that follows the cursor while a widget, an icon or a tab is
+/// dragged.
+pub(in crate::ui) fn drag_preview(title: SharedString, cx: &App) -> Div {
+    let theme = cx.theme();
+    h_flex()
+        .px_3()
+        .py_1p5()
+        .gap_2()
+        .rounded(theme.radius)
+        .border_1()
+        .border_color(theme.border)
+        .bg(theme.popover)
+        .shadow_md()
+        .text_xs()
+        .font_semibold()
+        .text_color(theme.popover_foreground)
+        .child(
+            Icon::new(Lucide::GripVertical)
+                .xsmall()
+                .text_color(theme.muted_foreground),
+        )
+        .child(title)
 }
 
 pub(in crate::ui) fn is_open(id: &str, cx: &App) -> bool {

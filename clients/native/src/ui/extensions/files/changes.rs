@@ -1,3 +1,4 @@
+use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -5,14 +6,15 @@ use gpui_kit::*;
 
 use super::{FilesPage, ID, Mode, path_label, status_color};
 use crate::files::Changes;
+use crate::ui::extensions::badge::{Details, badge_frame, icon_with_count};
 use crate::ui::extensions::frame::{is_open, muted, widget_frame};
+use crate::ui::extensions::shared::shared;
 use crate::ui::extensions::{Host, HostEvent};
 
 const VISIBLE: usize = 12;
 
-/// Panel widget with the git changes of the workspace; a click opens the
-/// file diff on the «Файлы» page.
-pub(super) struct ChangesWidget {
+/// Git changes of the workspace, shared by the panel widget and the icon.
+struct ChangesModel {
     host: Host,
     changes: Option<Changes>,
     error: Option<SharedString>,
@@ -20,23 +22,27 @@ pub(super) struct ChangesWidget {
     _events: Option<Subscription>,
 }
 
-impl ChangesWidget {
-    pub(super) fn new(host: Host, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let events = host.subscribe(cx, |this, event, cx| match event {
-            HostEvent::SessionOpened | HostEvent::RunSettled | HostEvent::PanelOpened => {
-                this.refresh(cx)
+fn model(host: Host, window: &mut Window, cx: &mut App) -> Entity<ChangesModel> {
+    shared(cx, |cx| {
+        cx.new(|cx| {
+            let events = host.subscribe(cx, |this: &mut ChangesModel, event, cx| match event {
+                HostEvent::SessionOpened | HostEvent::RunSettled | HostEvent::PanelOpened => {
+                    this.refresh(cx)
+                }
+            });
+            cx.defer_in(window, |this, _, cx| this.refresh(cx));
+            ChangesModel {
+                host,
+                changes: None,
+                error: None,
+                loading: false,
+                _events: events,
             }
-        });
-        cx.defer_in(window, |this, _, cx| this.refresh(cx));
-        Self {
-            host,
-            changes: None,
-            error: None,
-            loading: false,
-            _events: events,
-        }
-    }
+        })
+    })
+}
 
+impl ChangesModel {
     fn refresh(&mut self, cx: &mut Context<Self>) {
         if self.loading {
             return;
@@ -65,20 +71,49 @@ impl ChangesWidget {
         .detach();
     }
 
-    fn open(&mut self, path: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(view) = self.host.open_page(ID, window, cx) else {
-            return;
-        };
-        if let (Some(path), Ok(page)) = (path, view.downcast::<FilesPage>()) {
-            page.update(cx, |page, cx| page.reveal(&path, Mode::Diff, window, cx));
+    /// Number of changed files, when the workspace is a repository.
+    fn count(&self) -> Option<usize> {
+        self.changes
+            .as_ref()
+            .filter(|changes| changes.repository)
+            .map(|changes| changes.entries.len())
+    }
+}
+
+/// Opens the «Файлы» page, revealing the diff of `path` when given.
+fn open(host: &Host, path: Option<String>, window: &mut Window, cx: &mut App) {
+    let Some(view) = host.open_page(ID, window, cx) else {
+        return;
+    };
+    if let (Some(path), Ok(page)) = (path, view.downcast::<FilesPage>()) {
+        page.update(cx, |page, cx| page.reveal(&path, Mode::Diff, window, cx));
+    }
+}
+
+/// Panel widget with the git changes of the workspace; a click opens the
+/// file diff on the «Файлы» page.
+pub(super) struct ChangesWidget {
+    host: Host,
+    model: Entity<ChangesModel>,
+    _observe: Subscription,
+}
+
+impl ChangesWidget {
+    pub(super) fn new(host: Host, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let model = model(host.clone(), window, cx);
+        Self {
+            host,
+            _observe: cx.observe(&model, |_, _, cx| cx.notify()),
+            model,
         }
     }
 
     fn body(&self, cx: &mut Context<Self>) -> AnyElement {
-        if let Some(error) = &self.error {
+        let model = self.model.read(cx);
+        if let Some(error) = &model.error {
             return muted(format!("Не удалось получить изменения: {error}"), cx).into_any_element();
         }
-        let Some(changes) = &self.changes else {
+        let Some(changes) = &model.changes else {
             return muted("Загрузка…", cx).into_any_element();
         };
         if !changes.repository {
@@ -92,6 +127,7 @@ impl ChangesWidget {
             .enumerate()
             .map(|(index, change)| {
                 let path = change.path.clone();
+                let host = self.host.clone();
                 h_flex()
                     .id(("changes-widget-row", index))
                     .h_6()
@@ -111,12 +147,11 @@ impl ChangesWidget {
                             .child(change.status.mark()),
                     )
                     .child(path_label(&change.path, cx).flex_1())
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.open(Some(path.clone()), window, cx)
-                    }))
+                    .on_click(move |_, window, cx| open(&host, Some(path.clone()), window, cx))
             })
             .collect::<Vec<_>>();
         let hidden = changes.entries.len().saturating_sub(VISIBLE);
+        let host = self.host.clone();
         v_flex()
             .gap_0p5()
             .when(changes.entries.is_empty(), |list| {
@@ -132,7 +167,7 @@ impl ChangesWidget {
                         .label("Открыть файлы")
                         .ghost()
                         .xsmall()
-                        .on_click(cx.listener(|this, _, window, cx| this.open(None, window, cx))),
+                        .on_click(move |_, window, cx| open(&host, None, window, cx)),
                 ),
             )
             .into_any_element()
@@ -142,11 +177,49 @@ impl ChangesWidget {
 impl Render for ChangesWidget {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let summary = self
-            .changes
-            .as_ref()
-            .filter(|changes| changes.repository && !changes.entries.is_empty())
-            .map(|changes| SharedString::from(changes.entries.len().to_string()));
+            .model
+            .read(cx)
+            .count()
+            .filter(|count| *count > 0)
+            .map(|count| SharedString::from(count.to_string()));
         let body = is_open(ID, cx).then(|| self.body(cx));
         widget_frame(ID, "Изменения".into(), summary, body, cx)
+    }
+}
+
+/// Icon of the files extension with the number of changed files.
+pub(super) struct FilesBadge {
+    host: Host,
+    model: Entity<ChangesModel>,
+    _observe: Subscription,
+}
+
+impl FilesBadge {
+    pub(super) fn new(host: Host, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let model = model(host.clone(), window, cx);
+        Self {
+            host,
+            _observe: cx.observe(&model, |_, _, cx| cx.notify()),
+            model,
+        }
+    }
+}
+
+impl Render for FilesBadge {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let model = self.model.read(cx);
+        let count = model.count().filter(|count| *count > 0);
+        let mut details = Details::new("Файлы");
+        details = match (model.count(), &model.changes) {
+            (Some(0), _) => details.line("Изменений нет."),
+            (Some(count), _) => details.line(format!("Изменённых файлов: {count}")),
+            (None, Some(_)) => details.line("Это не git-репозиторий."),
+            (None, None) => details,
+        };
+        let face = icon_with_count(
+            Icon::new(Lucide::FolderTree),
+            count.map(|count| count.to_string()),
+        );
+        badge_frame(ID, face, details, &self.host, cx)
     }
 }

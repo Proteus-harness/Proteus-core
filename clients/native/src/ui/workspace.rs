@@ -115,9 +115,14 @@ pub struct Workspace {
     pub(super) settings: Option<Entity<SettingsView>>,
     pub(super) settings_subscription: Option<Subscription>,
     pub(super) panel: InfoPanel,
-    /// Extension pages built so far and the one shown instead of the chat.
+    /// Extension pages and icons built so far; the tab layout itself is a
+    /// client preference.
     pub(super) pages: HashMap<&'static str, PageView>,
-    pub(super) page: Option<&'static str>,
+    pub(super) badges: HashMap<&'static str, AnyView>,
+    /// Split position while the divider between tab groups is dragged.
+    pub(super) split_drag: Option<u16>,
+    /// A tab is being dragged, so groups show where it can go.
+    pub(super) tab_drag: bool,
     pub(super) focus_handle: FocusHandle,
     pump: Option<Task<()>>,
     _startup: Task<()>,
@@ -192,7 +197,9 @@ impl Workspace {
             settings_subscription: None,
             panel: InfoPanel::default(),
             pages: HashMap::new(),
-            page: None,
+            badges: HashMap::new(),
+            split_drag: None,
+            tab_drag: false,
             focus_handle: cx.focus_handle(),
             pump: None,
             _startup: startup,

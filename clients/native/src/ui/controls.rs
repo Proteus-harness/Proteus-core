@@ -145,6 +145,7 @@ impl Workspace {
 
         Some(
             h_flex()
+                .flex_wrap()
                 .gap_1()
                 .child(mode_button)
                 .children(model_button)

@@ -80,7 +80,7 @@ impl Host {
         ))
     }
 
-    /// Shows an extension page in place of the chat and returns its view.
+    /// Opens an extension page as a tab and returns its view.
     pub(in crate::ui) fn open_page(
         &self,
         id: &'static str,
@@ -88,9 +88,26 @@ impl Host {
         cx: &mut App,
     ) -> Option<AnyView> {
         self.workspace
-            .update(cx, |workspace, cx| workspace.open_page(id, window, cx))
+            .update(cx, |workspace, cx| workspace.open_tab(id, window, cx))
             .ok()
             .flatten()
+    }
+
+    /// Brings an extension forward: its page if it has one, otherwise its
+    /// panel widget.
+    pub(in crate::ui) fn activate(&self, id: &'static str, window: &mut Window, cx: &mut App) {
+        self.workspace
+            .update(cx, |workspace, cx| {
+                workspace.activate_extension(id, window, cx)
+            })
+            .ok();
+    }
+
+    /// Opens the side panel with the extension's widget expanded.
+    pub(in crate::ui) fn show_widget(&self, id: &'static str, window: &mut Window, cx: &mut App) {
+        self.workspace
+            .update(cx, |workspace, cx| workspace.show_widget(id, window, cx))
+            .ok();
     }
 }
 
@@ -113,9 +130,5 @@ impl HostView<'_> {
             .find(|summary| summary.session_dir == session.dir)?
             .activity
             .as_ref()
-    }
-
-    pub(in crate::ui) fn panel_open(&self) -> bool {
-        self.workspace.panel.open
     }
 }

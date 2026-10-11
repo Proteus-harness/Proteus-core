@@ -7,6 +7,7 @@ mod graphics;
 mod launch;
 mod preferences;
 mod settings;
+mod tabs;
 mod tool_display;
 mod transcript;
 mod ui;

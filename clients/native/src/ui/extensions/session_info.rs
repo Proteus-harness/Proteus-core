@@ -5,10 +5,11 @@ use gpui_kit::component::progress::Progress;
 use gpui_kit::component::*;
 use gpui_kit::*;
 use proteus_contracts::app_protocol::AppSessionActivityStatus;
+use proteus_contracts::app_protocol::config::ConfigSummary;
 
 use super::frame::{is_open, muted, row, widget_frame};
 use super::host::{Host, HostView};
-use crate::tool_display::{self, StepStatus};
+use crate::tool_display::{self, PlanStep, StepStatus};
 use crate::transcript::Role;
 use crate::ui::context_usage::tokens;
 use crate::ui::controls::mode_label;
@@ -115,9 +116,8 @@ fn context(host: &HostView, cx: &App) -> (Option<SharedString>, AnyElement) {
 }
 
 /// Steps of the latest `update_plan` call of the root thread.
-fn plan(host: &HostView, cx: &App) -> (Option<SharedString>, AnyElement) {
-    let steps = host
-        .session()
+pub(super) fn current_plan(host: &HostView) -> Vec<PlanStep> {
+    host.session()
         .and_then(|session| {
             session.transcript.entries().iter().rev().find_map(|entry| {
                 entry
@@ -127,31 +127,43 @@ fn plan(host: &HostView, cx: &App) -> (Option<SharedString>, AnyElement) {
             })
         })
         .map(|tool| tool_display::plan_steps(tool_args(tool)))
-        .unwrap_or_default();
+        .unwrap_or_default()
+}
+
+pub(super) fn completed(steps: &[PlanStep]) -> usize {
+    steps
+        .iter()
+        .filter(|step| step.status == StepStatus::Completed)
+        .count()
+}
+
+fn plan(host: &HostView, cx: &App) -> (Option<SharedString>, AnyElement) {
+    let steps = current_plan(host);
     if steps.is_empty() {
         return (
             None,
             muted("Агент ещё не составил план.", cx).into_any_element(),
         );
     }
-    let done = steps
-        .iter()
-        .filter(|step| step.status == StepStatus::Completed)
-        .count();
     (
-        Some(format!("{done}/{}", steps.len()).into()),
+        Some(format!("{}/{}", completed(&steps), steps.len()).into()),
         plan_list(&steps, cx).into_any_element(),
     )
 }
 
-fn session(host: &HostView, cx: &App) -> (Option<SharedString>, AnyElement) {
-    let Some(session) = host.session() else {
-        return (None, muted("Сессия не открыта.", cx).into_any_element());
-    };
-    let status = match (
-        session.connected,
-        host.activity().map(|activity| &activity.status),
-    ) {
+pub(super) struct SessionStats {
+    pub status: &'static str,
+    pub attention: bool,
+    pub messages: usize,
+    pub tools: usize,
+    pub waiting: usize,
+    pub queued: usize,
+}
+
+pub(super) fn session_stats(host: &HostView) -> Option<SessionStats> {
+    let session = host.session()?;
+    let activity = host.activity().map(|activity| &activity.status);
+    let status = match (session.connected, activity) {
         (false, _) => "Нет связи",
         (true, Some(AppSessionActivityStatus::Running)) => "Работает",
         (true, Some(AppSessionActivityStatus::WaitingApproval)) => "Ждёт подтверждения",
@@ -165,7 +177,7 @@ fn session(host: &HostView, cx: &App) -> (Option<SharedString>, AnyElement) {
         .filter(|entry| entry.tool.is_none() && entry.subagent.is_none())
         .filter(|entry| matches!(entry.role, Role::User | Role::Assistant))
         .count();
-    let tools: usize = entries
+    let tools = entries
         .iter()
         .map(|entry| {
             usize::from(entry.tool.is_some())
@@ -178,14 +190,45 @@ fn session(host: &HostView, cx: &App) -> (Option<SharedString>, AnyElement) {
             pending.queued_user_messages.len(),
         )
     });
+    Some(SessionStats {
+        status,
+        attention: !session.connected
+            || matches!(
+                activity,
+                Some(
+                    AppSessionActivityStatus::WaitingApproval
+                        | AppSessionActivityStatus::WaitingInput
+                )
+            ),
+        messages,
+        tools,
+        waiting,
+        queued,
+    })
+}
+
+fn session(host: &HostView, cx: &App) -> (Option<SharedString>, AnyElement) {
+    let Some(stats) = session_stats(host) else {
+        return (None, muted("Сессия не открыта.", cx).into_any_element());
+    };
     let body = v_flex()
         .gap_1()
-        .child(row("Статус", status, cx))
-        .child(row("Сообщений", messages.to_string(), cx))
-        .child(row("Вызовов инструментов", tools.to_string(), cx))
-        .child(row("Ожидают ответа", waiting.to_string(), cx))
-        .child(row("В очереди", queued.to_string(), cx));
-    (Some(status.into()), body.into_any_element())
+        .child(row("Статус", stats.status, cx))
+        .child(row("Сообщений", stats.messages.to_string(), cx))
+        .child(row("Вызовов инструментов", stats.tools.to_string(), cx))
+        .child(row("Ожидают ответа", stats.waiting.to_string(), cx))
+        .child(row("В очереди", stats.queued.to_string(), cx));
+    (Some(stats.status.into()), body.into_any_element())
+}
+
+pub(super) fn model_label(config: &ConfigSummary) -> String {
+    config.model.as_ref().map_or("—".to_owned(), |model| {
+        if model.label.is_empty() {
+            model.name.clone()
+        } else {
+            model.label.clone()
+        }
+    })
 }
 
 /// Profile, model, mode and modules of the open session.
@@ -199,13 +242,7 @@ impl AgentWidget {
         let Some(config) = host.session().and_then(|session| session.config.as_ref()) else {
             return muted("Загрузка…", cx).into_any_element();
         };
-        let model = config.model.as_ref().map_or("—".to_owned(), |model| {
-            if model.label.is_empty() {
-                model.name.clone()
-            } else {
-                model.label.clone()
-            }
-        });
+        let model = model_label(config);
         let theme = cx.theme();
         let show_tools = self.show_tools;
         v_flex()

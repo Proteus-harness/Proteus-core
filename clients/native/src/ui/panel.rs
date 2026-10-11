@@ -10,7 +10,7 @@ use super::motion::reveal_width;
 use super::prefs;
 use super::workspace::Workspace;
 
-const PANEL_WIDTH: f32 = 300.;
+pub(super) const PANEL_WIDTH: f32 = 300.;
 const CLOSE_MOTION: Duration = Duration::from_millis(320);
 
 /// Right side panel: a column of extension widgets in the order the user

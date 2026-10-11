@@ -6,9 +6,16 @@ use gpui_kit::component::*;
 use gpui_kit::*;
 
 use super::SettingsView;
-use super::widgets::{Tone, card, chip, note, row, section};
+use super::widgets::{MenuOption, Tone, card, chip, note, row, section, select_menu};
+use crate::preferences::BadgePlace;
 use crate::ui::extensions::{self, Manifest};
 use crate::ui::prefs;
+
+const BADGE_PLACES: [(BadgePlace, &str); 3] = [
+    (BadgePlace::Composer, "Под полем ввода"),
+    (BadgePlace::Header, "В панели вкладок"),
+    (BadgePlace::Hidden, "Скрыт"),
+];
 
 impl SettingsView {
     pub(super) fn extensions_page(&self, cx: &Context<Self>) -> Vec<AnyElement> {
@@ -77,19 +84,50 @@ fn extension_row(ix: usize, manifest: &'static Manifest, enabled: bool, cx: &App
             manifest
                 .page
                 .as_ref()
-                .map(|page| chip(format!("Страница · {}", page.title), Tone::Muted, cx)),
+                .map(|page| chip(format!("Вкладка · {}", page.title), Tone::Muted, cx)),
         );
-    row(
-        title,
-        Some(manifest.description.into()),
-        Switch::new(("extension-enabled", ix))
-            .checked(enabled)
-            .on_click(move |checked: &bool, _, cx| {
-                let checked = *checked;
-                prefs::update(cx, |prefs| prefs.extensions.set_enabled(id, checked));
-            }),
-        false,
-        cx,
+    let control = h_flex()
+        .gap_3()
+        .children(
+            manifest
+                .badge
+                .as_ref()
+                .filter(|_| enabled)
+                .map(|_| badge_select(ix, manifest, cx)),
+        )
+        .child(
+            Switch::new(("extension-enabled", ix))
+                .checked(enabled)
+                .on_click(move |checked: &bool, _, cx| {
+                    let checked = *checked;
+                    prefs::update(cx, |prefs| prefs.extensions.set_enabled(id, checked));
+                }),
+        );
+    row(title, Some(manifest.description.into()), control, false, cx)
+}
+
+/// Where the extension icon lives; it can also be dragged or hidden from
+/// its context menu.
+fn badge_select(ix: usize, manifest: &'static Manifest, cx: &App) -> AnyElement {
+    let current = extensions::badge_place(manifest, cx);
+    let label = BADGE_PLACES
+        .iter()
+        .find(|(place, _)| *place == current)
+        .map_or("Скрыт", |(_, label)| label);
+    let options = BADGE_PLACES
+        .iter()
+        .map(|(place, label)| MenuOption {
+            label: format!("Значок: {}", label.to_lowercase()).into(),
+            value: *place,
+            checked: *place == current,
+        })
+        .collect();
+    let id = manifest.id;
+    select_menu(
+        ElementId::NamedInteger("extension-badge".into(), ix as u64),
+        format!("Значок: {}", label.to_lowercase()),
+        options,
+        move |place, cx| prefs::update(cx, |prefs| prefs.extensions.set_badge_place(id, place)),
     )
 }
 

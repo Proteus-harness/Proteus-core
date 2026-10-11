@@ -1,27 +1,25 @@
 mod actions;
+mod badges;
 mod composer;
 mod context_usage;
 mod controls;
 mod extensions;
 mod format;
 mod motion;
-mod pages;
 mod panel;
 mod prefs;
 mod requests;
 mod settings;
 mod sidebar;
+mod tabs;
 mod thread;
 mod tool_row;
 mod user_input;
 mod workspace;
 
-use gpui_kit::component::button::{Button, ButtonVariants};
-use gpui_kit::component::message_scroller::MessageScroller;
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::*;
 use gpui_kit::*;
-use proteus_contracts::app_protocol::AppRunStatus;
 
 use workspace::Status;
 pub use workspace::Workspace;
@@ -83,7 +81,8 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &NextTab, window, cx| this.step_tab(1, window, cx)))
             .on_action(
                 cx.listener(|this, _: &PreviousTab, window, cx| this.step_tab(-1, window, cx)),
-            );
+            )
+            .on_drop(cx.listener(|this, _: &tabs::SplitDrag, _, cx| this.set_split(None, cx)));
         match &self.status {
             Status::Starting => root.child(centered(
                 h_flex()
@@ -110,14 +109,18 @@ impl Render for Workspace {
                     "settings-screen",
                 ))
             }
-            Status::Ready => root.child(motion::rise_in(
-                h_flex()
-                    .size_full()
-                    .child(self.render_sidebar(cx))
-                    .child(self.render_main(window, cx))
-                    .children(self.render_panel(window, cx)),
-                "chat-screen",
-            )),
+            Status::Ready => {
+                self.sync_window_title(window);
+                self.sync_badges(window, cx);
+                root.child(motion::rise_in(
+                    h_flex()
+                        .size_full()
+                        .child(self.render_sidebar(cx))
+                        .child(self.render_tabs(window, cx))
+                        .children(self.render_panel(window, cx)),
+                    "chat-screen",
+                ))
+            }
         }
     }
 }
@@ -160,95 +163,5 @@ impl Workspace {
             window.set_window_title(&title);
             self.window_title = title;
         }
-    }
-
-    fn render_main(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.sync_window_title(window);
-        let main = v_flex().flex_1().min_w_0().h_full();
-        if let Some((id, view)) = self.current_page(cx) {
-            return main.child(self.render_header(cx)).child(motion::rise_in(
-                div().flex_1().min_h_0().child(view),
-                ElementId::Name(format!("page-{id}").into()),
-            ));
-        }
-        let renderer = cx.processor(|this, ix: usize, window, cx| this.render_row(ix, window, cx));
-        // A new id per session replays the fade when switching sessions.
-        let thread_id = ElementId::NamedInteger("thread-enter".into(), self.session_key());
-        main.child(self.render_header(cx))
-            .child(motion::fade_in_if(
-                MessageScroller::new("thread", self.scroller.clone(), renderer)
-                    .flex_1()
-                    .min_h_0()
-                    .scrollbar(true)
-                    .jump_button(true)
-                    .with_row_style(StyleRefinement::default().px_0().pb_0()),
-                thread_id,
-                true,
-            ))
-            .children(self.render_requests(window, cx))
-            .children(self.notice.clone().map(|notice| {
-                h_flex().w_full().justify_center().px_6().pt_2().child(
-                    div()
-                        .w_full()
-                        .max_w(px(thread::CONTENT_WIDTH))
-                        .text_xs()
-                        .text_color(cx.theme().danger)
-                        .child(notice),
-                )
-            }))
-            .child(self.render_composer(cx))
-    }
-
-    fn render_header(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = cx.theme();
-        let session = self.session.as_ref();
-        let title = self.session_title();
-        let status = session.and_then(|session| {
-            if !session.connected {
-                return Some(match session.link_error {
-                    Some(_) => ("Переподключение…", theme.warning),
-                    None => ("Подключение…", theme.muted_foreground),
-                });
-            }
-            let run = session.execution.active.as_ref()?;
-            Some(match run.status {
-                AppRunStatus::CancelRequested => ("Остановка…", theme.warning),
-                _ => ("Работает…", theme.muted_foreground),
-            })
-        });
-        h_flex()
-            .h(px(44.))
-            .flex_none()
-            .px_4()
-            .gap_3()
-            .border_b_1()
-            .border_color(theme.border)
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .text_sm()
-                    .font_semibold()
-                    .truncate()
-                    .child(title),
-            )
-            .children(status.map(|(label, color)| {
-                h_flex()
-                    .gap_2()
-                    .text_xs()
-                    .text_color(color)
-                    .child(Spinner::new().xsmall())
-                    .child(label)
-            }))
-            .children(self.render_page_tabs(cx))
-            .child(
-                Button::new("toggle-panel")
-                    .ghost()
-                    .small()
-                    .icon(IconName::PanelRight)
-                    .selected(self.panel.open)
-                    .tooltip("Сведения о сессии")
-                    .on_click(cx.listener(|this, _, window, cx| this.toggle_panel(window, cx))),
-            )
     }
 }

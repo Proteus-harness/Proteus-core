@@ -25,6 +25,11 @@ pub(super) fn build_changes(host: Host, window: &mut Window, cx: &mut App) -> An
         .into()
 }
 
+pub(super) fn build_badge(host: Host, window: &mut Window, cx: &mut App) -> AnyView {
+    cx.new(|cx| changes::FilesBadge::new(host, window, cx))
+        .into()
+}
+
 fn status_color(status: ChangeStatus, cx: &App) -> Hsla {
     let theme = cx.theme();
     match status {

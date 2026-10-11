@@ -1,10 +1,13 @@
 //! Client preferences stored on this device, independent of agent profiles.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 
-use anyhow::{Context as _, Result};
+use anyhow::{Context as _, Result, anyhow};
 use serde::{Deserialize, Serialize};
+
+use crate::tabs::TabLayout;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -39,15 +42,28 @@ pub struct Preferences {
     pub motion: MotionPreference,
     pub send: SendMode,
     pub extensions: ExtensionPreferences,
+    pub tabs: TabLayout,
 }
 
-/// Which client extensions are on, and how their panel widgets are arranged.
+/// Where the compact icon of an extension is shown.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BadgePlace {
+    Composer,
+    Header,
+    Hidden,
+}
+
+/// Which client extensions are on, and how their widgets are arranged.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ExtensionPreferences {
     pub disabled: Vec<String>,
     pub panel_order: Vec<String>,
     pub collapsed: Vec<String>,
+    /// Icon places chosen by the user; others use the extension default.
+    pub badges: BTreeMap<String, BadgePlace>,
+    pub badge_order: Vec<String>,
 }
 
 impl ExtensionPreferences {
@@ -74,38 +90,69 @@ impl ExtensionPreferences {
         }
     }
 
-    /// `known` ids in the saved order; ids the order does not mention yet
+    /// Panel widgets in the saved order; ids the order does not mention yet
     /// follow in catalog order.
     pub fn ordered<'a>(&self, known: &[&'a str]) -> Vec<&'a str> {
-        let mut ordered: Vec<&'a str> = self
-            .panel_order
-            .iter()
-            .filter_map(|id| known.iter().find(|known| *known == id).copied())
-            .collect();
-        for id in known {
-            if !ordered.contains(id) {
-                ordered.push(id);
-            }
-        }
-        ordered
+        ordered(&self.panel_order, known)
     }
 
-    /// Moves `id` in front of `before`, or to the end without it.
+    /// Moves a panel widget in front of `before`, or to the end without it.
     pub fn move_before(&mut self, known: &[&str], id: &str, before: Option<&str>) {
-        if before == Some(id) {
-            return;
-        }
-        let mut ordered = self.ordered(known);
-        let Some(from) = ordered.iter().position(|item| *item == id) else {
-            return;
-        };
-        let item = ordered.remove(from);
-        let to = before
-            .and_then(|before| ordered.iter().position(|item| *item == before))
-            .unwrap_or(ordered.len());
-        ordered.insert(to, item);
-        self.panel_order = ordered.into_iter().map(str::to_string).collect();
+        move_before(&mut self.panel_order, known, id, before);
     }
+
+    pub fn badge_place(&self, id: &str, default: BadgePlace) -> BadgePlace {
+        self.badges.get(id).copied().unwrap_or(default)
+    }
+
+    pub fn set_badge_place(&mut self, id: &str, place: BadgePlace) {
+        self.badges.insert(id.to_string(), place);
+    }
+
+    pub fn badges_ordered<'a>(&self, known: &[&'a str]) -> Vec<&'a str> {
+        ordered(&self.badge_order, known)
+    }
+
+    /// Puts an icon into `place`, in front of `before` or at its end.
+    pub fn move_badge(
+        &mut self,
+        known: &[&str],
+        id: &str,
+        place: BadgePlace,
+        before: Option<&str>,
+    ) {
+        self.set_badge_place(id, place);
+        move_before(&mut self.badge_order, known, id, before);
+    }
+}
+
+fn ordered<'a>(saved: &[String], known: &[&'a str]) -> Vec<&'a str> {
+    let mut ordered: Vec<&'a str> = saved
+        .iter()
+        .filter_map(|id| known.iter().find(|known| *known == id).copied())
+        .collect();
+    for id in known {
+        if !ordered.contains(id) {
+            ordered.push(id);
+        }
+    }
+    ordered
+}
+
+fn move_before(saved: &mut Vec<String>, known: &[&str], id: &str, before: Option<&str>) {
+    if before == Some(id) {
+        return;
+    }
+    let mut items = ordered(saved, known);
+    let Some(from) = items.iter().position(|item| *item == id) else {
+        return;
+    };
+    let item = items.remove(from);
+    let to = before
+        .and_then(|before| items.iter().position(|item| *item == before))
+        .unwrap_or(items.len());
+    items.insert(to, item);
+    *saved = items.into_iter().map(str::to_string).collect();
 }
 
 fn path() -> Option<PathBuf> {
@@ -122,8 +169,15 @@ pub fn load() -> Result<Preferences> {
         return Ok(Preferences::default());
     };
     match fs::read_to_string(&path) {
-        Ok(text) => serde_json::from_str(&text)
-            .with_context(|| format!("invalid preferences in {}", path.display())),
+        Ok(text) => {
+            let preferences: Preferences = serde_json::from_str(&text)
+                .with_context(|| format!("invalid preferences in {}", path.display()))?;
+            preferences
+                .tabs
+                .validate()
+                .map_err(|error| anyhow!("invalid tab layout in {}: {error}", path.display()))?;
+            Ok(preferences)
+        }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Preferences::default()),
         Err(error) => Err(error).with_context(|| format!("failed to read {}", path.display())),
     }
@@ -140,7 +194,7 @@ pub fn save(preferences: &Preferences) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::ExtensionPreferences;
+    use super::{BadgePlace, ExtensionPreferences};
 
     const KNOWN: [&str; 3] = ["context", "plan", "notes"];
 
@@ -177,5 +231,25 @@ mod tests {
         assert!(extensions.is_collapsed("plan"));
         extensions.toggle_collapsed("plan");
         assert!(!extensions.is_collapsed("plan"));
+    }
+
+    #[test]
+    fn badges_move_between_places() {
+        let mut extensions = ExtensionPreferences::default();
+        assert_eq!(
+            extensions.badge_place("plan", BadgePlace::Composer),
+            BadgePlace::Composer
+        );
+        extensions.move_badge(&KNOWN, "notes", BadgePlace::Header, Some("context"));
+        assert_eq!(
+            extensions.badge_place("notes", BadgePlace::Composer),
+            BadgePlace::Header
+        );
+        assert_eq!(
+            extensions.badges_ordered(&KNOWN),
+            ["notes", "context", "plan"]
+        );
+        // The panel order is separate.
+        assert_eq!(extensions.ordered(&KNOWN), KNOWN);
     }
 }
