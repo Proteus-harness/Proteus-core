@@ -105,9 +105,8 @@ pub struct Workspace {
     pub(super) scroller: Entity<MessageScrollerState>,
     pub(super) composer: Entity<TextareaState>,
     pub(super) expanded: HashSet<u64>,
-    /// Rows pushed by live events and rows toggled open, for enter motion.
+    /// Rows pushed by live events, for enter motion.
     pub(super) fresh_rows: Recent,
-    pub(super) toggled: Recent,
     pub(super) user_input: UserInputDrafts,
     pub(super) notice: Option<SharedString>,
     pub(super) window_title: String,
@@ -190,7 +189,6 @@ impl Workspace {
             composer,
             expanded: HashSet::new(),
             fresh_rows: Recent::default(),
-            toggled: Recent::default(),
             user_input: UserInputDrafts::default(),
             notice: None,
             window_title: String::new(),
@@ -261,7 +259,6 @@ impl Workspace {
         self.session = Some(Session::new(dir.clone()));
         self.expanded.clear();
         self.fresh_rows.clear();
-        self.toggled.clear();
         self.user_input = UserInputDrafts::default();
         self.scroller
             .update(cx, |scroller, cx| scroller.reset(0, cx));
@@ -291,10 +288,11 @@ impl Workspace {
     }
 
     pub(super) fn toggle_expanded(&mut self, key: u64, cx: &mut Context<Self>) {
-        if !self.expanded.remove(&key) {
+        let open = !self.expanded.remove(&key);
+        if open {
             self.expanded.insert(key);
-            self.toggled.mark(key);
         }
+        super::motion::toggled(super::thread::reveal_key(key), open, cx);
         let row = self.session.as_ref().and_then(|session| {
             session
                 .transcript

@@ -290,7 +290,7 @@ impl SettingsView {
                 .border_t_1()
                 .border_color(cx.theme().border),
             )
-            .children(open.then(|| self.params_nested(slot, module, cx)))
+            .children(self.reveal(key, cx, || self.params_nested(slot, module, cx)))
             .into_any_element()
     }
 }

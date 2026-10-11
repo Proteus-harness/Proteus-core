@@ -55,6 +55,7 @@ pub fn init(cx: &mut App) {
 
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        motion::drive(window, cx);
         let theme = cx.theme();
         let root = h_flex()
             .size_full()

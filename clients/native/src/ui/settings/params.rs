@@ -4,6 +4,7 @@
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::Textarea;
 use gpui_kit::component::*;
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use super::SettingsView;
@@ -138,9 +139,16 @@ impl SettingsView {
                 )
                 .into_any_element(),
             );
-            if open {
-                rows.extend(advanced.into_iter().map(field_row));
-            }
+            let border = cx.theme().border;
+            rows.extend(self.reveal(&key, cx, || {
+                v_flex()
+                    .children(advanced.into_iter().enumerate().map(|(ix, field)| {
+                        div()
+                            .when(ix > 0, |cell| cell.border_t_1().border_color(border))
+                            .child(field_row(field))
+                    }))
+                    .into_any_element()
+            }));
         }
         let known: Vec<&str> = schema
             .fields

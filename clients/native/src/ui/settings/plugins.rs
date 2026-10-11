@@ -208,24 +208,23 @@ impl SettingsView {
             })
             .child(switch);
 
-        let mut body = v_flex().child(header);
-        if open {
-            body = body.children(
+        let content = self.reveal(&key, cx, || {
+            let mut content = v_flex().children(
                 export
                     .and_then(|export| export.description.clone())
                     .and_then(|text| hint_text(text, cx))
                     .map(|hint| hint.px_4().pb_2()),
             );
             if pack.tools.is_empty() {
-                body = body.child(note("Пакет не сообщил инструментов.", cx));
+                content = content.child(note("Пакет не сообщил инструментов.", cx));
             }
             for name in &pack.tools {
-                body = body.child(self.pack_tool_row(name, cx));
+                content = content.child(self.pack_tool_row(name, cx));
             }
             if export.is_some() {
                 let params_key = format!("params:{TOOL_SLOT}:{}", pack.id);
                 let params_open = self.is_open(&params_key);
-                body = body.child(self.params_disclosure(
+                content = content.child(self.params_disclosure(
                     TOOL_SLOT,
                     &pack.id,
                     &params_key,
@@ -233,8 +232,9 @@ impl SettingsView {
                     cx,
                 ));
             }
-        }
-        body.into_any_element()
+            content.into_any_element()
+        });
+        v_flex().child(header).children(content).into_any_element()
     }
 
     fn pack_tool_row(&self, name: &str, cx: &Context<Self>) -> AnyElement {

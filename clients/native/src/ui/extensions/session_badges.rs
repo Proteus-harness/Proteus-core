@@ -15,6 +15,7 @@ use super::session_info::{
 use crate::tool_display::StepStatus;
 use crate::ui::context_usage::tokens;
 use crate::ui::controls::mode_label;
+use crate::ui::motion::Number;
 
 type Read = fn(&HostView, &App) -> (Face, Details);
 
@@ -72,12 +73,11 @@ pub(super) fn ring(id: &'static str, percent: f32, color: Hsla) -> impl IntoElem
         .value(percent)
         .color(color)
         .size(px(22.))
-        .child(
-            div()
-                .text_size(px(9.))
-                .font_semibold()
-                .child(format!("{percent:.0}")),
-        )
+        .child(div().text_size(px(9.)).font_semibold().child(Number::new(
+            ElementId::Name(format!("{id}-number").into()),
+            percent,
+            |value| format!("{value:.0}"),
+        )))
 }
 
 pub(super) fn ring_face(id: &'static str, percent: f32, color: Hsla) -> Face {

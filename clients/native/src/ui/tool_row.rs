@@ -8,7 +8,7 @@ use proteus_contracts::app_protocol::AppTranscriptTool;
 use serde_json::Value;
 
 use super::format;
-use super::motion::{chevron, fade_in_if};
+use super::motion::{chevron, reveal};
 use super::workspace::Workspace;
 use crate::tool_display::{self, DiffLine, PatchFile, PlanStep, StepStatus};
 
@@ -88,16 +88,12 @@ pub(super) fn render_tool(
     key: u64,
     tool: &AppTranscriptTool,
     expanded: bool,
-    opened: bool,
     cx: &mut Context<Workspace>,
 ) -> AnyElement {
     let muted = cx.theme().muted_foreground;
-    let details = expanded.then(|| {
-        fade_in_if(
-            tool_details(key, tool, cx),
-            row_id("tool-details", key),
-            opened,
-        )
+    let app: &App = cx;
+    let details = reveal(super::thread::reveal_key(key), expanded, app, || {
+        tool_details(key, tool, app).into_any_element()
     });
     v_flex()
         .gap_1()

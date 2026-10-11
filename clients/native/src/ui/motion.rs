@@ -12,6 +12,7 @@ use std::f32::consts::FRAC_PI_2;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::{Duration, Instant};
 
+use gpui_kit::base::MotionReveal;
 use gpui_kit::component::animation::{EffectTransition, ease_out_cubic};
 use gpui_kit::component::*;
 use gpui_kit::*;
@@ -89,8 +90,136 @@ pub(super) fn chevron(id: impl Into<ElementId>, open: bool, color: Hsla) -> AnyE
     .into_any_element()
 }
 
+const REVEAL: Duration = Duration::from_millis(220);
+
+/// Disclosures toggled a moment ago, keyed by caller-chosen names.
+#[derive(Default)]
+struct Toggles(HashMap<SharedString, Toggle>);
+
+impl Global for Toggles {}
+
+#[derive(Clone, Copy)]
+struct Toggle {
+    at: Instant,
+    from: f32,
+    open: bool,
+}
+
+impl Toggle {
+    fn progress(&self, now: Instant) -> f32 {
+        let linear = (now.duration_since(self.at).as_secs_f32() / REVEAL.as_secs_f32()).min(1.);
+        let target = if self.open { 1. } else { 0. };
+        self.from + (target - self.from) * ease_out_cubic(linear)
+    }
+
+    fn running(&self, now: Instant) -> bool {
+        now.duration_since(self.at) < REVEAL
+    }
+}
+
+/// Records that the disclosure `key` was just opened or closed, so its
+/// content grows or shrinks instead of jumping. A toggle during a running
+/// animation continues from the current height.
+pub(super) fn toggled(key: impl Into<SharedString>, open: bool, cx: &mut App) {
+    let key = key.into();
+    let animate = moves() && !cx.reduce_motion();
+    let now = Instant::now();
+    let toggles = cx.default_global::<Toggles>();
+    toggles.0.retain(|_, toggle| toggle.running(now));
+    if !animate {
+        toggles.0.remove(&key);
+        return;
+    }
+    let from = toggles
+        .0
+        .get(&key)
+        .map(|toggle| toggle.progress(now))
+        .unwrap_or(if open { 0. } else { 1. });
+    toggles.0.insert(
+        key,
+        Toggle {
+            at: now,
+            from,
+            open,
+        },
+    );
+}
+
+/// Content of a disclosure. While `toggled` animates it, the content is
+/// clipped to a growing or shrinking height and stays mounted until it has
+/// closed; otherwise it is simply present when open.
+pub(super) fn reveal(
+    key: impl Into<SharedString>,
+    open: bool,
+    cx: &App,
+    content: impl FnOnce() -> AnyElement,
+) -> Option<AnyElement> {
+    let key = key.into();
+    let now = Instant::now();
+    let running = cx
+        .try_global::<Toggles>()
+        .and_then(|toggles| toggles.0.get(&key).copied())
+        .filter(|toggle| toggle.open == open && toggle.running(now));
+    match running {
+        Some(toggle) => Some(
+            MotionReveal::new(ElementId::Name(key), toggle.progress(now), content())
+                .into_any_element(),
+        ),
+        None => open.then(content),
+    }
+}
+
+/// Keeps a view redrawing while any disclosure animates; call from `render`.
+pub(super) fn drive(window: &mut Window, cx: &App) {
+    let now = Instant::now();
+    let running = cx
+        .try_global::<Toggles>()
+        .is_some_and(|toggles| toggles.0.values().any(|toggle| toggle.running(now)));
+    if running {
+        window.request_animation_frame();
+    }
+}
+
+/// Number that glides to a new value instead of jumping; first render shows
+/// the value as is.
+#[derive(IntoElement)]
+pub(super) struct Number {
+    id: ElementId,
+    value: f32,
+    format: fn(f32) -> String,
+}
+
+impl Number {
+    pub(super) fn new(id: impl Into<ElementId>, value: f32, format: fn(f32) -> String) -> Self {
+        Self {
+            id: id.into(),
+            value,
+            format,
+        }
+    }
+}
+
+impl RenderOnce for Number {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let shown = if moves() {
+            gpui_kit::base::transition(
+                self.id,
+                self.value,
+                gpui_kit::base::Transition::new(NUMBER),
+                window,
+                cx,
+            )
+        } else {
+            self.value
+        };
+        (self.format)(shown)
+    }
+}
+
+const NUMBER: Duration = Duration::from_millis(450);
+
 /// Keys that changed a moment ago: lets list rows animate only right after
-/// they appeared or toggled, not every time they scroll back into view.
+/// they appeared, not every time they scroll back into view.
 #[derive(Default)]
 pub(super) struct Recent {
     marks: HashMap<u64, Instant>,

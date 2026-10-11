@@ -7,7 +7,7 @@ use gpui_kit::*;
 use proteus_contracts::app_protocol::AppTranscriptSubagent;
 
 use super::format;
-use super::motion::{chevron, fade_in_if};
+use super::motion::{chevron, fade_in_if, reveal};
 use super::tool_row::{render_tool, tool_line};
 use super::workspace::Workspace;
 use crate::transcript::{Entry, Role};
@@ -53,14 +53,8 @@ impl Workspace {
         let body = match (&entry.role, &entry.tool, &entry.subagent) {
             (Role::User, _, _) => render_user(entry, cx),
             (Role::Assistant, _, _) => render_assistant(entry),
-            (Role::System, Some(tool), _) => {
-                let opened = self.toggled.is_fresh(entry.key);
-                render_tool(entry.key, tool, expanded, opened, cx)
-            }
-            (Role::System, None, Some(agent)) => {
-                let opened = self.toggled.is_fresh(entry.key);
-                render_subagent(entry.key, agent, expanded, opened, cx)
-            }
+            (Role::System, Some(tool), _) => render_tool(entry.key, tool, expanded, cx),
+            (Role::System, None, Some(agent)) => render_subagent(entry.key, agent, expanded, cx),
             (Role::System, None, None) => render_note(entry, cx),
         };
         h_flex()
@@ -96,6 +90,11 @@ fn session_rows(workspace: &Workspace) -> usize {
 
 fn row_id(name: &'static str, key: u64) -> ElementId {
     ElementId::NamedInteger(name.into(), key)
+}
+
+/// Motion key of a row's expandable details.
+pub(super) fn reveal_key(key: u64) -> SharedString {
+    format!("thread-row-{key}").into()
 }
 
 fn copy_button(name: &'static str, key: u64, text: SharedString) -> Clipboard {
@@ -145,6 +144,7 @@ fn render_assistant(entry: &Entry) -> AnyElement {
         .child(
             TextView::markdown(row_id("assistant", entry.key), text)
                 .selectable(true)
+                .stream_fade(true)
                 .code_block_actions(|block, _, _| {
                     let code = block.code();
                     Clipboard::new(row_id("copy-code", hash_code(&code)))
@@ -187,7 +187,6 @@ fn render_subagent(
     key: u64,
     agent: &AppTranscriptSubagent,
     expanded: bool,
-    opened: bool,
     cx: &mut Context<Workspace>,
 ) -> AnyElement {
     let theme = cx.theme();
@@ -195,15 +194,13 @@ fn render_subagent(
     if let Some(iterations) = agent.iterations {
         meta.push_str(&format!(" · шагов: {iterations}"));
     }
-    let tools = expanded.then(|| {
-        fade_in_if(
-            v_flex()
-                .pl_5()
-                .gap_1()
-                .children(agent.tools.iter().map(|tool| tool_line(tool, cx))),
-            row_id("subagent-tools", key),
-            opened,
-        )
+    let app: &App = cx;
+    let tools = reveal(reveal_key(key), expanded, app, || {
+        v_flex()
+            .pl_5()
+            .gap_1()
+            .children(agent.tools.iter().map(|tool| tool_line(tool, app)))
+            .into_any_element()
     });
     v_flex()
         .px_3()

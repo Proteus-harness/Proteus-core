@@ -201,14 +201,26 @@ impl SettingsView {
     }
 
     fn toggle_open(&mut self, key: &str, cx: &mut Context<Self>) {
-        if !self.open.remove(key) {
+        let open = !self.open.remove(key);
+        if open {
             self.open.insert(key.to_string());
         }
+        crate::ui::motion::toggled(reveal_key(key), open, cx);
         cx.notify();
     }
 
     fn is_open(&self, key: &str) -> bool {
         self.open.contains(key)
+    }
+
+    /// Content under the disclosure `key`, animated after `toggle_open`.
+    fn reveal(
+        &self,
+        key: &str,
+        cx: &App,
+        content: impl FnOnce() -> AnyElement,
+    ) -> Option<AnyElement> {
+        crate::ui::motion::reveal(reveal_key(key), self.is_open(key), cx, content)
     }
 
     fn clear_feedback(&mut self) {
@@ -305,6 +317,7 @@ impl SettingsView {
 impl Render for SettingsView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.prepare_editors(window, cx);
+        crate::ui::motion::drive(window, cx);
         h_flex()
             .size_full()
             .key_context(super::SETTINGS_CONTEXT)
@@ -324,4 +337,8 @@ impl Render for SettingsView {
                     .child(self.render_frame(cx)),
             )
     }
+}
+
+fn reveal_key(key: &str) -> SharedString {
+    format!("settings-{key}").into()
 }
