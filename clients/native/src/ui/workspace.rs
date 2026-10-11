@@ -15,6 +15,7 @@ use super::panels::Renaming;
 use super::settings::SettingsView;
 use super::tabs::{SplitResize, TabDrop, TabMotion};
 use crate::api::Api;
+use crate::attention::Tracker;
 use crate::connection::{self, BackendGuard};
 use crate::launch::LaunchOptions;
 use crate::tabs::{self, PaneId};
@@ -81,6 +82,9 @@ pub struct Workspace {
     /// another one when it ends.
     pub(super) sessions_loading: bool,
     pub(super) sessions_stale: bool,
+    /// Activity news of every session, for system notifications.
+    pub(super) attention: Tracker,
+    pub(super) window_handle: AnyWindowHandle,
     /// Archived sessions are listed.
     pub(super) show_archived: bool,
     /// A session name being edited in the list.
@@ -152,6 +156,8 @@ impl Workspace {
             sessions: Vec::new(),
             sessions_loading: false,
             sessions_stale: false,
+            attention: Tracker::default(),
+            window_handle: window.window_handle(),
             show_archived: false,
             renaming: None,
             chats: HashMap::new(),

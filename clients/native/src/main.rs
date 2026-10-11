@@ -1,12 +1,14 @@
 mod analytics;
 mod api;
 mod assets;
+mod attention;
 mod backend;
 mod connection;
 mod declarative;
 mod files;
 mod graphics;
 mod launch;
+mod notify;
 mod preferences;
 mod recent;
 mod sessions;

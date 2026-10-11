@@ -199,6 +199,8 @@ impl Workspace {
                 session_dir,
                 activity,
             } => {
+                // Repeated copies from other streams carry no change.
+                self.attend(session_dir, activity.status, cx);
                 // Every session stream carries every update; only the active
                 // chat's copy counts, and a switch reloads the list anyway.
                 if self.active_chat.as_deref() != Some(tab) {
@@ -234,7 +236,15 @@ impl Workspace {
             |this, sessions, cx| {
                 this.sessions_loading = false;
                 match sessions {
-                    Ok(sessions) => this.sessions = sessions,
+                    Ok(sessions) => {
+                        for summary in &sessions {
+                            if let Some(activity) = &summary.activity {
+                                this.attention
+                                    .baseline(&summary.session_dir, activity.status);
+                            }
+                        }
+                        this.sessions = sessions;
+                    }
                     Err(error) => this.report(format!("{error:#}"), cx),
                 }
                 if std::mem::take(&mut this.sessions_stale) {

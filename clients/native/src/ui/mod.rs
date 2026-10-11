@@ -8,6 +8,7 @@ mod extensions;
 mod format;
 mod launcher;
 mod motion;
+mod notifications;
 mod panels;
 mod prefs;
 mod settings;

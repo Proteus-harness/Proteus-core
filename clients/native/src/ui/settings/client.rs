@@ -7,7 +7,7 @@ use gpui_kit::*;
 use super::SettingsView;
 use super::sizes::slider;
 use super::widgets::{MenuOption, card, row, section, select_menu};
-use crate::preferences::{MotionPreference, Preferences, SendMode, ThemePreference};
+use crate::preferences::{MotionPreference, Notifications, Preferences, SendMode, ThemePreference};
 use crate::ui::prefs::{self, ClientPreferences};
 
 const THEMES: [(ThemePreference, &str); 3] = [
@@ -37,6 +37,11 @@ const SCALES: [(u16, &str); 9] = [
 const SEND_MODES: [(SendMode, &str); 2] = [
     (SendMode::Enter, "Enter"),
     (SendMode::CtrlEnter, "Ctrl + Enter"),
+];
+
+const NOTIFICATIONS: [(Notifications, &str); 2] = [
+    (Notifications::Background, "Когда окно в фоне"),
+    (Notifications::Off, "Выключены"),
 ];
 
 impl SettingsView {
@@ -124,6 +129,19 @@ impl SettingsView {
                         prefs::update(cx, move |prefs| prefs.view.compact_tools = checked)
                     })
                     .into_any_element(),
+                false,
+                cx,
+            )
+            .into_any_element(),
+            row(
+                "Уведомления",
+                Some("Когда окно в фоне: агент закончил, ждёт подтверждения или ответа.".into()),
+                choice(
+                    "pref-notifications",
+                    &NOTIFICATIONS,
+                    current.notifications,
+                    |prefs, value| prefs.notifications = value,
+                ),
                 false,
                 cx,
             )

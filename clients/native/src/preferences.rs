@@ -38,12 +38,22 @@ pub enum SendMode {
     CtrlEnter,
 }
 
+/// System notifications about chats while the window is in the background.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Notifications {
+    #[default]
+    Background,
+    Off,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Preferences {
     pub theme: ThemePreference,
     pub motion: MotionPreference,
     pub send: SendMode,
+    pub notifications: Notifications,
     pub view: ViewPreferences,
     pub extensions: ExtensionPreferences,
     pub tabs: TabLayout,
