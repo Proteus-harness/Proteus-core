@@ -3,6 +3,7 @@
 
 mod client;
 mod editors;
+mod extension;
 mod extensions;
 mod fields;
 mod frame;
@@ -76,6 +77,10 @@ pub struct SettingsView {
     tool_query: String,
     sizes: sizes::SizeSliders,
     overview: crate::ui::analytics::Pages,
+    /// Result of the last extension install or removal.
+    extension_notice: Option<Feedback>,
+    /// Installed extension whose removal waits for confirmation.
+    removing: Option<String>,
     /// Command whose new shortcut is being recorded.
     recording: Option<(crate::shortcuts::Command, Subscription)>,
     focus_handle: FocusHandle,
@@ -127,6 +132,8 @@ impl SettingsView {
             tool_query: String::new(),
             sizes,
             overview,
+            extension_notice: None,
+            removing: None,
             recording: None,
             focus_handle,
             _subscriptions: subscriptions,
@@ -210,6 +217,7 @@ impl SettingsView {
             self.load_history(cx);
         }
         self.page = page;
+        self.removing = None;
         cx.notify();
     }
 

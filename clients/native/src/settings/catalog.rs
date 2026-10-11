@@ -31,11 +31,13 @@ pub enum PageId {
     Appearance,
     Chat,
     Shortcuts,
+    /// Extension manager.
     Extensions,
-    Overview(Overview),
+    /// Page of one extension, by its id.
+    Extension(String),
 }
 
-/// Read-only analytics pages of the «Обзор» section.
+/// Read-only analytics views of the built-in extensions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Overview {
     Usage,
@@ -47,7 +49,7 @@ impl PageId {
     pub fn is_agent(&self) -> bool {
         !matches!(
             self,
-            Self::Appearance | Self::Chat | Self::Shortcuts | Self::Extensions | Self::Overview(_)
+            Self::Appearance | Self::Chat | Self::Shortcuts | Self::Extensions | Self::Extension(_)
         )
     }
 }
@@ -121,12 +123,6 @@ pub const CLIENT_PAGES: [PageId; 4] = [
     PageId::Extensions,
 ];
 
-pub const OVERVIEW_PAGES: [PageId; 3] = [
-    PageId::Overview(Overview::Usage),
-    PageId::Overview(Overview::Analysis),
-    PageId::Overview(Overview::Architecture),
-];
-
 pub fn page_title(snapshot: Option<&ConfigBuilderSnapshot>, page: &PageId) -> String {
     match page {
         PageId::Model => "Model".into(),
@@ -145,9 +141,8 @@ pub fn page_title(snapshot: Option<&ConfigBuilderSnapshot>, page: &PageId) -> St
         PageId::Chat => "Чат".into(),
         PageId::Shortcuts => "Сочетания клавиш".into(),
         PageId::Extensions => "Расширения".into(),
-        PageId::Overview(Overview::Usage) => "Расход и контекст".into(),
-        PageId::Overview(Overview::Analysis) => "Анализ ходов".into(),
-        PageId::Overview(Overview::Architecture) => "Архитектура".into(),
+        // The client names extension pages after their manifests.
+        PageId::Extension(id) => id.clone(),
     }
 }
 
@@ -182,8 +177,10 @@ pub fn page_description(snapshot: Option<&ConfigBuilderSnapshot>, page: &PageId)
         PageId::Shortcuts => {
             "Клавиши команд окна. Применяются сразу и сохраняются на этом устройстве."
         }
-        PageId::Extensions => "Значки, панели и вкладки. Сохраняются на этом устройстве.",
-        PageId::Overview(_) => "",
+        PageId::Extensions => {
+            "Значки, панели, вкладки и страницы. Включение, порядок и установка применяются сразу и сохраняются на этом устройстве."
+        }
+        PageId::Extension(_) => "",
     };
     text.to_string()
 }

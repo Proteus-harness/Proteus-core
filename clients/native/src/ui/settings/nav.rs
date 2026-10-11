@@ -1,4 +1,5 @@
-//! Settings navigation: agent pages, then client pages.
+//! Settings navigation: agent pages, client pages, then a page for every
+//! enabled extension.
 
 use crate::ui::kit;
 use std::collections::HashSet;
@@ -11,9 +12,8 @@ use gpui_kit::*;
 
 use super::widgets::changed_dot;
 use super::{SettingsEvent, SettingsView};
-use crate::settings::catalog::{
-    CLIENT_PAGES, OVERVIEW_PAGES, Overview, PageId, agent_pages, area_page, page_title,
-};
+use crate::settings::catalog::{CLIENT_PAGES, PageId, agent_pages, area_page, page_title};
+use crate::ui::extensions;
 use crate::ui::prefs;
 use crate::ui::tip::Tip as _;
 
@@ -36,10 +36,10 @@ fn page_icon(page: &PageId) -> Icon {
         PageId::Appearance => Icon::new(IconName::Palette),
         PageId::Chat => Icon::new(Lucide::MessageSquare),
         PageId::Shortcuts => Icon::new(Lucide::Keyboard),
-        PageId::Extensions => Icon::new(Lucide::Puzzle),
-        PageId::Overview(Overview::Usage) => Icon::new(Lucide::Gauge),
-        PageId::Overview(Overview::Analysis) => Icon::new(Lucide::ListChecks),
-        PageId::Overview(Overview::Architecture) => Icon::new(Lucide::Network),
+        PageId::Extensions => Icon::new(Lucide::Blocks),
+        PageId::Extension(id) => {
+            Icon::new(extensions::find(id).map_or(Lucide::Puzzle, |manifest| manifest.icon))
+        }
     }
 }
 
@@ -50,11 +50,24 @@ impl SettingsView {
             .unwrap_or_else(|| vec![PageId::Model])
     }
 
+    /// Enabled extensions in the user's order, plus the open page of a
+    /// switched off one so it does not vanish under the pointer.
+    fn extension_page_list(&self, cx: &App) -> Vec<PageId> {
+        extensions::ordered(cx)
+            .into_iter()
+            .filter(|manifest| {
+                extensions::is_enabled(manifest.id, cx)
+                    || self.page == PageId::Extension(manifest.id.to_string())
+            })
+            .map(|manifest| PageId::Extension(manifest.id.to_string()))
+            .collect()
+    }
+
     /// Moves the selection through the navigation list, wrapping around.
     pub(super) fn step_page(&mut self, offset: isize, cx: &mut Context<Self>) {
         let mut pages = self.agent_page_list();
         pages.extend(CLIENT_PAGES.iter().cloned());
-        pages.extend(OVERVIEW_PAGES.iter().cloned());
+        pages.extend(self.extension_page_list(cx));
         let current = pages
             .iter()
             .position(|page| *page == self.page)
@@ -67,6 +80,7 @@ impl SettingsView {
         let theme = cx.theme();
         let snapshot = self.snapshot();
         let agent = self.agent_page_list();
+        let installed = self.extension_page_list(cx);
         let changed: HashSet<PageId> = self
             .draft
             .areas(&self.baseline)
@@ -75,7 +89,11 @@ impl SettingsView {
             .collect();
         let item = |page: PageId, cx: &Context<Self>| {
             let selected = self.page == page;
-            let title = page_title(snapshot, &page);
+            let title = match &page {
+                PageId::Extension(id) => extensions::find(id)
+                    .map_or_else(|| id.clone(), |manifest| manifest.title.to_string()),
+                page => page_title(snapshot, page),
+            };
             let dot = changed.contains(&page);
             let target = page.clone();
             h_flex()
@@ -161,8 +179,10 @@ impl SettingsView {
                     .children(agent.into_iter().map(|page| item(page, cx)))
                     .child(heading("Клиент"))
                     .children(CLIENT_PAGES.iter().cloned().map(|page| item(page, cx)))
-                    .child(heading("Обзор"))
-                    .children(OVERVIEW_PAGES.iter().cloned().map(|page| item(page, cx))),
+                    .when(!installed.is_empty(), |list| {
+                        list.child(heading("Расширения"))
+                            .children(installed.into_iter().map(|page| item(page, cx)))
+                    }),
             )
             .children(profile.map(|(path, writable)| {
                 let name = std::path::Path::new(&path)

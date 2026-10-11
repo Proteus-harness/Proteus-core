@@ -18,6 +18,7 @@ mod terminal;
 
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::*;
+use std::path::Path;
 use std::sync::OnceLock;
 
 pub(super) use badge::DraggedBadge;
@@ -25,7 +26,9 @@ pub(super) use host::{Host, HostEvent, OpenDocument};
 pub(super) use terminal::next_tab as next_terminal;
 
 use super::prefs;
+use crate::declarative::manifest::Problem;
 use crate::preferences::BadgePlace;
+use crate::settings::catalog::Overview;
 
 /// Builds an icon view. Runs inside a workspace update, so it must not read
 /// the [`Host`] synchronously.
@@ -74,13 +77,15 @@ pub(super) struct Manifest {
     pub title: &'static str,
     pub description: &'static str,
     pub icon: Lucide,
+    /// Read-only analytics page among the extension pages of the settings.
+    pub page: Option<Overview>,
     pub panel: Option<PanelSurface>,
     pub document: Option<DocumentSurface>,
     /// Icon under the composer or in a window bar.
     pub badge: Option<BadgeSurface>,
 }
 
-fn builtin() -> [Manifest; 9] {
+fn builtin() -> [Manifest; 12] {
     [
         selector(
             selectors::MODE,
@@ -101,6 +106,7 @@ fn builtin() -> [Manifest; 9] {
             title: "Контекст",
             description: "Заполненность контекста модели и порог автокомпакта.",
             icon: Lucide::Layers,
+            page: None,
             panel: None,
             document: None,
             badge: Some(BadgeSurface {
@@ -113,6 +119,7 @@ fn builtin() -> [Manifest; 9] {
             title: "План",
             description: "Шаги текущего плана агента.",
             icon: Lucide::ListChecks,
+            page: None,
             panel: None,
             document: None,
             badge: Some(BadgeSurface {
@@ -125,6 +132,7 @@ fn builtin() -> [Manifest; 9] {
             title: "Лимиты модели",
             description: "Остаток лимитов у провайдера модели.",
             icon: Lucide::Gauge,
+            page: None,
             panel: None,
             document: None,
             badge: Some(BadgeSurface {
@@ -137,6 +145,7 @@ fn builtin() -> [Manifest; 9] {
             title: "Файлы",
             description: "Дерево рабочей папки и изменения git на панели, файлы во вкладках.",
             icon: Lucide::FolderTree,
+            page: None,
             panel: Some(PanelSurface {
                 title: "Файлы",
                 build: files::build_panel,
@@ -155,6 +164,7 @@ fn builtin() -> [Manifest; 9] {
             title: "Сессия",
             description: "Статус, число сообщений и ожидающие запросы.",
             icon: Lucide::Info,
+            page: None,
             panel: None,
             document: None,
             badge: Some(BadgeSurface {
@@ -167,6 +177,7 @@ fn builtin() -> [Manifest; 9] {
             title: "Агент",
             description: "Профиль, модель, режим и инструменты сессии.",
             icon: Lucide::Bot,
+            page: None,
             panel: None,
             document: None,
             badge: Some(BadgeSurface {
@@ -179,6 +190,7 @@ fn builtin() -> [Manifest; 9] {
             title: "Терминал",
             description: "Оболочка в рабочей папке во вкладке.",
             icon: Lucide::SquareTerminal,
+            page: None,
             panel: None,
             document: Some(DocumentSurface {
                 build: terminal::build_document,
@@ -186,7 +198,48 @@ fn builtin() -> [Manifest; 9] {
             }),
             badge: None,
         },
+        analytics(
+            "usage",
+            "Расход и контекст",
+            "Токены, стоимость и заполнение контекста по запросам сессии.",
+            Lucide::ChartColumn,
+            Overview::Usage,
+        ),
+        analytics(
+            "analysis",
+            "Анализ ходов",
+            "Шаги ходов агента: запросы модели, инструменты и хуки.",
+            Lucide::Activity,
+            Overview::Analysis,
+        ),
+        analytics(
+            "architecture",
+            "Архитектура",
+            "Карта модулей и слотов запущенного агента.",
+            Lucide::Network,
+            Overview::Architecture,
+        ),
     ]
+}
+
+/// A read-only analytics page in the settings.
+fn analytics(
+    id: &'static str,
+    title: &'static str,
+    description: &'static str,
+    icon: Lucide,
+    page: Overview,
+) -> Manifest {
+    Manifest {
+        id,
+        title,
+        description,
+        icon,
+        page: Some(page),
+        panel: None,
+        document: None,
+        badge: None,
+    }
 }
 
 /// A session setting selector, kept under the composer until moved.
@@ -202,6 +255,7 @@ fn selector(
         title,
         description,
         icon,
+        page: None,
         panel: None,
         document: None,
         badge: Some(BadgeSurface {
@@ -211,29 +265,81 @@ fn selector(
     }
 }
 
-static CATALOG: OnceLock<Vec<Manifest>> = OnceLock::new();
+fn builtins() -> &'static [Manifest] {
+    static BUILTIN: OnceLock<[Manifest; 12]> = OnceLock::new();
+    BUILTIN.get_or_init(builtin)
+}
 
-/// Built-in extensions followed by the installed ones; read once per run.
-pub(super) fn catalog() -> &'static [Manifest] {
-    CATALOG.get_or_init(|| {
-        let mut all = Vec::from(builtin());
-        let taken: Vec<&str> = all.iter().map(|manifest| manifest.id).collect();
-        all.extend(declarative::manifests(&taken));
-        all
-    })
+fn builtin_ids() -> Vec<&'static str> {
+    builtins().iter().map(|manifest| manifest.id).collect()
+}
+
+/// Built-in extensions followed by the installed ones. The extensions folder
+/// is read on first use and again after an install or removal.
+pub(super) fn catalog() -> Vec<&'static Manifest> {
+    let taken = builtin_ids();
+    builtins()
+        .iter()
+        .chain(declarative::manifests(&taken))
+        .collect()
 }
 
 /// Installed extension folders that failed to load, and where they live.
-pub(super) fn problems() -> &'static [crate::declarative::manifest::Problem] {
-    declarative::problems()
+pub(super) fn problems() -> Vec<Problem> {
+    declarative::problems(&builtin_ids())
+}
+
+/// Folder of an extension installed by the user; built-in ones have none.
+pub(super) fn folder(id: &str) -> Option<&'static Path> {
+    declarative::folder(&builtin_ids(), id)
+}
+
+/// Unpacks an extension archive into the extensions folder and adds it to
+/// the catalog right away. Returns the new extension.
+pub(super) fn install(archive: &Path, cx: &mut App) -> anyhow::Result<&'static Manifest> {
+    let root = crate::declarative::manifest::root()
+        .ok_or_else(|| anyhow::anyhow!("Не найдена папка настроек"))?;
+    let taken = builtin_ids();
+    let manifest = crate::declarative::package::install(&root, archive, &taken)?;
+    declarative::rescan(&taken);
+    cx.refresh_windows();
+    find(&manifest.id).ok_or_else(|| anyhow::anyhow!("Расширение `{}` не загрузилось", manifest.id))
+}
+
+/// Deletes an installed extension with its folder and forgets its settings.
+pub(super) fn remove(id: &str, cx: &mut App) -> anyhow::Result<()> {
+    let root = crate::declarative::manifest::root()
+        .ok_or_else(|| anyhow::anyhow!("Не найдена папка настроек"))?;
+    crate::declarative::package::remove(&root, id)?;
+    declarative::rescan(&builtin_ids());
+    prefs::update(cx, |preferences| preferences.extensions.forget(id));
+    cx.refresh_windows();
+    Ok(())
 }
 
 pub(super) fn find(id: &str) -> Option<&'static Manifest> {
-    catalog().iter().find(|manifest| manifest.id == id)
+    catalog().into_iter().find(|manifest| manifest.id == id)
 }
 
 pub(super) fn is_enabled(id: &str, cx: &App) -> bool {
     prefs::current(cx).extensions.is_enabled(id)
+}
+
+/// Every extension in the user's order.
+pub(super) fn ordered(cx: &App) -> Vec<&'static Manifest> {
+    let all = catalog();
+    let ids: Vec<&'static str> = all.iter().map(|manifest| manifest.id).collect();
+    prefs::current(cx)
+        .extensions
+        .ordered(&ids)
+        .into_iter()
+        .filter_map(|id| all.iter().find(|manifest| manifest.id == id).copied())
+        .collect()
+}
+
+/// Ids of every extension, in catalog order.
+pub(super) fn ids() -> Vec<&'static str> {
+    catalog().iter().map(|manifest| manifest.id).collect()
 }
 
 /// Ids of extensions with an icon, in catalog order.
@@ -270,7 +376,7 @@ pub(super) fn visible_badges(place: BadgePlace, cx: &App) -> Vec<&'static Manife
 /// Enabled extensions with a panel, in catalog order.
 pub(super) fn visible_panels(cx: &App) -> Vec<&'static Manifest> {
     catalog()
-        .iter()
+        .into_iter()
         .filter(|manifest| manifest.panel.is_some() && is_enabled(manifest.id, cx))
         .collect()
 }

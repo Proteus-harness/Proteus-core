@@ -170,6 +170,8 @@ pub enum BadgePlace {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ExtensionPreferences {
+    /// Extension order in the settings list and their pages.
+    pub order: Vec<String>,
     pub disabled: Vec<String>,
     /// Icon places chosen by the user; others use the extension default.
     pub badges: BTreeMap<String, BadgePlace>,
@@ -188,6 +190,30 @@ impl ExtensionPreferences {
         if !enabled {
             self.disabled.push(id.to_string());
         }
+    }
+
+    /// Extensions in the saved order; ids it does not mention yet follow in
+    /// catalog order.
+    pub fn ordered<'a>(&self, known: &[&'a str]) -> Vec<&'a str> {
+        ordered(&self.order, known)
+    }
+
+    /// Moves an extension in front of `before` or to the end of the list.
+    pub fn move_extension(&mut self, known: &[&str], id: &str, before: Option<&str>) {
+        move_before(&mut self.order, known, id, before);
+    }
+
+    /// Drops everything remembered about a removed extension.
+    pub fn forget(&mut self, id: &str) {
+        for list in [
+            &mut self.order,
+            &mut self.disabled,
+            &mut self.badge_order,
+            &mut self.pinned,
+        ] {
+            list.retain(|item| item != id);
+        }
+        self.badges.remove(id);
     }
 
     pub fn badge_place(&self, id: &str, default: BadgePlace) -> BadgePlace {
@@ -355,6 +381,20 @@ mod tests {
             extensions.badges_ordered(&["plan", "quota", "files"]),
             ["files", "plan", "quota"]
         );
+    }
+
+    #[test]
+    fn extensions_reorder_and_are_forgotten_on_removal() {
+        let mut extensions = ExtensionPreferences::default();
+        extensions.move_extension(&KNOWN, "files", Some("context"));
+        assert_eq!(extensions.ordered(&KNOWN), ["files", "context", "plan"]);
+        extensions.set_enabled("files", false);
+        extensions.move_badge(&KNOWN, "files", BadgePlace::Header, None);
+        extensions.set_pinned("files", true);
+        extensions.forget("files");
+        assert_eq!(extensions.ordered(&KNOWN), ["context", "plan", "files"]);
+        assert!(extensions.is_enabled("files") && !extensions.is_pinned("files"));
+        assert!(extensions.badges.is_empty() && extensions.badge_order.len() == 2);
     }
 
     #[test]

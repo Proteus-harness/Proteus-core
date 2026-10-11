@@ -11,6 +11,7 @@ use gpui_kit::*;
 use super::widgets::changed_dot;
 use super::{LoadState, SettingsView};
 use crate::settings::catalog::{PageId, area_labels, page_description, page_title};
+use crate::ui::extensions;
 use crate::ui::motion::rise_in;
 use crate::ui::prefs;
 
@@ -51,7 +52,10 @@ impl SettingsView {
                 LoadState::Ready(_) => {}
             }
         }
-        if let PageId::Overview(page) = self.page {
+        if let PageId::Extension(id) = &self.page
+            && extensions::is_enabled(id, cx)
+            && let Some(page) = extensions::find(id).and_then(|manifest| manifest.page)
+        {
             return div()
                 .size_full()
                 .px_8()
@@ -74,7 +78,24 @@ impl SettingsView {
             PageId::Chat => self.chat_page(cx),
             PageId::Shortcuts => self.shortcuts_page(cx),
             PageId::Extensions => self.extensions_page(cx),
-            PageId::Overview(_) => unreachable!("overview pages render their own frame"),
+            PageId::Extension(id) => self.extension_page(id, cx),
+        };
+        let (title, description, switch) = match &self.page {
+            PageId::Extension(id) => {
+                let manifest = extensions::find(id);
+                (
+                    manifest.map_or_else(|| id.clone(), |manifest| manifest.title.to_string()),
+                    manifest
+                        .map_or("", |manifest| manifest.description)
+                        .to_string(),
+                    self.extension_switch(id, cx),
+                )
+            }
+            page => (
+                page_title(snapshot, page),
+                page_description(snapshot, page),
+                None,
+            ),
         };
         let key = format!("{:?}", self.page);
         let column = v_flex()
@@ -82,20 +103,23 @@ impl SettingsView {
             .max_w(prefs::scaled(COLUMN_WIDTH))
             .gap_6()
             .child(
-                v_flex()
-                    .gap_1()
+                h_flex()
+                    .gap_4()
+                    .items_start()
                     .child(
-                        div()
-                            .text_xl()
-                            .font_semibold()
-                            .child(page_title(snapshot, &self.page)),
+                        v_flex()
+                            .flex_1()
+                            .min_w_0()
+                            .gap_1()
+                            .child(div().text_xl().font_semibold().child(title))
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(theme.muted_foreground)
+                                    .child(description),
+                            ),
                     )
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(theme.muted_foreground)
-                            .child(page_description(snapshot, &self.page)),
-                    ),
+                    .children(switch.map(|switch| div().flex_none().pt_1().child(switch))),
             )
             .children(
                 (self.page == PageId::Model)
@@ -120,6 +144,11 @@ impl SettingsView {
             .child(div().flex_1().min_h_0().child(scroll))
             .when(self.page.is_agent(), |frame| {
                 frame.child(self.render_save_bar(cx))
+            })
+            .when(self.page == PageId::Extensions, |frame| {
+                frame.on_drop(cx.listener(|this, paths: &ExternalPaths, _, cx| {
+                    this.install_archives(paths.paths(), cx)
+                }))
             })
             .into_any_element()
     }

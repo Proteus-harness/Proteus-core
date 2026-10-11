@@ -86,7 +86,7 @@ pub fn discover(root: &Path) -> (Vec<Installed>, Vec<Problem>) {
     };
     let mut dirs: Vec<PathBuf> = entries
         .filter_map(|entry| entry.ok().map(|entry| entry.path()))
-        .filter(|path| path.is_dir())
+        .filter(|path| path.is_dir() && !is_hidden(path))
         .collect();
     dirs.sort();
     for dir in dirs {
@@ -101,16 +101,28 @@ pub fn discover(root: &Path) -> (Vec<Installed>, Vec<Problem>) {
     (installed, problems)
 }
 
+/// Dot folders are unfinished installs and anything else the user hid.
+fn is_hidden(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.starts_with('.'))
+}
+
 fn load(dir: &Path) -> Result<Manifest> {
     let path = dir.join(MANIFEST);
     let text = std::fs::read_to_string(&path)
         .with_context(|| format!("cannot read {}", path.display()))?;
-    let manifest: Manifest =
-        serde_json::from_str(&text).with_context(|| format!("invalid {}", path.display()))?;
+    let manifest = parse(&text).with_context(|| format!("invalid {}", path.display()))?;
     let folder = dir.file_name().and_then(|name| name.to_str()).unwrap_or("");
     if manifest.id != folder {
         bail!("id `{}` must equal the folder name `{folder}`", manifest.id);
     }
+    Ok(manifest)
+}
+
+/// Reads and checks an `extension.json` text.
+pub fn parse(text: &str) -> Result<Manifest> {
+    let manifest: Manifest = serde_json::from_str(text)?;
     if !valid_id(&manifest.id) {
         bail!("id must be lowercase latin letters, digits and dashes");
     }

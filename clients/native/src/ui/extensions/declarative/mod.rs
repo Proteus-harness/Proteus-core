@@ -1,8 +1,9 @@
 //! Extensions installed as folders: an `extension.json` and a process that
 //! draws its surfaces with widget trees (see [`crate::declarative`]).
 //!
-//! They join the catalog next to the built-in ones and reach the client only
-//! through [`Host`], like any other extension.
+//! They join the catalog next to the built-in ones, also right after an
+//! install or removal, and reach the client only through [`Host`], like any
+//! other extension.
 
 mod badge;
 mod render;
@@ -10,7 +11,8 @@ mod runtime;
 mod view;
 
 use std::collections::HashMap;
-use std::sync::OnceLock;
+use std::path::Path;
+use std::sync::RwLock;
 
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::*;
@@ -21,85 +23,119 @@ use crate::declarative::protocol::SurfaceKind;
 use runtime::Runtime;
 use view::DeclarativeView;
 
+/// An installed extension and its catalog entry. Both live for the rest of
+/// the run, so open surfaces keep working after the folder is rescanned.
+#[derive(Clone, Copy)]
+struct Entry {
+    installed: &'static Installed,
+    manifest: &'static Manifest,
+}
+
 struct Loaded {
-    installed: Vec<Installed>,
+    entries: Vec<Entry>,
     problems: Vec<Problem>,
 }
 
-static LOADED: OnceLock<Loaded> = OnceLock::new();
+static LOADED: RwLock<Option<Loaded>> = RwLock::new(None);
 
-/// Scans the extensions folder once; `taken` are ids of built-in extensions.
-fn loaded(taken: &[&str]) -> &'static Loaded {
-    LOADED.get_or_init(|| {
-        let Some(root) = manifest::root() else {
-            return Loaded {
-                installed: Vec::new(),
-                problems: Vec::new(),
-            };
-        };
-        let (found, mut problems) = manifest::discover(&root);
-        let mut installed = Vec::new();
-        for extension in found {
-            if taken.contains(&extension.manifest.id.as_str()) {
-                problems.push(Problem {
-                    dir: extension.dir,
-                    error: format!(
-                        "id `{}` занят встроенным расширением",
-                        extension.manifest.id
-                    ),
-                });
-            } else {
-                installed.push(extension);
-            }
+/// Reads the extensions folder on first use; `taken` are built-in ids.
+fn with_loaded<T>(taken: &[&str], read: impl FnOnce(&Loaded) -> T) -> T {
+    if let Some(loaded) = LOADED.read().unwrap().as_ref() {
+        return read(loaded);
+    }
+    rescan(taken);
+    read(LOADED.read().unwrap().as_ref().expect("just scanned"))
+}
+
+/// Reads the extensions folder again. Entries that did not change are kept,
+/// so their surfaces and processes stay as they are.
+pub(super) fn rescan(taken: &[&str]) {
+    let mut loaded = LOADED.write().unwrap();
+    let previous = loaded.take().map_or_else(Vec::new, |loaded| loaded.entries);
+    let (found, mut problems) = manifest::root()
+        .map(|root| manifest::discover(&root))
+        .unwrap_or_default();
+    let mut entries = Vec::new();
+    for extension in found {
+        if taken.contains(&extension.manifest.id.as_str()) {
+            problems.push(Problem {
+                dir: extension.dir,
+                error: format!(
+                    "id `{}` занят встроенным расширением",
+                    extension.manifest.id
+                ),
+            });
+            continue;
         }
-        Loaded {
-            installed,
-            problems,
-        }
-    })
+        let kept = previous
+            .iter()
+            .find(|entry| *entry.installed == extension)
+            .copied();
+        entries.push(kept.unwrap_or_else(|| entry(extension)));
+    }
+    *loaded = Some(Loaded { entries, problems });
+}
+
+fn entry(extension: Installed) -> Entry {
+    let installed: &'static Installed = Box::leak(Box::new(extension));
+    let manifest = &installed.manifest;
+    let surfaces = &manifest.surfaces;
+    let manifest = Box::leak(Box::new(Manifest {
+        id: &manifest.id,
+        title: &manifest.title,
+        description: &manifest.description,
+        icon: icon(manifest.icon.as_deref()),
+        page: None,
+        panel: surfaces.panel.as_ref().map(|panel| PanelSurface {
+            title: &panel.title,
+            build: build_panel,
+        }),
+        document: surfaces.document.as_ref().map(|_| DocumentSurface {
+            build: build_document,
+            label: |argument| argument.to_string().into(),
+        }),
+        badge: surfaces.badge.as_ref().map(|badge| BadgeSurface {
+            build: badge::build,
+            place: badge.place,
+        }),
+    }));
+    Entry {
+        installed,
+        manifest,
+    }
 }
 
 /// Catalog entries of installed extensions.
-pub(super) fn manifests(taken: &[&str]) -> Vec<Manifest> {
-    loaded(taken)
-        .installed
-        .iter()
-        .map(|extension| {
-            let manifest = &extension.manifest;
-            let surfaces = &manifest.surfaces;
-            Manifest {
-                id: &manifest.id,
-                title: &manifest.title,
-                description: &manifest.description,
-                icon: icon(manifest.icon.as_deref()),
-                panel: surfaces.panel.as_ref().map(|panel| PanelSurface {
-                    title: &panel.title,
-                    build: build_panel,
-                }),
-                document: surfaces.document.as_ref().map(|_| DocumentSurface {
-                    build: build_document,
-                    label: |argument| argument.to_string().into(),
-                }),
-                badge: surfaces.badge.as_ref().map(|badge| BadgeSurface {
-                    build: badge::build,
-                    place: badge.place,
-                }),
-            }
-        })
-        .collect()
+pub(super) fn manifests(taken: &[&str]) -> Vec<&'static Manifest> {
+    with_loaded(taken, |loaded| {
+        loaded.entries.iter().map(|entry| entry.manifest).collect()
+    })
 }
 
 /// Folders that look like extensions but did not load.
-pub(super) fn problems() -> &'static [Problem] {
-    LOADED.get().map_or(&[], |loaded| &loaded.problems)
+pub(super) fn problems(taken: &[&str]) -> Vec<Problem> {
+    with_loaded(taken, |loaded| loaded.problems.clone())
+}
+
+pub(super) fn folder(taken: &[&str], id: &str) -> Option<&'static Path> {
+    with_loaded(taken, |loaded| {
+        loaded
+            .entries
+            .iter()
+            .find(|entry| entry.manifest.id == id)
+            .map(|entry| entry.installed.dir.as_path())
+    })
 }
 
 fn installed(id: &str) -> Option<&'static Installed> {
     LOADED
-        .get()?
-        .installed
+        .read()
+        .unwrap()
+        .as_ref()?
+        .entries
         .iter()
-        .find(|extension| extension.manifest.id == id)
+        .find(|entry| entry.manifest.id == id)
+        .map(|entry| entry.installed)
 }
 
 /// Icons an extension may name in its manifest.

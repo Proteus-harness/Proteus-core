@@ -7,6 +7,7 @@
 //! the extension does.
 
 pub mod manifest;
+pub mod package;
 pub mod process;
 pub mod protocol;
 pub mod widget;
