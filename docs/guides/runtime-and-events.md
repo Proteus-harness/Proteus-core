@@ -345,17 +345,19 @@ history сохраняют раздельные commentary/final items. Клие
 
 ## Хуки Выполнения
 
-Opt-in `modules.hooks` задаёт упорядоченную цепочку process exports `hook/v5`.
-Core вызывает её в семи точках: `turn_started`, `before_context`, `before_model`,
+Opt-in `modules.hooks` задаёт упорядоченную цепочку process exports `hook/v6`.
+Core вызывает её в восьми точках: `turn_started`, `before_tool_selection`,
+`before_context`, `before_model`,
 `before_tool`, `after_tool`, `before_stop`, `turn_settled`. Это общая execution boundary: model/tool hooks
 действуют также в host callbacks внешнего workflow и при detached tool calls.
 Отдельный workflow не обязан повторять их wiring.
 
 `HookInput.conversation` — обязательный nullable read-only snapshot: у
 conversation-bound `before_model` и `before_context` он содержит canonical
-history, revision и context observations; у остальных events и standalone
+history, revision и context observations; `BeforeToolSelection` получает
+optional bound snapshot; у остальных events и standalone
 операций — `null`. Hook response
-меняет только разрешённые поля event. Journal schema v19 записывает snapshot
+меняет только разрешённые поля event. Journal schema v20 записывает snapshot
 как часть trace; replay использует записанный transformed outcome как oracle,
 не вызывает handlers и не воспроизводит их package-owned storage effects.
 
@@ -409,7 +411,7 @@ failed и unchanged результаты, которым не нужен changed
 Если runtime запущен с config path, рядом с config root создаётся дерево
 `sessions/<workspace>/<session>/` (подробно про layout, resume и lifecycle —
 раздел «Session Store» ниже). Source of truth — `journal.jsonl`, где одна
-строка является строгим record schema v19 с `record_id`, монотонным
+строка является строгим record schema v20 с `record_id`, монотонным
 `session_seq`, timestamp, mandatory session id, optional execution/thread/turn
 ids, `kind` и payload. `TurnOpened`, model и tool facts требуют
 `ExecutionId`; history/settlement остаются chat facts без execution owner.
@@ -438,20 +440,23 @@ corruption в середине файла завершает load ошибкой
 редактируются до записи.
 
 `config_snapshot.json` — последний turn/persist snapshot resolved runtime
-config для этой сессии. Текущая `schema_version = 3`: поле
-`agent_control_surface` заменило старое имя без compatibility reader-а, а
-`active_provider`, если задан, содержит id точного профиля из `providers`.
+config для этой сессии. Текущая `schema_version = 8`; неизвестные и старые
+формы отвергаются без compatibility reader-а. `active_provider`, если задан,
+содержит id точного профиля из `providers`.
 При его отсутствии сборка не создаёт model adapter; обращение к модели
 завершается явной ошибкой. Наличие невыбранных provider profiles само по себе
 не включает модель.
 Snapshot перезаписывается при открытии существующей сессии и при принятии user
 message. В snapshot входят profile name, active provider, актуальные model/ref
 и reasoning config, выбранные module ids, список зарегистрированных tools с
-source/spec, `agent_control_surface` и default permission mode. Каждый
+source/spec, `agent_control_surface`, default permission mode и
+`approval_available` — фактическая возможность transport запросить approval.
+Она влияет на policy visibility tools с решением Ask и сохраняется для replay. Каждый
 `turn_opened` дополнительно содержит snapshot того же
 `RuntimeSnapshot`/`ModuleEpoch`. Private admission Core один раз атомарно
 захватывает assembly snapshot вместе с effective `model_ref`, reasoning и
-permission mode в immutable `ExecutionAdmissionSnapshot`; Turn journal, model
+permission mode и фактической approval availability в immutable
+`ExecutionAdmissionSnapshot`; Turn journal, model
 binding, policy и Workflow используют только эти значения до settlement.
 `AgentRuntime::execute_tool`, включая app-server `/remember`, использует тот же
 capture primitive и удерживают selected capability до terminal result. Поэтому concurrent `/model`, `/mode`, `/effort`,
@@ -462,7 +467,7 @@ capture primitive и удерживают selected capability до terminal resu
 рядом с созданным из него `RuntimeRegistry`. Начальная сборка и reload передают
 их только единым `PreparedAssembly`, поэтому diagnostics не могут увидеть
 новый план со старым registry. Сам план не дублируется в canonical journal:
-replay использует компактный `SessionConfigSnapshot` schema v4 с точными module
+replay использует компактный `SessionConfigSnapshot` schema v8 с точными module
 ids и зарегистрированными tools, включая их `supports_parallel_tool_calls`.
 
 `RuntimeSnapshot` — snapshot assembly/configuration, а не checkpoint
@@ -1027,12 +1032,12 @@ journal. ОС освобождает владение при закрытии pr
 находится в parent directory, а время создания/изменения берётся из metadata
 файловой системы. Новая session получает 10-значный numeric basename,
 детерминированный из внутреннего UUID; полный `SessionId` сохраняется в
-`session.json` schema v4 вместе с `journal_schema_version = 16`. Перед записью runtime
+`session.json` schema v4 вместе с `journal_schema_version = 20`. Перед записью runtime
 проверяет metadata, поэтому коллизия коротких имён завершается ошибкой и не
 смешивает histories.
 
 Reader принимает только basename из 10 ASCII-цифр с обязательным
-`session.json` schema v4 и journal schema v19. UUID-basename directories,
+`session.json` schema v4 и journal schema v20. UUID-basename directories,
 прежние session/journal schemas и неизвестные wire/storage формы
 отвергаются явно: pre-release cutover не содержит legacy decoder или dual-read.
 Обычный каталог и автоматический выбор последней session пропускают
@@ -1244,7 +1249,7 @@ terminal `model_response_recorded`; без id разрешён только jour
 
 Replay строит model adapter из указанного config profile и передаёт ему
 сохранённый `CanonicalModelRequest` без повторного context building,
-compaction, tool exposure или shaping. `ModelService`, workflow, tool registry
+preparation, selection hooks или shaping. `ModelService`, workflow, tool registry
 и `ToolOrchestrator` в execution path не входят. Поэтому local tool calls из
 нового ответа не исполняются: команда завершает provider call и перечисляет их
 в отчёте. `ModelRef` не переписывается, поэтому recorded/replay model совпадают;
@@ -1278,8 +1283,8 @@ settings и instruction blocks, необходимые для построени
 Policy. Их process implementations запускаются; реальные model adapters,
 context providers, subagents и tool implementations не создаются: model
 responses, approval decisions и tool results последовательно подставляются из
-journal, а context и tool exposure восстанавливаются из canonical records.
-Preparation восстанавливается по typed `BeforeContext` trace. `origin`
+journal; context восстанавливается из canonical request, selection — по typed
+`BeforeToolSelection` trace, preparation — по typed `BeforeContext` trace. `origin`
 различает `direct` и `auxiliary`, а `OperationOwner` связывает exchange с
 workflow, hook invocation или tool call. Workflow-owned exchanges составляют
 его последовательность; дочернее дерево model/tool records проверяется и
@@ -1308,8 +1313,8 @@ history проходит общий runtime validator. Допустимая но
 Turn без model exchanges также поддерживается: например, `coding.project_check`
 воспроизводит passing tests или остановку на tool failure по tool facts и
 settlement. Фиктивная модель не вызывается. Без записанного model request
-нельзя восстановить context или tool exposure; preparation без модели
-воспроизводится при наличии записанного `BeforeContext` trace. Запрос
+нельзя восстановить context builder; selection и preparation без модели
+воспроизводятся по записанным `BeforeToolSelection` и `BeforeContext` traces. Запрос
 незаписанных данных отмечается как divergence. Незаписанный model/tool call также остаётся
 divergence, даже если Workflow перехватил ошибку и вернул прежний итог.
 

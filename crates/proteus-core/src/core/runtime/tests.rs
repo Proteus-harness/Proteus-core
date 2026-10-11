@@ -429,10 +429,11 @@ async fn runtime_writes_config_snapshot_when_session_is_persisted() {
     assert_eq!(value["modules"]["context"], "simple");
     assert_eq!(value["modules"]["policy"], "ask_write");
     assert!(value["modules"].get("compactor").is_none());
-    assert!(value["modules"]["tool_exposure"].is_null());
+    assert!(value["modules"].get("tool_exposure").is_none());
     assert_eq!(value["agent_control_surface"], "task");
     assert!(value.get("subagent_surface").is_none());
     assert_eq!(value["permission_mode_default"], "auto");
+    assert_eq!(value["approval_available"], false);
     assert!(value["tools"].as_array().is_some());
 
     let mut reloaded_config = AppConfig::default();
@@ -449,6 +450,7 @@ async fn runtime_writes_config_snapshot_when_session_is_persisted() {
         &reloaded_config,
         reloaded_assembly.registry(),
         PermissionMode::Normal,
+        runtime.approval_available(),
     );
     runtime
         .reload_assembly(reloaded_assembly, Some(reloaded_snapshot))

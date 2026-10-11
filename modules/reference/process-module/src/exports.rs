@@ -5,9 +5,8 @@ use proteus_contracts::{
         PROCESS_TOOL_INVOKE_METHOD, PROCESS_TOOL_LIST_METHOD, ProcessComponentExportInitialize,
         ProcessComponentExportManifest, ProcessContextChunksResponse, ProcessContextInput,
         ProcessContextResponse, ProcessPolicyEvaluateInput, ProcessPolicyResponse,
-        ProcessPolicyVisibilityInput, ProcessToolExposureInput, ProcessToolExposureResponse,
-        ProcessToolInvokeInput, ProcessToolInvokeResponse, ProcessToolListResponse,
-        ProcessWorkflowInput, ProcessWorkflowResponse, WorkflowOutput,
+        ProcessPolicyVisibilityInput, ProcessToolInvokeInput, ProcessToolInvokeResponse,
+        ProcessToolListResponse, ProcessWorkflowInput, ProcessWorkflowResponse, WorkflowOutput,
     },
     domain::ToolSpec,
     process_module::{
@@ -76,7 +75,6 @@ impl ModuleExport {
             "model" => self.model(method, params, bridge),
             "tool" => self.tool(method, params, bridge),
             "policy" => self.policy(method, params),
-            "tool_exposure" => self.tool_exposure(params),
             "context" => self.context(params, bridge),
             "context_provider" => self.context_provider(method, params),
             "workflow" => self.workflow(params, bridge),
@@ -216,19 +214,6 @@ impl ModuleExport {
             _ => unreachable!(),
         }?;
         encode(ProcessPolicyResponse::new(serde_json::from_str(
-            output.as_str(),
-        )?))
-    }
-
-    fn tool_exposure(&self, params: Value) -> Result<Value> {
-        let input: ProcessToolExposureInput = decode(params)?;
-        let exposure = self
-            .modules
-            .exposures
-            .get(&self.binding.module_id)
-            .ok_or_else(|| anyhow!("tool exposure module was not registered"))?;
-        let output = exposure.select_json(serde_json::to_string(&input.input)?)?;
-        encode(ProcessToolExposureResponse::new(serde_json::from_str(
             output.as_str(),
         )?))
     }

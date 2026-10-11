@@ -74,6 +74,7 @@ impl AgentRuntime {
             config.tools = crate::core::SessionConfigTool::capture(&state.runtime.registry.tools);
             config.reasoning = state.reasoning.clone();
             config.permission_mode_default = permission_mode;
+            config.approval_available = self.services.approval.can_request_approval();
         }
         ExecutionAdmissionSnapshot {
             runtime: state.runtime.clone(),

@@ -8,7 +8,8 @@
 - Process-only Component Runtime v2 / wire v3: persistent multi-export
   components, concurrent invocation, callbacks, cancellation и restart.
 - Slots для workflow, context/context providers, policy,
-  tool exposure, tools, hooks и model. Поиск, память и patch — process tools;
+  tools, hooks и model; отбор tools выполняется hooks.
+  Поиск, память и patch — process tools;
   автоматическое чтение поиска/памяти — context providers.
 - AssemblyPlan, атомарный runtime snapshot и ExecutionScope.
 - Вход «текст + изображения»: canonical image refs, хранилище вложений,
@@ -17,8 +18,8 @@
   [границы и использование](../guides/images.md).
 - Standalone process Workflow без conversation и модели; typed top-level
   операция `execute_tool` без открытия Turn; `/remember` вызывает memory tool.
-- Opt-in typed `hook/v5` contributions: явная ordered chain, model instructions/
-  messages, подготовка working history, pre-tool block/args, post-tool output
+- Opt-in typed `hook/v6` contributions: явная ordered chain, model instructions/
+  messages, отбор tools, подготовка working history, pre-tool block/args, post-tool output
   и bounded completion review. Hooks/tools получают execution-bound model/tool
   callbacks; выбранный preparation hook заменяет отдельный compactor slot.
 - Самостоятельный DCP Node component с model-driven `compress` и hook context
@@ -72,7 +73,7 @@ Reference modules и profiles — поставляемые примеры без
 | Workflow | Standalone invocation допускает пустую history, отсутствие conversation и модели; chat events и root history checkpoints требуют разговорного контекста; preparation частной истории возможна без модели и conversation |
 | Исполнение вне чата | `Workflow` сохраняет `AgentTask` с текстом и `cwd`, history и `AgentOutput`; отдельный вызов через registry не даёт публичного admission и durable settlement произвольной задачи в `AgentRuntime` |
 | Предметные контракты | `ModuleKind`, таблица process authority, config и adapters задают известный host набор; подключение нового семейства контрактов без согласованных изменений этих границ пока отсутствует |
-| Replay | Model-free Turn поддержан. Context/tool exposure требуют записанного request; preparation воспроизводится по typed hook trace, включая failure и unchanged. Owner/parent tree связывает дочерние model/tool records с hook/tool invocation; алгоритмы и effects повторно не исполняются. Root steering и внешние Canceled/Timeout не эмулируются |
+| Replay | Model-free Turn поддержан. Context требует записанного request; отбор tools и preparation воспроизводятся по typed hook trace, включая failure и unchanged. Owner/parent tree связывает дочерние model/tool records с hook/tool invocation; алгоритмы и effects повторно не исполняются. Root steering и внешние Canceled/Timeout не эмулируются |
 | Collaboration | Spawn принимает только parallel_safe роли с isolation=none; настроенный coder с worktree в эту surface не входит |
 | Peer recovery | Resume зависит от живого process; durable tree, attach и reconnect отсутствуют |
 | Доверие к модулям | Собственные процессные модули доверенные и работают с OS-правами владельца; принятый локальный режим, sandbox не является задачей этапа |

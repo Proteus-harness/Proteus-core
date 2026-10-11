@@ -4,12 +4,12 @@ use anyhow::{Result, bail};
 use proteus_module_protocol::{ProcessExportBinding, current_process_contract_authority};
 
 use crate::{
-    contracts::{ContextBuilder, ToolExposure, Workflow},
+    contracts::{ContextBuilder, Workflow},
     core::AppConfig,
     domain::{ModuleKind, ModuleManifest, SlotId, slot},
     process_adapters::{
         ProcessApprovalPolicy, ProcessComponentLauncher, ProcessContextBuilder,
-        ProcessExportConfig, ProcessModel, ProcessToolExposure, ProcessWorkflowAdapter,
+        ProcessExportConfig, ProcessModel, ProcessWorkflowAdapter,
     },
 };
 
@@ -119,15 +119,6 @@ impl ModuleCatalog {
                             ctx.cwd,
                         )?))
                     },
-                );
-            }
-            "tool_exposure" => {
-                ensure_process_id_is_free(self, slot::TOOL_EXPOSURE, &module_id)?;
-                self.register_module::<dyn ToolExposure>(
-                    slot::TOOL_EXPOSURE,
-                    &module_id,
-                    process_manifest(&export, ModuleKind::ToolExposure, description),
-                    move |ctx| Ok(Arc::new(ProcessToolExposure::new(export.clone(), ctx.cwd)?)),
                 );
             }
             "workflow" => {

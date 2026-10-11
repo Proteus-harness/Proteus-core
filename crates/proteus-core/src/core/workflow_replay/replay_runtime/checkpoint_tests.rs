@@ -27,7 +27,6 @@ async fn checkpoint_compares_execution_before_any_tool_is_requested() {
             vec![],
             vec![],
             None,
-            Default::default(),
             &ReasoningConfig::default(),
             user.id,
         ));
@@ -110,7 +109,6 @@ async fn only_declared_in_flight_lifecycles_may_cross_a_checkpoint() {
             tools,
             vec![],
             None,
-            Default::default(),
             &ReasoningConfig::default(),
             user.id,
         ));

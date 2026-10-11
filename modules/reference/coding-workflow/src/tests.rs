@@ -235,11 +235,11 @@ impl WorkflowModuleHost for FakeHost {
     }
 
     fn select_tools_json(&self, _request_json: String) -> Result<String, ProcessModuleError> {
-        let output = proteus_contracts::contracts::ToolExposureOutput::new(
+        let output = proteus_contracts::contracts::ToolSelectionOutput::new(
             self.selected_tools.lock().expect("selected tools").clone(),
         );
         Ok(String::from(
-            serde_json::to_string(&output).expect("tool exposure output json"),
+            serde_json::to_string(&output).expect("tool selection output json"),
         ))
     }
 

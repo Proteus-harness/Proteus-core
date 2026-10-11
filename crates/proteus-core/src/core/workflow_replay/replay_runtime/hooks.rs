@@ -31,7 +31,9 @@ impl ExecutionHooks for ReplayHooks {
         !self.module_ids.is_empty()
     }
     async fn apply(&self, input: HookInput) -> Result<HookEvent> {
-        if self.module_ids.is_empty() {
+        if self.module_ids.is_empty()
+            && !matches!(&input.event, HookEvent::BeforeToolSelection { .. })
+        {
             let mut event = input.event;
             if let HookEvent::AfterTool { call, result } = &mut event {
                 let inner = self.state.lock();
@@ -229,6 +231,16 @@ fn events_equal(actual: &HookEvent, expected: &HookEvent, ids: &HashMap<CallId, 
                 history: bh,
             },
         ) => a == b && messages_equal(ah, bh, ids),
+        (
+            HookEvent::BeforeToolSelection {
+                input: a,
+                output: ao,
+            },
+            HookEvent::BeforeToolSelection {
+                input: b,
+                output: bo,
+            },
+        ) => a == b && ao == bo,
         (
             HookEvent::BeforeContext {
                 input: a,
@@ -433,6 +445,7 @@ fn boundary_name(event: &HookEvent) -> &'static str {
         HookEvent::TurnStarted { .. } => "turn_started",
         HookEvent::BeforeModel { .. } => "before_model",
         HookEvent::BeforeContext { .. } => "before_context",
+        HookEvent::BeforeToolSelection { .. } => "before_tool_selection",
         HookEvent::BeforeTool { .. } => "before_tool",
         HookEvent::AfterTool { .. } => "after_tool",
         HookEvent::BeforeStop { .. } => "before_stop",

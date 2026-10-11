@@ -6,10 +6,9 @@ use proteus_contracts::contracts::{
     PROCESS_HOOK_CONTRACT_VERSION, PROCESS_HOOK_INVOKE_METHOD, PROCESS_MODEL_CATALOG_METHOD,
     PROCESS_MODEL_CONTRACT_VERSION, PROCESS_MODEL_DESCRIBE_METHOD, PROCESS_MODEL_QUOTA_METHOD,
     PROCESS_MODEL_STREAM_METHOD, PROCESS_POLICY_CONTRACT_VERSION, PROCESS_POLICY_EVALUATE_METHOD,
-    PROCESS_POLICY_VISIBILITY_METHOD, PROCESS_TOOL_CONTRACT_VERSION,
-    PROCESS_TOOL_EXPOSURE_CONTRACT_VERSION, PROCESS_TOOL_EXPOSURE_SELECT_METHOD,
-    PROCESS_TOOL_INVOKE_METHOD, PROCESS_TOOL_LIST_METHOD, PROCESS_WORKFLOW_CONTRACT_VERSION,
-    PROCESS_WORKFLOW_METHOD, ProcessModuleComposition, TOOL_HOST_READ_CONVERSATION_METHOD,
+    PROCESS_POLICY_VISIBILITY_METHOD, PROCESS_TOOL_CONTRACT_VERSION, PROCESS_TOOL_INVOKE_METHOD,
+    PROCESS_TOOL_LIST_METHOD, PROCESS_WORKFLOW_CONTRACT_VERSION, PROCESS_WORKFLOW_METHOD,
+    ProcessModuleComposition, TOOL_HOST_READ_CONVERSATION_METHOD,
     WORKFLOW_HOST_BUILD_CONTEXT_METHOD, WORKFLOW_HOST_COMPLETE_MODEL_METHOD,
     WORKFLOW_HOST_EMIT_EVENT_METHOD, WORKFLOW_HOST_EXECUTE_TOOL_METHOD,
     WORKFLOW_HOST_EXECUTE_TOOLS_METHOD, WORKFLOW_HOST_NEXT_MODEL_STREAM_METHOD,
@@ -24,7 +23,6 @@ const OPERATION_HOST_METHODS: &[&str] = &[
     OPERATION_HOST_COMPLETE_MODEL_METHOD,
     OPERATION_HOST_EXECUTE_TOOL_METHOD,
 ];
-const TOOL_EXPOSURE_METHODS: &[&str] = &[PROCESS_TOOL_EXPOSURE_SELECT_METHOD];
 const POLICY_METHODS: &[&str] = &[
     PROCESS_POLICY_EVALUATE_METHOD,
     PROCESS_POLICY_VISIBILITY_METHOD,
@@ -98,15 +96,6 @@ pub const PROCESS_CONTRACT_AUTHORITIES: &[ProcessContractAuthority] = &[
         composition: ProcessModuleComposition::OrderedMany,
         module_methods: &[PROCESS_HOOK_INVOKE_METHOD],
         host_methods: OPERATION_HOST_METHODS,
-        host_features: NO_PROTOCOL_FEATURES,
-        required_features: NO_PROTOCOL_FEATURES,
-    },
-    ProcessContractAuthority {
-        slot: "tool_exposure",
-        contract_version: PROCESS_TOOL_EXPOSURE_CONTRACT_VERSION,
-        composition: ProcessModuleComposition::SelectOne,
-        module_methods: TOOL_EXPOSURE_METHODS,
-        host_methods: NO_HOST_METHODS,
         host_features: NO_PROTOCOL_FEATURES,
         required_features: NO_PROTOCOL_FEATURES,
     },
@@ -242,7 +231,15 @@ mod tests {
         assert_eq!(authority.module_methods, [PROCESS_HOOK_INVOKE_METHOD]);
         assert_eq!(authority.host_methods, OPERATION_HOST_METHODS);
         assert!(authority.host_features.is_empty());
-        assert!(process_contract_authority("hook", "v3").is_none());
+        assert!(process_contract_authority("hook", "v5").is_none());
+    }
+
+    #[test]
+    fn tool_exposure_is_not_a_process_contract() {
+        assert!(current_process_contract_authority("tool_exposure").is_none());
+        for version in ["v3", "v4", "v6"] {
+            assert!(process_contract_authority("tool_exposure", version).is_none());
+        }
     }
 
     #[test]
@@ -269,10 +266,9 @@ mod tests {
             ("context_provider", "v3", "v4"),
             ("model", "v11", "v12"),
             ("workflow", "v19", "v20"),
-            ("hook", "v4", "v5"),
+            ("hook", "v5", "v6"),
             ("tool", "v5", "v6"),
             ("policy", "v1", "v2"),
-            ("tool_exposure", "v3", "v4"),
         ] {
             assert!(process_contract_authority(slot, previous).is_none());
             assert!(process_contract_authority(slot, current).is_some());

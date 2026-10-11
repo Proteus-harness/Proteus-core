@@ -308,7 +308,14 @@ python3 clients/app/ui/tests/extensions_browser.py --commands-only
 
 ## Typed Hook Boundary
 
-Для `hook/v5` проверяются strict DTO/response validation, одинаковая authority
+Отбор tools через `BeforeToolSelection` проверяется существующим
+`module_swap::tool_selection`: реальные Rust/Python hooks, ordered narrowing,
+metadata, запрещённое восстановление ранее скрытого tool и неизменность specs.
+Workflow replay сверяет полный selection input и outcome, включая failure
+без следующего model request и schemas скрытых tools. Standalone selection
+проверяет отсутствие модели/conversation и общий policy/cancellation path.
+
+Для `hook/v6` проверяются strict DTO/response validation, одинаковая authority
 с общими model/tool callbacks по actionable phase, config order и отсутствие duplicate/unknown selection.
 Boundary chain покрывает A→B/B→A, pre-effect failure, actual tool outcome
 при post-effect failure, targeted cancellation и component restart. Config

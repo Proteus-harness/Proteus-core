@@ -14,7 +14,7 @@ rpc_id() {
 
 IFS= read -r initialize_request
 initialize_id=$(rpc_id "$initialize_request")
-printf '%s\n' "{\"jsonrpc\":\"2.0\",\"id\":$initialize_id,\"result\":{\"protocol_version\":\"v3\",\"component_id\":\"$component_id\",\"exports\":[{\"slot\":\"tool\",\"module_id\":\"$search_id\",\"contract_version\":\"v6\",\"composition\":\"ordered_many\",\"module_features\":[],\"config_schema\":null},{\"slot\":\"hook\",\"module_id\":\"$preparation_id\",\"contract_version\":\"v5\",\"composition\":\"ordered_many\",\"module_features\":[],\"config_schema\":null}]}}"
+printf '%s\n' "{\"jsonrpc\":\"2.0\",\"id\":$initialize_id,\"result\":{\"protocol_version\":\"v3\",\"component_id\":\"$component_id\",\"exports\":[{\"slot\":\"tool\",\"module_id\":\"$search_id\",\"contract_version\":\"v6\",\"composition\":\"ordered_many\",\"module_features\":[],\"config_schema\":null},{\"slot\":\"hook\",\"module_id\":\"$preparation_id\",\"contract_version\":\"v6\",\"composition\":\"ordered_many\",\"module_features\":[],\"config_schema\":null}]}}"
 
 while IFS= read -r request; do
     request_id=$(rpc_id "$request")

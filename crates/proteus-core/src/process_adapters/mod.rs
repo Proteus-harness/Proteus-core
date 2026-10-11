@@ -10,7 +10,6 @@ mod invocation_scope;
 mod model;
 mod policy;
 mod tool;
-mod tool_exposure;
 mod workflow;
 
 pub use config::{ProcessComponentConfig, ProcessExportLaunchConfig};
@@ -23,7 +22,6 @@ pub(crate) use invocation_error::*;
 pub(crate) use model::*;
 pub(crate) use policy::*;
 pub(crate) use tool::*;
-pub(crate) use tool_exposure::*;
 pub(crate) use workflow::*;
 
 mod operation_host;

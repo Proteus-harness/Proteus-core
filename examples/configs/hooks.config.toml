@@ -14,11 +14,10 @@ model = "fake-tool-model"
 stream = true
 
 [modules]
-hooks = ["codex_compact", "hook.instructions", "hook.output_budget"]
+hooks = ["tool_selection.dynamic", "codex_compact", "hook.instructions", "hook.output_budget"]
 workflow = "coding.codex_loop"
 context = "simple"
 policy = "allow_all"
-tool_exposure = "codex_dynamic"
 
 # Один component экспортирует workflow, tools и две независимые hook contributions.
 # Их authority задаётся активным slot; дополнительные contributions включены в этом примере.
@@ -43,7 +42,7 @@ command = "proteus-reference-module"
 
 [components.reference-agent.exports.hook.codex_compact]
 
-[components.reference-agent.exports.tool_exposure.codex_dynamic]
+[components.reference-agent.exports.hook."tool_selection.dynamic"]
 
 [components.reference-agent.exports.tool."reference.tools"]
 
@@ -64,7 +63,7 @@ path = ".proteus/p4-memory.jsonl"
 [module_config.context_provider.jsonl_memory]
 path = ".proteus/p4-memory.jsonl"
 
-[module_config.tool_exposure.codex_dynamic]
+[module_config.hook."tool_selection.dynamic"]
 max_hot_tools = 8
 always_include = ["read_file", "request_user_input"]
 

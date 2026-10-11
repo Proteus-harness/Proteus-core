@@ -15,7 +15,7 @@
 вызов получает только права своего слота.
 
 Внешние модули работают через Component Runtime v2 и протокол wire v3. У
-`workflow` действует контракт v20, у `hook` — v5, у `tool` — v6, у `model` — v12.
+`workflow` действует контракт v20, у `hook` — v6, у `tool` — v6, у `model` — v12.
 Версии и разрешённые методы остальных слотов перечислены в
 [описании процессной границы](process-module-architecture.md). Один процесс
 может обслуживать несколько одновременных и вложенных вызовов. Загрузки
@@ -23,13 +23,13 @@
 
 ## Словарь
 
-- **Слот** — контракт поведения: например, `search` или `memory`. Обычно
+- **Слот** — контракт поведения: например, `model` или `workflow`. Обычно
   выбирается одна реализация (`select_one`); для отдельных слотов допускается
   несколько в заданном порядке (`ordered_many`).
 - **Модуль** — запускаемая программа, которая предоставляет реализации одного
   или нескольких слотов. Алгоритмы остаются внутри неё.
-- **`module_id`** — имя реализации конкретного слота, например `rg` для
-  `search`. Это не имя процесса.
+- **`module_id`** — имя реализации конкретного слота, например `rg_search`
+  для `tool`. Это не имя процесса.
 - **`components.<id>`** — запись запуска модуля в текущем конфиге. Она задаёт
   программу и общий жизненный цикл её реализаций.
 - **`exports.<slot>.<module_id>`** — запись о том, какую реализацию слота
@@ -67,11 +67,10 @@ Wire shape и правила validation — в
 
 | Слот | Правило выбора | Где выбирается | Процессный контракт | Примеры имён |
 |---|---|---|---|---|
-| `hook` | `ordered_many` | `modules.hooks` (явный порядок) | да, `hook/v5` | `hook.instructions`, `hook.output_budget`, `codex_compact`, `hook.dcp` |
+| `hook` | `ordered_many` | `modules.hooks` (явный порядок) | да, `hook/v6` | `hook.instructions`, `hook.output_budget`, `codex_compact`, `tool_selection.dynamic`, `hook.dcp` |
 | `workflow` | `select_one` | `modules.workflow` | да | `coding.single_loop`, `coding.codex_loop`, `coding.plan_execute_review`, `coding.project_check` |
 | `context` | `select_one` | `modules.context` | да, `context/v3` | `simple`, `repo_aware`, `codex_context` |
 | `policy` | `select_one` | `modules.policy` | да | `allow_all`, `ask_write`, `codex_policy`, `opencode_policy` |
-| `tool_exposure` | `select_one` | `modules.tool_exposure` | да | `codex_dynamic` |
 | `tool` | `ordered_many` | предоставленные реализации + `tools.enabled` | да, `tool/v6` | `reference.tools` и узкие варианты |
 | `context_provider` | `ordered_many` | предоставленные реализации + настройки контекста | да, `context_provider/v4` | `skills`, `rg_search`, `jsonl_memory`, `sqlite_memory` |
 | `model` | `select_one` | активный профиль модели | да, `model/v12` | `fake`, `openai`, `openai_compatible`, `openai_codex`, `anthropic` |
@@ -194,11 +193,13 @@ Core запускает модуль и отправляет ему первое
 
 ### Hooks
 
-`hook/v5` — typed contributions на host-owned точках `turn_started`,
-`before_context`, `before_model`, `before_tool`, `after_tool`, `before_stop`, `turn_settled`. Список
-`modules.hooks` задаёт порядок; пустой список отключает hooks. Один export
-не получает host callbacks и не вызывает tools/model/memory. Component
-по-прежнему задаёт общий lifecycle, authority одинаковая для каждого handler.
+`hook/v6` — typed contributions на host-owned точках `turn_started`,
+`before_tool_selection`, `before_context`, `before_model`, `before_tool`,
+`after_tool`, `before_stop`, `turn_settled`. `modules.hooks` задаёт порядок;
+пустой список отключает contributions. Actionable phases получают общие
+execution-bound model/tool callbacks; lifecycle notifications не запускают
+дочернюю работу. Component задаёт общий lifecycle, authority одинаковая для
+каждого handler.
 
 Перед model разрешена замена только messages/instructions; перед tool —
 block или замена args без изменения id/name/surface; после tool — только output.
@@ -224,7 +225,7 @@ UI-событие публикуется после принятия. Ошибк
 Внешний [`hook-process`](../../examples/modules/hook-process/README.md)
 предоставляет JS/TS SDK и явные обёртки для переноса отдельных Pi/OpenCode
 handlers и PreToolUse/Stop commands Codex/Claude. Он экспортирует обычный
-`hook/v5` с тем же contract и общими model/tool callbacks. Upstream lifecycle
+`hook/v6` с тем же contract и общими model/tool callbacks. Upstream lifecycle
 или неподдержанные actions не эмулируются; различия описаны рядом с примерами.
 
 [`DCP`](../../modules/reference/dcp/README.md) — независимый Node component
@@ -379,18 +380,31 @@ Compactor сохраняют происхождение сжатия, но не 
 Подробности, ordered composition и replay — в
 [hook-tool-operations.md](hook-tool-operations.md).
 
-### Tool Exposure
+### Отбор Tools Через Hooks
 
-Выбирает подмножество уже policy-visible tools. Если module не выбран, host
-передаёт все policy-visible candidates; это structural behavior, не
-`all_visible` module.
+Workflow вызывает `host.tools.select` до подготовки контекста и model sampling.
+Host собирает policy-visible candidates и создаёт `BeforeToolSelection` с
+immutable `ToolSelectionInput` и начальным `ToolSelectionOutput` из всего набора.
+Это операция workflow host, не выбираемый behavior slot.
 
-`tool_exposure/v4` принимает strict `request` и `candidates`; конфигурация
-принадлежит export и передаётся только через handshake. Возвращённые specs
-должны точно совпадать с candidates, без дубликатов: менять safety, surface,
-schema, timeout или parallel permission нельзя. Перед фактическим model request
-runtime повторно проверяет registry specs и текущую policy visibility,
-включая provider-hosted tools. Unknown fields и неверные типы настроек — ошибки.
+Input содержит task/cwd, nullable query/max_tools/reason/phase и candidates.
+Hook возвращает Continue либо `ToolSelection { output }`: каждый contribution
+может только сузить или переупорядочить предыдущий output.tools. Полные specs
+должны точно совпадать с предыдущим набором и исходными candidates; дубликаты,
+новые tools и изменения schema/safety/surface/timeout/parallel permission
+отклоняются. Удалённый предыдущим handler tool не возвращается поздним handler.
+
+`tool_selection.dynamic` — обычный hook с эвристикой Proteus для stable hot set,
+phase filtering и optional explicit query. Он не объявляет совместимость с
+upstream Codex tool search. Без этого hook сохраняется весь разрешённый набор.
+Workflow может предоставить поиск/описание/вызов скрытых tools через свои
+`proteus_tool_*` operations; скрытие schema не меняет permission исполнения.
+Перед model request и фактическим tool call host снова проверяет registry/policy.
+
+Отбор не требует модели или conversation. Journal сохраняет точный typed trace,
+включая пустую chain; replay проверяет candidates и воспроизводит contributions
+без запуска алгоритма. Подробности — в
+[hook-tool-operations.md](hook-tool-operations.md).
 
 ### Tool
 

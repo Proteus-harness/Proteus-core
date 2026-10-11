@@ -7,7 +7,7 @@ mod config_schemas;
 use crate::{
     contracts::{
         AgentControl, AgentWorkflowContext, ApprovalPolicy, ContextBuilder, EventEmitter,
-        ExecutionContext, Model, ToolExposure, ToolRegistry, UserInputTransport, Workflow,
+        ExecutionContext, Model, ToolRegistry, UserInputTransport, Workflow,
     },
     core::{
         AgentControlRuntime, AppConfig, AssemblyPlan, BoundModel, ModeAwarePolicy,
@@ -15,7 +15,7 @@ use crate::{
         PreparedAssembly,
     },
     domain::{ModelRef, ReasoningConfig, SessionId, ThreadId, TurnId},
-    stubs::{DenyAllPolicy, EmptyContextBuilder, NoWorkflow, UnfilteredToolExposure},
+    stubs::{DenyAllPolicy, EmptyContextBuilder, NoWorkflow},
 };
 
 #[derive(Clone)]
@@ -31,7 +31,6 @@ pub struct RuntimeRegistry {
     pub tools: ToolRegistry,
     pub(crate) process_tool_specs: Vec<(crate::contracts::ToolSource, crate::domain::ToolSpec)>,
     pub policy: Arc<dyn ApprovalPolicy>,
-    pub tool_exposure: Arc<dyn ToolExposure>,
     pub agent_control: Option<Arc<dyn AgentControl>>,
     pub workflow: Arc<dyn Workflow>,
     pub(crate) context_providers: Vec<(String, Arc<dyn crate::core::RepoAwareContextProvider>)>,
@@ -107,11 +106,6 @@ impl RuntimeRegistry {
                 Some(id) => catalog.build_context(id, &build_ctx)?,
                 None => Arc::new(EmptyContextBuilder),
             };
-        let tool_exposure: Arc<dyn ToolExposure> =
-            match plan.module_id(crate::domain::ModuleKind::ToolExposure) {
-                Some(id) => catalog.build_tool_exposure(id, &build_ctx)?,
-                None => Arc::new(UnfilteredToolExposure),
-            };
         let agent_control_runtime = AgentControlRuntime::from_config(&config.agent_control)?;
         let agent_control = agent_control_runtime.service();
         let surface = catalog.build_tools(&build_ctx, &addons.skills, &addons.servers)?;
@@ -148,7 +142,6 @@ impl RuntimeRegistry {
             tools,
             process_tool_specs: surface.process_tool_specs,
             policy,
-            tool_exposure,
             agent_control,
             workflow,
             context_providers,
@@ -325,7 +318,6 @@ impl RuntimeRegistry {
             crate::contracts::WorkflowExecutionContext {
                 execution,
                 context: self.context.clone(),
-                tool_exposure: self.tool_exposure.clone(),
                 model_ref: self.model_config.as_ref().map(|cfg| cfg.model_ref()),
                 reasoning: self
                     .model_config
@@ -381,7 +373,6 @@ impl RuntimeRegistry {
             self.context.clone(),
             user_input,
             preparation,
-            self.tool_exposure.clone(),
             self.agent_control.clone(),
         )
         .with_instructions(self.instructions.clone())

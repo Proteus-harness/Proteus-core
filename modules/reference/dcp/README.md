@@ -72,7 +72,7 @@ app-server требует idle session. Остальные upstream команд
 
 Это перенос механизма DCP, **не совместимость со всей оболочкой OpenCode**:
 
-- `hook/v5` получает read-only snapshot текущего разговора; `tool/v6` читает
+- `hook/v6` получает read-only snapshot текущего разговора; `tool/v6` читает
   его через `host.conversation.read` с invocation-bound source message id,
   а пользовательское управление — через `host.conversation.snapshot`
   с bound session id, без требования assistant call.

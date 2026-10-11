@@ -1,6 +1,6 @@
 # Canonical Turn Data
 
-Текущий формат — journal schema v19, config snapshot v7 и session metadata v4. Resume history,
+Текущий формат — journal schema v20, config snapshot v8 и session metadata v4. Resume history,
 transcript, eval, prompt replay и workflow replay читают canonical journal.
 
 Canonical context parts сохраняют обязательный `ContextChunk.render_mode`:
@@ -305,7 +305,7 @@ journal через общий `SessionStore`/`JournalProjection` reader и вы�
 
 Сохранённый `CanonicalModelRequest` уже находится после `RequestShaper`, поэтому
 replay передаёт его напрямую model adapter-у. Context building, compaction,
-tool exposure, повторный shaping, workflow и `ToolOrchestrator` не запускаются.
+selection hooks, повторный shaping, workflow и `ToolOrchestrator` не запускаются.
 Так как `ModelRef` является частью exact request, `recorded_model` и
 `replay_model` в v0 совпадают; выбранный transport фиксируется отдельно в
 `replay_adapter`.
@@ -331,7 +331,7 @@ Replay сохраняет записанный `ExecutionId`: он доступ�
 `proteus --config <profile> replay workflow
 <session-dir-or-journal-path> [--turn-id <id>] [--json]` повторяет один
 сохранённый root turn через записанный Workflow и Policy. Команда берёт module
-ids, model/reasoning, tool specs и default permission mode из
+ids, model/reasoning, tool specs, default permission mode и approval availability из
 `turn_opened.config_snapshot`; текущий profile нужен для доступных module
 factories, их settings и instruction blocks. Если journal содержит несколько
 turns, `--turn-id` обязателен. Неизвестный id, child turn, незавершённый
@@ -342,14 +342,15 @@ model/tool record, overlap turns или runtime-owned `Canceled`/`Timeout`
 операций и owner graph выбранного turn. Workflow-owned Direct exchanges остаются
 в последовательности workflow. Hook/Tool-owned Auxiliary exchanges потребляются
 с записанным родительским subtree ровно один раз, без повторного исполнения.
-BeforeContext trace возвращает записанный результат подготовки, включая failure
-или unchanged, без требования следующего Direct call. Подробности — в
+BeforeToolSelection trace проверяет полный immutable input/candidates и
+возвращает точный отобранный набор; BeforeContext trace возвращает результат
+подготовки, включая failure или unchanged. Оба не требуют следующего Direct call. Подробности — в
 [hook-tool-operations.md](hook-tool-operations.md).
 
 Replay runtime строит выбранные Workflow и Policy, но не вызывает real provider
 adapters, subagents или настоящие tools. Model responses и tool results последовательно берутся из
-`model_response_recorded`/`tool_result_recorded`; context, compaction и tool
-exposure восстанавливаются из canonical request/history records. Approval
+`model_response_recorded`/`tool_result_recorded`; context восстанавливается из
+canonical request, отбор tools и preparation — из typed hook traces. Approval
 проходит обычный `ApprovalPolicy -> ToolOrchestrator` path, но ответ transport-а
 и результат tool invocation уже записаны в journal. Поэтому mutating tool и
 provider-hosted side effect повторно не выполняются.

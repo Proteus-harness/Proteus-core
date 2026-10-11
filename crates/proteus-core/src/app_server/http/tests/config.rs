@@ -52,10 +52,7 @@ async fn route_config_builder_returns_editable_module_slots() {
         .iter()
         .filter_map(|slot| slot.get("id").and_then(Value::as_str))
         .collect::<Vec<_>>();
-    assert_eq!(
-        slot_ids,
-        vec!["workflow", "context", "tool_exposure", "policy",]
-    );
+    assert_eq!(slot_ids, vec!["workflow", "context", "policy",]);
     assert!(
         slots
             .iter()

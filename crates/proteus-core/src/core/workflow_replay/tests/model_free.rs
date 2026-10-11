@@ -3,8 +3,7 @@ use super::{
     *,
 };
 use crate::contracts::{
-    ContextBuildInput, ContextPreparationInput, ModelCallOrigin, ToolExposureInput,
-    ToolExposureRequest,
+    ContextBuildInput, ContextPreparationInput, ModelCallOrigin, ToolSelectionRequest,
 };
 
 const FAILURE: &str = "deterministic workflow failure";
@@ -15,7 +14,7 @@ enum Probe {
     Model,
     Context,
     Tool,
-    Exposure,
+    Selection,
     Compaction,
 }
 
@@ -61,10 +60,12 @@ impl Workflow for Probe {
                 );
                 let _ = ToolOrchestrator::default().execute(&ctx, &task, call).await;
             }
-            Self::Exposure => {
-                let input =
-                    ToolExposureInput::new(ToolExposureRequest::new(task), vec![probe_tool_spec()]);
-                let _ = ctx.tool_exposure.select(input).await;
+            Self::Selection => {
+                let host = crate::core::workflow_host::WorkflowHostRuntime::new(
+                    ctx.clone().into(),
+                    task.cwd.clone(),
+                );
+                let _ = host.select_tools(ToolSelectionRequest::new(task)).await;
             }
             Self::Compaction => {
                 let input = ContextPreparationInput::new(
@@ -157,8 +158,8 @@ async fn caught_unavailable_context_still_diverges() {
 #[tokio::test]
 async fn caught_unavailable_exposure_still_diverges() {
     assert_caught_call_diverges(
-        Probe::Exposure,
-        "without a remaining recorded model request",
+        Probe::Selection,
+        "unexpected hook boundary before_tool_selection",
     )
     .await;
 }

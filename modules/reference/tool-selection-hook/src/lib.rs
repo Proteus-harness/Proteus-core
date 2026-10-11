@@ -1,30 +1,27 @@
-//! Codex-shaped request-time tool exposure.
+//! Proteus request-time tool selection heuristic as an ordinary hook.
 //!
-//! The module receives only policy-visible candidates and returns the subset
-//! that should be exposed to the next model request. It never executes tools
-//! and cannot bypass `ApprovalPolicy` or `ToolOrchestrator`.
+//! This stable hot-set and optional intent-ranking strategy is not upstream
+//! Codex parity. It only narrows the preceding policy-visible tools.
 
 use std::collections::{HashMap, HashSet};
 
 use proteus_contracts::{
-    contracts::{ToolExposureInput, ToolExposureOutput},
+    contracts::{HookEvent, HookInput, HookResponse, ToolSelectionInput, ToolSelectionOutput},
     domain::{ToolSafety, ToolSpec, ToolSurface},
-    process_module::{
-        ModuleRegistry, ProcessModuleError, ToolExposureModule, ToolExposureModuleObject,
-    },
+    process_module::{HookModule, HookModuleHost, ModuleRegistry, ProcessModuleError},
 };
 use serde_json::{Map, Value, json};
 
 mod config;
 mod config_schema;
-use config::CodexDynamicConfig;
+use config::DynamicSelectionConfig;
 pub use config_schema::config_schema;
 
-const MODULE_ID: &str = "codex_dynamic";
+const MODULE_ID: &str = "tool_selection.dynamic";
 const DEFAULT_MAX_HOT_TOOLS: usize = 10;
 const DEFAULT_ALWAYS_INCLUDE: &[&str] = &["request_user_input", "update_plan"];
 
-const CODEX_PRIORITY: &[&str] = &[
+const STABLE_PRIORITY: &[&str] = &[
     "read_file",
     "read_many_files",
     "grep",
@@ -57,24 +54,32 @@ const WRITE_TERMS: &[&str] = &["write", "create", "generate", "new", "file"];
 const MEMORY_TERMS: &[&str] = &["remember", "preference", "fact", "memory"];
 
 #[derive(Default)]
-pub struct CodexDynamicToolExposureModule {
-    config: CodexDynamicConfig,
+pub struct DynamicToolSelectionHook {
+    config: DynamicSelectionConfig,
 }
 
-impl ToolExposureModule for CodexDynamicToolExposureModule {
-    fn select_json(&self, input_json: String) -> Result<String, ProcessModuleError> {
-        let input: ToolExposureInput = match serde_json::from_str(input_json.as_str()) {
-            Ok(input) => input,
-            Err(error) => return exposure_err(error),
+impl HookModule for DynamicToolSelectionHook {
+    fn invoke_json(
+        &self,
+        input_json: String,
+        _host: &mut dyn HookModuleHost,
+    ) -> Result<String, ProcessModuleError> {
+        let hook: HookInput = serde_json::from_str(&input_json).map_err(error)?;
+        let response = match hook.event {
+            HookEvent::BeforeToolSelection { mut input, output } => {
+                // Narrow only the validated preceding candidate, never restore tools.
+                input.candidates = output.tools;
+                HookResponse::ToolSelection {
+                    output: select_tools(input, &self.config),
+                }
+            }
+            _ => HookResponse::Continue,
         };
-        match serde_json::to_string(&select_codex_tools(input, &self.config)) {
-            Ok(output) => Ok(String::from(output)),
-            Err(error) => exposure_err(error),
-        }
+        serde_json::to_string(&response).map_err(error)
     }
 }
 
-fn select_codex_tools(input: ToolExposureInput, config: &CodexDynamicConfig) -> ToolExposureOutput {
+fn select_tools(input: ToolSelectionInput, config: &DynamicSelectionConfig) -> ToolSelectionOutput {
     let candidate_count = input.candidates.len();
     let configured_max_tools = input
         .request
@@ -269,10 +274,10 @@ fn phase_allows(tool: &ToolSpec, phase: Option<&str>) -> bool {
 }
 
 fn codex_priority(name: &str) -> Option<f32> {
-    CODEX_PRIORITY
+    STABLE_PRIORITY
         .iter()
         .position(|candidate| *candidate == name)
-        .map(|index| (CODEX_PRIORITY.len() - index) as f32)
+        .map(|index| (STABLE_PRIORITY.len() - index) as f32)
 }
 
 fn lexical_score(tool: &ToolSpec, query_terms: &HashSet<String>) -> f32 {
@@ -305,7 +310,7 @@ fn output(
     phase: Option<String>,
     before: usize,
     selected_reasons: HashMap<String, String>,
-) -> ToolExposureOutput {
+) -> ToolSelectionOutput {
     let selected_tools = tools
         .iter()
         .map(|tool| tool.name.clone())
@@ -320,7 +325,7 @@ fn output(
         reason_map.insert(name.clone(), Value::String(reason));
     }
 
-    let mut output = ToolExposureOutput::new(tools);
+    let mut output = ToolSelectionOutput::new(tools);
     output.metadata = json!({
         "selector": MODULE_ID,
         "query": query,
@@ -339,7 +344,7 @@ fn output(
     output
 }
 
-fn tool_query(input: &ToolExposureInput) -> String {
+fn tool_query(input: &ToolSelectionInput) -> String {
     input
         .request
         .query
@@ -409,15 +414,15 @@ fn metadata_category(metadata: &Value) -> Option<&str> {
     metadata.get("category").and_then(Value::as_str)
 }
 
-fn exposure_err(error: impl std::fmt::Display) -> Result<String, ProcessModuleError> {
-    Err(ProcessModuleError::new(error.to_string()))
+fn error(error: impl std::fmt::Display) -> ProcessModuleError {
+    ProcessModuleError::new(error.to_string())
 }
 
 pub fn register_modules(registry: &mut dyn ModuleRegistry) -> Result<(), ProcessModuleError> {
-    let exposure: ToolExposureModuleObject = Box::new(CodexDynamicToolExposureModule {
-        config: CodexDynamicConfig::from_value(registry.module_config())?,
-    });
-    registry.register_tool_exposure(String::from(MODULE_ID), exposure)
+    let hook = DynamicToolSelectionHook {
+        config: DynamicSelectionConfig::from_value(registry.module_config())?,
+    };
+    registry.register_hook(MODULE_ID.to_owned(), Box::new(hook))
 }
 
 #[cfg(test)]

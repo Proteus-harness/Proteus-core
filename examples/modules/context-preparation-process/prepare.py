@@ -2,7 +2,7 @@
 """Dependency-free context preparation hook for Proteus.
 
 The module keeps a valid suffix beginning at one of the most recent user
-turns. The hook/v5 boundary offers model and tool callbacks, but this
+turns. The hook/v6 boundary offers model and tool callbacks, but this
 deterministic implementation does not need them.
 """
 
@@ -26,7 +26,7 @@ from component_runtime import (  # noqa: E402
 
 SLOT = "hook"
 MODULE_ID = "python_suffix"
-CONTRACT_VERSION = "v5"
+CONTRACT_VERSION = "v6"
 
 INITIALIZE_FIELDS = {
     "protocol_version",
@@ -101,7 +101,7 @@ def validate_initialize(params: Any) -> str:
     if not isinstance(export["module_config"], dict):
         raise ProtocolError("initialize module_config must be an object")
     if export["host_features"] != []:
-        raise ProtocolError("hook v5 does not negotiate host features")
+        raise ProtocolError("hook v6 does not negotiate host features")
     return component_id
 
 

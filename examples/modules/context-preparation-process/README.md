@@ -55,7 +55,7 @@ python3 scripts/test.py -p proteus-reference-module --test context_preparation_i
 родительских переменных перечисляются в `env_allowlist`, literal значения — в
 `env`.
 
-Worker использует общий component protocol v3 и hook contract v5.
+Worker использует общий component protocol v3 и hook contract v6.
 На `BeforeContext` возвращает typed `context_preparation` candidate; workflow
 принимает его через общий checkpoint. Остальные фазы возвращают `Continue`.
 Model request nullable: алгоритм работает и без модели. Handshake
@@ -64,7 +64,7 @@ Model request nullable: алгоритм работает и без модели
 ```bash
 cargo run -p proteus-module-protocol --bin proteus-component-conformance -- \
   --component-id python-compactor \
-  --export '{"slot":"hook","module_id":"python_suffix","contract_version":"v5","module_config":{"trigger_messages":12,"retain_user_turns":2}}' \
+  --export '{"slot":"hook","module_id":"python_suffix","contract_version":"v6","module_config":{"trigger_messages":12,"retain_user_turns":2}}' \
   -- python3 examples/modules/context-preparation-process/prepare.py
 ```
 

@@ -269,7 +269,12 @@ async fn accepted_sse_disconnect_retries_same_turn_without_repeating_tool_effect
     tool_progress::assert_completed_call_and_reasoning(&requests[1]);
     assert_retry_request(&requests[2]);
     assert_eq!(
-        std::fs::read_to_string(root.path().join("workspace").join(EFFECT_FILE)).unwrap(),
+        std::fs::read_to_string(root.path().join("workspace").join(EFFECT_FILE)).unwrap_or_else(
+            |error| panic!(
+                "missing completed tool effect: {error}; retry input: {:?}",
+                requests[1]["input"]
+            )
+        ),
         EFFECT
     );
 

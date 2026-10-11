@@ -14,8 +14,8 @@ use crate::{
     contracts::{
         AgentControl, CancellationToken, ContextBuilder, ContextPreparation, EventEmitter,
         ExecutionContext, ModelContextObservation, NoopToolExecutionRecorder,
-        NoopWorkflowHistoryRecorder, ToolExecutionRecorder, ToolExposure, UserInputTransport,
-        WorkflowFailure, WorkflowHistoryRecorder,
+        NoopWorkflowHistoryRecorder, ToolExecutionRecorder, UserInputTransport, WorkflowFailure,
+        WorkflowHistoryRecorder,
     },
     domain::{
         AgentOutput, AgentTask, Event, EventContext, HistoryCompactionReport, MessageId, ModelRef,
@@ -158,7 +158,7 @@ pub struct WorkflowVisibleToolsRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WorkflowSelectToolsRequest {
-    pub request: crate::contracts::ToolExposureRequest,
+    pub request: crate::contracts::ToolSelectionRequest,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -209,7 +209,6 @@ pub struct AgentWorkflowContext {
     pub context: Arc<dyn ContextBuilder>,
     pub user_input: Arc<dyn UserInputTransport>,
     pub context_preparation: Arc<dyn ContextPreparation>,
-    pub tool_exposure: Arc<dyn ToolExposure>,
     pub agent_control: Option<Arc<dyn AgentControl>>,
     /// Динамическая наблюдаемость session-owned очереди root steering.
     /// Workflow не управляет доставкой: core меняет счётчик и вставляет
@@ -235,7 +234,6 @@ impl AgentWorkflowContext {
         context: Arc<dyn ContextBuilder>,
         user_input: Arc<dyn UserInputTransport>,
         context_preparation: Arc<dyn ContextPreparation>,
-        tool_exposure: Arc<dyn ToolExposure>,
         agent_control: Option<Arc<dyn AgentControl>>,
     ) -> Self {
         Self {
@@ -259,7 +257,6 @@ impl AgentWorkflowContext {
             context,
             user_input,
             context_preparation,
-            tool_exposure,
             agent_control,
             queued_user_messages: Arc::new(AtomicUsize::new(0)),
             thread_label: None,

@@ -1,7 +1,7 @@
 use proteus_contracts::{
     contracts::{
         ContextPreparationInput, ContextPreparationResult, ContextPreparationTarget,
-        ToolExposureRequest,
+        ToolSelectionRequest,
     },
     domain::{
         CacheHints, ContextBundle, Event, HistoryCompactionReport, ToolCall, ToolResult, ToolSpec,
@@ -165,7 +165,7 @@ fn request_from_state_with_instruction_blocks_and_options(
     } else {
         SelectedTools::empty()
     };
-    let exposure_metadata = selected.metadata;
+    let selection_metadata = selected.metadata;
     let mut tools = selected.tools;
     if phase == "plan" {
         tools.retain(|tool| matches!(tool.safety, proteus_contracts::domain::ToolSafety::ReadOnly));
@@ -245,8 +245,8 @@ fn request_from_state_with_instruction_blocks_and_options(
     // Telemetry селектора (hidden count, saved schema tokens и т.п.) не должна
     // теряться на workflow-границе: кладём её в metadata запроса, откуда её
     // видят снимки usage и event log.
-    if !exposure_metadata.is_null() {
-        insert_request_metadata_value(&mut request, "tool_exposure", exposure_metadata);
+    if !selection_metadata.is_null() {
+        insert_request_metadata_value(&mut request, "tool_selection", selection_metadata);
     }
     Ok(PreparedRequest {
         request,
@@ -361,7 +361,7 @@ fn visible_tools(
     phase: &str,
 ) -> Result<SelectedTools, ProcessModuleError> {
     ensure_not_cancelled(host)?;
-    let request = ToolExposureRequest::new(input.task.clone())
+    let request = ToolSelectionRequest::new(input.task.clone())
         .with_reason("before_model_request")
         .with_phase(phase);
     let request_json = to_json_string(&request)?;
@@ -369,7 +369,7 @@ fn visible_tools(
         Ok(json) => json,
         Err(error) => return Err(ProcessModuleError::new(error.message)),
     };
-    let output: proteus_contracts::contracts::ToolExposureOutput =
+    let output: proteus_contracts::contracts::ToolSelectionOutput =
         from_json_string(tools_json.as_str())?;
     Ok(SelectedTools {
         tools: output.tools,

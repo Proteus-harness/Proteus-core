@@ -1,15 +1,14 @@
 use std::path::PathBuf;
 
 use anyhow::{Result, ensure};
-use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 use crate::domain::{AgentTask, ToolSpec};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
-pub struct ToolExposureRequest {
+pub struct ToolSelectionRequest {
     pub task: AgentTask,
     pub cwd: PathBuf,
     #[serde(default)]
@@ -24,7 +23,7 @@ pub struct ToolExposureRequest {
     pub phase: Option<String>,
 }
 
-impl ToolExposureRequest {
+impl ToolSelectionRequest {
     pub fn new(task: AgentTask) -> Self {
         Self {
             cwd: task.cwd.clone(),
@@ -57,16 +56,16 @@ impl ToolExposureRequest {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
-pub struct ToolExposureInput {
-    pub request: ToolExposureRequest,
+pub struct ToolSelectionInput {
+    pub request: ToolSelectionRequest,
     pub candidates: Vec<ToolSpec>,
 }
 
-impl ToolExposureInput {
-    pub fn new(request: ToolExposureRequest, candidates: Vec<ToolSpec>) -> Self {
+impl ToolSelectionInput {
+    pub fn new(request: ToolSelectionRequest, candidates: Vec<ToolSpec>) -> Self {
         Self {
             request,
             candidates,
@@ -74,16 +73,16 @@ impl ToolExposureInput {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
-pub struct ToolExposureOutput {
+pub struct ToolSelectionOutput {
     pub tools: Vec<ToolSpec>,
     #[serde(default)]
     pub metadata: serde_json::Value,
 }
 
-impl ToolExposureOutput {
+impl ToolSelectionOutput {
     pub fn new(tools: Vec<ToolSpec>) -> Self {
         Self {
             tools,
@@ -102,15 +101,10 @@ impl ToolExposureOutput {
             );
             ensure!(
                 candidates.iter().any(|candidate| candidate == tool),
-                "tool exposure changed or invented registered tool '{}'",
+                "tool selection changed or invented registered tool '{}'",
                 tool.name
             );
         }
         Ok(())
     }
-}
-
-#[async_trait]
-pub trait ToolExposure: Send + Sync {
-    async fn select(&self, input: ToolExposureInput) -> Result<ToolExposureOutput>;
 }

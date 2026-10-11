@@ -1,7 +1,8 @@
 # Операции Hooks И Tools
 
-Действующая граница: `hook/v5`, `tool/v6`, `workflow/v20`, journal schema v19.
-Отдельный slot `compactor`, его selection, export и adapter удалены.
+Действующая граница: `hook/v6`, `tool/v6`, `workflow/v20`, journal schema v20.
+Отдельные slots `compactor` и `tool_exposure`, их selections, exports и
+adapters удалены.
 Алгоритм подготовки выбирается обычным hook export в `modules.hooks`.
 Core организует вызов и принятие результата, но не выбирает алгоритм.
 
@@ -10,7 +11,7 @@ Core организует вызов и принятие результата, �
 | Операция | Hooks | Tools |
 |---|---|---|
 | `host.model.complete` | Actionable phases, включая before/after-tool | Во время invocation |
-| `host.tools.execute` | BeforeContext, BeforeModel, BeforeStop | Во время invocation |
+| `host.tools.execute` | BeforeToolSelection, BeforeContext, BeforeModel, BeforeStop | Во время invocation |
 | Conversation read/snapshot | Read-only snapshot в typed input, когда bound | Существующие conversation callbacks |
 
 Lifecycle notifications не запускают дочернюю работу. В before/after-tool
@@ -33,6 +34,47 @@ before/after-tool chain. Повтор той же registry tool identity в ак
 assistant message: запись в working history требует явного workflow binding.
 Conversation snapshot и поиск источника конкретного tool call остаются разными
 операциями; источник доступен только при реальном canonical owner.
+
+## Отбор Tools
+
+Workflow вызывает `host.tools.select` до подготовки контекста. Host получает
+policy-visible candidates из registry и передаёт их в `BeforeToolSelection`:
+
+- immutable `ToolSelectionInput`: request (task/cwd, query, max_tools, reason,
+  phase) и исходные candidates;
+- `ToolSelectionOutput`: предыдущий отобранный набор tools и metadata;
+- optional read-only conversation snapshot, только если execution bound.
+
+Начальный output содержит все candidates. Hook возвращает Continue либо
+`ToolSelection { output }`. Каждый contribution может только сузить или
+переупорядочить предыдущий набор; полные `ToolSpec` должны совпадать, дубликаты
+и изменение любого поля отклоняются. Последующий handler не возвращает tools,
+которые удалил предыдущий. Input и authority не изменяются. Итог снова
+валидируется на host boundary и перед model request/tool execution.
+
+Это host-owned workflow operation с общей hook chain, без выбираемого сервиса,
+нового slot или обязательной модели/conversation. Скрытие schema уменьшает
+model view, не меняет разрешение исполнения. Поддержанные coding workflows
+добавляют `proteus_tool_search`, `proteus_tool_describe`, `proteus_tool_call`
+для обнаружения и вызова скрытых tools; каждый реальный вызов проходит обычный
+registry/policy/approval path.
+
+Эвристика `hook/tool_selection.dynamic` сохраняет stable hot set, optional
+explicit query, phase filtering и обязательные provider-hosted/collaboration
+группы. Настройки принадлежат `module_config.hook."tool_selection.dynamic"`.
+Это алгоритм Proteus, не upstream Codex tool search. В Codex-family profiles
+этот hook не выбран. Telemetry итогового отбора попадает в request metadata
+`tool_selection`.
+
+Policy visibility зависит и от возможности transport запросить approval.
+Host сохраняет фактический `approval_available` в admission/config snapshot;
+replay использует этот факт вместо предположения об интерактивном transport.
+
+Selection trace записывается даже для пустой chain, поэтому replay проверяет
+точные request/candidates и воспроизводит результат или failure без следующего
+model request. Записанный input сохраняет schemas скрытых, даже не вызванных
+tools, которые могут понадобиться при replay discovery. Обработчики и их
+дочерние effects повторно не исполняются.
 
 ## Подготовка Контекста
 
@@ -101,8 +143,8 @@ nullable ModelFailure, чтобы callback и replay не теряли typed о�
 Replay проверяет завершённость и связность дочерних операций перед построением
 последовательности workflow. Записанный hook/tool outcome потребляет его subtree
 ровно один раз без реальных tools или provider calls. Вложенные model outcomes
-не занимают место следующего workflow request. Failed/unchanged preparation
-воспроизводится по BeforeContext trace, без требования следующего direct call.
+не занимают место следующего workflow request. Отбор tools воспроизводится по BeforeToolSelection trace. Failed/unchanged
+preparation воспроизводится по BeforeContext trace, без требования следующего direct call.
 Cold resume читает accepted working history из journal.
 
 ## Стратегии

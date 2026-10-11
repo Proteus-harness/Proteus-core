@@ -181,7 +181,7 @@ plan flow UI может просить модель вернуть staged read-o
 а `ReadOnly` — требовать последовательного запуска.
 
 Общий host batch и streamed calls `coding.codex_loop` используют этот признак.
-`ToolExposure` сохраняет зарегистрированное значение, включая запрет; менять
+`BeforeToolSelection` сохраняет зарегистрированное значение, включая запрет; менять
 его при отборе нельзя. Provider-hosted tools исполняются провайдером и не
 участвуют в локальном gate. Root-owned `task` сохраняет отдельную семантику
 группы: совместный запуск детей требует подходящих `AgentProfile` с
@@ -544,8 +544,8 @@ payload-ы без них парсятся с defaults.
 `ToolOrchestrator` передаёт модели tools через
 `ApprovalPolicy::evaluate_visibility`: tools с `Allow` видны сразу, tools с
 `Ask` видны только если transport умеет интерактивно запросить approval, а
-`Deny` tools не попадают в candidates для `ToolExposure`. После этого
-`ToolExposure` может только сузить/ранжировать список перед
+`Deny` tools не попадают в candidates для `BeforeToolSelection`. После этого
+selection hooks могут только сузить/ранжировать предыдущий список перед
 `CanonicalModelRequest.tools`, но не может вернуть запрещённый policy tool. При фактическом
 вызове `ToolOrchestrator` использует `ApprovalPolicy::evaluate` с реальным
 `ToolCall`, поэтому execution policy видит аргументы модели и не зависит от

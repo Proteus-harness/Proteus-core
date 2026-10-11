@@ -51,7 +51,9 @@ impl ExecutionHooks for RuntimeHookChain {
         if input.attribution.execution_id != self.scope.execution_id {
             anyhow::bail!("hook attribution conflicts with bound execution scope");
         }
-        if self.handlers.is_empty() {
+        if self.handlers.is_empty()
+            && !matches!(&input.event, HookEvent::BeforeToolSelection { .. })
+        {
             return Ok(input.event);
         }
         let notification = matches!(
@@ -111,7 +113,10 @@ impl ExecutionHooks for RuntimeHookChain {
             };
             let validated = outcome.and_then(|response| {
                 // Parts removed by an earlier contribution remain immutable at this boundary.
-                if matches!(&input.event, HookEvent::BeforeModel { .. }) {
+                if matches!(
+                    &input.event,
+                    HookEvent::BeforeModel { .. } | HookEvent::BeforeToolSelection { .. }
+                ) {
                     apply_hook_response(&input.event, &response)?;
                 }
                 let mut next = apply_hook_response(&event, &response)?;

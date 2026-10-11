@@ -211,12 +211,6 @@ pub trait HookModule: Send + Sync + 'static {
 }
 pub type HookModuleObject = Box<dyn HookModule>;
 
-pub trait ToolExposureModule: Send + Sync + 'static {
-    fn select_json(&self, input_json: String) -> ProcessModuleResult<String>;
-}
-
-pub type ToolExposureModuleObject = Box<dyn ToolExposureModule>;
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct WorkflowModuleInput {
@@ -331,11 +325,6 @@ pub trait ModuleRegistry {
         &mut self,
         module_id: String,
         builder: ContextBuilderModuleObject,
-    ) -> ProcessModuleResult<()>;
-    fn register_tool_exposure(
-        &mut self,
-        module_id: String,
-        exposure: ToolExposureModuleObject,
     ) -> ProcessModuleResult<()>;
     fn register_hook(
         &mut self,

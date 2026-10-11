@@ -39,12 +39,6 @@ pub fn build_topology_snapshot(input: TopologyBuildInput<'_>) -> TopologySnapsho
         }
     }
     let tools = build_tools(config, input.tools, &mut warnings);
-    if config.modules.tool_exposure.is_none() && tools.iter().filter(|t| t.registered).count() > 10
-    {
-        warnings.push(TopologyWarning::warn(
-            "tool_exposure is not selected, so the host exposes every policy-visible tool; select a ToolExposure process module when schema cost becomes significant",
-        ));
-    }
     let mut edges = build_edges(&active_modules, &modules, &tools);
     for (index, id) in plan.hooks.iter().enumerate() {
         edges.push(TopologyEdge {
@@ -95,7 +89,7 @@ mod tests {
     fn build_edges_connects_slots_modules_tools_and_registry() {
         let active_modules = BTreeMap::from([
             ("workflow".to_owned(), "coding.single_loop".to_owned()),
-            ("tool_exposure".to_owned(), "codex_dynamic".to_owned()),
+            ("policy".to_owned(), "allow_all".to_owned()),
         ]);
         let modules = vec![
             ModuleTopology {
@@ -109,8 +103,8 @@ mod tests {
                 description: None,
             },
             ModuleTopology {
-                id: "codex_dynamic".to_owned(),
-                slot: "tool_exposure".to_owned(),
+                id: "allow_all".to_owned(),
+                slot: "policy".to_owned(),
                 active: true,
                 source: ModuleSourceTopology::Process,
                 version: "0.1.0".to_owned(),
@@ -158,8 +152,8 @@ mod tests {
         ));
         assert!(has_edge(
             &edges,
-            "slot:tool_exposure",
-            "module:tool_exposure:codex_dynamic",
+            "slot:policy",
+            "module:policy:allow_all",
             "active_module"
         ));
         assert!(has_edge(&edges, "tools", "tool:grep", "registered_tool"));
@@ -176,7 +170,8 @@ mod tests {
                 .iter()
                 .any(|edge| edge.from == "slot:tool" || edge.to == "slot:tool")
         );
-        assert!(has_edge(&edges, "slot:tool_exposure", "tools", "runtime"));
+        assert!(has_edge(&edges, "slot:workflow", "slot:hook", "runtime"));
+        assert!(has_edge(&edges, "slot:hook", "tools", "runtime"));
         assert!(has_edge(&edges, "slot:policy", "tools", "runtime"));
     }
 
@@ -199,17 +194,7 @@ mod tests {
             .iter()
             .map(|slot| slot.id.as_str())
             .collect::<Vec<_>>();
-        assert_eq!(
-            ids,
-            vec![
-                "workflow",
-                "context",
-                "tool_exposure",
-                "model",
-                "policy",
-                "hook",
-            ]
-        );
+        assert_eq!(ids, vec!["workflow", "context", "model", "policy", "hook",]);
 
         let category = |id: &str| {
             slots

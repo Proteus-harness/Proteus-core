@@ -6,7 +6,7 @@ mod components;
 mod tools;
 
 use crate::{
-    contracts::{ApprovalPolicy, ContextBuilder, Model, ToolExposure, Workflow},
+    contracts::{ApprovalPolicy, ContextBuilder, Model, Workflow},
     core::{AppConfig, ModelConfig, RepoAwareContextProvider},
     domain::{ModuleKind, ModuleManifest, SlotId, slot},
     process_adapters::{ProcessContextProvider, ProcessExportConfig},
@@ -306,18 +306,6 @@ impl ModuleCatalog {
         ctx: &PolicyBuildContext<'_>,
     ) -> Result<Arc<dyn ApprovalPolicy>> {
         self.build_typed::<dyn ApprovalPolicy>(slot::POLICY, module, &ModuleBuildInput::Policy(ctx))
-    }
-
-    pub(crate) fn build_tool_exposure(
-        &self,
-        module: &str,
-        ctx: &ModuleBuildContext<'_>,
-    ) -> Result<Arc<dyn ToolExposure>> {
-        self.build_typed::<dyn ToolExposure>(
-            slot::TOOL_EXPOSURE,
-            module,
-            &ModuleBuildInput::Module(ctx),
-        )
     }
 
     pub(crate) fn build_workflow(

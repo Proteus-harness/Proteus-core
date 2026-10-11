@@ -73,6 +73,7 @@ async fn resume_and_probe(
         &config,
         assembly.registry(),
         config.permissions.mode,
+        handle.runtime.approval_available(),
     );
     handle
         .runtime

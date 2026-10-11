@@ -274,7 +274,13 @@ async fn tracked_codex_profile_exposes_and_executes_policy_visible_tools_directl
     .unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let config = fixture_config(&format!("http://{}", listener.local_addr().unwrap())).await;
-    assert!(config.modules.tool_exposure.is_none());
+    assert!(
+        !config
+            .modules
+            .hooks
+            .iter()
+            .any(|hook| hook == "tool_selection.dynamic")
+    );
     let configured_tools = config.tools.enabled.clone();
     std::fs::write(
         root.path().join("config.json"),

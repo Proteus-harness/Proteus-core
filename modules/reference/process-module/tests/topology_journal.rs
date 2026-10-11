@@ -86,7 +86,6 @@ fn assert_separate_slot_authority(config: &AppConfig) {
             "context",
             "policy",
             "hook",
-            "tool_exposure",
             "tool",
         ])
     );

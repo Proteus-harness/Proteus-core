@@ -109,7 +109,7 @@ async fn route_inspect_topology_returns_json_and_mermaid() {
             || edge.get("to").and_then(Value::as_str) == Some("slot:tool")
     }));
     assert!(edges.iter().any(|edge| {
-        edge.get("from").and_then(Value::as_str) == Some("slot:tool_exposure")
+        edge.get("from").and_then(Value::as_str) == Some("slot:hook")
             && edge.get("to").and_then(Value::as_str) == Some("tools")
             && edge.get("kind").and_then(Value::as_str) == Some("runtime")
     }));

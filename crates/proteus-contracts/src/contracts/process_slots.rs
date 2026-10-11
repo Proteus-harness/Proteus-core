@@ -14,11 +14,6 @@ use crate::{
     },
 };
 
-use super::ToolExposureInput;
-
-pub const PROCESS_TOOL_EXPOSURE_CONTRACT_VERSION: &str = "v4";
-pub const PROCESS_TOOL_EXPOSURE_SELECT_METHOD: &str = "select";
-
 pub const PROCESS_POLICY_CONTRACT_VERSION: &str = "v2";
 pub const PROCESS_POLICY_EVALUATE_METHOD: &str = "evaluate";
 pub const PROCESS_POLICY_VISIBILITY_METHOD: &str = "evaluate_visibility";
@@ -46,12 +41,6 @@ impl<T> ProcessModuleResponse<T> {
     pub fn new(result: T) -> Self {
         Self { result }
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ProcessToolExposureInput {
-    pub input: ToolExposureInput,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -114,7 +103,6 @@ pub struct ProcessSkillCatalogInput {
 
 pub type ProcessSkillCatalogResponse = ProcessModuleResponse<Option<crate::domain::SkillCatalog>>;
 
-pub type ProcessToolExposureResponse = ProcessModuleResponse<super::ToolExposureOutput>;
 pub type ProcessPolicyResponse = ProcessModuleResponse<PolicyDecision>;
 pub type ProcessContextResponse = ProcessModuleResponse<ContextBundle>;
 pub type ProcessContextChunksResponse = ProcessModuleResponse<Vec<ContextChunk>>;
@@ -145,18 +133,6 @@ mod tests {
             "legacy": true
         }))
         .expect_err("unknown response fields must be rejected");
-        let input = super::super::ToolExposureInput::new(
-            super::super::ToolExposureRequest::new(AgentTask::new(
-                "probe",
-                std::path::PathBuf::from("."),
-            )),
-            vec![],
-        );
-        let mut value = serde_json::to_value(ProcessToolExposureInput { input }).unwrap();
-        value["input"]["unexpected_field"] = serde_json::json!({});
-        serde_json::from_value::<ProcessToolExposureInput>(value)
-            .expect_err("nested input must be strict");
-
         let definition = ProcessToolDefinition {
             spec: ToolSpec::new(
                 "probe",

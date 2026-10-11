@@ -182,6 +182,10 @@ impl AgentRuntime {
         AgentRuntimeBuilder::new(config, cwd)
     }
 
+    pub(crate) fn approval_available(&self) -> bool {
+        self.services.approval.can_request_approval()
+    }
+
     pub fn new(config: AppConfig, cwd: PathBuf) -> Result<Self> {
         let config_path = AppConfig::default_user_config_path();
         Self::builder(config, cwd)

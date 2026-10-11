@@ -13,8 +13,8 @@ use tokio::time::timeout;
 use crate::{
     contracts::{
         ContextBuildInput, ContextPreparationInput, ContextPreparationResult, ExecutionAttribution,
-        ModelCallOrigin, ToolExposureInput, ToolExposureOutput, ToolExposureRequest,
-        WorkflowInvocationContext, WorkflowRuntimeStatus,
+        HookEvent, HookInput, ModelCallOrigin, ToolSelectionInput, ToolSelectionOutput,
+        ToolSelectionRequest, WorkflowInvocationContext, WorkflowRuntimeStatus,
     },
     domain::{AgentTask, Event, ToolCall, ToolResult, ToolSpec},
     model_standard::{CanonicalModelRequest, CanonicalModelResponse},
@@ -222,15 +222,56 @@ impl WorkflowHostRuntime {
 
     pub(crate) async fn select_tools(
         &self,
-        request: ToolExposureRequest,
-    ) -> Result<ToolExposureOutput> {
+        request: ToolSelectionRequest,
+    ) -> Result<ToolSelectionOutput> {
         let candidates = self.visible_tools(request.cwd.clone())?;
-        let ctx = self.ctx.clone();
-        self.run_active(async move {
-            let output = ctx
-                .tool_exposure()
-                .select(ToolExposureInput::new(request, candidates.clone()))
+        let input = ToolSelectionInput::new(request, candidates.clone());
+        let execution = self.ctx.execution();
+        let attribution = self
+            .ctx
+            .agent()
+            .map(|agent| {
+                ExecutionAttribution::for_turn(
+                    execution.scope.execution_id,
+                    agent.session_id,
+                    agent.thread_id,
+                    agent.turn_id,
+                )
+            })
+            .unwrap_or_else(|_| ExecutionAttribution::detached(execution.scope.execution_id));
+        self.run_active(async {
+            let conversation = match self
+                .ctx
+                .agent()
+                .ok()
+                .and_then(|agent| agent.conversation.as_ref())
+            {
+                Some(reader) => Some(reader.read().await?),
+                None => None,
+            };
+            let accepted = execution
+                .hooks
+                .apply(HookInput {
+                    event: HookEvent::BeforeToolSelection {
+                        input: input.clone(),
+                        output: ToolSelectionOutput::new(candidates.clone()),
+                    },
+                    attribution,
+                    cwd: input.request.cwd.clone(),
+                    conversation,
+                })
                 .await?;
+            let HookEvent::BeforeToolSelection {
+                input: accepted_input,
+                output,
+            } = accepted
+            else {
+                anyhow::bail!("tool selection hook returned a different event");
+            };
+            anyhow::ensure!(
+                accepted_input == input,
+                "tool selection changed bound input"
+            );
             output.validate_against(&candidates)?;
             Ok(output)
         })
@@ -365,3 +406,7 @@ async fn execute_tool_batch(
     }
     Ok(results)
 }
+
+#[cfg(test)]
+#[path = "workflow_host/selection_tests.rs"]
+mod selection_tests;

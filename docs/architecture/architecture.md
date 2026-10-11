@@ -343,7 +343,7 @@ git_status
 
 Все команды всё равно возвращаются в host через `host.tools.execute` и проходят
 `ToolRegistry -> policy -> approval -> safety`; модуль не запускает shell
-самостоятельно. Success path не вызывает context, preparation hooks, tool exposure или
+самостоятельно. Success path не вызывает context, preparation hooks, selection hooks или
 model и не читает history. Runnable profile:
 `examples/configs/proteus.project-check.example.toml`.
 
@@ -368,7 +368,7 @@ implementations отсутствуют в replay-каталоге, итог и h
 | Owner | Поля |
 |---|---|
 | `ExecutionContext` | `scope`, `model_timeout_ms`, `model`, `hooks`, `operations`, `tools`, `policy`, `approval`, `permission_grants` |
-| `AgentWorkflowContext` | `tool_recorder`, `session_id`, `thread_id`, `turn_id`, `model_ref`, `instructions`, `intent`, `permission_mode`, `reasoning`, `context_timeout_ms`, `events`, `context`, `user_input`, `context_preparation`, `tool_exposure`, `agent_control`, queued messages, `thread_label` |
+| `AgentWorkflowContext` | `tool_recorder`, `session_id`, `thread_id`, `turn_id`, `model_ref`, `instructions`, `intent`, `permission_mode`, `reasoning`, `context_timeout_ms`, `events`, `context`, `user_input`, `context_preparation`, `agent_control`, queued messages, `thread_label` |
 
 `ExecutionScope` содержит identity и cancellation без chat types.
 `ExecutionContext` связывает generic handles с coherent runtime snapshot.
@@ -394,7 +394,7 @@ wall-clock deadline и воспроизводит записанный исхо�
 и optional agent projection. `SessionExecutionRecorder` и
 `SessionToolExecutionRecorder` связывают их с session-owned journal.
 
-Journal schema v3 сохраняет `ExecutionId` для TurnOpened, model и tool facts,
+Canonical journal сохраняет `ExecutionId` для TurnOpened, model и tool facts,
 ordered `CanonicalModelResponse.messages` и `CanonicalMessage.phase`.
 Conversational attribution optional: detached fact не требует выдуманного
 Turn. Projection проверяет mapping `TurnId -> ExecutionId`.
@@ -435,7 +435,7 @@ InvocationRef не взаимозаменяемы; broker lineage не пере�
 | State | Что это сейчас | Что это не означает |
 |---|---|---|
 | Chat History | Active `SessionState.history`, восстановленная fold-ом `history_mutated` | Не полный input любого model call |
-| Model Context | Один `CanonicalModelRequest` после context/tool exposure/compaction/shaping | Не durable conversation целиком |
+| Model Context | Один `CanonicalModelRequest` после context/selection/preparation/shaping | Не durable conversation целиком |
 | Journal | Canonical append-only turn/history/model/tool facts | Не event stream и не program counter |
 | Runtime State | Live services, session locks/history/steering, cancellation, grants, broker generations | Не автоматически durable state |
 | Memory | Module-owned durable storage с tools записи/чтения и optional context provider | Не chat history и не generic checkpoint store |
@@ -451,8 +451,9 @@ outcome их hook/tool invocation. Preparation восстанавливаетс�
 `BeforeContext` trace, включая ошибку и отсутствие изменения, без повторного
 вызова выбранного алгоритма или его effects.
 Model outcome не обязателен: model-free Turn воспроизводится по tool facts,
-history и settlement. Без model request журнал не даёт replayable context и
-tool exposure; preparation без модели требует записанного trace. Запрос
+history и settlement. Selection и preparation восстанавливаются по typed traces,
+включая failure без последующего model request; context builder требует
+записанного request. Запрос
 незаписанных model/tool/context данных отмечается как divergence, даже если
 Workflow перехватил ошибку.
 Они проверяют эквивалентность и projection, но не продолжают suspended Rust
@@ -531,9 +532,8 @@ tool `search`; та же программа может предоставить 
 composition(contract) = select_one | ordered_many
 ```
 
-`workflow`, `model`, `context`, `policy`,
-`tool_exposure` используют `select_one`.
-`tool`, `context_provider` и цепочка обработчиков `hook/v5` используют `ordered_many`.
+`workflow`, `model`, `context`, `policy` используют `select_one`.
+`tool`, `context_provider` и цепочка обработчиков `hook/v6` используют `ordered_many`.
 `modules.hooks` задаёт порядок обработчиков. Core определяет точки их вызова
 и проверяет результаты; обработчики используют тот же протокол процессных модулей.
 
@@ -582,7 +582,7 @@ Module config остаётся opaque JSON object для реализации. C
 - compaction не меняет history;
 - policy закрывает исполнение;
 - workflow не может выполнить turn;
-- tool exposure пропускает все policy-visible candidates;
+- без selection contributions `host.tools.select` возвращает все policy-visible candidates;
 
 Эти structural objects не входят в catalog, не отображаются как modules и не
 могут получить module-owned config. Если config явно выбрал id, любая проблема

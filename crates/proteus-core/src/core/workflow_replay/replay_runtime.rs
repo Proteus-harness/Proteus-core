@@ -1,12 +1,12 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     sync::{Mutex, MutexGuard},
 };
 
 use anyhow::{Result, anyhow, bail};
 
 use crate::{
-    contracts::{ApprovalResponse, OperationOwner, ToolExposureOutput},
+    contracts::{ApprovalResponse, OperationOwner},
     core::ModelResponseOutcome,
     domain::{
         CacheHints, CallId, ContextBundle, HistoryCompactionReport, HostedToolKind, MessageId,
@@ -33,14 +33,13 @@ pub(super) use checkpoints::{RecordedCheckpoint, ReplayCheckpointRecorder, recor
 
 pub(super) use adapters::{
     ReplayApprovalTransport, ReplayContextBuilder, ReplayContextPreparation, ReplayModel,
-    ReplayToolExposure, register_replay_tools,
+    register_replay_tools,
 };
 
 pub(super) struct ReplayState {
     inner: Mutex<ReplayStateInner>,
     capabilities: ModelCapabilities,
     context: Option<ContextBundle>,
-    registered_tool_names: HashSet<String>,
 }
 
 struct ReplayStateInner {
@@ -84,7 +83,6 @@ impl ReplayState {
         tools: Vec<RecordedToolInvocation>,
         compactions: Vec<HistoryCompactionReport>,
         context: Option<ContextBundle>,
-        registered_tool_names: HashSet<String>,
         snapshot_reasoning: &ReasoningConfig,
         _incoming_user_message_id: MessageId,
     ) -> Self {
@@ -132,7 +130,6 @@ impl ReplayState {
             }),
             capabilities,
             context,
-            registered_tool_names,
         }
     }
 
@@ -215,7 +212,7 @@ impl ReplayState {
             Some(exchange) => Ok(exchange.request.clone()),
             None => mismatch(
                 &mut inner,
-                "workflow requested tool exposure or compaction without a remaining recorded model request".to_owned(),
+                "workflow requested context without a remaining recorded model request".to_owned(),
             ),
         }
     }
@@ -253,42 +250,6 @@ impl ReplayState {
         let outcome = expected.outcome.clone();
         inner.next_exchange += 1;
         Ok((expected.completed_messages, outcome))
-    }
-
-    pub fn tool_exposure(&self) -> Result<ToolExposureOutput> {
-        let request = self.current_request()?;
-        // Selection happens before context preparation. The workflow may then
-        // clear or otherwise restrict tools before its BeforeModel boundary
-        // (for example, a final review disables calls). That later request
-        // proves selector telemetry, but not the earlier selected schemas.
-        let selected = self.lock().hooks.iter().find_map(|(trace, consumed)| {
-            if *consumed || trace.owner != OperationOwner::Workflow {
-                return None;
-            }
-            match &trace.input.event {
-                crate::contracts::HookEvent::BeforeContext { input, .. } => {
-                    input.request.as_ref().map(|request| request.tools.clone())
-                }
-                crate::contracts::HookEvent::BeforeModel {
-                    origin: crate::contracts::ModelCallOrigin::Direct,
-                    request,
-                } => Some(request.tools.clone()),
-                _ => None,
-            }
-        });
-        let tools = selected
-            .unwrap_or(request.tools)
-            .into_iter()
-            .filter(|tool| self.registered_tool_names.contains(&tool.name))
-            .collect();
-        let metadata = request
-            .metadata
-            .get("tool_exposure")
-            .cloned()
-            .unwrap_or(serde_json::Value::Null);
-        let mut output = ToolExposureOutput::new(tools);
-        output.metadata = metadata;
-        Ok(output)
     }
 
     pub fn approval_response(&self, actual_call_id: &str) -> Result<ApprovalResponse> {

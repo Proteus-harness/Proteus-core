@@ -451,8 +451,7 @@ child profiles; запуск parent по явному пути не подхва
 workflow = "coding.single_loop"
 context = "repo_aware"
 policy = "ask_write"
-hooks = ["codex_compact"]
-tool_exposure = "codex_dynamic"
+hooks = ["tool_selection.dynamic", "codex_compact"]
 ```
 
 Каждый выбранный id должен иметь exact component export. Model выбирается
@@ -664,8 +663,7 @@ workflow:         coding.single_loop, coding.codex_loop,
 context:          simple, repo_aware, codex_context
 context_provider: skills, rg_search, jsonl_memory, sqlite_memory
 policy:           allow_all, ask_write, codex_policy, opencode_policy
-hook:             codex_compact, hook.instructions, hook.output_budget
-tool_exposure:    codex_dynamic
+hook:             tool_selection.dynamic, codex_compact, hook.instructions, hook.output_budget
 tool:             reference.tools и узкие selectors, direct_patch, codex_patch,
                   rg_search, jsonl_memory, sqlite_memory
 ```
@@ -960,38 +958,45 @@ ask_before = ["apply_patch", "write_file", "shell"]
 `allow_all` полезен только для контролируемых profiles; это ordinary
 reference implementation с той же authority.
 
-## Tool Exposure
+## Отбор Инструментов
 
-Codex-family profiles не задают `modules.tool_exposure`: workflow получает
-весь набор tools, видимых по текущей policy, без hot set и дополнительных
-`proteus_tool_*` посредников. Состав задаётся `tools.enabled` и настроенной
-AgentControl surface; approval проверяется при исполнении.
+Codex-family profiles не подключают selection hook: workflow получает весь
+набор policy-visible tools без hot set и дополнительных `proteus_tool_*`
+посредников. Состав задаётся `tools.enabled` и AgentControl surface;
+approval проверяется при исполнении.
 
-Для собственной сборки можно отдельно включить эвристический selector
-`codex_dynamic`. Это алгоритм Proteus, он не воспроизводит upstream Codex
-`tool_search`:
+Для своей сборки можно включить `hook/tool_selection.dynamic` — эвристику
+Proteus, не копию upstream Codex `tool_search`:
 
 ```toml
 [modules]
-tool_exposure = "codex_dynamic"
+hooks = ["tool_selection.dynamic", "codex_compact"]
 
 [components.reference-capabilities]
 command = "proteus-reference-module"
 
-[components.reference-capabilities.exports.tool_exposure.codex_dynamic]
+[components.reference-capabilities.exports.hook."tool_selection.dynamic"]
+[components.reference-capabilities.exports.hook.codex_compact]
 
-[module_config.tool_exposure.codex_dynamic]
+[module_config.hook."tool_selection.dynamic"]
 max_hot_tools = 16
 ```
 
-Если selection отсутствует, host передаёт workflow все policy-visible tools.
-Это structural behavior, не скрытый module id.
+Массив `modules.hooks` заменяется целиком: сохраните все другие contributions
+своего профиля, включая `hook.dcp`, если он подключён. Selection выполняется
+на `BeforeToolSelection` до `BeforeContext`, поэтому подготовка учитывает schemas
+уже отобранных tools. На остальных events selector возвращает Continue.
 
 `max_hot_tools` — положительное целое, `always_include` — массив непустых
-имён tools (пустой массив очищает поставляемый список). Эти настройки читаются
-из config выбранного export, а не из invocation. Неизвестные keys и неверные
-типы отвергаются. Configs `ask_write`, `codex_policy` и `opencode_policy`
-также отвергают неизвестные поля, включая опечатки в `allow`, `ask_before` и `deny`.
+имён tools; пустой массив очищает поставляемый список. Config передаётся hook
+export при initialize. Неизвестные keys и неверные типы отвергаются.
+Без contribution host сохраняет все policy-visible candidates; это не скрытая
+implementation. Каждый hook может только сузить/переупорядочить предыдущий
+набор без изменения specs. Отбор, обнаружение скрытых tools и разрешение
+исполнения сохраняют разные ответственности.
+
+Configs `ask_write`, `codex_policy` и `opencode_policy` также отвергают
+неизвестные поля, включая опечатки в `allow`, `ask_before` и `deny`.
 
 ## Subagents
 
@@ -1120,7 +1125,7 @@ Pi/OpenCode tool handlers (включая изменение args), JSON-stdin P
 `updatedInput` и Stop scripts Codex/Claude Code. Completion review сохраняет
 root turn, имеет общий workflow deadline и лимит 8 продолжений.
 Неподдержанные upstream действия отклоняются явно; это адаптер переноса,
-не загрузчик чужих plugins. Модуль использует тот же `hook/v5`, без отдельной
+не загрузчик чужих plugins. Модуль использует тот же `hook/v6`, без отдельной
 registration или authority surface в Core.
 
 ### DCP Context Pruning

@@ -4,9 +4,7 @@
 mod deny_all_policy;
 mod empty_context;
 mod no_workflow;
-mod unfiltered_tool_exposure;
 
 pub use deny_all_policy::*;
 pub use empty_context::*;
 pub use no_workflow::*;
-pub use unfiltered_tool_exposure::*;

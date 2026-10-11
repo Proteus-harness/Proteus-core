@@ -36,6 +36,35 @@ test("Pi and OpenCode output handlers compose in registration order", async () =
   assert.equal(after.result.output, "original");
 });
 
+test("tool selection composes without restoring or changing preceding tools", async () => {
+  const tools = [{ name: "read", description: "Read" }, { name: "write", description: "Write" }];
+  const event = {
+    event: "before_tool_selection",
+    input: { request: {}, candidates: tools },
+    output: { tools, metadata: null },
+  };
+  const hooks = createHooks();
+  hooks.api.on("before_tool_selection", ({ input, output }) => {
+    assert.equal(input.candidates.length, 2);
+    return { action: "tool_selection", output: { tools: [output.tools[1]], metadata: { first: true } } };
+  });
+  hooks.api.on("before_tool_selection", ({ input, output }) => {
+    assert.equal(input.candidates.length, 2, "policy-visible input remains immutable");
+    assert.deepEqual(output.tools, [tools[1]]);
+    return { action: "tool_selection", output: { ...output, metadata: { second: true } } };
+  });
+  assert.deepEqual((await invoke(hooks, event)).result,
+    { action: "tool_selection", output: { tools: [tools[1]], metadata: { second: true } } });
+  assert.deepEqual(event.output.tools, tools);
+
+  for (const selected of [tools, [{ ...tools[1], description: "Changed" }], [tools[1], tools[1]]]) {
+    const invalid = createHooks();
+    invalid.api.on("before_tool_selection", () => ({ action: "tool_selection", output: { tools: [tools[1]], metadata: null } }));
+    invalid.api.on("before_tool_selection", () => ({ action: "tool_selection", output: { tools: selected, metadata: null } }));
+    await assert.rejects(invoke(invalid, event), /unchanged preceding tools/);
+  }
+});
+
 test("unsupported upstream behavior fails explicitly", async () => {
   const hooks = createHooks();
   assert.throws(() => hooks.api.on("session_start", () => {}), /unsupported hook event/);

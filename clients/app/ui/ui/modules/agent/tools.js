@@ -1,7 +1,6 @@
 import { agentSettings } from "./store.js";
 import { el, mountAgentPage } from "./page.js";
-import { slotSection } from "./choices.js";
-import { safetyText, slotText } from "./labels.js";
+import { safetyText } from "./labels.js";
 import { openAgentTarget } from "./focus.js";
 import { ownerOf } from "./packs.js";
 
@@ -11,7 +10,7 @@ const FOLDED_DESCRIPTION = 160;
 export function mount(context) {
   mountAgentPage(
     context,
-    "Инструменты, которые профиль разрешает агенту, и модуль, отбирающий их для модели.",
+    "Инструменты, которые профиль разрешает агенту. Отбор для запросов модели настраивается через хуки.",
     (body, snapshot, view) => {
       const section = el("section", "agent-block");
       const head = el("div", "agent-block-head");
@@ -107,8 +106,6 @@ export function mount(context) {
         count.textContent = ` · ${active} из ${rows.size}`;
         filter();
       });
-      const [exposureTitle, exposureHint] = slotText.tool_exposure;
-      slotSection(body, snapshot, "tool_exposure", view, { title: exposureTitle, hint: exposureHint });
     },
   );
 }

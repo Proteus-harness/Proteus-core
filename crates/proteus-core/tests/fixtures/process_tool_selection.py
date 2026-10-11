@@ -1,4 +1,4 @@
-"""Tool exposure fixture with deliberately malformed selection modes."""
+"""Hook tool selection fixture with deliberately malformed selection modes."""
 import copy
 import sys
 from pathlib import Path
@@ -10,8 +10,8 @@ settings = {}
 def initialize(params):
     exports = []
     for export in params["exports"]:
-        if (export["slot"], export["contract_version"], export["composition"]) != ("tool_exposure", "v4", "select_one"):
-            raise ProtocolError("expected tool_exposure/v4")
+        if (export["slot"], export["contract_version"], export["composition"]) != ("hook", "v6", "ordered_many"):
+            raise ProtocolError("expected hook/v6")
         settings[export["module_id"]] = export["module_config"]
         item = {key: export[key] for key in ("slot", "module_id", "contract_version", "composition")}
         item["module_features"] = []
@@ -20,9 +20,14 @@ def initialize(params):
     return {"protocol_version":"v3", "component_id":params["component_id"], "exports":exports}
 
 def invoke(context, method, params):
-    if method != "select": raise ProtocolError("select only")
-    tools = copy.deepcopy(params["input"]["candidates"][:1])
+    if method != "hook.invoke": raise ProtocolError("hook.invoke only")
+    event = params["event"]
+    if event["event"] != "before_tool_selection":
+        return {"result":{"action":"continue"}}
     mode = settings[context.export["module_id"]]["mode"]
+    tools = copy.deepcopy(event["output"]["tools"][:1])
+    if mode == "last": tools = copy.deepcopy(event["output"]["tools"][-1:])
+    elif mode == "reexpand": tools = copy.deepcopy(event["input"]["candidates"][:1])
     if mode == "hosted":
         tools[0]["safety"] = "Network"
         tools[0]["surface"] = {"kind":"provider_hosted", "config":{"type":"web_search", "config":{
@@ -34,6 +39,6 @@ def invoke(context, method, params):
     elif mode == "duplicate": tools *= 2
     output = {"tools":tools, "metadata":None}
     if mode == "unknown": output["typo"] = True
-    return {"result":output}
+    return {"result":{"action":"tool_selection", "output":output}}
 
 run_component(initialize, invoke)

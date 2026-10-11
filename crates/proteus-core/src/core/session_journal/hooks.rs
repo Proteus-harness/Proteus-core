@@ -95,6 +95,14 @@ fn validate_trace_inner(record: &JournalRecord, trace: &HookTrace, redacted: boo
     ) {
         bail!("hook chain starts with an already blocked tool");
     }
+    if let HookEvent::BeforeToolSelection { input, output } = &trace.input.event {
+        if output
+            != &proteus_contracts::contracts::ToolSelectionOutput::new(input.candidates.clone())
+        {
+            bail!("tool selection trace must start with all bound candidates");
+        }
+        output.validate_against(&input.candidates)?;
+    }
     let notification = matches!(
         &trace.input.event,
         HookEvent::TurnStarted { .. } | HookEvent::TurnSettled { .. }
@@ -129,6 +137,7 @@ fn validate_trace_inner(record: &JournalRecord, trace: &HookTrace, redacted: boo
                 if matches!(
                     response,
                     proteus_contracts::contracts::HookResponse::ModelContext { .. }
+                        | HookResponse::ToolSelection { .. }
                 ) {
                     apply_hook_response(&trace.input.event, response)?;
                 }

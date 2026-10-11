@@ -9,7 +9,7 @@ use crate::{
         ApprovalRequest, ApprovalResponse, ApprovalTransport, ContextBuildInput, ContextBuilder,
         ContextPreparation, ContextPreparationInput, ContextPreparationResult,
         ExecutionAttribution, Model, ModelEventStream, OperationOwner, Tool, ToolContext,
-        ToolExecutionRecorder, ToolExposure, ToolExposureInput, ToolExposureOutput, ToolSource,
+        ToolExecutionRecorder, ToolSource,
     },
     core::ModelResponseOutcome,
     domain::{ContextBundle, ModelRef, ToolCall, ToolCallResolution, ToolResult, ToolSpec},
@@ -87,23 +87,6 @@ impl ContextPreparation for ReplayContextPreparation {
     }
 }
 
-pub(in crate::core::workflow_replay) struct ReplayToolExposure {
-    state: Arc<ReplayState>,
-}
-
-impl ReplayToolExposure {
-    pub fn new(state: Arc<ReplayState>) -> Self {
-        Self { state }
-    }
-}
-
-#[async_trait]
-impl ToolExposure for ReplayToolExposure {
-    async fn select(&self, _input: ToolExposureInput) -> Result<ToolExposureOutput> {
-        self.state.tool_exposure()
-    }
-}
-
 struct ReplayTool {
     spec: ToolSpec,
     model_visible: bool,
@@ -137,18 +120,19 @@ impl Tool for ReplayTool {
 
 pub(in crate::core::workflow_replay) struct ReplayApprovalTransport {
     state: Arc<ReplayState>,
+    available: bool,
 }
 
 impl ReplayApprovalTransport {
-    pub fn new(state: Arc<ReplayState>) -> Self {
-        Self { state }
+    pub fn new(state: Arc<ReplayState>, available: bool) -> Self {
+        Self { state, available }
     }
 }
 
 #[async_trait]
 impl ApprovalTransport for ReplayApprovalTransport {
     fn can_request_approval(&self) -> bool {
-        true
+        self.available
     }
 
     async fn request_approval(&self, request: ApprovalRequest) -> Result<ApprovalResponse> {

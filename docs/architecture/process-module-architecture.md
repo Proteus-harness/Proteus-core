@@ -149,8 +149,7 @@ composition(slot contract) = select_one | ordered_many
 Composition хранится в общей authority table и подтверждается отдельно для
 каждого export:
 
-- `select_one`: workflow, model, context, policy,
-  tool exposure;
+- `select_one`: workflow, model, context, policy;
 - `ordered_many`: tool, context provider, hook.
 
 Модуль не может изменить cardinality, сделать свой `module_id` особым или
@@ -369,8 +368,7 @@ Rust host и модуль используют один
 
 | Slot | Contract | Module methods | Host callbacks |
 |---|---|---|---|
-| hook | v5 | `hook.invoke` | `host.model.complete`, `host.tools.execute` (по фазе invocation) |
-| tool exposure | v4 | `select` | — |
+| hook | v6 | `hook.invoke` | `host.model.complete`, `host.tools.execute` (по фазе invocation) |
 | policy | v2 | `evaluate`, `evaluate_visibility` | — |
 | context provider | v4 | `provide`, `catalog` | — |
 | tool | v6 | `list`, `invoke` | `host.model.complete`, `host.tools.execute`, `host.conversation.read`, `host.conversation.snapshot` |
@@ -416,9 +414,9 @@ identity даёт явную ошибку; эти данные не обязат
 права действуют для всех implementations, не объединяются с правами других exports.
 
 `ToolSpec` содержит обязательный boolean `supports_parallel_tool_calls`,
-независимый от `safety`. Он проходит через tool list, policy, tool exposure,
-canonical model request, workflow/preparation hooks, journal schema v19 и config
-snapshot v7. Rust
+независимый от `safety`. Он проходит через tool list, policy, selection hooks,
+canonical model request, workflow/preparation hooks, journal schema v20 и config
+snapshot v8. Rust
 constructor задаёт `false`, модуль обязан передать поле в JSON явно. Selector
 сохраняет зарегистрированное значение; несовпадение отклоняется. Старые
 версии этих contracts и ToolSpec без поля не принимаются. Wire остаётся v3;
@@ -609,8 +607,7 @@ reference-workflow       workflow
 reference-context        context
         │ host.context.provide
         ▼
-reference-capabilities   providers, policy, preparation hook,
-                         tool exposure, tools
+reference-capabilities   providers, policy, hooks, tools
 ```
 
 Один и тот же `proteus-reference-module` может запускаться несколько раз
@@ -737,7 +734,7 @@ Python examples доказывают независимость wire от Rust:
 - `examples/modules/agent-worker/agent.py`.
 
 JS/TS [`hook-process`](../../examples/modules/hook-process/README.md) использует
-тот же wire v3 с несколькими `hook/v5` exports, concurrent invocations и
+тот же wire v3 с несколькими `hook/v6` exports, concurrent invocations и
 адресной отменой через `AbortSignal`. SDK и porting helpers находятся внутри
 внешнего component; в Core нет language- или origin-specific пути исполнения.
 
@@ -853,11 +850,11 @@ event; это причина, а не команда Core повторить з�
 без завершения, сохраняя остальные
 ошибки данных и deadline отдельными. Codex workflow принимает решение о повторе
 с подтверждённой историей; preparation hook сохраняет свою политику повторов.
-Действуют `model/v12`, `workflow/v20`, `hook/v5`, `tool/v6` и journal schema v19,
+Действуют `model/v12`, `workflow/v20`, `hook/v6`, `tool/v6` и journal schema v20,
 без readers старых форм.
 Передача `ToolCall` в существующем `CanonicalMessage` не меняет wire/storage DTO.
 
-Journal schema v19 записывает `ModelMessageRecorded { exchange_id, message }`
+Journal schema v20 записывает `ModelMessageRecorded { exchange_id, message }`
 до доставки completed item и сохраняет полный `ModelFailure`; workflow replay
 воспроизводит последовательность completed items и возвращает тот же
 `kind`, текст и `completed_messages`. Ветвление workflow по типу ошибки прямого
@@ -923,17 +920,19 @@ invocation authority и проверяемого lifecycle — без второ
 
 ## Typed Hook Chain
 
-`hook/v5` имеет `composition=ordered_many`; host выбирает exact exports
+`hook/v6` имеет `composition=ordered_many`; host выбирает exact exports
 по `modules.hooks` в порядке config snapshot. Wire input содержит typed event,
 execution attribution и cwd; cancellation token остаётся host-only.
 Input также содержит обязательный nullable `conversation`: для
 conversation-bound before-model это read-only canonical history и model-context
-observations; before-context получает bound snapshot/revision; остальные
+observations; before-context получает bound snapshot/revision,
+before-tool-selection получает optional bound snapshot; остальные
 события/standalone передают `null`. Handler меняет только
 event, не snapshot; история и доступ к модели не требуются общим операциям.
 Общие model/tool callbacks разрешены по actionable phase; lifecycle
 notifications не запускают дочернюю работу. События: turn-start/end (best-effort notifications),
-before-context (typed preparation), before-model (messages/instructions), before-tool (block/args), after-tool (output),
+before-tool-selection (typed narrowing/reordering), before-context (typed preparation),
+before-model (messages/instructions), before-tool (block/args), after-tool (output),
 before-stop (bounded continuation того же root turn).
 Каждый mutating response валидируется до следующего handler. Идентичность,
 policy и effect status изменять нельзя. Pre-model/pre-tool failure не допускает
@@ -946,7 +945,7 @@ execution state в единственном shared mutable поле. Reload ме
 
 ### Completion Review И Workflow Continuation
 
-`hook/v5` включает `tool_arguments { args }` к before-tool и
+`hook/v6` включает `tool_arguments { args }` к before-tool и
 `continue_turn { reason }` к `before_stop`. Tool identity неизменна, изменённые
 args валидируются после каждого export до policy/approval; journal хранит
 исходный Requested и effective call в успешном trace/approval/resolution.

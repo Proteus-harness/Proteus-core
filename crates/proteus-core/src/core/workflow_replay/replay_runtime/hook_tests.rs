@@ -23,7 +23,6 @@ fn state(hooks: Vec<HookTrace>, tools: Vec<RecordedToolInvocation>) -> Arc<Repla
         tools,
         vec![],
         None,
-        Default::default(),
         &ReasoningConfig::default(),
         new_message_id(),
     ))
@@ -237,69 +236,71 @@ async fn recorded_order_must_match_the_snapshot_even_without_workers() {
     assert!(!state.summary().issues.is_empty());
 }
 
-#[test]
-fn pending_pre_model_request_is_available_without_a_recorded_exchange() {
+#[tokio::test]
+async fn exact_selection_replays_without_a_following_model_request() {
+    use crate::contracts::{ToolSelectionInput, ToolSelectionOutput, ToolSelectionRequest};
     let spec = crate::domain::ToolSpec::new(
         "fixture",
         "fixture",
         serde_json::json!({"type":"object"}),
         crate::domain::ToolSafety::ReadOnly,
     );
-    let template = crate::model_standard::CanonicalModelRequest::new(
-        crate::domain::ModelRef::new("fake", "fake"),
-        vec![],
-    )
-    .with_tools(vec![spec.clone()]);
-    let prepared = input(HookEvent::BeforeContext {
-        input: crate::contracts::ContextPreparationInput::new(vec![], Some(template)),
-        output: crate::contracts::ContextPreparationOutput::unchanged(vec![]),
-        target: None,
+    let before = input(HookEvent::BeforeToolSelection {
+        input: ToolSelectionInput::new(
+            ToolSelectionRequest::new(AgentTask::new("task", ".".into())).with_phase("review"),
+            vec![spec.clone()],
+        ),
+        output: ToolSelectionOutput::new(vec![spec.clone()]),
     });
-    // The review prepares with selected tools, then disables calls before
-    // sampling; selector telemetry is attached after preparation as well.
-    let mut request = crate::model_standard::CanonicalModelRequest::new(
-        crate::domain::ModelRef::new("fake", "fake"),
-        vec![],
-    );
-    request.metadata = serde_json::json!({"tool_exposure":{"selected":1}});
-    let before = input(HookEvent::BeforeModel {
-        origin: crate::contracts::ModelCallOrigin::Direct,
-        request: request.clone(),
+    let mut selected = ToolSelectionOutput::new(vec![]);
+    selected.metadata = serde_json::json!({"selected":0});
+    let response = HookResponse::ToolSelection {
+        output: selected.clone(),
+    };
+    let accepted = crate::contracts::apply_hook_response(&before.event, &response).unwrap();
+    let trace = HookTrace {
+        owner: crate::contracts::OperationOwner::Workflow,
+        input: before.clone(),
+        steps: vec![HookStep {
+            invocation_id: uuid::Uuid::new_v4(),
+            module_id: "selector".into(),
+            outcome: HookStepOutcome::Accepted { response },
+        }],
+        output: Some(accepted.clone()),
+    };
+    let state = state(vec![trace], vec![]);
+    let replay = ReplayHooks::new(state.clone(), vec!["selector".into()]);
+    assert_eq!(replay.apply(before.clone()).await.unwrap(), accepted);
+    assert!(state.summary().issues.is_empty());
+    assert!(replay.apply(before).await.is_err());
+}
+
+#[tokio::test]
+async fn no_hook_selection_still_consumes_exact_candidates() {
+    use crate::contracts::{ToolSelectionInput, ToolSelectionOutput, ToolSelectionRequest};
+    let before = input(HookEvent::BeforeToolSelection {
+        input: ToolSelectionInput::new(
+            ToolSelectionRequest::new(AgentTask::new("task", ".".into())),
+            vec![],
+        ),
+        output: ToolSelectionOutput::new(vec![]),
     });
-    let mut state = state(
-        vec![
-            HookTrace {
-                owner: crate::contracts::OperationOwner::Workflow,
-                input: prepared.clone(),
-                steps: vec![],
-                output: Some(prepared.event),
-            },
-            HookTrace {
-                owner: crate::contracts::OperationOwner::Workflow,
-                input: before,
-                steps: vec![HookStep {
-                    invocation_id: uuid::Uuid::new_v4(),
-                    module_id: "guard".into(),
-                    outcome: HookStepOutcome::Failed {
-                        model_failure: None,
-                        message: "stop".into(),
-                    },
-                }],
-                output: None,
-            },
-        ],
-        vec![],
-    );
-    Arc::get_mut(&mut state)
-        .unwrap()
-        .registered_tool_names
-        .insert(spec.name.clone());
-    assert_eq!(state.current_request().unwrap(), request);
-    let selection = state.tool_exposure().unwrap();
-    assert_eq!(selection.tools, vec![spec]);
-    assert_eq!(selection.metadata, request.metadata["tool_exposure"]);
-    state.lock().hooks[0].1 = true;
-    assert!(state.tool_exposure().unwrap().tools.is_empty());
+    let trace = HookTrace {
+        owner: crate::contracts::OperationOwner::Workflow,
+        input: before.clone(),
+        steps: vec![],
+        output: Some(before.event.clone()),
+    };
+    let state = state(vec![trace], vec![]);
+    let replay = ReplayHooks::new(state.clone(), vec![]);
+    let mut changed = before.clone();
+    let HookEvent::BeforeToolSelection { input, .. } = &mut changed.event else {
+        unreachable!()
+    };
+    input.request.phase = Some("different".into());
+    assert!(replay.apply(changed).await.is_err());
+    assert_eq!(replay.apply(before.clone()).await.unwrap(), before.event);
+    assert!(replay.apply(before).await.is_err());
 }
 
 #[tokio::test]

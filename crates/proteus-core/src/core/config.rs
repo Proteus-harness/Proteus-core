@@ -367,8 +367,6 @@ pub struct ModulesConfig {
     pub context: Option<String>,
     #[serde(default)]
     pub policy: Option<String>,
-    #[serde(default)]
-    pub tool_exposure: Option<String>,
 }
 
 impl Default for ModulesConfig {
@@ -378,7 +376,6 @@ impl Default for ModulesConfig {
             workflow: None,
             context: None,
             policy: None,
-            tool_exposure: None,
         }
     }
 }
@@ -409,7 +406,6 @@ impl ModulesConfig {
             ModuleKind::Workflow => self.workflow.as_deref(),
             ModuleKind::Context => self.context.as_deref(),
             ModuleKind::Policy => self.policy.as_deref(),
-            ModuleKind::ToolExposure => self.tool_exposure.as_deref(),
             ModuleKind::Model | ModuleKind::Tool => None,
             _ => None,
         }
@@ -430,7 +426,6 @@ impl ModulesConfig {
             ModuleKind::Workflow => self.workflow = Some(module_id),
             ModuleKind::Context => self.context = Some(module_id),
             ModuleKind::Policy => self.policy = Some(module_id),
-            ModuleKind::ToolExposure => self.tool_exposure = Some(module_id),
             ModuleKind::Model | ModuleKind::Tool => return false,
             _ => return false,
         }

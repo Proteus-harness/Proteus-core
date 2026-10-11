@@ -36,6 +36,9 @@ Core не должен знать детали конкретного поиск
 `rg_search`, `jsonl_memory`, `sqlite_memory`, `direct_patch` и `codex_patch` —
 имена implementations этих общих контрактов, а не отдельные слоты.
 Context builder не вызывает tool: provider — самостоятельный read-only export.
+Подготовка истории и отбор model-visible tools реализуются typed hooks
+`BeforeContext` и `BeforeToolSelection`; отдельных `compactor` и
+`tool_exposure` slots/export contracts нет.
 
 Текущие слоты остаются рабочей основой. При изменении общей границы исполнения
 не добавляйте обязательные conversation identity, history или model call:
@@ -73,7 +76,7 @@ Transport и cardinality не смешиваются. Host-defined process contr
 composition(contract) = select_one | ordered_many
 ```
 
-Behavior slots используют `select_one`, кроме typed `hook/v5` chain с
+Behavior slots используют `select_one`, кроме typed `hook/v6` chain с
 явным порядком `modules.hooks`. `ordered_many` допустим только для
 typed chain surface с одинаковой authority всех участников, явным порядком,
 повторной validation и отдельным slot-governance evidence. Module не может

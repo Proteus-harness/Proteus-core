@@ -28,6 +28,9 @@ def invoke(context, method, params):
         raise ProtocolError("unexpected runtime status")
     if context.host_call("host.tools.visible", {"cwd": params["task"]["cwd"]}):
         raise ProtocolError("unexpected tools")
+    selected = context.host_call("host.tools.select", {"request": {"task": params["task"], "cwd": params["task"]["cwd"], "phase": "private"}})
+    if selected != {"tools": [], "metadata": None}:
+        raise ProtocolError("unexpected standalone selection")
     context.host_call("host.context.build", {"task": params["task"]})
     private = [{"id": str(uuid.uuid4()), "role": "User", "phase": None,
                 "parts": [{"part_id": str(uuid.uuid4()), "provenance": "user", "scope": "conversation", "payload": {"Text": {"text": text}}}],

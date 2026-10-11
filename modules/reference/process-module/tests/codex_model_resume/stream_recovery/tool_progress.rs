@@ -137,7 +137,13 @@ async fn check(ending: Ending) {
     assert!(format!("{error:#}").contains(ending.message()), "{error:#}");
     server.await.unwrap();
     let effect = root.path().join("workspace").join(EFFECT_FILE);
-    assert_eq!(std::fs::read_to_string(&effect).unwrap(), EFFECT);
+    let completed_history = runtime.history().await;
+    assert_eq!(
+        std::fs::read_to_string(&effect).unwrap_or_else(|error| panic!(
+            "missing completed tool effect: {error}; history: {completed_history:?}"
+        )),
+        EFFECT
+    );
 
     let session_dir = runtime.session_dir().unwrap().to_owned();
     let projection = SessionStore::open(session_dir.clone())

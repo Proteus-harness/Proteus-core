@@ -18,7 +18,7 @@ Codex определяются в [roadmap.md](../product/roadmap.md).
 - `coding.codex_loop` берёт последнее непустое assistant message
   как terminal output.
 
-Действующие версии: `workflow/v20`, `hook/v5`, journal schema v19 и config snapshot v7.
+Действующие версии: `workflow/v20`, `hook/v6`, journal schema v20 и config snapshot v8.
 
 Upstream anchors среза: `codex-rs/protocol/src/models.rs`,
 `codex-rs/codex-api/src/sse/responses.rs`,
@@ -44,8 +44,9 @@ Proteus на upstream-shaped response. Они не запускают два п�
 ### Прямая Выдача Локальных Инструментов
 
 Codex-family profiles передают модели все policy-visible tools без
-дополнительного отбора по hot set. Ранее включённый `codex_dynamic` скрывал
-часть настроенных tools; workflow добавлял `proteus_tool_search`,
+дополнительного отбора по hot set. В собственных profiles эвристический
+selection hook `tool_selection.dynamic` скрывает часть настроенных tools;
+workflow добавляет `proteus_tool_search`,
 `proteus_tool_describe`, `proteus_tool_call` и инструкции их протокола.
 В текущих profiles этот selector не выбран, поэтому tools доступны напрямую.
 

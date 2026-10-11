@@ -1,16 +1,17 @@
+import { isDeepStrictEqual } from "node:util";
 import { frozenCopy, nonblank, object } from "./validation.mjs";
 
-const events = new Set(["turn_started", "before_context", "before_model", "before_tool", "after_tool", "before_stop", "turn_settled"]);
+const events = new Set(["turn_started", "before_tool_selection", "before_context", "before_model", "before_tool", "after_tool", "before_stop", "turn_settled"]);
 
 function responseFor(event, raw) {
   const response = raw === undefined ? { action: "continue" } : raw;
   const fields = {
-    continue: [], context_preparation: ["output"], model_context: ["messages", "instructions"],
+    continue: [], tool_selection: ["output"], context_preparation: ["output"], model_context: ["messages", "instructions"],
     block_tool: ["reason"], tool_output: ["output"], tool_arguments: ["args"], continue_turn: ["reason"],
   }[response?.action];
   if (!fields) throw new Error("unsupported hook action");
   object(response, ["action", ...fields], [], "hook response");
-  const permitted = { context_preparation: "before_context", model_context: "before_model", block_tool: "before_tool", tool_output: "after_tool", tool_arguments: "before_tool", continue_turn: "before_stop" };
+  const permitted = { tool_selection: "before_tool_selection", context_preparation: "before_context", model_context: "before_model", block_tool: "before_tool", tool_output: "after_tool", tool_arguments: "before_tool", continue_turn: "before_stop" };
   if (response.action !== "continue" && permitted[response.action] !== event.event) {
     throw new Error(`action ${response.action} is not allowed for ${event.event}`);
   }
@@ -25,6 +26,18 @@ function responseFor(event, raw) {
   if (response.action === "context_preparation" &&
       (!response.output || !Array.isArray(response.output.messages) || typeof response.output.changed !== "boolean")) {
     throw new Error("context preparation requires a typed output candidate");
+  }
+  if (response.action === "tool_selection") {
+    object(response.output, ["tools", "metadata"], [], "tool selection output");
+    if (!Array.isArray(response.output.tools)) throw new Error("tool selection requires tools array");
+    const preceding = new Map(event.output.tools.map((tool) => [tool.name, tool]));
+    const seen = new Set();
+    for (const tool of response.output.tools) {
+      if (seen.has(tool.name) || !preceding.has(tool.name) || !isDeepStrictEqual(tool, preceding.get(tool.name))) {
+        throw new Error("tool selection must narrow or reorder unchanged preceding tools");
+      }
+      seen.add(tool.name);
+    }
   }
   return structuredClone(response);
 }
@@ -77,7 +90,7 @@ export function createHooks(settings = {}) {
         if (response.action === "continue") continue;
         final = response;
         if (["block_tool", "continue_turn"].includes(response.action)) break;
-        if (response.action === "context_preparation") event.output = response.output;
+        if (["context_preparation", "tool_selection"].includes(response.action)) event.output = response.output;
         if (response.action === "tool_arguments") { event.call.args = response.args; event.call.raw_arguments = null; }
         if (response.action === "tool_output") event.result.output = response.output;
         if (response.action === "model_context") {

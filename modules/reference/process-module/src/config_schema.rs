@@ -6,7 +6,7 @@ pub(crate) fn describe(slot: &str, id: &str, config: &Value) -> Option<ModuleCon
         "model" => model_pack::adapters::config_schema::config_schema(config),
         "context" => context_pack::config_schema(id),
         "workflow" => coding_workflow::config_schema(id),
-        "tool_exposure" => codex_tool_exposure::config_schema(),
+        "hook" if id == "tool_selection.dynamic" => tool_selection_hook::config_schema(),
         "policy" => policy_pack::config_schema(id),
         "hook" if id == "codex_compact" => codex_context_preparation::config_schema(),
         "hook" => hook_pack::config_schema(id),

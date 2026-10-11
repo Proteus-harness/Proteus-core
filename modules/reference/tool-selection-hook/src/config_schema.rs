@@ -1,6 +1,6 @@
 use proteus_contracts::domain::{ConfigField, ConfigValueSchema, ModuleConfigSchema};
 pub fn config_schema() -> ModuleConfigSchema {
-    let defaults = crate::config::CodexDynamicConfig::default();
+    let defaults = crate::config::DynamicSelectionConfig::default();
     ModuleConfigSchema {
         fields: vec![
             ConfigField::new(

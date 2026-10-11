@@ -26,7 +26,7 @@ use fixture::load_fixture;
 use normalize::changed_compactions_equal;
 use replay_runtime::{
     ReplayApprovalTransport, ReplayContextBuilder, ReplayContextPreparation, ReplayHooks,
-    ReplayModel, ReplayState, ReplayToolExposure, register_replay_tools,
+    ReplayModel, ReplayState, register_replay_tools,
 };
 
 /// Replays one recorded root turn through its selected Workflow module.
@@ -62,23 +62,43 @@ pub async fn replay_workflow(
     })?;
     let started = Instant::now();
 
-    let specs = fixture
+    let mut specs = fixture
         .snapshot
         .tools
         .iter()
         .map(|tool| (tool.spec.clone(), tool.model_visible))
         .collect::<Vec<_>>();
-    let registered_tool_names = specs
-        .iter()
-        .map(|(tool, _)| tool.name.clone())
-        .collect::<HashSet<_>>();
+    // Selection records prove the complete policy-visible candidate set, including
+    // tools omitted from the model request and never invoked during this turn.
+    for trace in &fixture.hooks {
+        if let HookEvent::BeforeToolSelection { input, .. } = &trace.input.event {
+            for spec in &input.candidates {
+                if let Some((registered, visible)) = specs
+                    .iter_mut()
+                    .find(|(registered, _)| registered.name == spec.name)
+                {
+                    anyhow::ensure!(
+                        registered == spec,
+                        "recorded tool selection candidate conflicts with registered schema: {}",
+                        spec.name
+                    );
+                    anyhow::ensure!(
+                        *visible,
+                        "recorded tool selection exposed private tool: {}",
+                        spec.name
+                    );
+                } else {
+                    specs.push((spec.clone(), true));
+                }
+            }
+        }
+    }
     let state = Arc::new(ReplayState::new(
         fixture.exchanges.clone(),
         fixture.hooks.clone(),
         fixture.tools.clone(),
         fixture.compactions.clone(),
         fixture.context.clone(),
-        registered_tool_names,
         &fixture.snapshot.reasoning,
         fixture
             .initial_history
@@ -126,8 +146,9 @@ pub async fn replay_workflow(
         state.clone(),
         fixture.snapshot.modules.hooks.clone(),
     ));
-    let approval: Arc<dyn crate::contracts::ApprovalTransport> =
-        Arc::new(ReplayApprovalTransport::new(state.clone()));
+    let approval: Arc<dyn crate::contracts::ApprovalTransport> = Arc::new(
+        ReplayApprovalTransport::new(state.clone(), fixture.snapshot.approval_available),
+    );
     let tool_authority = crate::core::BoundTools::new(
         tools.clone(),
         policy.clone(),
@@ -190,7 +211,6 @@ pub async fn replay_workflow(
             state.clone(),
             fixture.snapshot.modules.hooks.clone(),
         )),
-        Arc::new(ReplayToolExposure::new(state.clone())),
         None,
     )
     .with_tool_recorder(checkpoint_recorder.clone())

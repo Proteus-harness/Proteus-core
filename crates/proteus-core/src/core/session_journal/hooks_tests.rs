@@ -169,3 +169,64 @@ fn spec_metadata_marker_does_not_disable_persisted_argument_validation() {
     };
     assert!(validate_trace(&record, &trace).is_err());
 }
+
+#[tokio::test]
+async fn selection_journal_requires_full_candidate_seed_even_without_hook_handlers() {
+    use crate::contracts::{ToolSelectionInput, ToolSelectionOutput, ToolSelectionRequest};
+    let config = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    let store = SessionStore::new(config.path(), workspace.path(), new_session_id()).unwrap();
+    let spec = ToolSpec::new(
+        "unused",
+        "never called",
+        json!({"type":"object"}),
+        ToolSafety::ReadOnly,
+    );
+    let input = HookInput {
+        conversation: None,
+        attribution: ExecutionAttribution::detached(new_execution_id()),
+        cwd: workspace.path().into(),
+        event: HookEvent::BeforeToolSelection {
+            input: ToolSelectionInput::new(
+                ToolSelectionRequest::new(crate::domain::AgentTask::new(
+                    "select",
+                    workspace.path().into(),
+                )),
+                vec![spec.clone()],
+            ),
+            output: ToolSelectionOutput::new(vec![spec]),
+        },
+    };
+    let trace = HookTrace {
+        owner: crate::contracts::OperationOwner::Workflow,
+        input: input.clone(),
+        steps: vec![],
+        output: Some(input.event),
+    };
+    store
+        .append_execution_journal_entry(
+            trace.input.attribution,
+            JournalEntry::HookInvoked(trace.clone()),
+        )
+        .await
+        .unwrap();
+    assert_eq!(store.load_projection().unwrap().records.len(), 1);
+    let mut changed = trace;
+    let HookEvent::BeforeToolSelection { output, .. } = &mut changed.input.event else {
+        unreachable!()
+    };
+    output.tools.clear();
+    changed.output = Some(changed.input.event.clone());
+    let error = store
+        .append_execution_journal_entry(
+            changed.input.attribution,
+            JournalEntry::HookInvoked(changed),
+        )
+        .await
+        .unwrap_err();
+    assert!(
+        format!("{error:#}").contains("all bound candidates"),
+        "{error:#}"
+    );
+    assert_eq!(store.load_records().unwrap().len(), 1);
+}

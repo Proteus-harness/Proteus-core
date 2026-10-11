@@ -249,11 +249,15 @@ async fn admitted_turn_freezes_registry_and_effective_settings_until_settlement(
     next_assembly
         .registry_mut()
         .replace_model_for_test(Arc::new(LabeledModel("provider-b")));
-    let next_config_snapshot = SessionConfigSnapshot::from_runtime_config(
+    let mut next_config_snapshot = SessionConfigSnapshot::from_runtime_config(
         &next_config,
         next_assembly.registry(),
         PermissionMode::Normal,
+        runtime.approval_available(),
     );
+    // Admission must refresh the actual transport fact, even when supplied
+    // reload metadata incorrectly describes an interactive environment.
+    next_config_snapshot.approval_available = true;
     runtime
         .reload_assembly(next_assembly, Some(next_config_snapshot))
         .await
@@ -327,4 +331,6 @@ async fn admitted_turn_freezes_registry_and_effective_settings_until_settlement(
     assert_eq!(recorded_b.model, Some(observations[1].model_ref.clone()));
     assert_eq!(recorded_b.reasoning, observations[1].reasoning);
     assert_eq!(recorded_b.permission_mode_default, PermissionMode::Plan);
+    assert!(!recorded_a.approval_available);
+    assert!(!recorded_b.approval_available);
 }

@@ -20,7 +20,6 @@ pub enum ModuleKind {
     Context,
     Tool,
     Policy,
-    ToolExposure,
     Workflow,
     Hook,
 }
@@ -76,7 +75,6 @@ pub mod slot {
     pub const CONTEXT: SlotId = Cow::Borrowed(ModuleKind::Context.as_str());
     pub const TOOL: SlotId = Cow::Borrowed(ModuleKind::Tool.as_str());
     pub const POLICY: SlotId = Cow::Borrowed(ModuleKind::Policy.as_str());
-    pub const TOOL_EXPOSURE: SlotId = Cow::Borrowed(ModuleKind::ToolExposure.as_str());
     pub const HOOK: SlotId = Cow::Borrowed(ModuleKind::Hook.as_str());
     pub const WORKFLOW: SlotId = Cow::Borrowed(ModuleKind::Workflow.as_str());
 }
@@ -88,12 +86,11 @@ pub mod slot {
 /// namespace. `Tool` обозначает concrete tool registrations, а не выбираемый
 /// behavior slot с ключом `modules.tool`.
 impl ModuleKind {
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 6] = [
         Self::Model,
         Self::Context,
         Self::Tool,
         Self::Policy,
-        Self::ToolExposure,
         Self::Workflow,
         Self::Hook,
     ];
@@ -104,7 +101,6 @@ impl ModuleKind {
             Self::Context => "context",
             Self::Tool => "tool",
             Self::Policy => "policy",
-            Self::ToolExposure => "tool_exposure",
             Self::Workflow => "workflow",
             Self::Hook => "hook",
         }

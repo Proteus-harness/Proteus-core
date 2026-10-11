@@ -4,14 +4,13 @@ use proteus_contracts::{
     contracts::{
         CONTEXT_HOST_PROVIDER_METHOD, ExecutionAttribution, PROCESS_CONTEXT_BUILD_METHOD,
         PROCESS_CONTEXT_PROVIDER_METHOD, PROCESS_HOOK_INVOKE_METHOD,
-        PROCESS_POLICY_EVALUATE_METHOD, PROCESS_TOOL_EXPOSURE_SELECT_METHOD,
-        PROCESS_TOOL_INVOKE_METHOD, PROCESS_TOOL_LIST_METHOD, PROCESS_WORKFLOW_METHOD,
-        ProcessContextChunksResponse, ProcessContextInput, ProcessContextProviderInput,
-        ProcessContextProviderRequest, ProcessContextResponse, ProcessHookResponse,
-        ProcessPolicyEvaluateInput, ProcessPolicyResponse, ProcessToolExposureInput,
-        ProcessToolExposureResponse, ProcessToolInvokeInput, ProcessToolInvokeResponse,
-        ProcessToolListResponse, ProcessWorkflowInput, ProcessWorkflowResponse,
-        ProcessWorkflowRuntimeInfo, ToolExposureInput, ToolExposureOutput, ToolExposureRequest,
+        PROCESS_POLICY_EVALUATE_METHOD, PROCESS_TOOL_INVOKE_METHOD, PROCESS_TOOL_LIST_METHOD,
+        PROCESS_WORKFLOW_METHOD, ProcessContextChunksResponse, ProcessContextInput,
+        ProcessContextProviderInput, ProcessContextProviderRequest, ProcessContextResponse,
+        ProcessHookResponse, ProcessPolicyEvaluateInput, ProcessPolicyResponse,
+        ProcessToolInvokeInput, ProcessToolInvokeResponse, ProcessToolListResponse,
+        ProcessWorkflowInput, ProcessWorkflowResponse, ProcessWorkflowRuntimeInfo,
+        ToolSelectionInput, ToolSelectionOutput, ToolSelectionRequest,
         WORKFLOW_HOST_BUILD_CONTEXT_METHOD, WORKFLOW_HOST_COMPLETE_MODEL_METHOD,
         WORKFLOW_HOST_EMIT_EVENT_METHOD, WORKFLOW_HOST_PREPARE_CONTEXT_METHOD,
         WORKFLOW_HOST_RUNTIME_STATUS_METHOD, WORKFLOW_HOST_SELECT_TOOLS_METHOD,
@@ -43,6 +42,19 @@ use serde_json::{Value, json};
 mod policy;
 
 const TIMEOUT: Duration = Duration::from_secs(10);
+
+fn selection_hook_input(
+    workspace: &Path,
+    input: ToolSelectionInput,
+) -> proteus_contracts::contracts::HookInput {
+    let output = ToolSelectionOutput::new(input.candidates.clone());
+    proteus_contracts::contracts::HookInput {
+        event: proteus_contracts::contracts::HookEvent::BeforeToolSelection { input, output },
+        attribution: ExecutionAttribution::detached(new_execution_id()),
+        cwd: workspace.into(),
+        conversation: None,
+    }
+}
 
 fn worker_spec(workspace: &Path) -> ProcessSpec {
     ProcessSpec::new(env!("CARGO_BIN_EXE_proteus-reference-module")).cwd(workspace)
@@ -161,7 +173,7 @@ fn all_reference_exports_share_a_component_and_route_over_one_broker() {
         ("context", "codex_context"),
         ("context_provider", "skills"),
         ("hook", "codex_compact"),
-        ("tool_exposure", "codex_dynamic"),
+        ("hook", "tool_selection.dynamic"),
         ("hook", "hook.instructions"),
         ("hook", "hook.output_budget"),
         ("policy", "allow_all"),
@@ -229,6 +241,14 @@ fn all_reference_exports_share_a_component_and_route_over_one_broker() {
                 output: proteus_contracts::contracts::ContextPreparationOutput::unchanged(vec![]),
                 target: None,
             }
+        } else if target.module_id == "tool_selection.dynamic" {
+            HookEvent::BeforeToolSelection {
+                input: ToolSelectionInput::new(
+                    ToolSelectionRequest::new(AgentTask::new("select", workspace.path().into())),
+                    vec![],
+                ),
+                output: ToolSelectionOutput::new(vec![]),
+            }
         } else if target.module_id == "hook.instructions" {
             HookEvent::BeforeModel {
                 origin: ModelCallOrigin::Direct,
@@ -264,6 +284,7 @@ fn all_reference_exports_share_a_component_and_route_over_one_broker() {
                 assert!(messages.is_empty());
                 assert_eq!(instructions.last().unwrap().text, "Verify assumptions");
             }
+            HookResponse::ToolSelection { output } => assert!(output.tools.is_empty()),
             HookResponse::ToolOutput { output } => assert_eq!(output, "аёж"),
             HookResponse::ContextPreparation { output } => {
                 assert!(!output.changed);
@@ -276,9 +297,9 @@ fn all_reference_exports_share_a_component_and_route_over_one_broker() {
         .iter()
         .find(|target| target.slot == "policy" && target.module_id == "allow_all")
         .unwrap();
-    let exposure_target = targets
+    let selection_target = targets
         .iter()
-        .find(|target| target.slot == "tool_exposure" && target.module_id == "codex_dynamic")
+        .find(|target| target.slot == "hook" && target.module_id == "tool_selection.dynamic")
         .unwrap();
 
     let policy_input = ProcessPolicyEvaluateInput {
@@ -307,13 +328,14 @@ fn all_reference_exports_share_a_component_and_route_over_one_broker() {
         serde_json::from_value(policy_result).expect("policy response");
     assert!(matches!(policy_result.result, PolicyDecision::Allow));
 
-    let exposure_result = session
+    let selection_result = session
         .invoke_blocking(
-            exposure_target,
-            PROCESS_TOOL_EXPOSURE_SELECT_METHOD,
-            serde_json::to_value(ProcessToolExposureInput {
-                input: ToolExposureInput::new(
-                    ToolExposureRequest::new(AgentTask::new(
+            selection_target,
+            PROCESS_HOOK_INVOKE_METHOD,
+            serde_json::to_value(selection_hook_input(
+                workspace.path(),
+                ToolSelectionInput::new(
+                    ToolSelectionRequest::new(AgentTask::new(
                         "read the file",
                         workspace.path().to_path_buf(),
                     )),
@@ -324,17 +346,22 @@ fn all_reference_exports_share_a_component_and_route_over_one_broker() {
                         ToolSafety::ReadOnly,
                     )],
                 ),
-            })
-            .expect("tool exposure input"),
+            ))
+            .expect("tool selection input"),
             TIMEOUT,
         )
-        .expect("tool exposure invocation");
-    let ProcessModuleTerminal::Success(exposure_result) = exposure_result else {
-        panic!("tool exposure export did not succeed")
+        .expect("tool selection invocation");
+    let ProcessModuleTerminal::Success(selection_result) = selection_result else {
+        panic!("tool selection export did not succeed")
     };
-    let exposure_result: ProcessToolExposureResponse =
-        serde_json::from_value(exposure_result).expect("tool exposure response");
-    assert_eq!(exposure_result.result.tools.len(), 1);
+    let selection_result: ProcessHookResponse =
+        serde_json::from_value(selection_result).expect("tool selection response");
+    let proteus_contracts::contracts::HookResponse::ToolSelection { output } =
+        selection_result.result
+    else {
+        panic!("expected tool selection")
+    };
+    assert_eq!(output.tools.len(), 1);
 }
 
 #[test]
@@ -597,23 +624,24 @@ fn search_patch_and_memory_round_trip_canonical_dtos() {
 }
 
 #[test]
-fn policy_exposure_provider_and_compactor_execute_in_worker() {
+fn policy_selection_provider_and_preparation_execute_in_worker() {
     let workspace = tempfile::tempdir().expect("workspace");
 
     policy::exercise_policy_contexts(workspace.path());
 
-    let exposure = connect(
+    let selection = connect(
         workspace.path(),
-        "tool_exposure",
-        "codex_dynamic",
+        "hook",
+        "tool_selection.dynamic",
         json!({"max_hot_tools":1,"always_include":["probe_9"]}),
     );
-    let selected: ProcessToolExposureResponse = invoke(
-        &exposure,
-        PROCESS_TOOL_EXPOSURE_SELECT_METHOD,
-        serde_json::to_value(ProcessToolExposureInput {
-            input: ToolExposureInput::new(
-                ToolExposureRequest::new(AgentTask::new(
+    let selected: ProcessHookResponse = invoke(
+        &selection,
+        PROCESS_HOOK_INVOKE_METHOD,
+        serde_json::to_value(selection_hook_input(
+            workspace.path(),
+            ToolSelectionInput::new(
+                ToolSelectionRequest::new(AgentTask::new(
                     "read the file",
                     workspace.path().to_path_buf(),
                 )),
@@ -628,11 +656,15 @@ fn policy_exposure_provider_and_compactor_execute_in_worker() {
                     })
                     .collect(),
             ),
-        })
-        .expect("exposure input"),
+        ))
+        .expect("selection input"),
     );
-    assert_eq!(selected.result.tools.len(), 1);
-    assert_eq!(selected.result.tools[0].name, "probe_9");
+    let proteus_contracts::contracts::HookResponse::ToolSelection { output } = selected.result
+    else {
+        panic!("expected tool selection")
+    };
+    assert_eq!(output.tools.len(), 1);
+    assert_eq!(output.tools[0].name, "probe_9");
 
     let provider = connect(workspace.path(), "context_provider", "skills", json!({}));
     let chunks: ProcessContextChunksResponse = invoke(
@@ -801,7 +833,7 @@ fn dispatch_workflow_callback(
                 .map_err(|error| ProcessModuleRpcError::new(-32602, error.to_string()))?;
             encode_callback(ContextBundle::new(Vec::new()))
         }
-        WORKFLOW_HOST_SELECT_TOOLS_METHOD => encode_callback(ToolExposureOutput::new(Vec::new())),
+        WORKFLOW_HOST_SELECT_TOOLS_METHOD => encode_callback(ToolSelectionOutput::new(Vec::new())),
         WORKFLOW_HOST_VISIBLE_TOOLS_METHOD => encode_callback(Vec::<ToolSpec>::new()),
         WORKFLOW_HOST_PREPARE_CONTEXT_METHOD => {
             let input: WorkflowPrepareContextRequest = serde_json::from_value(request.params)

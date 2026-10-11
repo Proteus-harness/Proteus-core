@@ -28,6 +28,7 @@ use crate::{
 
 mod compaction;
 mod model_free;
+mod selection;
 mod terminal;
 mod typed_failures;
 
@@ -422,6 +423,7 @@ fn snapshot(spec: &ToolSpec) -> SessionConfigSnapshot {
             model_visible: true,
         }],
         permission_mode_default: PermissionMode::Normal,
+        approval_available: true,
     }
 }
 

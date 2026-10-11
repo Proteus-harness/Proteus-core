@@ -664,7 +664,6 @@ async fn init_codex_writes_loadable_config_with_runtime_fragment() {
         config.module_config_value(ModuleKind::Context, "codex_context")["providers"],
         serde_json::json!(["project_instructions", "skills", "environment"])
     );
-    assert!(config.modules.tool_exposure.is_none());
     assert!(dir.path().join("prompts/codex-default.md").exists());
     assert!(dir.path().join("prompts/codex-explore.md").exists());
     assert!(dir.path().join("prompts/codex-coder.md").exists());
@@ -795,9 +794,9 @@ fn doctor_counts_resolved_module_config_tool_references() {
         .expect("mcp server config"),
     );
     config.module_config.insert(
-        "tool_exposure".to_owned(),
+        "hook".to_owned(),
         std::collections::BTreeMap::from([(
-            "codex_dynamic".to_owned(),
+            "tool_selection.dynamic".to_owned(),
             serde_json::json!({ "always_include": ["playwright__browser_navigate"] }),
         )]),
     );
