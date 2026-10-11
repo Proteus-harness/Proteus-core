@@ -5,7 +5,7 @@ use gpui_kit::component::*;
 use gpui_kit::*;
 
 use super::SettingsView;
-use super::widgets::{MenuOption, Tone, card, chip, row, section, select_menu};
+use super::widgets::{MenuOption, Tone, card, chip, mono, note, row, section, select_menu};
 use crate::preferences::BadgePlace;
 use crate::ui::extensions::{self, Manifest};
 use crate::ui::prefs;
@@ -18,7 +18,7 @@ const BADGE_PLACES: [(BadgePlace, &str); 3] = [
 
 impl SettingsView {
     pub(super) fn extensions_page(&self, cx: &Context<Self>) -> Vec<AnyElement> {
-        let installed = extensions::CATALOG
+        let installed = extensions::catalog()
             .iter()
             .enumerate()
             .map(|(ix, manifest)| extension_row(ix, manifest, cx).into_any_element())
@@ -38,8 +38,40 @@ impl SettingsView {
             )
             .into_any_element(),
         );
+        parts.push(installed_folder(cx).into_any_element());
         parts
     }
+}
+
+/// Where folder extensions live and which of them did not load.
+fn installed_folder(cx: &App) -> Div {
+    let folder = crate::declarative::manifest::root().map_or_else(
+        || "папка настроек не найдена".to_string(),
+        |root| root.display().to_string(),
+    );
+    let mut rows = vec![
+        note(
+            "Расширение — папка с extension.json и программой, которая рисует свои \
+             панели виджетами. Изменения подхватываются при следующем запуске клиента.",
+            cx,
+        )
+        .into_any_element(),
+        div()
+            .px_4()
+            .pb_3()
+            .child(mono(folder, cx))
+            .into_any_element(),
+    ];
+    rows.extend(extensions::problems().iter().map(|problem| {
+        v_flex()
+            .px_4()
+            .py_3()
+            .gap_1()
+            .child(chip(problem.dir.display().to_string(), Tone::Danger, cx))
+            .child(div().text_sm().child(problem.error.clone()))
+            .into_any_element()
+    }));
+    section("Из папки", None, None, card(rows, cx), cx)
 }
 
 fn extension_row(ix: usize, manifest: &'static Manifest, cx: &App) -> Div {
@@ -50,7 +82,11 @@ fn extension_row(ix: usize, manifest: &'static Manifest, cx: &App) -> Div {
     let title = h_flex()
         .gap_2()
         .flex_wrap()
-        .child((manifest.icon)().small().text_color(theme.muted_foreground))
+        .child(
+            Icon::new(manifest.icon)
+                .small()
+                .text_color(theme.muted_foreground),
+        )
         .child(div().text_sm().child(manifest.title))
         .children(
             manifest

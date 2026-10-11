@@ -17,13 +17,12 @@ impl Workspace {
             .collect();
         self.badges
             .retain(|id, _| visible.iter().any(|manifest| manifest.id == *id));
-        let host = Host::new(cx.weak_entity());
         for manifest in visible {
             let Some(badge) = &manifest.badge else {
                 continue;
             };
             if !self.badges.contains_key(manifest.id) {
-                let view = (badge.build)(host.clone(), window, cx);
+                let view = (badge.build)(Host::new(cx.weak_entity(), manifest.id), window, cx);
                 self.badges.insert(manifest.id, view);
             }
         }

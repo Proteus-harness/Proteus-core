@@ -31,6 +31,14 @@ pub struct Api {
 }
 
 impl Api {
+    pub fn origin(&self) -> &str {
+        &self.origin
+    }
+
+    pub fn token(&self) -> &str {
+        &self.token
+    }
+
     pub fn new(origin: &str, token: &str) -> Self {
         let agent = ureq::Agent::config_builder()
             .http_status_as_error(false)

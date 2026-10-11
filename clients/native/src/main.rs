@@ -2,6 +2,7 @@ mod api;
 mod assets;
 mod backend;
 mod connection;
+mod declarative;
 mod files;
 mod graphics;
 mod launch;

@@ -47,6 +47,48 @@ python3 clients/native/scripts/portable.py --debug   # быстрее собра
   `--remove` убирает ярлык;
 - `bin/` — клиент, сервер агента и reference-модуль одной сборки.
 
+## Расширения без пересборки
+
+Расширение — папка `~/.config/dev.proteus.native/extensions/<id>/` с
+`extension.json` и любой программой. Клиент находит такие папки при запуске
+и рисует присланные программой виджеты сам; ошибки манифестов видны в
+настройках клиента («Расширения → Из папки»).
+
+```json
+{
+  "id": "sessions-overview",
+  "title": "Обзор сессий",
+  "description": "Пример",
+  "icon": "chart",
+  "command": ["python3", "main.py"],
+  "surfaces": {
+    "panel": { "title": "Обзор" },
+    "document": {},
+    "badge": { "place": "header" }
+  }
+}
+```
+
+`id` совпадает с именем папки; нужна хотя бы одна поверхность. Программа
+запускается в своей папке при первом показе поверхности и общается JSON
+строками через stdin/stdout (`protocol: 1`):
+
+- клиент → программа: `hello` (`workspace`, `server.origin`,
+  `server.token`), `render` (`view`, `surface`, `argument`, `session_dir`),
+  `close`, `action` (`view`, `action`, `value`), `event`
+  (`session_opened` / `run_settled`, `session_dir`);
+- программа → клиент: `view` (`view`, `root` — дерево виджетов) и
+  `open_document` (`argument`).
+
+Данные агента программа берёт сама через HTTP API сервера по `origin` и
+`token`; клиент не пробрасывает ей своих внутренних состояний. Виджеты
+(`type`): `stack`, `card`, `text`, `metric`, `progress`, `table`,
+`bar_chart`, `tabs`, `list`, `button`, `badge`, `divider`; тона `default`,
+`muted`, `accent`, `success`, `warning`, `danger`. Схема — `src/declarative`.
+Пример: `examples/extensions/sessions-overview` (достаточно symlink в папку
+расширений). Если процесс упал, поверхность показывает stderr и кнопку
+перезапуска.
+
 Устройство:
 
 - `transcript` — headless модель ленты: snapshot и live fold runtime

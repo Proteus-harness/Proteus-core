@@ -45,7 +45,7 @@ pub(super) fn info(tab: &str, cx: &App) -> Option<PanelInfo> {
     Some(PanelInfo {
         id: tab.to_string(),
         title: manifest.panel.as_ref()?.title,
-        icon: (manifest.icon)(),
+        icon: Icon::new(manifest.icon),
     })
 }
 
@@ -68,7 +68,8 @@ impl Workspace {
         if let Some(view) = self.panels.get(manifest.id) {
             return Some(view.clone());
         }
-        let view = (manifest.panel.as_ref()?.build)(Host::new(cx.weak_entity()), window, cx);
+        let view =
+            (manifest.panel.as_ref()?.build)(Host::new(cx.weak_entity(), manifest.id), window, cx);
         self.panels.insert(manifest.id, view.clone());
         Some(view)
     }

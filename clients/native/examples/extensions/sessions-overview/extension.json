@@ -1,0 +1,12 @@
+{
+  "id": "sessions-overview",
+  "title": "Обзор сессий",
+  "description": "Пример расширения: сессии рабочей папки и счётчик нажатий.",
+  "icon": "chart",
+  "command": ["python3", "main.py"],
+  "surfaces": {
+    "panel": { "title": "Обзор" },
+    "document": {},
+    "badge": { "place": "header" }
+  }
+}

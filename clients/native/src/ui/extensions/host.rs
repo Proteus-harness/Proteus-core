@@ -18,6 +18,7 @@ use crate::ui::workspace::Workspace;
 #[derive(Clone)]
 pub(in crate::ui) struct Host {
     workspace: WeakEntity<Workspace>,
+    extension: &'static str,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -31,8 +32,21 @@ pub(in crate::ui) enum HostEvent {
 impl EventEmitter<HostEvent> for Workspace {}
 
 impl Host {
-    pub(in crate::ui) fn new(workspace: WeakEntity<Workspace>) -> Self {
-        Self { workspace }
+    pub(in crate::ui) fn new(workspace: WeakEntity<Workspace>, extension: &'static str) -> Self {
+        Self {
+            workspace,
+            extension,
+        }
+    }
+
+    /// Id of the extension this host was handed to.
+    pub(in crate::ui) fn extension(&self) -> &'static str {
+        self.extension
+    }
+
+    /// Folder the agent works in.
+    pub(in crate::ui) fn workspace_path(&self, cx: &App) -> Option<PathBuf> {
+        self.read(cx, |host| host.workspace.workspace_path.clone())
     }
 
     pub(in crate::ui) fn read<R>(&self, cx: &App, read: impl FnOnce(&HostView) -> R) -> Option<R> {

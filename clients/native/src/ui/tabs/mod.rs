@@ -66,7 +66,12 @@ impl Workspace {
         }
         let (manifest, argument) = extensions::document(id, cx)?;
         let surface = manifest.document.as_ref()?;
-        let view = (surface.build)(Host::new(cx.weak_entity()), &argument, window, cx);
+        let view = (surface.build)(
+            Host::new(cx.weak_entity(), manifest.id),
+            &argument,
+            window,
+            cx,
+        );
         self.documents.insert(id.to_string(), view.clone());
         Some(view)
     }

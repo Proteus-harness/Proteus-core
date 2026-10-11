@@ -6,6 +6,7 @@
 //! arrange their icons; the choice is a client preference.
 
 mod badge;
+mod declarative;
 mod files;
 mod host;
 mod quota;
@@ -14,8 +15,8 @@ mod session_info;
 mod shared;
 
 use gpui_kit::assets::IconName as Lucide;
-use gpui_kit::component::{Icon, IconName};
 use gpui_kit::*;
+use std::sync::OnceLock;
 
 pub(super) use badge::DraggedBadge;
 pub(super) use host::{Host, HostEvent, OpenDocument};
@@ -69,96 +70,115 @@ pub(super) struct Manifest {
     pub id: &'static str,
     pub title: &'static str,
     pub description: &'static str,
-    pub icon: fn() -> Icon,
+    pub icon: Lucide,
     pub panel: Option<PanelSurface>,
     pub document: Option<DocumentSurface>,
     /// Icon under the composer or in the tab bar.
     pub badge: Option<BadgeSurface>,
 }
 
-pub(super) static CATALOG: [Manifest; 6] = [
-    Manifest {
-        id: session_info::CONTEXT,
-        title: "Контекст",
-        description: "Заполненность контекста модели и порог автокомпакта.",
-        icon: || Icon::new(Lucide::Layers),
-        panel: None,
-        document: None,
-        badge: Some(BadgeSurface {
-            build: session_badges::build_context,
-            place: BadgePlace::Composer,
-        }),
-    },
-    Manifest {
-        id: session_info::PLAN,
-        title: "План",
-        description: "Шаги текущего плана агента.",
-        icon: || Icon::new(Lucide::ListChecks),
-        panel: None,
-        document: None,
-        badge: Some(BadgeSurface {
-            build: session_badges::build_plan,
-            place: BadgePlace::Composer,
-        }),
-    },
-    Manifest {
-        id: quota::ID,
-        title: "Лимиты модели",
-        description: "Остаток лимитов у провайдера модели.",
-        icon: || Icon::new(Lucide::Gauge),
-        panel: None,
-        document: None,
-        badge: Some(BadgeSurface {
-            build: quota::build_badge,
-            place: BadgePlace::Composer,
-        }),
-    },
-    Manifest {
-        id: files::ID,
-        title: "Файлы",
-        description: "Дерево рабочей папки и изменения git на панели, файлы во вкладках.",
-        icon: || Icon::new(Lucide::FolderTree),
-        panel: Some(PanelSurface {
+fn builtin() -> [Manifest; 6] {
+    [
+        Manifest {
+            id: session_info::CONTEXT,
+            title: "Контекст",
+            description: "Заполненность контекста модели и порог автокомпакта.",
+            icon: Lucide::Layers,
+            panel: None,
+            document: None,
+            badge: Some(BadgeSurface {
+                build: session_badges::build_context,
+                place: BadgePlace::Composer,
+            }),
+        },
+        Manifest {
+            id: session_info::PLAN,
+            title: "План",
+            description: "Шаги текущего плана агента.",
+            icon: Lucide::ListChecks,
+            panel: None,
+            document: None,
+            badge: Some(BadgeSurface {
+                build: session_badges::build_plan,
+                place: BadgePlace::Composer,
+            }),
+        },
+        Manifest {
+            id: quota::ID,
+            title: "Лимиты модели",
+            description: "Остаток лимитов у провайдера модели.",
+            icon: Lucide::Gauge,
+            panel: None,
+            document: None,
+            badge: Some(BadgeSurface {
+                build: quota::build_badge,
+                place: BadgePlace::Composer,
+            }),
+        },
+        Manifest {
+            id: files::ID,
             title: "Файлы",
-            build: files::build_panel,
-        }),
-        document: Some(DocumentSurface {
-            build: files::build_document,
-            label: files::document_label,
-        }),
-        badge: Some(BadgeSurface {
-            build: files::build_badge,
-            place: BadgePlace::Header,
-        }),
-    },
-    Manifest {
-        id: session_info::SESSION,
-        title: "Сессия",
-        description: "Статус, число сообщений и ожидающие запросы.",
-        icon: || Icon::new(IconName::Info),
-        panel: None,
-        document: None,
-        badge: Some(BadgeSurface {
-            build: session_badges::build_session,
-            place: BadgePlace::Hidden,
-        }),
-    },
-    Manifest {
-        id: session_info::AGENT,
-        title: "Агент",
-        description: "Профиль, модель, режим и инструменты сессии.",
-        icon: || Icon::new(IconName::Bot),
-        panel: None,
-        document: None,
-        badge: Some(BadgeSurface {
-            build: session_badges::build_agent,
-            place: BadgePlace::Header,
-        }),
-    },
-];
+            description: "Дерево рабочей папки и изменения git на панели, файлы во вкладках.",
+            icon: Lucide::FolderTree,
+            panel: Some(PanelSurface {
+                title: "Файлы",
+                build: files::build_panel,
+            }),
+            document: Some(DocumentSurface {
+                build: files::build_document,
+                label: files::document_label,
+            }),
+            badge: Some(BadgeSurface {
+                build: files::build_badge,
+                place: BadgePlace::Header,
+            }),
+        },
+        Manifest {
+            id: session_info::SESSION,
+            title: "Сессия",
+            description: "Статус, число сообщений и ожидающие запросы.",
+            icon: Lucide::Info,
+            panel: None,
+            document: None,
+            badge: Some(BadgeSurface {
+                build: session_badges::build_session,
+                place: BadgePlace::Hidden,
+            }),
+        },
+        Manifest {
+            id: session_info::AGENT,
+            title: "Агент",
+            description: "Профиль, модель, режим и инструменты сессии.",
+            icon: Lucide::Bot,
+            panel: None,
+            document: None,
+            badge: Some(BadgeSurface {
+                build: session_badges::build_agent,
+                place: BadgePlace::Header,
+            }),
+        },
+    ]
+}
+
+static CATALOG: OnceLock<Vec<Manifest>> = OnceLock::new();
+
+/// Built-in extensions followed by the installed ones; read once per run.
+pub(super) fn catalog() -> &'static [Manifest] {
+    CATALOG.get_or_init(|| {
+        let mut all = Vec::from(builtin());
+        let taken: Vec<&str> = all.iter().map(|manifest| manifest.id).collect();
+        all.extend(declarative::manifests(&taken));
+        all
+    })
+}
+
+/// Installed extension folders that failed to load, and where they live.
+pub(super) fn problems() -> &'static [crate::declarative::manifest::Problem] {
+    declarative::problems()
+}
 
 pub(super) fn find(id: &str) -> Option<&'static Manifest> {
-    CATALOG.iter().find(|manifest| manifest.id == id)
+    catalog().iter().find(|manifest| manifest.id == id)
 }
 
 pub(super) fn is_enabled(id: &str, cx: &App) -> bool {
@@ -167,7 +187,7 @@ pub(super) fn is_enabled(id: &str, cx: &App) -> bool {
 
 /// Ids of extensions with an icon, in catalog order.
 pub(super) fn badge_ids() -> Vec<&'static str> {
-    CATALOG
+    catalog()
         .iter()
         .filter(|manifest| manifest.badge.is_some())
         .map(|manifest| manifest.id)
@@ -198,7 +218,7 @@ pub(super) fn visible_badges(place: BadgePlace, cx: &App) -> Vec<&'static Manife
 
 /// Enabled extensions with a panel, in catalog order.
 pub(super) fn visible_panels(cx: &App) -> Vec<&'static Manifest> {
-    CATALOG
+    catalog()
         .iter()
         .filter(|manifest| manifest.panel.is_some() && is_enabled(manifest.id, cx))
         .collect()
@@ -224,7 +244,7 @@ mod tests {
 
     #[test]
     fn documents_never_look_like_chats_or_panels() {
-        for manifest in &super::CATALOG {
+        for manifest in super::catalog() {
             let id = tabs::document(manifest.id, "x");
             assert!(!tabs::is_chat(&id), "extension `{}`", manifest.id);
             assert!(!tabs::is_panel(&id), "extension `{}`", manifest.id);

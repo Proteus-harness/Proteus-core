@@ -47,7 +47,7 @@ fn host_badge(host: Host, id: &'static str, read: Read, cx: &mut App) -> AnyView
 fn icon_face(id: &'static str) -> Face {
     Rc::new(move || {
         div()
-            .children(super::find(id).map(|manifest| (manifest.icon)().small()))
+            .children(super::find(id).map(|manifest| Icon::new(manifest.icon).small()))
             .into_any_element()
     })
 }
