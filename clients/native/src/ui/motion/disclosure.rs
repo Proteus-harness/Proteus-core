@@ -89,9 +89,15 @@ pub(in crate::ui) fn reveal(
         .and_then(|toggles| toggles.0.get(&key).copied())
         .filter(|toggle| toggle.open == open && toggle.tween.running(now));
     match running {
+        // The reveal lays its child out on its own; without a full width the
+        // child shrinks to its content and widens only once the reveal ends.
         Some(toggle) => Some(
-            MotionReveal::new(ElementId::Name(key), toggle.progress(now), content())
-                .into_any_element(),
+            MotionReveal::new(
+                ElementId::Name(key),
+                toggle.progress(now),
+                div().w_full().child(content()).into_any_element(),
+            )
+            .into_any_element(),
         ),
         None => open.then(content),
     }

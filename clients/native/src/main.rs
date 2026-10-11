@@ -1,6 +1,5 @@
 mod analytics;
 mod api;
-mod assets;
 mod attention;
 mod backend;
 mod connection;
@@ -41,7 +40,7 @@ fn main() {
     };
 
     gpui_kit::application()
-        .with_assets(assets::AppAssets)
+        .with_assets(gpui_kit::assets::AllAssets)
         .run(move |cx| {
             gpui_kit::init(cx);
             ui::init(cx);
