@@ -1,0 +1,121 @@
+use std::path::PathBuf;
+
+use gpui_kit::*;
+use proteus_contracts::app_protocol::AppSessionActivity;
+
+use crate::api::Api;
+use crate::ui::workspace::{Session, Workspace};
+
+/// What an extension gets from the client: read access to the open session,
+/// the server API, host events and navigation. It holds no strong reference,
+/// so extensions never keep the workspace alive.
+///
+/// Reads must happen outside workspace updates: views read it while
+/// rendering or from event handlers, never from their constructors (defer
+/// the first load instead).
+#[derive(Clone)]
+pub(in crate::ui) struct Host {
+    workspace: WeakEntity<Workspace>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::ui) enum HostEvent {
+    /// Another session became current.
+    SessionOpened,
+    /// A run of the current session finished; files and quotas may differ.
+    RunSettled,
+    /// The side panel was opened.
+    PanelOpened,
+}
+
+impl EventEmitter<HostEvent> for Workspace {}
+
+impl Host {
+    pub(in crate::ui) fn new(workspace: WeakEntity<Workspace>) -> Self {
+        Self { workspace }
+    }
+
+    pub(in crate::ui) fn read<R>(&self, cx: &App, read: impl FnOnce(&HostView) -> R) -> Option<R> {
+        let workspace = self.workspace.upgrade()?;
+        Some(read(&HostView {
+            workspace: workspace.read(cx),
+        }))
+    }
+
+    pub(in crate::ui) fn api(&self, cx: &App) -> Option<Api> {
+        self.read(cx, |host| host.workspace.api()).flatten()
+    }
+
+    pub(in crate::ui) fn session_dir(&self, cx: &App) -> Option<PathBuf> {
+        self.read(cx, |host| host.session().map(|session| session.dir.clone()))
+            .flatten()
+    }
+
+    /// Calls `on_event` for every host event while `cx`'s entity lives.
+    pub(in crate::ui) fn subscribe<T: 'static>(
+        &self,
+        cx: &mut Context<T>,
+        mut on_event: impl FnMut(&mut T, HostEvent, &mut Context<T>) + 'static,
+    ) -> Option<Subscription> {
+        let workspace = self.workspace.upgrade()?;
+        Some(
+            cx.subscribe(&workspace, move |this, _, event: &HostEvent, cx| {
+                on_event(this, *event, cx)
+            }),
+        )
+    }
+
+    /// Like [`Host::subscribe`], for views that need the window.
+    pub(in crate::ui) fn subscribe_in<T: 'static>(
+        &self,
+        window: &Window,
+        cx: &mut Context<T>,
+        mut on_event: impl FnMut(&mut T, HostEvent, &mut Window, &mut Context<T>) + 'static,
+    ) -> Option<Subscription> {
+        let workspace = self.workspace.upgrade()?;
+        Some(cx.subscribe_in(
+            &workspace,
+            window,
+            move |this, _, event: &HostEvent, window, cx| on_event(this, *event, window, cx),
+        ))
+    }
+
+    /// Shows an extension page in place of the chat and returns its view.
+    pub(in crate::ui) fn open_page(
+        &self,
+        id: &'static str,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Option<AnyView> {
+        self.workspace
+            .update(cx, |workspace, cx| workspace.open_page(id, window, cx))
+            .ok()
+            .flatten()
+    }
+}
+
+/// Read-only view of the workspace for one call of [`Host::read`].
+pub(in crate::ui) struct HostView<'a> {
+    workspace: &'a Workspace,
+}
+
+impl HostView<'_> {
+    pub(in crate::ui) fn session(&self) -> Option<&Session> {
+        self.workspace.session.as_ref()
+    }
+
+    /// Server-side activity of the current session.
+    pub(in crate::ui) fn activity(&self) -> Option<&AppSessionActivity> {
+        let session = self.session()?;
+        self.workspace
+            .sessions
+            .iter()
+            .find(|summary| summary.session_dir == session.dir)?
+            .activity
+            .as_ref()
+    }
+
+    pub(in crate::ui) fn panel_open(&self) -> bool {
+        self.workspace.panel.open
+    }
+}

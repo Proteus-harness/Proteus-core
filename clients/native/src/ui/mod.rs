@@ -2,8 +2,10 @@ mod actions;
 mod composer;
 mod context_usage;
 mod controls;
+mod extensions;
 mod format;
 mod motion;
+mod pages;
 mod panel;
 mod prefs;
 mod requests;
@@ -31,7 +33,9 @@ gpui_kit::actions!(
         ToggleInfoPanel,
         NewSession,
         NextSettingsPage,
-        PreviousSettingsPage
+        PreviousSettingsPage,
+        NextTab,
+        PreviousTab
     ]
 );
 
@@ -45,7 +49,10 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("ctrl-n", NewSession, None),
         KeyBinding::new("alt-down", NextSettingsPage, Some(SETTINGS_CONTEXT)),
         KeyBinding::new("alt-up", PreviousSettingsPage, Some(SETTINGS_CONTEXT)),
+        KeyBinding::new("ctrl-tab", NextTab, None),
+        KeyBinding::new("ctrl-shift-tab", PreviousTab, None),
     ]);
+    extensions::bind_keys(cx);
 }
 
 impl Render for Workspace {
@@ -53,6 +60,7 @@ impl Render for Workspace {
         let theme = cx.theme();
         let root = h_flex()
             .size_full()
+            .track_focus(&self.focus_handle)
             .bg(theme.background)
             .text_color(theme.foreground)
             .on_action(cx.listener(|this, _: &ToggleSettings, window, cx| {
@@ -71,7 +79,11 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &NewSession, window, cx| {
                 this.new_session(cx);
                 this.focus_composer(window, cx);
-            }));
+            }))
+            .on_action(cx.listener(|this, _: &NextTab, window, cx| this.step_tab(1, window, cx)))
+            .on_action(
+                cx.listener(|this, _: &PreviousTab, window, cx| this.step_tab(-1, window, cx)),
+            );
         match &self.status {
             Status::Starting => root.child(centered(
                 h_flex()
@@ -103,7 +115,7 @@ impl Render for Workspace {
                     .size_full()
                     .child(self.render_sidebar(cx))
                     .child(self.render_main(window, cx))
-                    .children(self.render_panel(cx)),
+                    .children(self.render_panel(window, cx)),
                 "chat-screen",
             )),
         }
@@ -153,6 +165,12 @@ impl Workspace {
     fn render_main(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_window_title(window);
         let main = v_flex().flex_1().min_w_0().h_full();
+        if let Some((id, view)) = self.current_page(cx) {
+            return main.child(self.render_header(cx)).child(motion::rise_in(
+                div().flex_1().min_h_0().child(view),
+                ElementId::Name(format!("page-{id}").into()),
+            ));
+        }
         let renderer = cx.processor(|this, ix: usize, window, cx| this.render_row(ix, window, cx));
         // A new id per session replays the fade when switching sessions.
         let thread_id = ElementId::NamedInteger("thread-enter".into(), self.session_key());
@@ -222,6 +240,7 @@ impl Workspace {
                     .child(Spinner::new().xsmall())
                     .child(label)
             }))
+            .children(self.render_page_tabs(cx))
             .child(
                 Button::new("toggle-panel")
                     .ghost()

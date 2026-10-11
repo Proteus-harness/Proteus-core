@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
@@ -15,6 +15,7 @@ use proteus_contracts::app_protocol::{
 use proteus_contracts::domain::{Event as RuntimeEvent, ThreadId};
 
 use super::context_usage::ContextUsage;
+use super::extensions::{HostEvent, PageView};
 use super::motion::Recent;
 use super::panel::InfoPanel;
 use super::prefs::ClientPreferences;
@@ -114,6 +115,10 @@ pub struct Workspace {
     pub(super) settings: Option<Entity<SettingsView>>,
     pub(super) settings_subscription: Option<Subscription>,
     pub(super) panel: InfoPanel,
+    /// Extension pages built so far and the one shown instead of the chat.
+    pub(super) pages: HashMap<&'static str, PageView>,
+    pub(super) page: Option<&'static str>,
+    pub(super) focus_handle: FocusHandle,
     pump: Option<Task<()>>,
     _startup: Task<()>,
     _subscriptions: Vec<Subscription>,
@@ -186,6 +191,9 @@ impl Workspace {
             settings: None,
             settings_subscription: None,
             panel: InfoPanel::default(),
+            pages: HashMap::new(),
+            page: None,
+            focus_handle: cx.focus_handle(),
             pump: None,
             _startup: startup,
             _subscriptions: subscriptions,
@@ -250,6 +258,7 @@ impl Workspace {
             .update(cx, |scroller, cx| scroller.reset(0, cx));
         self.load_config(cx);
         self.load_context(cx);
+        cx.emit(HostEvent::SessionOpened);
 
         let events = connection::spawn_pump(api, dir);
         self.pump = Some(cx.spawn(async move |this, cx| {
@@ -346,7 +355,7 @@ impl Workspace {
                 if settled {
                     self.refresh_sessions(cx);
                     self.load_context(cx);
-                    self.load_quota(cx);
+                    cx.emit(HostEvent::RunSettled);
                 }
                 Change::None
             }

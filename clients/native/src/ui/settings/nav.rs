@@ -32,6 +32,7 @@ fn page_icon(page: &PageId) -> Icon {
         PageId::History => Icon::new(Lucide::Clock),
         PageId::Appearance => Icon::new(IconName::Palette),
         PageId::Chat => Icon::new(Lucide::MessageSquare),
+        PageId::Extensions => Icon::new(Lucide::Puzzle),
     }
 }
 

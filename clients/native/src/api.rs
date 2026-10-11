@@ -20,6 +20,8 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
+use crate::files::{Changes, FileContent, FileDiff, Listing};
+
 /// Blocking HTTP client for the app server; call it off the UI thread.
 #[derive(Clone)]
 pub struct Api {
@@ -167,9 +169,24 @@ impl Api {
         }
     }
 
-    /// Opens the session event stream; blocks until the server answers.
     pub fn config_builder(&self, session_dir: &Path) -> Result<ConfigBuilderSnapshot> {
         self.get("/config/builder", Some(session_dir))
+    }
+
+    pub fn workspace_list(&self, session_dir: &Path, path: &str) -> Result<Listing> {
+        self.get_with("/workspace/list", Some(session_dir), &[("path", path)])
+    }
+
+    pub fn workspace_file(&self, session_dir: &Path, path: &str) -> Result<FileContent> {
+        self.get_with("/workspace/file", Some(session_dir), &[("path", path)])
+    }
+
+    pub fn workspace_changes(&self, session_dir: &Path) -> Result<Changes> {
+        self.get("/workspace/changes", Some(session_dir))
+    }
+
+    pub fn workspace_diff(&self, session_dir: &Path, path: &str) -> Result<FileDiff> {
+        self.get_with("/workspace/diff", Some(session_dir), &[("path", path)])
     }
 
     pub fn config_history(&self, session_dir: &Path) -> Result<ConfigHistory> {
@@ -197,6 +214,7 @@ impl Api {
         Ok(serde_json::from_str(&text)?)
     }
 
+    /// Opens the session event stream; blocks until the server answers.
     pub fn events(&self, session_dir: &Path) -> Result<EventStream> {
         let response = self
             .agent
@@ -220,12 +238,24 @@ impl Api {
     }
 
     fn get<T: DeserializeOwned>(&self, path: &str, session_dir: Option<&Path>) -> Result<T> {
+        self.get_with(path, session_dir, &[])
+    }
+
+    fn get_with<T: DeserializeOwned>(
+        &self,
+        path: &str,
+        session_dir: Option<&Path>,
+        query: &[(&str, &str)],
+    ) -> Result<T> {
         let mut request = self
             .agent
             .get(format!("{}{path}", self.origin))
             .header("Authorization", format!("Bearer {}", self.token));
         if let Some(dir) = session_dir {
             request = request.query("session_dir", dir.to_string_lossy());
+        }
+        for (key, value) in query {
+            request = request.query(*key, *value);
         }
         let response = request.call()?;
         let status = response.status();

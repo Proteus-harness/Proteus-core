@@ -3,6 +3,7 @@
 
 mod client;
 mod editors;
+mod extensions;
 mod fields;
 mod frame;
 mod hooks;

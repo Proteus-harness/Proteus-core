@@ -61,6 +61,7 @@ impl SettingsView {
             PageId::History => self.history_page(cx),
             PageId::Appearance => self.appearance_page(cx),
             PageId::Chat => self.chat_page(cx),
+            PageId::Extensions => self.extensions_page(cx),
         };
         let key = format!("{:?}", self.page);
         let column = v_flex()

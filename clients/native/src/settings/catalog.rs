@@ -36,11 +36,12 @@ pub enum PageId {
     History,
     Appearance,
     Chat,
+    Extensions,
 }
 
 impl PageId {
     pub fn is_agent(&self) -> bool {
-        !matches!(self, Self::Appearance | Self::Chat)
+        !matches!(self, Self::Appearance | Self::Chat | Self::Extensions)
     }
 }
 
@@ -119,7 +120,7 @@ pub fn agent_pages(snapshot: &ConfigBuilderSnapshot) -> Vec<PageId> {
     pages
 }
 
-pub const CLIENT_PAGES: [PageId; 2] = [PageId::Appearance, PageId::Chat];
+pub const CLIENT_PAGES: [PageId; 3] = [PageId::Appearance, PageId::Chat, PageId::Extensions];
 
 pub fn page_title(snapshot: Option<&ConfigBuilderSnapshot>, page: &PageId) -> String {
     match page {
@@ -137,6 +138,7 @@ pub fn page_title(snapshot: Option<&ConfigBuilderSnapshot>, page: &PageId) -> St
         PageId::History => "History".into(),
         PageId::Appearance => "Внешний вид".into(),
         PageId::Chat => "Чат".into(),
+        PageId::Extensions => "Расширения".into(),
     }
 }
 
@@ -168,6 +170,9 @@ pub fn page_description(snapshot: Option<&ConfigBuilderSnapshot>, page: &PageId)
         }
         PageId::Appearance => "Тема и анимации интерфейса. Сохраняются на этом устройстве.",
         PageId::Chat => "Отправка сообщений. Сохраняется на этом устройстве.",
+        PageId::Extensions => {
+            "Виджеты боковой панели и страницы рядом с чатом. Сохраняются на этом устройстве."
+        }
     };
     text.to_string()
 }

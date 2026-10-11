@@ -11,13 +11,18 @@ gpui_kit::assets::icon_assets!(
     [
         Brain,
         Clock,
+        FolderTree,
+        Gauge,
+        GitCompare,
         GripVertical,
         Layers,
+        ListChecks,
         MessageSquare,
         Package,
         Puzzle,
         Shield,
         Shrink,
+        StickyNote,
         Webhook,
         Workflow,
         Wrench

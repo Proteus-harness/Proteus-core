@@ -1,49 +1,82 @@
+use std::time::Duration;
+
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::progress::Progress;
 use gpui_kit::component::*;
 use gpui_kit::*;
 use proteus_contracts::contracts::{ModelQuotaBucket, ModelQuotaSnapshot};
 
-use super::{muted, row};
+use super::frame::{is_open, muted, row, widget_frame};
+use super::host::{Host, HostEvent};
 use crate::ui::format::local_time;
-use crate::ui::workspace::Workspace;
 
+pub(super) const ID: &str = "quota";
 const WEEK_SECONDS: u64 = 604_800;
+const REFRESH: Duration = Duration::from_secs(60);
 
-#[derive(Default)]
-pub(super) struct QuotaState {
+/// Model quota of the active profile. It is refreshed only while the panel
+/// is visible: when it opens, by timer and after runs.
+pub(super) struct QuotaWidget {
+    host: Host,
     /// `Some(None)`: the active provider reports no quota.
     loaded: Option<Option<ModelQuotaSnapshot>>,
     error: Option<String>,
     loading: bool,
+    _timer: Task<()>,
+    _events: Option<Subscription>,
 }
 
-impl Workspace {
-    /// Quota belongs to the profile, so it is refreshed only while the panel
-    /// is visible: on open, by timer and after runs.
-    pub(in crate::ui) fn load_quota(&mut self, cx: &mut Context<Self>) {
-        if !self.panel.open || self.panel.quota.loading {
+pub(super) fn build(host: Host, window: &mut Window, cx: &mut App) -> AnyView {
+    cx.new(|cx| {
+        let events = host.subscribe(cx, |this: &mut QuotaWidget, event, cx| {
+            if event != HostEvent::SessionOpened {
+                this.refresh(cx);
+            }
+        });
+        let timer = cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(REFRESH).await;
+                if this.update(cx, |this, cx| this.refresh(cx)).is_err() {
+                    break;
+                }
+            }
+        });
+        cx.defer_in(window, |this, _, cx| this.refresh(cx));
+        QuotaWidget {
+            host,
+            loaded: None,
+            error: None,
+            loading: false,
+            _timer: timer,
+            _events: events,
+        }
+    })
+    .into()
+}
+
+impl QuotaWidget {
+    fn refresh(&mut self, cx: &mut Context<Self>) {
+        let visible = self.host.read(cx, |host| host.panel_open()) == Some(true);
+        if self.loading || !visible {
             return;
         }
-        let (Some(api), Some(dir)) = (self.api(), self.session.as_ref().map(|s| s.dir.clone()))
-        else {
+        let (Some(api), Some(dir)) = (self.host.api(cx), self.host.session_dir(cx)) else {
             return;
         };
-        self.panel.quota.loading = true;
+        self.loading = true;
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
                 .spawn(async move { api.model_quota(&dir) })
                 .await;
             this.update(cx, |this, cx| {
-                let quota = &mut this.panel.quota;
-                quota.loading = false;
+                this.loading = false;
                 match result {
                     Ok(snapshot) => {
-                        quota.loaded = Some(snapshot);
-                        quota.error = None;
+                        this.loaded = Some(snapshot);
+                        this.error = None;
                     }
-                    Err(error) => quota.error = Some(format!("{error:#}")),
+                    Err(error) => this.error = Some(format!("{error:#}")),
                 }
                 cx.notify();
             })
@@ -53,21 +86,17 @@ impl Workspace {
         cx.notify();
     }
 
-    pub(super) fn quota_section(&self, cx: &Context<Self>) -> (Option<SharedString>, AnyElement) {
-        let quota = &self.panel.quota;
-        let snapshot = quota.loaded.as_ref().and_then(Option::as_ref);
-        let summary = snapshot
-            .and_then(weekly_remaining)
-            .map(|left| format!("осталось {}", percent(left)).into());
+    fn body(&self, cx: &Context<Self>) -> AnyElement {
+        let snapshot = self.loaded.as_ref().and_then(Option::as_ref);
         let theme = cx.theme();
-        let content = match &quota.loaded {
-            None if quota.error.is_none() => muted("Загрузка…", cx).into_any_element(),
+        let content = match &self.loaded {
+            None if self.error.is_none() => muted("Загрузка…", cx).into_any_element(),
             None => div().into_any_element(),
             Some(None) => muted("Текущий провайдер не предоставляет сведения о лимитах.", cx)
                 .into_any_element(),
             Some(Some(snapshot)) => render_snapshot(snapshot, cx).into_any_element(),
         };
-        let status = match (&quota.error, snapshot) {
+        let status = match (&self.error, snapshot) {
             (Some(error), _) => div()
                 .text_xs()
                 .text_color(theme.danger)
@@ -78,22 +107,38 @@ impl Workspace {
                 .child(format!("Данные на {}", local_time(snapshot.observed_at))),
             (None, None) => div(),
         };
-        let body = v_flex().gap_2().child(content).child(
-            h_flex()
-                .gap_2()
-                .items_center()
-                .child(status.flex_1().min_w_0())
-                .child(
-                    Button::new("quota-refresh")
-                        .ghost()
-                        .xsmall()
-                        .icon(IconName::RefreshCw)
-                        .tooltip("Обновить")
-                        .loading(quota.loading)
-                        .on_click(cx.listener(|this, _, _, cx| this.load_quota(cx))),
-                ),
-        );
-        (summary, body.into_any_element())
+        v_flex()
+            .gap_2()
+            .child(content)
+            .child(
+                h_flex()
+                    .gap_2()
+                    .items_center()
+                    .child(status.flex_1().min_w_0())
+                    .child(
+                        Button::new("quota-refresh")
+                            .ghost()
+                            .xsmall()
+                            .icon(IconName::RefreshCw)
+                            .tooltip("Обновить")
+                            .loading(self.loading)
+                            .on_click(cx.listener(|this, _, _, cx| this.refresh(cx))),
+                    ),
+            )
+            .into_any_element()
+    }
+}
+
+impl Render for QuotaWidget {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let summary = self
+            .loaded
+            .as_ref()
+            .and_then(Option::as_ref)
+            .and_then(weekly_remaining)
+            .map(|left| format!("осталось {}", percent(left)).into());
+        let body = is_open(ID, cx).then(|| self.body(cx));
+        widget_frame(ID, "Лимиты модели".into(), summary, body, cx)
     }
 }
 

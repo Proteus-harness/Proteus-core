@@ -19,7 +19,7 @@ pub fn init(cx: &mut App) {
         Ok(value) => (value, None),
         Err(error) => (Preferences::default(), Some(format!("{error:#}"))),
     };
-    apply(&value, cx);
+    apply(&value, None, cx);
     cx.set_global(ClientPreferences { value, problem });
 }
 
@@ -29,9 +29,13 @@ pub fn current(cx: &App) -> &Preferences {
 
 /// Applies the change right away and stores it on this device.
 pub fn update(cx: &mut App, change: impl FnOnce(&mut Preferences)) {
-    let mut value = current(cx).clone();
+    let previous = current(cx).clone();
+    let mut value = previous.clone();
     change(&mut value);
-    apply(&value, cx);
+    if value == previous {
+        return;
+    }
+    apply(&value, Some(&previous), cx);
     let problem = preferences::save(&value)
         .err()
         .map(|error| format!("Не сохранено: {error:#}"));
@@ -40,11 +44,13 @@ pub fn update(cx: &mut App, change: impl FnOnce(&mut Preferences)) {
     global.problem = problem;
 }
 
-fn apply(value: &Preferences, cx: &mut App) {
-    match value.theme {
-        ThemePreference::System => Theme::sync_system_appearance(None, cx),
-        ThemePreference::Dark => Theme::change(ThemeMode::Dark, None, cx),
-        ThemePreference::Light => Theme::change(ThemeMode::Light, None, cx),
+fn apply(value: &Preferences, previous: Option<&Preferences>, cx: &mut App) {
+    if previous.is_none_or(|previous| previous.theme != value.theme) {
+        match value.theme {
+            ThemePreference::System => Theme::sync_system_appearance(None, cx),
+            ThemePreference::Dark => Theme::change(ThemeMode::Dark, None, cx),
+            ThemePreference::Light => Theme::change(ThemeMode::Light, None, cx),
+        }
     }
     super::motion::set_level(value.motion);
     cx.set_reduce_motion(value.motion == MotionPreference::Off);

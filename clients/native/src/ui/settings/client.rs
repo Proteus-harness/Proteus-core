@@ -78,7 +78,7 @@ impl SettingsView {
         parts
     }
 
-    fn preferences_problem(&self, cx: &Context<Self>) -> Vec<AnyElement> {
+    pub(super) fn preferences_problem(&self, cx: &Context<Self>) -> Vec<AnyElement> {
         cx.global::<ClientPreferences>()
             .problem
             .clone()

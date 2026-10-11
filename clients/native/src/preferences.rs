@@ -38,6 +38,74 @@ pub struct Preferences {
     pub theme: ThemePreference,
     pub motion: MotionPreference,
     pub send: SendMode,
+    pub extensions: ExtensionPreferences,
+}
+
+/// Which client extensions are on, and how their panel widgets are arranged.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ExtensionPreferences {
+    pub disabled: Vec<String>,
+    pub panel_order: Vec<String>,
+    pub collapsed: Vec<String>,
+}
+
+impl ExtensionPreferences {
+    pub fn is_enabled(&self, id: &str) -> bool {
+        !self.disabled.iter().any(|disabled| disabled == id)
+    }
+
+    pub fn set_enabled(&mut self, id: &str, enabled: bool) {
+        self.disabled.retain(|disabled| disabled != id);
+        if !enabled {
+            self.disabled.push(id.to_string());
+        }
+    }
+
+    pub fn is_collapsed(&self, id: &str) -> bool {
+        self.collapsed.iter().any(|collapsed| collapsed == id)
+    }
+
+    pub fn toggle_collapsed(&mut self, id: &str) {
+        if self.is_collapsed(id) {
+            self.collapsed.retain(|collapsed| collapsed != id);
+        } else {
+            self.collapsed.push(id.to_string());
+        }
+    }
+
+    /// `known` ids in the saved order; ids the order does not mention yet
+    /// follow in catalog order.
+    pub fn ordered<'a>(&self, known: &[&'a str]) -> Vec<&'a str> {
+        let mut ordered: Vec<&'a str> = self
+            .panel_order
+            .iter()
+            .filter_map(|id| known.iter().find(|known| *known == id).copied())
+            .collect();
+        for id in known {
+            if !ordered.contains(id) {
+                ordered.push(id);
+            }
+        }
+        ordered
+    }
+
+    /// Moves `id` in front of `before`, or to the end without it.
+    pub fn move_before(&mut self, known: &[&str], id: &str, before: Option<&str>) {
+        if before == Some(id) {
+            return;
+        }
+        let mut ordered = self.ordered(known);
+        let Some(from) = ordered.iter().position(|item| *item == id) else {
+            return;
+        };
+        let item = ordered.remove(from);
+        let to = before
+            .and_then(|before| ordered.iter().position(|item| *item == before))
+            .unwrap_or(ordered.len());
+        ordered.insert(to, item);
+        self.panel_order = ordered.into_iter().map(str::to_string).collect();
+    }
 }
 
 fn path() -> Option<PathBuf> {
@@ -68,4 +136,46 @@ pub fn save(preferences: &Preferences) -> Result<()> {
     }
     let text = serde_json::to_string_pretty(preferences)?;
     fs::write(&path, text).with_context(|| format!("failed to write {}", path.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ExtensionPreferences;
+
+    const KNOWN: [&str; 3] = ["context", "plan", "notes"];
+
+    #[test]
+    fn widgets_reorder_and_new_ones_follow() {
+        let mut extensions = ExtensionPreferences::default();
+        assert_eq!(extensions.ordered(&KNOWN), KNOWN);
+
+        extensions.move_before(&KNOWN, "notes", Some("context"));
+        assert_eq!(extensions.ordered(&KNOWN), ["notes", "context", "plan"]);
+        extensions.move_before(&KNOWN, "notes", None);
+        assert_eq!(extensions.ordered(&KNOWN), KNOWN);
+
+        extensions.move_before(&KNOWN, "context", Some("notes"));
+        assert_eq!(extensions.ordered(&KNOWN), ["plan", "context", "notes"]);
+        extensions.move_before(&KNOWN, "plan", Some("plan"));
+        assert_eq!(extensions.ordered(&KNOWN), ["plan", "context", "notes"]);
+
+        // An extension added later joins at the end; a removed one is skipped.
+        assert_eq!(
+            extensions.ordered(&["notes", "quota", "plan"]),
+            ["plan", "notes", "quota"]
+        );
+    }
+
+    #[test]
+    fn switches_and_collapsing_toggle() {
+        let mut extensions = ExtensionPreferences::default();
+        extensions.set_enabled("files", false);
+        assert!(!extensions.is_enabled("files"));
+        extensions.set_enabled("files", true);
+        assert!(extensions.is_enabled("files") && extensions.disabled.is_empty());
+        extensions.toggle_collapsed("plan");
+        assert!(extensions.is_collapsed("plan"));
+        extensions.toggle_collapsed("plan");
+        assert!(!extensions.is_collapsed("plan"));
+    }
 }
