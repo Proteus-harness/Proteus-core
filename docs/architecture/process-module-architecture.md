@@ -383,6 +383,10 @@ Canonical source:
 `crates/proteus-module-protocol/src/authority.rs`. Изменение таблицы требует
 DTO, adapter, protocol/conformance и swap evidence в одном commit.
 
+Предложение общих model/tool callbacks для hooks/tools и подготовки рабочей
+истории описано в [hook-tool-operations.md](hook-tool-operations.md). Оно ещё
+не реализовано и не изменяет эту таблицу authority или действующие версии.
+
 `tool/v5` возвращает из `list` definitions
 `{ spec: ToolSpec, model_visible: boolean, user_command: ToolUserCommand | null }`.
 Все поля обязательны, включая явный nullable `user_command`; bare ToolSpec и
