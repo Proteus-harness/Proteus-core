@@ -111,6 +111,26 @@ pub(super) fn balance(children: &mut [Child]) {
     }
 }
 
+/// Gives the share of each dropped weighted child (`None`) to its nearest
+/// weighted sibling, the one before it first, so that closing a pane
+/// widens its neighbour and leaves the other panes where they are.
+pub(super) fn hand_over<T>(entries: &mut [(Size, Option<T>)]) {
+    for ix in 0..entries.len() {
+        let (Size::Weight(freed), None) = &entries[ix] else {
+            continue;
+        };
+        let freed = *freed;
+        let takes = |entry: &(Size, Option<T>)| entry.1.is_some() && !entry.0.is_fixed();
+        let before = (0..ix).rev().find(|&at| takes(&entries[at]));
+        let after = || (ix + 1..entries.len()).find(|&at| takes(&entries[at]));
+        if let Some(heir) = before.or_else(after)
+            && let Size::Weight(weight) = &mut entries[heir].0
+        {
+            *weight += freed;
+        }
+    }
+}
+
 /// Children of a split that sized `outer` in its parent of the same axis,
 /// sized for the parent. Weighted children of a fixed split become fixed
 /// at their current pixels.

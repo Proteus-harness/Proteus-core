@@ -150,3 +150,20 @@ fn fresh_layouts_round_trip() {
     let unpinned = text.replace(r#""pinned":0,"#, "");
     assert!(serde_json::from_str::<TabLayout>(&unpinned).is_err());
 }
+
+#[test]
+fn a_closed_pane_widens_its_neighbour_only() {
+    let mut layout = TabLayout::with_panels(&[]);
+    let (b, c) = ("chat:/s/b", "chat:/s/c");
+    layout.open(A, |_| false);
+    layout.open(b, |_| false);
+    layout.split(b, layout.pane_of(b).unwrap(), Edge::Right);
+    layout.open(c, |_| false);
+    layout.split(c, layout.pane_of(c).unwrap(), Edge::Right);
+    assert_close(&widths(&layout, 1200.), &[600., 300., 300.]);
+
+    // Moving the last tab of the third pane into the second one leaves
+    // the first pane as wide as it was.
+    layout.move_tab(c, layout.pane_of(b).unwrap(), None);
+    assert_close(&widths(&layout, 1200.), &[600., 600.]);
+}

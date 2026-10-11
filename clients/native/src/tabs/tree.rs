@@ -254,17 +254,20 @@ impl Node {
             Node::Split(split) => split,
         };
         let axis = split.axis;
-        let mut children = Vec::with_capacity(split.children.len());
-        for child in split.children {
-            match child.node.normalized(keep) {
+        let mut entries: Vec<(Size, Option<Node>)> = split
+            .children
+            .into_iter()
+            .map(|child| (child.size, child.node.normalized(keep)))
+            .collect();
+        size::hand_over(&mut entries);
+        let mut children = Vec::with_capacity(entries.len());
+        for (size, node) in entries {
+            match node {
                 None => {}
                 Some(Node::Split(inner)) if inner.axis == axis => {
-                    children.extend(size::merge(child.size, inner.children));
+                    children.extend(size::merge(size, inner.children));
                 }
-                Some(node) => children.push(Child {
-                    size: child.size,
-                    node,
-                }),
+                Some(node) => children.push(Child { size, node }),
             }
         }
         match children.len() {
