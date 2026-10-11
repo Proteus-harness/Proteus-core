@@ -7,11 +7,13 @@ mod bar;
 mod controls;
 mod drop;
 mod menu;
+mod motion;
 mod split;
 mod tab;
 mod view;
 
 pub(super) use drop::TabDrop;
+pub(super) use motion::TabMotion;
 pub(super) use split::{SplitDrag, SplitResize};
 
 use gpui_kit::*;
@@ -43,7 +45,9 @@ impl Workspace {
     ) {
         let mut layout = prefs::current(cx).tabs.clone();
         layout.retain(|id| tab_available(id, cx));
+        let old = layout.clone();
         change(&mut layout);
+        self.tab_motion.record(&old, &layout);
         self.documents.retain(|id, _| layout.contains(id));
         self.sync_chats(&layout, cx);
         prefs::update(cx, |prefs| prefs.tabs = layout);

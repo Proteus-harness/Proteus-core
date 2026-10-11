@@ -18,7 +18,7 @@ mod tree;
 
 use std::path::Path;
 
-pub use geometry::drop_edge;
+pub use geometry::{Rect, drop_edge};
 pub use layout::TabLayout;
 pub use pane::Pane;
 pub use size::Size;

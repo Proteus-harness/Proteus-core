@@ -11,7 +11,7 @@ use crate::ui::workspace::Workspace;
 /// Smallest pane while resizing.
 const MIN_WIDTH: f32 = 240.;
 const MIN_HEIGHT: f32 = 160.;
-const DIVIDER: f32 = 5.;
+pub(super) const DIVIDER: f32 = 5.;
 
 /// Payload of a divider while it is dragged: the split and the child the
 /// divider follows.

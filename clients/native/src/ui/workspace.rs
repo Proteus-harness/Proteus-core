@@ -1,5 +1,8 @@
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
+use std::time::Instant;
 
 use anyhow::Result;
 use gpui_kit::*;
@@ -10,7 +13,7 @@ use super::chats::OpenChat;
 use super::extensions::{OpenDocument, SurfaceView};
 use super::panels::Renaming;
 use super::settings::SettingsView;
-use super::tabs::{SplitResize, TabDrop};
+use super::tabs::{SplitResize, TabDrop, TabMotion};
 use crate::api::Api;
 use crate::connection::{self, BackendGuard};
 use crate::launch::LaunchOptions;
@@ -72,6 +75,8 @@ pub struct Workspace {
     api: Option<Api>,
     backend: Option<BackendGuard>,
     pub(super) sessions: Vec<AppSessionSummary>,
+    /// When the session list first arrived, so its rows can enter in turn.
+    pub(super) sessions_arrived: Option<Instant>,
     /// A session list request is running; `sessions_stale` asks for
     /// another one when it ends.
     pub(super) sessions_loading: bool,
@@ -105,6 +110,10 @@ pub struct Workspace {
     /// Scroll of each pane's tab strip and the active tab it last showed,
     /// so a newly active tab is scrolled into view.
     pub(super) tab_strips: HashMap<PaneId, (ScrollHandle, Option<String>)>,
+    /// Tabs opening and closing, panes moving to new places.
+    pub(super) tab_motion: TabMotion,
+    /// Size of the tab area at the last paint.
+    pub(super) tab_area: Rc<Cell<Option<Size<Pixels>>>>,
     pub(super) focus_handle: FocusHandle,
     _startup: Task<()>,
     _subscriptions: Vec<Subscription>,
@@ -159,6 +168,9 @@ impl Workspace {
             tab_drag: false,
             tab_drop: None,
             tab_strips: HashMap::new(),
+            sessions_arrived: None,
+            tab_motion: TabMotion::default(),
+            tab_area: Rc::default(),
             focus_handle: cx.focus_handle(),
             _startup: startup,
             _subscriptions: subscriptions,
@@ -176,6 +188,7 @@ impl Workspace {
                 self.api = Some(boot.api);
                 self.backend = boot.backend;
                 self.sessions = boot.sessions;
+                self.sessions_arrived = Some(Instant::now());
                 self.status = Status::Ready;
                 self.restore_chats(boot.restored, window, cx);
                 if let Some(dir) = boot.startup {

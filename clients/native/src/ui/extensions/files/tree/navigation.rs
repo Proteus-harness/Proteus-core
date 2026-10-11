@@ -156,7 +156,7 @@ impl FilesPanel {
             return;
         }
         if !stop.expanded {
-            self.tree.toggle(&stop.path);
+            self.toggle_dir(&stop.path);
             self.sync_rows(cx);
         } else if stops
             .get(index + 1)
@@ -174,7 +174,7 @@ impl FilesPanel {
         };
         let stop = &stops[index];
         if stop.directory && stop.expanded {
-            self.tree.toggle(&stop.path);
+            self.toggle_dir(&stop.path);
             self.sync_rows(cx);
             return;
         }
@@ -195,7 +195,7 @@ impl FilesPanel {
         };
         let stop = &stops[index];
         if stop.directory {
-            self.tree.toggle(&stop.path);
+            self.toggle_dir(&stop.path);
             self.sync_rows(cx);
         } else {
             let (path, mode) = (stop.path.clone(), self.mode());

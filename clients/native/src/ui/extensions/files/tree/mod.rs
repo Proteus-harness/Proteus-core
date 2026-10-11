@@ -3,6 +3,7 @@ mod render;
 mod search;
 
 use std::path::PathBuf;
+use std::time::Instant;
 
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::*;
@@ -40,6 +41,9 @@ pub(in crate::ui::extensions) struct FilesPanel {
     /// Bumped by every query change so late answers are dropped.
     search_generation: u64,
     search_error: Option<SharedString>,
+    /// The directory (`""` for the root) whose rows just appeared, so they
+    /// enter one after another.
+    entered: Option<(String, Instant)>,
     /// Row under the keyboard cursor.
     cursor: Option<String>,
     /// File last opened from this view.
@@ -101,6 +105,7 @@ impl FilesPanel {
             search: None,
             search_generation: 0,
             search_error: None,
+            entered: Some((String::new(), Instant::now())),
             cursor: None,
             selected: None,
             followed: None,
@@ -116,6 +121,7 @@ impl FilesPanel {
         let session_dir = self.host.session_dir(cx);
         if self.session_dir.is_some() && self.session_dir != session_dir {
             self.tree = FileTree::default();
+            self.entered = Some((String::new(), Instant::now()));
             self.cursor = None;
             self.selected = None;
             self.followed = None;
@@ -244,12 +250,24 @@ impl FilesPanel {
                 if path.is_empty() {
                     self.error = None;
                 }
+                if let Some((entered, at)) = &mut self.entered
+                    && entered == path
+                {
+                    *at = Instant::now();
+                }
                 self.tree.insert(listing);
             }
             Err(error) => {
                 self.tree.finish_loading(path);
                 self.error = Some(format!("Не удалось прочитать «{path}»: {error:#}").into());
             }
+        }
+    }
+
+    /// Expands or collapses `dir`; the rows of an expanded one enter.
+    fn toggle_dir(&mut self, dir: &str) {
+        if self.tree.toggle(dir) {
+            self.entered = Some((dir.to_string(), Instant::now()));
         }
     }
 
@@ -299,7 +317,7 @@ impl FilesPanel {
             if self.searching() {
                 self.show_in_tree(&row.path, window, cx);
             } else if !keep {
-                self.tree.toggle(&row.path);
+                self.toggle_dir(&row.path);
                 self.sync_rows(cx);
             }
         } else {

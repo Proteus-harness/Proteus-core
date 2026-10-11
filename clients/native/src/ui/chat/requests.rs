@@ -8,7 +8,7 @@ use proteus_contracts::contracts::UserInputRequest;
 
 use super::Chat;
 use super::thread::CONTENT_WIDTH;
-use crate::ui::format;
+use crate::ui::{format, motion};
 
 const PREVIEW_LINES: usize = 24;
 const PREVIEW_CHARS: usize = 6_000;
@@ -27,10 +27,14 @@ impl Chat {
         let mut cards = pending
             .approvals
             .iter()
-            .map(|request| render_approval(request, cx))
+            .map(|request| {
+                let id = format!("approval-{}", request.approval_id);
+                arrive(render_approval(request, cx), id)
+            })
             .collect::<Vec<_>>();
         for request in &pending.user_inputs {
-            cards.push(self.render_user_input(request, window, cx));
+            let id = format!("user-input-{}", request.request_id);
+            cards.push(arrive(self.render_user_input(request, window, cx), id));
         }
         Some(
             h_flex().w_full().justify_center().px_6().pt_2().child(
@@ -171,6 +175,11 @@ impl Chat {
             )
             .into_any_element()
     }
+}
+
+/// A request card rises in once, when it arrives.
+fn arrive(card: AnyElement, id: String) -> AnyElement {
+    motion::rise_in(div().child(card), ElementId::Name(id.into())).into_any_element()
 }
 
 fn render_approval(request: &AppApprovalRequest, cx: &mut Context<Chat>) -> AnyElement {

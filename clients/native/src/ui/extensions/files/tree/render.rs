@@ -1,4 +1,5 @@
 use std::ops::Range;
+use std::time::Duration;
 
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::Input;
@@ -10,6 +11,10 @@ use gpui_kit::*;
 use super::{FilesPanel, Tab};
 use crate::files::{ChangeStatus, EntryKind};
 use crate::ui::extensions::files::{path_label, status_color};
+use crate::ui::motion;
+
+/// How long after a directory opens its rows still enter one by one.
+const ENTRANCE: Duration = Duration::from_millis(600);
 
 const ROW_HEIGHT: f32 = 26.;
 const INDENT: f32 = 14.;
@@ -55,7 +60,7 @@ impl FilesPanel {
             (true, false) => IconName::Folder,
             (false, _) => IconName::File,
         };
-        h_flex()
+        let line = h_flex()
             .id(("file-row", index))
             .w_full()
             .h(px(ROW_HEIGHT))
@@ -107,8 +112,35 @@ impl FilesPanel {
             })
             .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
                 this.click_row(index, event.click_count() > 1, window, cx)
-            }))
-            .into_any_element()
+            }));
+        let order = self.entrance_order(index);
+        motion::stagger_in(
+            line,
+            ElementId::Name(format!("file-enter-{}", row.path).into()),
+            order.unwrap_or(0),
+            order.is_some(),
+        )
+        .into_any_element()
+    }
+
+    /// Place of row `index` among the rows that just appeared, while they
+    /// still enter: the children of a directory just expanded or loaded.
+    fn entrance_order(&self, index: usize) -> Option<usize> {
+        let (dir, at) = self.entered.as_ref()?;
+        if at.elapsed() >= ENTRANCE {
+            return None;
+        }
+        let path = &self.rows[index].path;
+        let parent = path.rsplit_once('/').map_or("", |(parent, _)| parent);
+        if parent != dir {
+            return None;
+        }
+        let first = if dir.is_empty() {
+            0
+        } else {
+            self.rows.iter().position(|row| row.path == *dir)? + 1
+        };
+        index.checked_sub(first)
     }
 
     fn render_changes(&self, focused: bool, cx: &mut Context<Self>) -> impl IntoElement + use<> {

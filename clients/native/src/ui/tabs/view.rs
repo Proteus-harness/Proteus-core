@@ -1,8 +1,11 @@
+use std::time::Instant;
+
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
+use super::motion::Frame;
 use super::{drop, split};
 use crate::tabs::{self, Axis, Node, Pane, PaneId, Size, TabLayout};
 use crate::ui::motion;
@@ -21,13 +24,92 @@ impl Workspace {
             self.tab_drop = None;
         }
         self.sync_tab_strips(&layout);
-        div().flex_1().min_w_0().h_full().child(self.render_node(
-            &layout.root,
-            Vec::new(),
-            &layout,
-            window,
-            cx,
-        ))
+        let now = Instant::now();
+        let running = self.tab_motion.tick(now);
+        let frames = self.tab_area.get().and_then(|area| {
+            let size = (area.width.as_f32(), area.height.as_f32());
+            let target = layout.rects_spaced(size.0, size.1, split::DIVIDER);
+            let panes = self.tab_motion.panes();
+            panes.retarget(size, target, self.split_drag.is_some(), now);
+            panes.sample(now)
+        });
+        if running || frames.is_some() {
+            window.request_animation_frame();
+        }
+        let area = self.tab_area.clone();
+        let probe = canvas(
+            move |bounds, _, _| area.set(Some(bounds.size)),
+            |_, _, _, _| {},
+        )
+        .absolute()
+        .size_full();
+        let content = match frames {
+            Some(frames) => self.render_moving_panes(&frames, &layout, window, cx),
+            None => self.render_node(&layout.root, Vec::new(), &layout, window, cx),
+        };
+        div()
+            .relative()
+            .flex_1()
+            .min_w_0()
+            .h_full()
+            .child(probe)
+            .child(content)
+    }
+
+    /// Panes placed where they are while they glide to a new arrangement.
+    /// Each keeps its final size and is clipped by its moving frame, so
+    /// contents do not reflow on every frame; dividers are thin lines.
+    fn render_moving_panes(
+        &mut self,
+        frames: &[Frame],
+        layout: &TabLayout,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let line = cx.theme().border;
+        let half = split::DIVIDER / 2.;
+        let mut area = div().relative().size_full();
+        for frame in frames {
+            let Some(pane) = layout.pane(frame.id) else {
+                continue;
+            };
+            let (rect, target) = (frame.rect, frame.target);
+            let content = self.render_pane(pane, layout, window, cx);
+            area = area.child(
+                div()
+                    .absolute()
+                    .left(px(rect.x))
+                    .top(px(rect.y))
+                    .w(px(rect.w))
+                    .h(px(rect.h))
+                    .overflow_hidden()
+                    .opacity(frame.opacity)
+                    .child(div().w(px(target.w)).h(px(target.h)).child(content)),
+            );
+            if rect.x > half {
+                area = area.child(
+                    div()
+                        .absolute()
+                        .left(px(rect.x - half))
+                        .top(px(rect.y))
+                        .w(px(1.))
+                        .h(px(rect.h))
+                        .bg(line),
+                );
+            }
+            if rect.y > half {
+                area = area.child(
+                    div()
+                        .absolute()
+                        .left(px(rect.x))
+                        .top(px(rect.y - half))
+                        .w(px(rect.w))
+                        .h(px(1.))
+                        .bg(line),
+                );
+            }
+        }
+        area.into_any_element()
     }
 
     /// Scrolls a newly active tab into view in its strip.
@@ -121,9 +203,10 @@ impl Workspace {
                 None => div().into_any_element(),
             },
             Some(tab) => match self.ensure_document(tab, window, cx) {
-                Some(document) => motion::rise_in(
+                Some(document) => motion::rise_in_if(
                     div().size_full().child(document.view),
                     ElementId::Name(format!("tab-document-{tab}").into()),
+                    self.tab_motion.opened(tab, Instant::now()),
                 )
                 .into_any_element(),
                 None => div().into_any_element(),

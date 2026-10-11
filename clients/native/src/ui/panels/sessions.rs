@@ -1,6 +1,8 @@
 //! The session list panel: sessions of the workspace, a new-session button
 //! and the way to the settings.
 
+use std::time::Duration;
+
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::Input;
@@ -16,6 +18,9 @@ use crate::sessions::Row;
 use crate::ui::workspace::Workspace;
 use crate::ui::{format, motion, prefs};
 
+/// How long after the list arrives its rows still enter one by one.
+const ENTRANCE: Duration = Duration::from_millis(600);
+
 impl Workspace {
     pub(super) fn render_sessions(&self, cx: &Context<Self>) -> Div {
         let theme = cx.theme();
@@ -29,12 +34,21 @@ impl Workspace {
         let listing = marks.arrange(&self.sessions, self.show_archived);
         let mut items: Vec<AnyElement> = Vec::new();
         let mut ix = 0;
+        let entering = self
+            .sessions_arrived
+            .is_some_and(|at| at.elapsed() < ENTRANCE);
         let mut rows = |rows: &[Row], items: &mut Vec<AnyElement>| {
             for row in rows {
                 let selected = current == Some(row.summary.session_dir.as_path());
+                let id = format!("session-enter-{}", row.summary.session_dir.display());
                 items.push(
-                    self.render_session_item(ix, row, selected, cx)
-                        .into_any_element(),
+                    motion::stagger_in(
+                        div().child(self.render_session_item(ix, row, selected, cx)),
+                        ElementId::Name(id.into()),
+                        ix,
+                        entering,
+                    )
+                    .into_any_element(),
                 );
                 ix += 1;
             }

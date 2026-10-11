@@ -1,5 +1,6 @@
 //! Where panes are on screen and resizing of splits. Dividers are left
-//! out: they are thin next to the panes.
+//! out unless the caller gives their thickness: they are thin next to the
+//! panes.
 
 use super::PANEL_WIDTH;
 use super::layout::TabLayout;
@@ -49,14 +50,15 @@ pub fn drop_edge(x: f32, y: f32) -> Option<Edge> {
     .map(|(_, edge)| edge)
 }
 
-fn place(node: &Node, rect: Rect, out: &mut Vec<(PaneId, Rect)>) {
+fn place(node: &Node, rect: Rect, gap: f32, out: &mut Vec<(PaneId, Rect)>) {
     match node {
         Node::Pane(pane) => out.push((pane.id, rect)),
         Node::Split(split) => {
+            let gaps = gap * split.children.len().saturating_sub(1) as f32;
             let total = match split.axis {
                 Axis::Row => rect.w,
                 Axis::Column => rect.h,
-            };
+            } - gaps;
             let mut offset = 0.;
             for (child, len) in split.children.iter().zip(extents(&split.children, total)) {
                 let part = match split.axis {
@@ -71,8 +73,8 @@ fn place(node: &Node, rect: Rect, out: &mut Vec<(PaneId, Rect)>) {
                         ..rect
                     },
                 };
-                offset += len;
-                place(&child.node, part, out);
+                offset += len + gap;
+                place(&child.node, part, gap, out);
             }
         }
     }
@@ -82,6 +84,11 @@ impl TabLayout {
     /// Every pane with its place in pixels when the whole tree is
     /// `width` × `height`, in reading order.
     pub fn rects_in(&self, width: f32, height: f32) -> Vec<(PaneId, Rect)> {
+        self.rects_spaced(width, height, 0.)
+    }
+
+    /// Like `rects_in`, with `gap` pixels taken by every divider.
+    pub fn rects_spaced(&self, width: f32, height: f32, gap: f32) -> Vec<(PaneId, Rect)> {
         let mut out = Vec::new();
         let whole = Rect {
             x: 0.,
@@ -89,7 +96,7 @@ impl TabLayout {
             w: width,
             h: height,
         };
-        place(&self.root, whole, &mut out);
+        place(&self.root, whole, gap, &mut out);
         out
     }
 

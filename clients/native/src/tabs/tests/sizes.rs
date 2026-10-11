@@ -31,6 +31,18 @@ fn fixed_panes_keep_their_pixels() {
 }
 
 #[test]
+fn spaced_places_leave_room_for_dividers() {
+    let layout = with_chat();
+    let rects: Vec<Rect> = layout
+        .rects_spaced(1269., 800., 5.)
+        .into_iter()
+        .map(|(_, rect)| rect)
+        .collect();
+    assert_close(&[rects[0].x, rects[0].w], &[0., 264.]);
+    assert_close(&[rects[1].x, rects[1].w], &[269., 1000.]);
+}
+
+#[test]
 fn dividers_resize_fixed_panes_in_pixels() {
     let mut layout = with_chat();
     layout.resize(&[], 0, 300., 1264., 240.);
