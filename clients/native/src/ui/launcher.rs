@@ -165,9 +165,9 @@ impl Launcher {
                                     .child("Выберите рабочую папку агента."),
                             ),
                     )
-                    .children(error.map(|error| {
-                        div().text_sm().text_color(theme.danger).child(error)
-                    }))
+                    .children(
+                        error.map(|error| div().text_sm().text_color(theme.danger).child(error)),
+                    )
                     .when(has_recent, |column| {
                         column.child(
                             v_flex()
@@ -208,7 +208,10 @@ impl Focusable for Launcher {
 impl Render for Launcher {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         match &self.stage {
-            Stage::Ready(workspace) => div().size_full().child(workspace.clone()).into_any_element(),
+            Stage::Ready(workspace) => div()
+                .size_full()
+                .child(workspace.clone())
+                .into_any_element(),
             Stage::Picking { error, .. } => div()
                 .size_full()
                 .track_focus(&self.focus)

@@ -18,8 +18,8 @@ use gpui_kit::component::*;
 use gpui_kit::*;
 
 use crate::tabs::Edge;
-use workspace::Status;
 pub use launcher::Launcher;
+use workspace::Status;
 use workspace::Workspace;
 
 gpui_kit::actions!(

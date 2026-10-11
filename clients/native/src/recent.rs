@@ -43,7 +43,12 @@ mod tests {
         assert_eq!(list.len(), LIMIT);
         assert_eq!(list[0], Path::new("/w/15"));
         assert_eq!(list[1], Path::new("/w/19"));
-        assert_eq!(list.iter().filter(|path| **path == Path::new("/w/15")).count(), 1);
+        assert_eq!(
+            list.iter()
+                .filter(|path| **path == Path::new("/w/15"))
+                .count(),
+            1
+        );
         recent.forget(Path::new("/w/15"));
         assert_eq!(recent.iter().next(), Some(Path::new("/w/19")));
     }
