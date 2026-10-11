@@ -80,6 +80,8 @@ pub struct ViewPreferences {
     pub chat_width: u16,
     /// Fold runs of tool calls into one row.
     pub compact_tools: bool,
+    /// Follow a streaming answer to the end of the chat.
+    pub autoscroll: bool,
 }
 
 impl Default for ViewPreferences {
@@ -89,6 +91,7 @@ impl Default for ViewPreferences {
             chat_text: 16,
             chat_width: 820,
             compact_tools: true,
+            autoscroll: true,
         }
     }
 }

@@ -9,6 +9,7 @@ pub(super) mod context_usage;
 pub(super) mod controls;
 mod pump;
 mod requests;
+mod scroller;
 mod session;
 mod thread;
 mod tool_chain;
@@ -21,7 +22,6 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use gpui_kit::component::input::{InputEvent, TextareaState};
-use gpui_kit::component::message_scroller::MessageScrollerState;
 use gpui_kit::*;
 use proteus_contracts::app_protocol::AppSessionActivity;
 
@@ -31,6 +31,7 @@ use super::motion::Recent;
 use super::prefs::{self, ClientPreferences};
 use crate::api::Api;
 use crate::preferences::{SendMode, ViewPreferences};
+use scroller::ChatScroller;
 use user_input::UserInputDrafts;
 
 /// Content the host adds to the composer row, e.g. extension icons. It gets
@@ -54,7 +55,7 @@ pub(super) enum ChatEvent {
 pub(super) struct Chat {
     api: Api,
     pub session: Session,
-    scroller: Entity<MessageScrollerState>,
+    scroller: Entity<ChatScroller>,
     composer: Entity<TextareaState>,
     expanded: HashSet<u64>,
     /// Folded tool runs the user opened, by the key of their first row.
@@ -80,7 +81,8 @@ impl Chat {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let scroller = cx.new(|cx| MessageScrollerState::new(0, cx));
+        let autoscroll = prefs::current(cx).view.autoscroll;
+        let scroller = cx.new(|cx| ChatScroller::new(autoscroll, cx));
         let enter_sends = prefs::current(cx).send == SendMode::Enter;
         let composer = cx.new(|cx| {
             TextareaState::new(window, cx)
@@ -113,8 +115,10 @@ impl Chat {
                 let view = prefs::current(cx).view;
                 if this.view != view {
                     this.view = view;
-                    this.scroller
-                        .update(cx, |scroller, cx| scroller.remeasure(cx));
+                    this.scroller.update(cx, |scroller, cx| {
+                        scroller.set_autoscroll(view.autoscroll, cx);
+                        scroller.remeasure(cx);
+                    });
                 }
             }),
         ];

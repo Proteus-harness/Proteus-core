@@ -1,8 +1,8 @@
-use gpui_kit::component::message_scroller::MessageScroller;
 use gpui_kit::component::*;
 use gpui_kit::*;
 
 use super::Chat;
+use super::scroller::ChatList;
 use crate::ui::motion;
 use crate::ui::prefs;
 
@@ -13,12 +13,11 @@ impl Render for Chat {
         v_flex()
             .size_full()
             .child(motion::fade_in_if(
-                MessageScroller::new("thread", self.scroller.clone(), renderer)
-                    .flex_1()
-                    .min_h_0()
-                    .scrollbar(true)
-                    .jump_button(true)
-                    .with_row_style(StyleRefinement::default().px_0().pb_0()),
+                div().flex_1().min_h_0().child(ChatList::new(
+                    "thread",
+                    self.scroller.clone(),
+                    renderer,
+                )),
                 "thread-enter",
                 true,
             ))

@@ -51,6 +51,8 @@ impl Chat {
         self.composer
             .update(cx, |state, cx| state.clean(window, cx));
         self.notice = None;
+        self.scroller
+            .update(cx, |scroller, cx| scroller.scroll_to_end(cx));
         cx.emit(ChatEvent::Sent);
         self.call(cx, move |api| api.send(&request), |_, _, _| {});
     }

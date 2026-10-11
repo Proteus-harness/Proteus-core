@@ -134,6 +134,20 @@ impl SettingsView {
             )
             .into_any_element(),
             row(
+                "Автопрокрутка",
+                Some("Плавно следовать за ответом, пока лента внизу.".into()),
+                Switch::new("pref-autoscroll")
+                    .checked(current.view.autoscroll)
+                    .on_click(|checked, _, cx| {
+                        let checked = *checked;
+                        prefs::update(cx, move |prefs| prefs.view.autoscroll = checked)
+                    })
+                    .into_any_element(),
+                false,
+                cx,
+            )
+            .into_any_element(),
+            row(
                 "Уведомления",
                 Some("Когда окно в фоне: агент закончил, ждёт подтверждения или ответа.".into()),
                 choice(
