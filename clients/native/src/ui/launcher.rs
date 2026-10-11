@@ -209,13 +209,17 @@ impl Render for Launcher {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         match &self.stage {
             Stage::Ready(workspace) => div()
+                .relative()
                 .size_full()
                 .child(workspace.clone())
+                .child(super::wheel::layer())
                 .into_any_element(),
             Stage::Picking { error, .. } => div()
+                .relative()
                 .size_full()
                 .track_focus(&self.focus)
                 .child(self.render_picker(error.clone(), cx))
+                .child(super::wheel::layer())
                 .into_any_element(),
         }
     }
