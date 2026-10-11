@@ -103,7 +103,7 @@ impl Node {
     }
 
     /// Child indices from this node down to a pane.
-    fn path_to(&self, id: PaneId) -> Option<Vec<usize>> {
+    pub(super) fn path_to(&self, id: PaneId) -> Option<Vec<usize>> {
         match self {
             Node::Pane(pane) => (pane.id == id).then(Vec::new),
             Node::Split(split) => split.children.iter().enumerate().find_map(|(ix, child)| {

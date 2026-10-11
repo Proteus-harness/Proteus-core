@@ -167,3 +167,24 @@ fn a_closed_pane_widens_its_neighbour_only() {
     layout.move_tab(c, layout.pane_of(b).unwrap(), None);
     assert_close(&widths(&layout, 1200.), &[600., 600.]);
 }
+
+#[test]
+fn a_locked_pane_keeps_its_pixels_until_unlocked() {
+    let mut layout = TabLayout::with_panels(&[]);
+    let b = "chat:/s/b";
+    layout.open(A, |_| false);
+    layout.open(b, |_| false);
+    layout.split(b, layout.pane_of(b).unwrap(), Edge::Right);
+    let pane = layout.pane_of(b).unwrap();
+    assert_eq!(layout.pane_locked(pane), Some(false));
+
+    layout.lock_pane(pane, true, 1200., 800., 0.);
+    assert_eq!(layout.pane_locked(pane), Some(true));
+    // The other pane is the only one left to take the rest.
+    assert_eq!(layout.pane_locked(layout.pane_of(A).unwrap()), None);
+    assert_close(&widths(&layout, 1600.), &[1000., 600.]);
+
+    // Unlocked, it keeps its current share as the window changes.
+    layout.lock_pane(pane, false, 1600., 800., 0.);
+    assert_close(&widths(&layout, 800.), &[500., 300.]);
+}

@@ -1,11 +1,10 @@
 //! Rows for module `config_schema` fields.
 
+use crate::ui::kit;
 use std::rc::Rc;
 
-use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::checkbox::Checkbox;
+use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::input::{Input, Textarea};
-use gpui_kit::component::switch::Switch;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -77,7 +76,7 @@ impl SettingsView {
             FieldKind::Switch => {
                 let checked = spec.effective().and_then(Value::as_bool).unwrap_or(false);
                 let handler = spec.clone();
-                Switch::new(spec.id("switch"))
+                kit::switch(spec.id("switch"))
                     .checked(checked)
                     .on_click(move |checked, _, cx| handler.set(Some(Value::Bool(*checked)), cx))
                     .into_any_element()
@@ -106,7 +105,7 @@ impl SettingsView {
                     .child(unit)
             });
         let handler = spec.clone();
-        let reset = Button::new(spec.id("reset"))
+        let reset = kit::button(spec.id("reset"))
             .icon(IconName::Undo2)
             .ghost()
             .xsmall()
@@ -203,7 +202,7 @@ fn multi_choice(spec: &Rc<FieldSpec>, options: &[ConfigChoice]) -> AnyElement {
         let (handler, options, value) = (spec.clone(), options.to_vec(), choice.value.clone());
         let selected = selected.clone();
         div().w(prefs::scaled(CHOICE_WIDTH)).child(
-            Checkbox::new(hashed_id("multi", &(&spec.path, ix)))
+            kit::checkbox(hashed_id("multi", &(&spec.path, ix)))
                 .checked(checked)
                 .label(choice.title.clone())
                 .on_click(move |checked, _, cx| {

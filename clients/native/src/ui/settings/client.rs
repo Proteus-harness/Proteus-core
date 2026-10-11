@@ -1,6 +1,6 @@
 //! Client pages: preferences of this device, applied immediately.
 
-use gpui_kit::component::switch::Switch;
+use crate::ui::kit;
 use gpui_kit::component::*;
 use gpui_kit::*;
 
@@ -153,7 +153,7 @@ impl SettingsView {
             row(
                 "Компактные цепочки инструментов",
                 Some("Три и больше вызова подряд сворачиваются в одну строку.".into()),
-                Switch::new("pref-compact-tools")
+                kit::switch("pref-compact-tools")
                     .checked(current.view.compact_tools)
                     .on_click(|checked, _, cx| {
                         let checked = *checked;
@@ -167,7 +167,7 @@ impl SettingsView {
             row(
                 "Автопрокрутка",
                 Some("Плавно следовать за ответом, пока лента внизу.".into()),
-                Switch::new("pref-autoscroll")
+                kit::switch("pref-autoscroll")
                     .checked(current.view.autoscroll)
                     .on_click(|checked, _, cx| {
                         let checked = *checked;

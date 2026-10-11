@@ -76,7 +76,11 @@ pub(super) fn logo(cell: f32, busy: bool) -> impl IntoElement {
                 }
                 for column in x..x + width {
                     let wave = (TAU * (phase - f32::from(column) / COLUMNS)).sin().max(0.);
-                    let (offset, alpha) = if lift { (wave, 1.) } else { (0., 1. - 0.45 * wave) };
+                    let (offset, alpha) = if lift {
+                        (wave, 1.)
+                    } else {
+                        (0., 1. - 0.45 * wave)
+                    };
                     let origin = bounds.origin
                         + point(unit * f32::from(column), unit * (f32::from(y) - offset));
                     window.paint_quad(fill(

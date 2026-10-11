@@ -1,8 +1,8 @@
 //! Plugins page: process components with their tool packs, hooks and slot
 //! modules, plus Agent Plugins packages (skills and MCP).
 
-use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::switch::Switch;
+use crate::ui::kit;
+use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -183,7 +183,7 @@ impl SettingsView {
         );
         let switchable = summary.switchable.clone();
         let target = summary.state != PackState::On;
-        let switch = Switch::new(hashed_id("pack-switch", &key))
+        let switch = kit::switch(hashed_id("pack-switch", &key))
             .checked(summary.state != PackState::Off)
             .disabled(switchable.is_empty())
             .tooltip(match summary.state {
@@ -271,7 +271,7 @@ impl SettingsView {
             )
             .children(chips)
             .child(
-                Switch::new(hashed_id("pack-tool", &name))
+                kit::switch(hashed_id("pack-tool", &name))
                     .checked(runtime || self.draft.tools.contains(name))
                     .disabled(runtime || tool.is_none())
                     .small()
@@ -298,14 +298,14 @@ impl SettingsView {
             None => chip("выключен", Tone::Muted, cx),
         });
         let order = position.is_some().then(|| {
-            Button::new(hashed_id("hook-order", &export.id))
+            kit::button(hashed_id("hook-order", &export.id))
                 .label("Порядок")
                 .ghost()
                 .xsmall()
                 .on_click(cx.listener(|this, _, _, cx| this.select_page(PageId::Hooks, cx)))
         });
         let header = export_header(export, chips, cx).children(order).child(
-            Switch::new(hashed_id("hook-switch", &export.id))
+            kit::switch(hashed_id("hook-switch", &export.id))
                 .checked(position.is_some())
                 .on_click(cx.listener(move |this, _: &bool, _, cx| {
                     this.update_draft(cx, |draft| draft.set_hook(&id, on))
@@ -329,7 +329,7 @@ impl SettingsView {
             chips.push(chip("выбран", Tone::Success, cx));
         }
         let page = slot_page(&export.slot);
-        let open = Button::new(hashed_id("open-slot", &(&export.slot, &export.id)))
+        let open = kit::button(hashed_id("open-slot", &(&export.slot, &export.id)))
             .label(format!("Открыть {title}"))
             .ghost()
             .xsmall()
@@ -364,7 +364,7 @@ impl SettingsView {
                             .child(h_flex().child(chip("skills и MCP", Tone::Muted, cx))),
                     )
                     .child(
-                        Switch::new(("agent-plugin", ix))
+                        kit::switch(("agent-plugin", ix))
                             .checked(plugin.enabled)
                             .on_click(cx.listener(move |this, checked: &bool, _, cx| {
                                 let checked = *checked;

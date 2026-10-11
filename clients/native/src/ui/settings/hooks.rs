@@ -1,6 +1,7 @@
 //! Hooks page: the ordered hook chain and the hooks still available.
 
-use gpui_kit::component::button::{Button, ButtonVariants as _};
+use crate::ui::kit;
+use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::*;
 use gpui_kit::*;
 
@@ -52,7 +53,7 @@ impl SettingsView {
                         h_flex()
                             .gap_1()
                             .child(
-                                Button::new(hashed_id("hook-up", id))
+                                kit::button(hashed_id("hook-up", id))
                                     .icon(IconName::ArrowUp)
                                     .ghost()
                                     .xsmall()
@@ -63,7 +64,7 @@ impl SettingsView {
                                     })),
                             )
                             .child(
-                                Button::new(hashed_id("hook-down", id))
+                                kit::button(hashed_id("hook-down", id))
                                     .icon(IconName::ArrowDown)
                                     .ghost()
                                     .xsmall()
@@ -74,7 +75,7 @@ impl SettingsView {
                                     })),
                             )
                             .child(
-                                Button::new(hashed_id("hook-off", id))
+                                kit::button(hashed_id("hook-off", id))
                                     .label("Отключить")
                                     .ghost()
                                     .xsmall()
@@ -121,7 +122,7 @@ impl SettingsView {
                             )),
                     )
                     .child(
-                        Button::new(hashed_id("hook-on", &module.id))
+                        kit::button(hashed_id("hook-on", &module.id))
                             .label("Включить")
                             .outline()
                             .xsmall()

@@ -8,10 +8,10 @@ mod popup;
 use std::cell::Cell;
 use std::rc::Rc;
 
+use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::base::ElementExt as _;
 use gpui_kit::component::slider::{SliderEvent, SliderState};
 use gpui_kit::component::*;
-use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::*;
 use proteus_contracts::app_protocol::config::ConfigSummary;
 
@@ -72,13 +72,12 @@ impl SelectorBadge {
             self.effort = None;
             return;
         }
-        if self.effort.as_ref().is_none_or(|slider| slider.count != count) {
-            let state = cx.new(|_| {
-                SliderState::new()
-                    .min(0.)
-                    .max((count - 1) as f32)
-                    .step(1.)
-            });
+        if self
+            .effort
+            .as_ref()
+            .is_none_or(|slider| slider.count != count)
+        {
+            let state = cx.new(|_| SliderState::new().min(0.).max((count - 1) as f32).step(1.));
             let changes = cx.subscribe(&state, |this, _, event: &SliderEvent, cx| {
                 if let SliderEvent::Release(value) = event {
                     this.choose_effort(value.start().round() as usize, cx);
@@ -150,7 +149,11 @@ impl Render for SelectorBadge {
                 model_face(&config),
                 Details::new("Модель и рассуждения")
                     .line(format!("Профиль {}", config.profile))
-                    .line(format!("Сейчас: {}, {}", model_label(&config), effort_of(&config))),
+                    .line(format!(
+                        "Сейчас: {}, {}",
+                        model_label(&config),
+                        effort_of(&config)
+                    )),
             ),
         };
         let open = self.open;
@@ -160,8 +163,12 @@ impl Render for SelectorBadge {
                 .gap_0p5()
                 .child(label.clone())
                 .child(
-                    Icon::new(if open { Lucide::ChevronUp } else { Lucide::ChevronDown })
-                        .xsmall(),
+                    Icon::new(if open {
+                        Lucide::ChevronUp
+                    } else {
+                        Lucide::ChevronDown
+                    })
+                    .xsmall(),
                 )
                 .into_any_element()
         });
@@ -175,7 +182,14 @@ impl Render for SelectorBadge {
             .then(|| self.render_popup(&config, chat.downgrade(), window, cx));
         div()
             .relative()
-            .child(pressable_badge(self.id, face, details, &self.host, Some(press), cx))
+            .child(pressable_badge(
+                self.id,
+                face,
+                details,
+                &self.host,
+                Some(press),
+                cx,
+            ))
             .on_prepaint(move |rect, _, _| bounds.set(rect))
             .children(popup)
             .into_any_element()

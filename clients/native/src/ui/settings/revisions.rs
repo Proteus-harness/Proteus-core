@@ -1,6 +1,6 @@
 //! History page: replaced profile states and rollback into the draft.
 
-use gpui_kit::component::button::Button;
+use crate::ui::kit;
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::*;
 use gpui_kit::*;
@@ -41,7 +41,7 @@ impl SettingsView {
                                 .child(format!("Не удалось загрузить историю: {error}")),
                         )
                         .child(
-                            Button::new("history-retry")
+                            kit::button("history-retry")
                                 .label("Повторить")
                                 .outline()
                                 .small()
@@ -94,7 +94,7 @@ impl SettingsView {
                         local_time(revision.replaced_at_ms / 1000)
                     )))
                     .child(
-                        Button::new(ElementId::Name(format!("revision-{}", revision.id).into()))
+                        kit::button(ElementId::Name(format!("revision-{}", revision.id).into()))
                             .label(label)
                             .outline()
                             .xsmall()

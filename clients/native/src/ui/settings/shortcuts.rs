@@ -1,7 +1,8 @@
 //! «Сочетания клавиш»: window command shortcuts, recorded from the keyboard.
 
+use crate::ui::kit;
 use gpui_kit::assets::IconName as Lucide;
-use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::*;
 use gpui_kit::*;
 
@@ -26,7 +27,7 @@ impl SettingsView {
                 control
                     .child(chip("Нажмите сочетание…", Tone::Accent, cx))
                     .child(
-                        Button::new(hashed_id("shortcut-cancel", &command.id()))
+                        kit::button(hashed_id("shortcut-cancel", &command.id()))
                             .label("Отмена")
                             .ghost()
                             .xsmall()
@@ -37,7 +38,7 @@ impl SettingsView {
                     )
             } else {
                 control.child(
-                    Button::new(hashed_id("shortcut-add", &command.id()))
+                    kit::button(hashed_id("shortcut-add", &command.id()))
                         .icon(IconName::Plus)
                         .ghost()
                         .xsmall()
@@ -49,7 +50,7 @@ impl SettingsView {
             };
             if !shortcuts.is_default(command) {
                 control = control.child(
-                    Button::new(hashed_id("shortcut-reset", &command.id()))
+                    kit::button(hashed_id("shortcut-reset", &command.id()))
                         .icon(Lucide::RotateCcw)
                         .ghost()
                         .xsmall()
@@ -64,7 +65,7 @@ impl SettingsView {
             row(command.title(), hint, control, false, cx).into_any_element()
         });
         let reset_all = (!shortcuts.is_empty()).then(|| {
-            Button::new("shortcuts-reset-all")
+            kit::button("shortcuts-reset-all")
                 .label("Сбросить все")
                 .outline()
                 .xsmall()
@@ -104,7 +105,7 @@ impl SettingsView {
             .font_family(theme.mono_font_family.clone())
             .child(label(&chord))
             .child(
-                Button::new(hashed_id("shortcut-remove", &(command.id(), &chord)))
+                kit::button(hashed_id("shortcut-remove", &(command.id(), &chord)))
                     .icon(IconName::Close)
                     .ghost()
                     .xsmall()

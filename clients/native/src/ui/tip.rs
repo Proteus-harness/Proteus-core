@@ -10,8 +10,7 @@ use gpui_kit::base::{ElementExt as _, TooltipOverlay, TooltipRequest, TooltipTra
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::{
     AnyElement, AnyView, App, AppContext as _, Bounds, ElementId, Entity, Global, IntoElement,
-    ParentElement as _, Pixels, SharedString, StatefulInteractiveElement, Window,
-    div, px,
+    ParentElement as _, Pixels, SharedString, StatefulInteractiveElement, Window, div, px,
 };
 
 use super::motion;
@@ -38,7 +37,12 @@ pub(super) fn layer(cx: &mut App) -> Entity<TooltipOverlay> {
     overlay
 }
 
-fn present(view: AnyView, transition: TooltipTransition, _: &mut Window, _: &mut App) -> AnyElement {
+fn present(
+    view: AnyView,
+    transition: TooltipTransition,
+    _: &mut Window,
+    _: &mut App,
+) -> AnyElement {
     let element = div().child(view);
     if !motion::plays() {
         return element.into_any_element();
@@ -56,19 +60,29 @@ fn present(view: AnyView, transition: TooltipTransition, _: &mut Window, _: &mut
             EffectTransition::new(SLIDE)
                 .ease(ease_in_out_cubic)
                 .slide_x(-shift, px(0.))
-                .apply(element, ElementId::NamedInteger("tip-slide".into(), epoch as u64))
+                .apply(
+                    element,
+                    ElementId::NamedInteger("tip-slide".into(), epoch as u64),
+                )
                 .into_any_element()
         }
         TooltipTransition::Enter { epoch } => EffectTransition::new(ENTER)
             .ease(ease_out_cubic)
             .slide_y(px(4.), px(0.))
             .fade(0., 1.)
-            .apply(element, ElementId::NamedInteger("tip-enter".into(), epoch as u64))
+            .apply(
+                element,
+                ElementId::NamedInteger("tip-enter".into(), epoch as u64),
+            )
             .into_any_element(),
     }
 }
 
-fn update(cx: &mut App, window: &mut Window, f: impl FnOnce(&mut TooltipOverlay, &mut Window, &mut gpui_kit::Context<TooltipOverlay>)) {
+fn update(
+    cx: &mut App,
+    window: &mut Window,
+    f: impl FnOnce(&mut TooltipOverlay, &mut Window, &mut gpui_kit::Context<TooltipOverlay>),
+) {
     if let Some(overlay) = cx.try_global::<Overlay>().map(|overlay| overlay.0.clone()) {
         overlay.update(cx, |overlay, cx| f(overlay, window, cx));
     }
@@ -94,7 +108,8 @@ pub(crate) trait Tip: StatefulInteractiveElement + gpui_kit::ParentElement + Siz
                 }
                 update(cx, window, move |overlay, window, cx| {
                     if hovered {
-                        let request = TooltipRequest::new(trigger, move |window, cx| build(window, cx));
+                        let request =
+                            TooltipRequest::new(trigger, move |window, cx| build(window, cx));
                         overlay.request_show(request, window, cx);
                     } else {
                         overlay.request_hide(window, cx);
@@ -115,7 +130,10 @@ pub(crate) trait Tip: StatefulInteractiveElement + gpui_kit::ParentElement + Siz
     }
 
     /// A tooltip built from an element on every show.
-    fn tip_element<E: IntoElement>(self, body: impl Fn(&mut Window, &mut App) -> E + 'static) -> Self {
+    fn tip_element<E: IntoElement>(
+        self,
+        body: impl Fn(&mut Window, &mut App) -> E + 'static,
+    ) -> Self {
         let body = Rc::new(body);
         self.tip(move |window, cx| {
             let body = body.clone();

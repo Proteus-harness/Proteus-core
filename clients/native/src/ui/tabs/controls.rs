@@ -1,15 +1,16 @@
-//! Buttons at the end of a pane's tab bar: the «+» menu and closing the
-//! pane.
+//! The «+» at the end of a pane's tab bar: a click opens the new tab
+//! menu, a right click the pane's own actions — closing it and locking its
+//! size.
 
 use gpui_kit::assets::IconName as Lucide;
-use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::menu::DropdownMenu as _;
+use gpui_kit::component::button::ButtonVariants as _;
+use gpui_kit::component::menu::{ContextMenuExt as _, DropdownMenu as _, PopupMenu, PopupMenuItem};
 use gpui_kit::component::*;
-use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use super::menu;
-use crate::tabs::{Pane, TabLayout};
+use crate::tabs::{Pane, PaneId, TabLayout};
+use crate::ui::kit;
 use crate::ui::workspace::Workspace;
 
 impl Workspace {
@@ -23,32 +24,55 @@ impl Workspace {
         let key = id.0 as usize;
         // The only pane for chats stays while empty, so closing it does nothing.
         let closable = layout.pane_count() > 1 && !pane.tabs.is_empty();
+        let locked = layout.pane_locked(id);
         let workspace = cx.weak_entity();
-        let add = Button::new(("pane-add", key))
+        let add = kit::button(("pane-add", key))
             .ghost()
             .xsmall()
             .icon(IconName::Plus)
-            .tooltip("Новая вкладка")
-            .dropdown_menu_with_anchor(Anchor::TopRight, move |popup, _, cx| {
-                menu::new_tab_menu(popup, id, &workspace, cx)
+            .tooltip("Новая вкладка; правый клик — действия с областью")
+            .dropdown_menu_with_anchor(Anchor::TopRight, {
+                let workspace = workspace.clone();
+                move |popup, _, cx| menu::new_tab_menu(popup, id, &workspace, cx)
             });
         h_flex()
+            .id(("pane-controls", key))
             .flex_none()
             .h_full()
             .px_1()
-            .gap_1()
             .child(add)
-            .when(closable, |controls| {
-                controls.child(
-                    Button::new(("pane-close", key))
-                        .ghost()
-                        .xsmall()
-                        .icon(Icon::new(Lucide::SquareX))
-                        .tooltip("Закрыть область, вкладки перейдут в соседнюю")
-                        .on_click(
-                            cx.listener(move |this, _, window, cx| this.close_pane(id, window, cx)),
-                        ),
-                )
-            })
+            .context_menu(move |popup, _, _| pane_menu(popup, id, closable, locked, &workspace))
     }
+}
+
+fn pane_menu(
+    menu: PopupMenu,
+    pane: PaneId,
+    closable: bool,
+    locked: Option<bool>,
+    workspace: &WeakEntity<Workspace>,
+) -> PopupMenu {
+    let close = workspace.clone();
+    let lock = workspace.clone();
+    menu.item(
+        PopupMenuItem::new("Закрыть область")
+            .icon(Icon::new(Lucide::SquareX))
+            .disabled(!closable)
+            .on_click(move |_, window, cx| {
+                close
+                    .update(cx, |this, cx| this.close_pane(pane, window, cx))
+                    .ok();
+            }),
+    )
+    .item(
+        PopupMenuItem::new("Закрепить размер")
+            .icon(Icon::new(Lucide::Pin))
+            .checked(locked == Some(true))
+            .disabled(locked.is_none())
+            .on_click(move |_, _, cx| {
+                let locked = locked != Some(true);
+                lock.update(cx, |this, cx| this.lock_pane(pane, locked, cx))
+                    .ok();
+            }),
+    )
 }

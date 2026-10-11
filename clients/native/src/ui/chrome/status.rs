@@ -9,8 +9,8 @@ use gpui_kit::*;
 
 use crate::preferences::BadgePlace;
 use crate::ui::chat::ChatState;
-use crate::ui::workspace::Workspace;
 use crate::ui::prefs;
+use crate::ui::workspace::Workspace;
 
 impl Workspace {
     pub(in crate::ui) fn render_status_bar(&self, cx: &Context<Self>) -> impl IntoElement + use<> {
@@ -35,7 +35,11 @@ impl Workspace {
     /// State of the active chat, and how many others are working.
     fn render_agent_state(&self, cx: &App) -> impl IntoElement + use<> {
         let theme = cx.theme();
-        let state = |id: &String| self.chats.get(id).map(|chat| chat.view.read(cx).session.state());
+        let state = |id: &String| {
+            self.chats
+                .get(id)
+                .map(|chat| chat.view.read(cx).session.state())
+        };
         let active = self.active_chat.as_ref().and_then(state);
         let others = self
             .chats

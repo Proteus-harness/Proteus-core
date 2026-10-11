@@ -1,11 +1,11 @@
 //! Interactive graph map: pan by dragging, zoom with the wheel, select a
 //! node to dim unrelated ones and see its facts and connections.
 
+use crate::ui::kit;
 use std::cell::Cell;
 use std::rc::Rc;
 
-use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::checkbox::Checkbox;
+use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::*;
@@ -135,7 +135,7 @@ impl ArchitecturePage {
             ))
             .when(self.map.scope != Scope::Assembly, |bar| {
                 bar.child(
-                    Checkbox::new("architecture-inactive")
+                    kit::checkbox("architecture-inactive")
                         .label("Неактивные")
                         .checked(self.map.inactive)
                         .on_click(cx.listener(|this, checked: &bool, _, cx| {
@@ -162,7 +162,7 @@ impl ArchitecturePage {
             })
             .child(div().flex_1())
             .child(
-                Button::new("map-zoom-out")
+                kit::button("map-zoom-out")
                     .icon(IconName::Minus)
                     .ghost()
                     .small()
@@ -173,7 +173,7 @@ impl ArchitecturePage {
             )
             .child(note(format!("{:.0}%", self.map.zoom * 100.), cx))
             .child(
-                Button::new("map-zoom-in")
+                kit::button("map-zoom-in")
                     .icon(IconName::Plus)
                     .ghost()
                     .small()
@@ -183,7 +183,7 @@ impl ArchitecturePage {
                     })),
             )
             .child(
-                Button::new("map-fit")
+                kit::button("map-fit")
                     .label("Вписать")
                     .ghost()
                     .small()

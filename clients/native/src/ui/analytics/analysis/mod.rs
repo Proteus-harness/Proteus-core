@@ -2,6 +2,7 @@
 
 mod details;
 
+use crate::ui::kit;
 use std::collections::HashSet;
 
 use gpui_kit::component::input::{Input, InputEvent, InputState};
@@ -307,7 +308,7 @@ impl AnalysisPage {
             )
             .child(Input::new(&self.query).small().cleanable(true))
             .child(
-                gpui_kit::component::checkbox::Checkbox::new("analysis-problems")
+                kit::checkbox("analysis-problems")
                     .label("Ошибки и без результата")
                     .checked(self.problems)
                     .on_click(cx.listener(|this, checked: &bool, _, cx| {

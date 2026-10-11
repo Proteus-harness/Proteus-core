@@ -1,4 +1,5 @@
-use gpui_kit::component::button::{Button, ButtonVariants as _};
+use crate::ui::kit;
+use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::input::Textarea;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -25,7 +26,7 @@ impl Chat {
             crate::preferences::SendMode::Enter => "Enter",
             crate::preferences::SendMode::CtrlEnter => "Ctrl+Enter",
         };
-        let send = Button::new("send")
+        let send = kit::button("send")
             .icon(IconName::ArrowUp)
             .tooltip(if running {
                 format!("В очередь ({keys})")
@@ -37,7 +38,7 @@ impl Chat {
             .disabled(!ready)
             .on_click(cx.listener(|this, _, window, cx| this.send(window, cx)));
         let stop = running.then(|| {
-            Button::new("stop")
+            kit::button("stop")
                 .icon(IconName::Square)
                 .tooltip("Остановить")
                 .danger()
@@ -108,7 +109,7 @@ fn render_queued(message: &AppQueuedUserMessage, cx: &Context<Chat>) -> impl Int
             row.child(div().text_color(theme.muted_foreground).child(images))
         })
         .child(
-            Button::new(SharedString::from(format!("unqueue-{message_id}")))
+            kit::button(SharedString::from(format!("unqueue-{message_id}")))
                 .icon(IconName::Close)
                 .tooltip("Убрать из очереди")
                 .ghost()

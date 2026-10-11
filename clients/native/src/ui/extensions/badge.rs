@@ -12,8 +12,8 @@ use gpui_kit::*;
 
 use super::host::Host;
 use crate::preferences::BadgePlace;
-use crate::ui::{drag, prefs};
 use crate::ui::tip::Tip as _;
+use crate::ui::{drag, prefs};
 
 /// What an icon shows; drawn again for its drag preview.
 pub(super) type Face = Rc<dyn Fn() -> AnyElement>;
@@ -114,9 +114,10 @@ pub(super) fn pressable_badge(
         face: face.clone(),
     };
     let press = press.or_else(|| {
-        opens.then(|| Rc::new(move |window: &mut Window, cx: &mut App| {
-            click_host.activate(id, window, cx)
-        }) as Press)
+        opens.then(|| {
+            Rc::new(move |window: &mut Window, cx: &mut App| click_host.activate(id, window, cx))
+                as Press
+        })
     });
     badge_box()
         .id(ElementId::Name(format!("badge-{id}").into()))
@@ -179,7 +180,9 @@ fn badge_menu(menu: PopupMenu, id: &'static str, host: &Host, cx: &App) -> Popup
     // Places change by dragging; the menu only hides the icon or pins it.
     menu.item(
         PopupMenuItem::new("Скрыть значок").on_click(move |_, _, cx| {
-            prefs::update(cx, |prefs| prefs.extensions.set_badge_place(id, BadgePlace::Hidden))
+            prefs::update(cx, |prefs| {
+                prefs.extensions.set_badge_place(id, BadgePlace::Hidden)
+            })
         }),
     )
     .item(

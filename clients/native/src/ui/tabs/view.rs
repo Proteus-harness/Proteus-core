@@ -1,6 +1,7 @@
+use crate::ui::kit;
 use std::time::Instant;
 
-use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -269,7 +270,7 @@ impl Workspace {
             }))
             .when(self.chats.is_empty(), |column| {
                 column.child(
-                    Button::new(("empty-pane-new-session", pane.0 as usize))
+                    kit::button(("empty-pane-new-session", pane.0 as usize))
                         .ghost()
                         .small()
                         .icon(IconName::Plus)

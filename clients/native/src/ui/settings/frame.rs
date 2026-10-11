@@ -1,6 +1,7 @@
 //! Page frame: title, description, scrolled body and the save bar.
 
-use gpui_kit::component::button::{Button, ButtonVariants as _};
+use crate::ui::kit;
+use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::*;
@@ -36,7 +37,7 @@ impl SettingsView {
                             .max_w(prefs::scaled(560.))
                             .child(div().text_color(cx.theme().danger).child(error.clone()))
                             .child(
-                                Button::new("settings-retry")
+                                kit::button("settings-retry")
                                     .label("Повторить")
                                     .outline()
                                     .small()
@@ -223,7 +224,7 @@ impl SettingsView {
             )
             .when(!dirty, |bar| {
                 bar.child(
-                    Button::new("settings-reload")
+                    kit::button("settings-reload")
                         .label("Обновить")
                         .ghost()
                         .small()
@@ -236,7 +237,7 @@ impl SettingsView {
                 )
             })
             .child(
-                Button::new("settings-discard")
+                kit::button("settings-discard")
                     .label("Сбросить")
                     .ghost()
                     .small()
@@ -244,7 +245,7 @@ impl SettingsView {
                     .on_click(cx.listener(|this, _, _, cx| this.discard(cx))),
             )
             .child(
-                Button::new("settings-save")
+                kit::button("settings-save")
                     .label("Сохранить")
                     .primary()
                     .small()

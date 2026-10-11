@@ -1,8 +1,9 @@
 //! One tab of a strip: its look, clicks, drag and context menu. Pinned
 //! tabs are compact and have no close button; panels show only an icon.
 
+use crate::ui::kit;
 use gpui_kit::assets::IconName as Lucide;
-use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::menu::ContextMenuExt as _;
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::*;
@@ -192,7 +193,7 @@ impl Workspace {
                                 .group_hover(tab_group, |style| style.visible())
                         })
                         .child(
-                            Button::new(ElementId::Name(format!("tab-close-{id}").into()))
+                            kit::button(ElementId::Name(format!("tab-close-{id}").into()))
                                 .ghost()
                                 .xsmall()
                                 .icon(IconName::Close)

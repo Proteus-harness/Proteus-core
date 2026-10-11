@@ -1,6 +1,7 @@
 //! Native rendering of the widget tree an extension sends.
 
-use gpui_kit::component::button::{Button, ButtonVariants as _};
+use crate::ui::kit;
+use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -229,7 +230,7 @@ impl DeclarativeView {
                 variant,
             } => {
                 let send = self.sender(action.clone(), value.clone());
-                let button = Button::new(ElementId::Name(format!("decl-button-{path}").into()))
+                let button = kit::button(ElementId::Name(format!("decl-button-{path}").into()))
                     .small()
                     .label(label.clone())
                     .on_click(cx.listener(move |this, _, _, cx| send(this, cx)));

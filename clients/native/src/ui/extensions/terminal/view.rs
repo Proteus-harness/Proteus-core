@@ -4,12 +4,13 @@
 //! shell shortcuts (Ctrl+N, Tab, Ctrl+C) reach the shell before the app's
 //! bindings. Layout, pane and settings shortcuts stay with the app.
 
+use crate::ui::kit;
 use std::cell::Cell;
 use std::path::PathBuf;
 use std::rc::Rc;
 
 use gpui_kit::Size;
-use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -279,7 +280,7 @@ impl Render for TerminalView {
                 .text_color(muted)
                 .child(text)
                 .child(
-                    Button::new("terminal-restart")
+                    kit::button("terminal-restart")
                         .small()
                         .primary()
                         .label("Перезапустить")

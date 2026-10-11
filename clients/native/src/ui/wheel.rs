@@ -91,9 +91,9 @@ pub(super) fn layer() -> impl IntoElement {
 fn step(window: &mut Window, cx: &mut App) {
     let now = Instant::now();
     let (delta, modifiers, more) = GLIDE.with_borrow_mut(|glide| {
-        let dt = glide
-            .last_frame
-            .map_or(1. / 60., |at| now.duration_since(at).as_secs_f32().min(0.05));
+        let dt = glide.last_frame.map_or(1. / 60., |at| {
+            now.duration_since(at).as_secs_f32().min(0.05)
+        });
         glide.last_frame = Some(now);
         let share = 1. - (-dt / GLIDE_SECONDS).exp();
         let mut delta = point(glide.remaining.x * share, glide.remaining.y * share);

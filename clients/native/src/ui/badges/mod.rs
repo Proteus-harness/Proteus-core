@@ -54,16 +54,14 @@ impl Workspace {
         let holds_source = others.len() != ids.len();
         let tag = slot_name(place);
         let generation = frame.generation;
+        // The landing spot appears at once instead of sliding open, so the
+        // ghost never shows squeezed.
         let gap = |index: usize| {
             let room = match &frame.ghost {
                 Some(ghost) => div().px(px(1.)).child(ghost.ghost(cx)),
                 None => div().w(frame.gap_width).h_7(),
             };
-            Slide::new(
-                SharedString::from(format!("badge-gap-{tag}-{index}-{generation}")),
-                frame.open_gap == Some(index),
-                room,
-            )
+            div().when(frame.open_gap == Some(index), |gap| gap.child(room))
         };
         let mut row = Vec::new();
         let mut index = 0;

@@ -7,10 +7,11 @@
 //! Following stops when the user moves up (the offset drops while content
 //! remains below) and resumes once the view reaches the end again.
 
+use crate::ui::kit;
 use std::ops::Range;
 use std::time::Instant;
 
-use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::scroll::{ScrollableElement as _, ScrollableMask};
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -238,7 +239,7 @@ impl RenderOnce for ChatList {
                         .bottom_3()
                         .justify_center()
                         .child(motion::rise_in(
-                            Button::new((self.id.clone(), "jump"))
+                            kit::button((self.id.clone(), "jump"))
                                 .secondary()
                                 .icon(IconName::ArrowDown)
                                 .tooltip("К последним сообщениям")

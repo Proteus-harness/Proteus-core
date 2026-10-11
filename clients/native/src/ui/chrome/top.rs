@@ -1,8 +1,9 @@
 //! The bar above the tabs: the logo menu, the open folder and extension
 //! icons, drawn inside the window's own title bar.
 
+use crate::ui::kit;
 use gpui_kit::assets::IconName as Lucide;
-use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenu, PopupMenuItem};
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -42,13 +43,14 @@ impl Workspace {
             )
         });
         let ready = matches!(self.status, Status::Ready);
-        let busy = self.chats.values().any(|chat| {
-            matches!(chat.view.read(cx).session.state(), ChatState::Busy(_))
-        });
+        let busy = self
+            .chats
+            .values()
+            .any(|chat| matches!(chat.view.read(cx).session.state(), ChatState::Busy(_)));
         let folder = folder_name(&self.workspace_path);
         let place: SharedString = self.workspace_path.display().to_string().into();
         let folder = match projects.clone() {
-            Some(projects) => Button::new("top-folder")
+            Some(projects) => kit::button("top-folder")
                 .ghost()
                 .small()
                 .label(folder)
@@ -68,14 +70,14 @@ impl Workspace {
         let left = h_flex()
             .gap_1()
             .items_center()
-            .child(logo_button(busy, logo_menu(projects, ready.then_some(workspace))))
+            .child(logo_button(
+                busy,
+                logo_menu(projects, ready.then_some(workspace)),
+            ))
             .child(folder);
-        let right = h_flex()
-            .gap_1()
-            .items_center()
-            .when(ready, |right| {
-                right.child(self.render_badge_strip(BadgePlace::Header, cx))
-            });
+        let right = h_flex().gap_1().items_center().when(ready, |right| {
+            right.child(self.render_badge_strip(BadgePlace::Header, cx))
+        });
         title_bar(left, right, window, cx)
     }
 }
@@ -98,10 +100,14 @@ fn logo_button(
     busy: bool,
     menu: impl Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static,
 ) -> impl IntoElement {
-    Button::new("top-logo")
+    kit::button("top-logo")
         .ghost()
         .small()
-        .tooltip(if busy { "Proteus · агент работает" } else { "Proteus" })
+        .tooltip(if busy {
+            "Proteus · агент работает"
+        } else {
+            "Proteus"
+        })
         .child(logo(LOGO_CELL, busy))
         .dropdown_menu_with_anchor(Anchor::TopLeft, menu)
 }

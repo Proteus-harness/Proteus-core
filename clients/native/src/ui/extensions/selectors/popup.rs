@@ -77,15 +77,18 @@ impl SelectorBadge {
         let models = models(config);
         if !models.is_empty() {
             content.push(heading("Модель", cx).into_any_element());
-            let rows = models.into_iter().enumerate().map(|(index, (name, label))| {
-                let selected = current.as_ref() == Some(&name);
-                let chat = chat.clone();
-                let this = cx.entity().downgrade();
-                choice(("model", index), label, selected, cx, move |cx| {
-                    let _ = chat.update(cx, |chat, cx| chat.set_model(name.clone(), cx));
-                    let _ = this.update(cx, |this, cx| this.set_open(false, cx));
-                })
-            });
+            let rows = models
+                .into_iter()
+                .enumerate()
+                .map(|(index, (name, label))| {
+                    let selected = current.as_ref() == Some(&name);
+                    let chat = chat.clone();
+                    let this = cx.entity().downgrade();
+                    choice(("model", index), label, selected, cx, move |cx| {
+                        let _ = chat.update(cx, |chat, cx| chat.set_model(name.clone(), cx));
+                        let _ = this.update(cx, |this, cx| this.set_open(false, cx));
+                    })
+                });
             content.push(
                 v_flex()
                     .id("selector-models")

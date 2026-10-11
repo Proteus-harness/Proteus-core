@@ -1,6 +1,7 @@
 //! One workspace file in a tab: read-only text with highlighting, or its
 //! diff against HEAD.
 
+use crate::ui::kit;
 use std::path::PathBuf;
 
 use gpui_kit::component::button::{Button, ButtonVariants as _};
@@ -148,7 +149,7 @@ impl FileDocument {
             Mode::File => "file-mode-file",
             Mode::Diff => "file-mode-diff",
         };
-        Button::new(id)
+        kit::button(id)
             .label(label)
             .ghost()
             .xsmall()

@@ -1,7 +1,8 @@
 //! Parameters of one module: a form generated from its `config_schema`
 //! or the raw JSON object.
 
-use gpui_kit::component::button::{Button, ButtonVariants as _};
+use crate::ui::kit;
+use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::input::Textarea;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -53,7 +54,7 @@ impl SettingsView {
         let json = self.is_json(slot, module);
         let (slot, module) = (slot.to_string(), module.to_string());
         Some(
-            Button::new(hashed_id("params-mode", &(&slot, &module)))
+            kit::button(hashed_id("params-mode", &(&slot, &module)))
                 .label(if json { "Форма" } else { "JSON" })
                 .ghost()
                 .xsmall()

@@ -1,10 +1,11 @@
 //! The session list panel: sessions of the workspace and a new-session
 //! button.
 
+use crate::ui::kit;
 use std::time::Duration;
 
 use gpui_kit::assets::IconName as Lucide;
-use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::input::Input;
 use gpui_kit::component::menu::{ContextMenuExt as _, DropdownMenu as _};
 use gpui_kit::component::spinner::Spinner;
@@ -88,14 +89,14 @@ impl Workspace {
                             .child(workspace_name),
                     )
                     .child(
-                        Button::new("new-session")
+                        kit::button("new-session")
                             .icon(IconName::Plus)
                             .ghost()
                             .small()
                             .tooltip("Новая сессия (Ctrl+N)")
-                            .on_click(
-                                cx.listener(|this, _, window, cx| this.new_session(None, window, cx)),
-                            ),
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.new_session(None, window, cx)
+                            })),
                     ),
             )
             .child(
@@ -236,7 +237,7 @@ impl Workspace {
                     .group_hover("session-row", |menu| menu.visible())
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .child(
-                        Button::new(("session-menu", ix))
+                        kit::button(("session-menu", ix))
                             .icon(Lucide::Ellipsis)
                             .ghost()
                             .xsmall()

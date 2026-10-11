@@ -1,6 +1,6 @@
 //! Client extensions: switch them on and off and choose where their icons live.
 
-use gpui_kit::component::switch::Switch;
+use crate::ui::kit;
 use gpui_kit::component::*;
 use gpui_kit::*;
 
@@ -115,7 +115,7 @@ fn extension_row(ix: usize, manifest: &'static Manifest, cx: &App) -> Div {
                 .map(|_| badge_select(ix, manifest, cx)),
         )
         .child(
-            Switch::new(("extension-enabled", ix))
+            kit::switch(("extension-enabled", ix))
                 .checked(enabled)
                 .on_click(move |checked: &bool, _, cx| {
                     let checked = *checked;

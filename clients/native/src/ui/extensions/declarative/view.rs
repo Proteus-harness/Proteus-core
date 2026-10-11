@@ -1,8 +1,8 @@
 //! A surface of an installed extension: panel, document or icon.
 
+use crate::ui::kit;
 use std::collections::HashMap;
 
-use gpui_kit::component::button::Button;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -107,7 +107,7 @@ impl DeclarativeView {
                     .child(error),
             )
             .child(
-                Button::new("declarative-restart")
+                kit::button("declarative-restart")
                     .small()
                     .outline()
                     .label("Перезапустить")

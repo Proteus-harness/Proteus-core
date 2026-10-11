@@ -1,10 +1,11 @@
 //! Shared pieces of the analytics pages: page header, cards, metrics,
 //! badges, select menus and the fetch state with visible-only polling.
 
+use crate::ui::kit;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenu, PopupMenuItem};
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -274,7 +275,7 @@ pub(super) fn select<T: Clone + 'static>(
 ) -> AnyElement {
     let pick = Rc::new(pick);
     let choices = Rc::new(choices);
-    Button::new(id)
+    kit::button(id)
         .label(label)
         .outline()
         .small()
@@ -299,7 +300,7 @@ pub(super) fn refresh_button<V: 'static>(
     cx: &Context<V>,
     refresh: fn(&mut V, &mut Context<V>),
 ) -> AnyElement {
-    Button::new(id)
+    kit::button(id)
         .icon(IconName::Redo2)
         .label("Обновить")
         .ghost()

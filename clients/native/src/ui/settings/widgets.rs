@@ -1,12 +1,12 @@
 //! Building blocks of settings pages: sections, cards, rows, chips, radio
 //! cards and select menus.
 
+use crate::ui::kit;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
 use crate::ui::prefs;
-use gpui_kit::component::button::Button;
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenu, PopupMenuItem};
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -274,7 +274,7 @@ pub(super) fn select_menu<T: Clone + 'static>(
 ) -> AnyElement {
     let select = Rc::new(select);
     let options = Rc::new(options);
-    Button::new(id)
+    kit::button(id)
         .label(label)
         .outline()
         .small()

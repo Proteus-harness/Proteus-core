@@ -5,9 +5,10 @@
 mod catalog;
 mod map;
 
+use crate::ui::kit;
 use std::path::PathBuf;
 
-use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::component::*;
 use gpui_kit::*;
@@ -112,7 +113,7 @@ impl Render for ArchitecturePage {
             None if self.data.loading => "Загружаю активную сборку…".into(),
             None => "Нет данных о сборке".into(),
         };
-        let mermaid = Button::new("architecture-mermaid")
+        let mermaid = kit::button("architecture-mermaid")
             .label("Mermaid")
             .ghost()
             .small()

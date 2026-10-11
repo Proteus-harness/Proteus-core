@@ -1,9 +1,10 @@
 //! Settings navigation: agent pages, then client pages.
 
+use crate::ui::kit;
 use std::collections::HashSet;
 
 use gpui_kit::assets::IconName as Lucide;
-use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -132,7 +133,7 @@ impl SettingsView {
             .border_color(theme.sidebar_border)
             .child(
                 h_flex().h(prefs::scaled(44.)).px_2().items_center().child(
-                    Button::new("settings-back")
+                    kit::button("settings-back")
                         .icon(IconName::ArrowLeft)
                         .label("Чат")
                         .ghost()

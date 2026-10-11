@@ -224,6 +224,19 @@ impl Workspace {
         self.focus_active(window, cx);
     }
 
+    /// Locks a pane at the size it has on screen, or gives it back a share.
+    pub(super) fn lock_pane(&mut self, pane: PaneId, locked: bool, cx: &mut Context<Self>) {
+        let Some(area) = self.tab_area.get() else {
+            return;
+        };
+        // The layout is measured at 100% scale.
+        let scale = prefs::scale(cx);
+        let (width, height) = (area.width.as_f32() / scale, area.height.as_f32() / scale);
+        self.update_tabs(cx, |tabs| {
+            tabs.lock_pane(pane, locked, width, height, split::DIVIDER)
+        });
+    }
+
     pub(super) fn focus_pane(&mut self, pane: PaneId, cx: &mut Context<Self>) {
         if prefs::current(cx).tabs.focused != pane {
             self.update_tabs(cx, |tabs| tabs.focus(pane));

@@ -1,5 +1,6 @@
 //! «Запросы и расход» tab: period totals, per-model split and the request list.
 
+use crate::ui::kit;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -451,12 +452,12 @@ impl UsagePage {
     }
 
     fn render_pages(&self, pages: usize, cx: &Context<Self>) -> Div {
-        use gpui_kit::component::button::{Button, ButtonVariants as _};
+        use gpui_kit::component::button::ButtonVariants as _;
         h_flex()
             .gap_2()
             .items_center()
             .child(
-                Button::new("usage-prev")
+                kit::button("usage-prev")
                     .label("Назад")
                     .small()
                     .ghost()
@@ -468,7 +469,7 @@ impl UsagePage {
             )
             .child(note(format!("{} / {pages}", self.page + 1), cx))
             .child(
-                Button::new("usage-next")
+                kit::button("usage-next")
                     .label("Дальше")
                     .small()
                     .ghost()

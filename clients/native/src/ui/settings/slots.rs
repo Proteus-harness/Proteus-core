@@ -1,6 +1,7 @@
 //! Pages of select-one slots: implementation choice and its parameters.
 
-use gpui_kit::component::button::{Button, ButtonVariants as _};
+use crate::ui::kit;
+use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::*;
 use gpui_kit::*;
 
@@ -238,7 +239,7 @@ impl SettingsView {
             card(rows, cx)
         };
         let view = cx.weak_entity();
-        let open_context = Button::new("open-context-slot")
+        let open_context = kit::button("open-context-slot")
             .label("Открыть Context")
             .ghost()
             .xsmall()

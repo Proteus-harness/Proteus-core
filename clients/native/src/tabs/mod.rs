@@ -9,6 +9,7 @@
 
 mod geometry;
 mod layout;
+mod lock;
 mod open;
 mod ops;
 mod pane;

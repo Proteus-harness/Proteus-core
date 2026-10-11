@@ -1,4 +1,5 @@
-use gpui_kit::component::button::{Button, ButtonVariants as _};
+use crate::ui::kit;
+use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::input::Input;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -164,7 +165,7 @@ impl Chat {
             .children(questions)
             .child(
                 h_flex().justify_end().child(
-                    Button::new(SharedString::from(format!("answer-{request_id}")))
+                    kit::button(SharedString::from(format!("answer-{request_id}")))
                         .label("Ответить")
                         .primary()
                         .small()
@@ -250,7 +251,7 @@ fn render_approval(request: &AppApprovalRequest, cx: &mut Context<Chat>) -> AnyE
                 .justify_end()
                 .gap_2()
                 .child(
-                    Button::new(SharedString::from(format!("deny-{deny_id}")))
+                    kit::button(SharedString::from(format!("deny-{deny_id}")))
                         .label("Отклонить")
                         .outline()
                         .small()
@@ -259,7 +260,7 @@ fn render_approval(request: &AppApprovalRequest, cx: &mut Context<Chat>) -> AnyE
                         })),
                 )
                 .child(
-                    Button::new(SharedString::from(format!("approve-{approve_id}")))
+                    kit::button(SharedString::from(format!("approve-{approve_id}")))
                         .label("Разрешить")
                         .primary()
                         .small()

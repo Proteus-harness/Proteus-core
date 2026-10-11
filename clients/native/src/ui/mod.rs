@@ -8,6 +8,7 @@ mod drag;
 mod extensions;
 mod format;
 mod keys;
+mod kit;
 mod launcher;
 mod motion;
 mod notifications;
@@ -70,57 +71,62 @@ impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         motion::drive(window, cx);
         let theme = cx.theme();
-        let root = v_flex()
-            .size_full()
-            .track_focus(&self.focus_handle)
-            .bg(theme.background)
-            .text_color(theme.foreground)
-            .on_action(cx.listener(|this, _: &ToggleSettings, window, cx| {
-                this.toggle_settings(window, cx)
-            }))
-            .on_action(cx.listener(|this, _: &ToggleFiles, window, cx| {
-                if this.settings.is_none()
-                    && let Some(tab) = panels::first_extension_panel(cx)
-                {
-                    this.toggle_panel(&tab, window, cx);
-                }
-            }))
-            .on_action(cx.listener(|this, _: &ToggleSessions, window, cx| {
-                if this.settings.is_none() {
-                    let tab = crate::tabs::panel(crate::tabs::SESSIONS);
-                    this.toggle_panel(&tab, window, cx);
-                }
-            }))
-            .on_action(cx.listener(|this, _: &NewSession, window, cx| this.new_session(None, window, cx)))
-            .on_action(
-                cx.listener(|this, _: &NewTerminal, window, cx| this.open_terminal(None, window, cx)),
-            )
-            .on_action(cx.listener(|this, _: &NextTab, window, cx| this.step_tab(1, window, cx)))
-            .on_action(
-                cx.listener(|this, _: &PreviousTab, window, cx| this.step_tab(-1, window, cx)),
-            )
-            .on_action(cx.listener(|this, _: &SplitRight, window, cx| {
-                this.split_active(Edge::Right, window, cx)
-            }))
-            .on_action(cx.listener(|this, _: &SplitDown, window, cx| {
-                this.split_active(Edge::Bottom, window, cx)
-            }))
-            .on_action(cx.listener(|this, _: &FocusPaneLeft, window, cx| {
-                this.focus_neighbor(Edge::Left, window, cx)
-            }))
-            .on_action(cx.listener(|this, _: &FocusPaneRight, window, cx| {
-                this.focus_neighbor(Edge::Right, window, cx)
-            }))
-            .on_action(cx.listener(|this, _: &FocusPaneUp, window, cx| {
-                this.focus_neighbor(Edge::Top, window, cx)
-            }))
-            .on_action(cx.listener(|this, _: &FocusPaneDown, window, cx| {
-                this.focus_neighbor(Edge::Bottom, window, cx)
-            }))
-            .on_action(|_: &ZoomIn, _, cx| prefs::update(cx, |prefs| prefs.view.zoom(1)))
-            .on_action(|_: &ZoomOut, _, cx| prefs::update(cx, |prefs| prefs.view.zoom(-1)))
-            .on_action(|_: &ZoomReset, _, cx| prefs::update(cx, |prefs| prefs.view.zoom(0)))
-            .on_drop(cx.listener(|this, _: &tabs::SplitDrag, _, cx| this.finish_resize(cx)));
+        let root =
+            v_flex()
+                .size_full()
+                .track_focus(&self.focus_handle)
+                .bg(theme.background)
+                .text_color(theme.foreground)
+                .on_action(cx.listener(|this, _: &ToggleSettings, window, cx| {
+                    this.toggle_settings(window, cx)
+                }))
+                .on_action(cx.listener(|this, _: &ToggleFiles, window, cx| {
+                    if this.settings.is_none()
+                        && let Some(tab) = panels::first_extension_panel(cx)
+                    {
+                        this.toggle_panel(&tab, window, cx);
+                    }
+                }))
+                .on_action(cx.listener(|this, _: &ToggleSessions, window, cx| {
+                    if this.settings.is_none() {
+                        let tab = crate::tabs::panel(crate::tabs::SESSIONS);
+                        this.toggle_panel(&tab, window, cx);
+                    }
+                }))
+                .on_action(cx.listener(|this, _: &NewSession, window, cx| {
+                    this.new_session(None, window, cx)
+                }))
+                .on_action(cx.listener(|this, _: &NewTerminal, window, cx| {
+                    this.open_terminal(None, window, cx)
+                }))
+                .on_action(
+                    cx.listener(|this, _: &NextTab, window, cx| this.step_tab(1, window, cx)),
+                )
+                .on_action(
+                    cx.listener(|this, _: &PreviousTab, window, cx| this.step_tab(-1, window, cx)),
+                )
+                .on_action(cx.listener(|this, _: &SplitRight, window, cx| {
+                    this.split_active(Edge::Right, window, cx)
+                }))
+                .on_action(cx.listener(|this, _: &SplitDown, window, cx| {
+                    this.split_active(Edge::Bottom, window, cx)
+                }))
+                .on_action(cx.listener(|this, _: &FocusPaneLeft, window, cx| {
+                    this.focus_neighbor(Edge::Left, window, cx)
+                }))
+                .on_action(cx.listener(|this, _: &FocusPaneRight, window, cx| {
+                    this.focus_neighbor(Edge::Right, window, cx)
+                }))
+                .on_action(cx.listener(|this, _: &FocusPaneUp, window, cx| {
+                    this.focus_neighbor(Edge::Top, window, cx)
+                }))
+                .on_action(cx.listener(|this, _: &FocusPaneDown, window, cx| {
+                    this.focus_neighbor(Edge::Bottom, window, cx)
+                }))
+                .on_action(|_: &ZoomIn, _, cx| prefs::update(cx, |prefs| prefs.view.zoom(1)))
+                .on_action(|_: &ZoomOut, _, cx| prefs::update(cx, |prefs| prefs.view.zoom(-1)))
+                .on_action(|_: &ZoomReset, _, cx| prefs::update(cx, |prefs| prefs.view.zoom(0)))
+                .on_drop(cx.listener(|this, _: &tabs::SplitDrag, _, cx| this.finish_resize(cx)));
         let root = root.child(self.render_top_bar(window, cx));
         match &self.status {
             Status::Starting => root.child(centered(

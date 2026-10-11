@@ -1,8 +1,8 @@
 //! Tools page: which tools the profile allows.
 
-use gpui_kit::component::button::{Button, ButtonVariants as _};
+use crate::ui::kit;
+use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::input::Input;
-use gpui_kit::component::switch::Switch;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -88,7 +88,7 @@ impl SettingsView {
         let owner = tool.owner.as_ref().map(|owner| {
             let key = pack_key(&owner.component_id, &owner.module_id);
             let view = cx.weak_entity();
-            Button::new(hashed_id("tool-owner", &tool.name))
+            kit::button(hashed_id("tool-owner", &tool.name))
                 .label(format!("{} · {}", owner.component_id, owner.module_id))
                 .ghost()
                 .xsmall()
@@ -113,7 +113,7 @@ impl SettingsView {
             description.to_string()
         };
         let more = long.then(|| {
-            Button::new(hashed_id("tool-more", &tool.name))
+            kit::button(hashed_id("tool-more", &tool.name))
                 .label(if expanded {
                     "Свернуть"
                 } else {
@@ -126,7 +126,7 @@ impl SettingsView {
 
         let name = tool.name.clone();
         let source = format!("Источник: {}", tool.source);
-        let switch = Switch::new(hashed_id("tool-switch", &tool.name))
+        let switch = kit::switch(hashed_id("tool-switch", &tool.name))
             .checked(on)
             .disabled(tool.runtime_managed)
             .on_click(cx.listener(move |this, checked: &bool, _, cx| {
@@ -191,7 +191,7 @@ impl SettingsView {
                     .child(h_flex().child(chip("Не найден в текущей сборке", Tone::Danger, cx))),
             )
             .child(
-                Switch::new(hashed_id("missing-tool", &name))
+                kit::switch(hashed_id("missing-tool", &name))
                     .checked(true)
                     .tooltip("Убрать из списка разрешённых")
                     .on_click(cx.listener(move |this, checked: &bool, _, cx| {

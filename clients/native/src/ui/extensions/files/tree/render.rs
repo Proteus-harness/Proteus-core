@@ -1,3 +1,4 @@
+use crate::ui::kit;
 use std::ops::Range;
 use std::time::Duration;
 
@@ -231,7 +232,7 @@ impl Render for FilesPanel {
             )
             .child(div().flex_1())
             .child(
-                Button::new("files-refresh")
+                kit::button("files-refresh")
                     .icon(IconName::RefreshCw)
                     .ghost()
                     .xsmall()
@@ -305,7 +306,7 @@ impl Render for FilesPanel {
 }
 
 fn tab_button(id: &'static str, label: impl Into<SharedString>, selected: bool) -> Button {
-    Button::new(id)
+    kit::button(id)
         .label(label)
         .ghost()
         .xsmall()
