@@ -50,6 +50,15 @@ impl SettingsView {
                 LoadState::Ready(_) => {}
             }
         }
+        if let PageId::Overview(page) = self.page {
+            return div()
+                .size_full()
+                .px_8()
+                .pt_6()
+                .pb_4()
+                .child(self.overview.view(page))
+                .into_any_element();
+        }
         let theme = cx.theme();
         let snapshot = self.snapshot();
         let body = match &self.page {
@@ -63,6 +72,7 @@ impl SettingsView {
             PageId::Appearance => self.appearance_page(cx),
             PageId::Chat => self.chat_page(cx),
             PageId::Extensions => self.extensions_page(cx),
+            PageId::Overview(_) => unreachable!("overview pages render their own frame"),
         };
         let key = format!("{:?}", self.page);
         let column = v_flex()

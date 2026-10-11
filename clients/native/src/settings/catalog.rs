@@ -37,11 +37,23 @@ pub enum PageId {
     Appearance,
     Chat,
     Extensions,
+    Overview(Overview),
+}
+
+/// Read-only analytics pages of the «Обзор» section.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Overview {
+    Usage,
+    Analysis,
+    Architecture,
 }
 
 impl PageId {
     pub fn is_agent(&self) -> bool {
-        !matches!(self, Self::Appearance | Self::Chat | Self::Extensions)
+        !matches!(
+            self,
+            Self::Appearance | Self::Chat | Self::Extensions | Self::Overview(_)
+        )
     }
 }
 
@@ -122,6 +134,12 @@ pub fn agent_pages(snapshot: &ConfigBuilderSnapshot) -> Vec<PageId> {
 
 pub const CLIENT_PAGES: [PageId; 3] = [PageId::Appearance, PageId::Chat, PageId::Extensions];
 
+pub const OVERVIEW_PAGES: [PageId; 3] = [
+    PageId::Overview(Overview::Usage),
+    PageId::Overview(Overview::Analysis),
+    PageId::Overview(Overview::Architecture),
+];
+
 pub fn page_title(snapshot: Option<&ConfigBuilderSnapshot>, page: &PageId) -> String {
     match page {
         PageId::Model => "Model".into(),
@@ -139,6 +157,9 @@ pub fn page_title(snapshot: Option<&ConfigBuilderSnapshot>, page: &PageId) -> St
         PageId::Appearance => "Внешний вид".into(),
         PageId::Chat => "Чат".into(),
         PageId::Extensions => "Расширения".into(),
+        PageId::Overview(Overview::Usage) => "Расход и контекст".into(),
+        PageId::Overview(Overview::Analysis) => "Анализ ходов".into(),
+        PageId::Overview(Overview::Architecture) => "Архитектура".into(),
     }
 }
 
@@ -171,6 +192,7 @@ pub fn page_description(snapshot: Option<&ConfigBuilderSnapshot>, page: &PageId)
         PageId::Appearance => "Тема и анимации интерфейса. Сохраняются на этом устройстве.",
         PageId::Chat => "Отправка сообщений. Сохраняется на этом устройстве.",
         PageId::Extensions => "Значки, панели и вкладки. Сохраняются на этом устройстве.",
+        PageId::Overview(_) => "",
     };
     text.to_string()
 }

@@ -1,4 +1,5 @@
 mod actions;
+mod analytics;
 mod badges;
 mod chat;
 mod chats;

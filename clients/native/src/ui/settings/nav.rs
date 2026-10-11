@@ -10,7 +10,9 @@ use gpui_kit::*;
 
 use super::widgets::changed_dot;
 use super::{SettingsEvent, SettingsView};
-use crate::settings::catalog::{CLIENT_PAGES, PageId, agent_pages, area_page, page_title};
+use crate::settings::catalog::{
+    CLIENT_PAGES, OVERVIEW_PAGES, Overview, PageId, agent_pages, area_page, page_title,
+};
 use crate::ui::prefs;
 
 const NAV_WIDTH: f32 = 232.;
@@ -34,6 +36,9 @@ fn page_icon(page: &PageId) -> Icon {
         PageId::Appearance => Icon::new(IconName::Palette),
         PageId::Chat => Icon::new(Lucide::MessageSquare),
         PageId::Extensions => Icon::new(Lucide::Puzzle),
+        PageId::Overview(Overview::Usage) => Icon::new(Lucide::Gauge),
+        PageId::Overview(Overview::Analysis) => Icon::new(Lucide::ListChecks),
+        PageId::Overview(Overview::Architecture) => Icon::new(Lucide::Network),
     }
 }
 
@@ -48,6 +53,7 @@ impl SettingsView {
     pub(super) fn step_page(&mut self, offset: isize, cx: &mut Context<Self>) {
         let mut pages = self.agent_page_list();
         pages.extend(CLIENT_PAGES.iter().cloned());
+        pages.extend(OVERVIEW_PAGES.iter().cloned());
         let current = pages
             .iter()
             .position(|page| *page == self.page)
@@ -153,7 +159,9 @@ impl SettingsView {
                     .child(heading("Агент"))
                     .children(agent.into_iter().map(|page| item(page, cx)))
                     .child(heading("Клиент"))
-                    .children(CLIENT_PAGES.iter().cloned().map(|page| item(page, cx))),
+                    .children(CLIENT_PAGES.iter().cloned().map(|page| item(page, cx)))
+                    .child(heading("Обзор"))
+                    .children(OVERVIEW_PAGES.iter().cloned().map(|page| item(page, cx))),
             )
             .children(profile.map(|(path, writable)| {
                 let name = std::path::Path::new(&path)

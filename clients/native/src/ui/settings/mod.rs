@@ -74,6 +74,7 @@ pub struct SettingsView {
     tool_search: Entity<InputState>,
     tool_query: String,
     sizes: sizes::SizeSliders,
+    overview: crate::ui::analytics::Pages,
     focus_handle: FocusHandle,
     _subscriptions: Vec<Subscription>,
 }
@@ -103,6 +104,8 @@ impl SettingsView {
         // Keeps window shortcuts routed while no input inside the screen is focused.
         let focus_handle = cx.focus_handle();
         focus_handle.focus(window, cx);
+        let overview =
+            crate::ui::analytics::Pages::new(api.clone(), session_dir.clone(), window, cx);
         let mut view = Self {
             api,
             session_dir,
@@ -120,6 +123,7 @@ impl SettingsView {
             tool_search,
             tool_query: String::new(),
             sizes,
+            overview,
             focus_handle,
             _subscriptions: subscriptions,
         };
