@@ -5,7 +5,7 @@ use gpui_kit::*;
 use proteus_contracts::app_protocol::config::ConfigSummary;
 use proteus_contracts::domain::PermissionMode;
 
-use super::workspace::Workspace;
+use super::Chat;
 
 const MODES: [(PermissionMode, &str); 3] = [
     (PermissionMode::Normal, "По правилам"),
@@ -14,7 +14,7 @@ const MODES: [(PermissionMode, &str); 3] = [
 ];
 
 /// Russian label of a persisted permission mode string.
-pub(super) fn mode_label(value: &str) -> &'static str {
+pub(in crate::ui) fn mode_label(value: &str) -> &'static str {
     let mode = mode_from_value(value);
     MODES
         .iter()
@@ -47,9 +47,9 @@ fn effort_label(effort: Option<&str>) -> String {
     }
 }
 
-impl Workspace {
+impl Chat {
     pub(super) fn render_controls(&self, cx: &Context<Self>) -> Option<impl IntoElement> {
-        let config = self.session.as_ref()?.config.as_ref()?;
+        let config = self.session.config.as_ref()?;
         let this = cx.entity().downgrade();
 
         let mode = mode_from_value(&config.permission_mode);

@@ -1,13 +1,11 @@
 use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::message_scroller::MessageScroller;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use super::bar::DraggedTab;
-use crate::tabs::{CHAT, TabLayout};
+use crate::tabs::{self, TabLayout};
 use crate::ui::motion;
-use crate::ui::thread::CONTENT_WIDTH;
 use crate::ui::workspace::Workspace;
 
 /// Narrowest a tab group may get while resizing.
@@ -87,7 +85,13 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) -> Div {
         let content = match layout.active(group) {
-            Some(CHAT) => self.render_chat(window, cx).into_any_element(),
+            Some(id) if tabs::is_chat(id) => match self.chats.get(id) {
+                Some(chat) => div()
+                    .size_full()
+                    .child(chat.view.clone())
+                    .into_any_element(),
+                None => div().into_any_element(),
+            },
             Some(id) => match self.ensure_document(id, window, cx) {
                 Some(document) => motion::rise_in(
                     div().size_full().child(document.view),
@@ -165,7 +169,15 @@ impl Workspace {
     /// A group without tabs explains how to fill it.
     fn render_empty_group(&self, group: usize, layout: &TabLayout, cx: &Context<Self>) -> Div {
         let theme = cx.theme();
-        let chat_elsewhere = layout.group_of(CHAT) != Some(group);
+        let chat_elsewhere = self
+            .active_chat
+            .clone()
+            .filter(|id| layout.group_of(id) != Some(group));
+        let hint = if layout.is_split() {
+            "Откройте файл в боковой панели или перетащите сюда вкладку."
+        } else {
+            "Откройте сессию или файл в боковой панели."
+        };
         v_flex()
             .size_full()
             .items_center()
@@ -177,58 +189,45 @@ impl Workspace {
                     .text_sm()
                     .text_center()
                     .text_color(theme.muted_foreground)
-                    .child("Откройте файл в боковой панели или перетащите сюда вкладку."),
+                    .child(hint),
             )
-            .when(chat_elsewhere, |column| {
-                column.child(
+            .children(self.notice.clone().map(|notice| {
+                div()
+                    .text_xs()
+                    .text_center()
+                    .text_color(theme.danger)
+                    .child(notice)
+            }))
+            .map(|column| match chat_elsewhere {
+                Some(id) => column.child(
                     Button::new(("empty-group-chat", group))
                         .ghost()
                         .small()
                         .icon(Icon::new(gpui_kit::assets::IconName::MessageSquare))
                         .label("Перенести чат сюда")
                         .on_click(cx.listener(move |this, _, window, cx| {
-                            this.open_tab_in(CHAT, group, window, cx)
+                            this.open_tab_in(&id, group, window, cx)
                         })),
+                ),
+                None if self.chats.is_empty() => column.child(
+                    Button::new(("empty-group-new-session", group))
+                        .ghost()
+                        .small()
+                        .icon(IconName::Plus)
+                        .label("Новая сессия")
+                        .on_click(cx.listener(|this, _, window, cx| this.new_session(window, cx))),
+                ),
+                None => column,
+            })
+            .when(layout.is_split(), |column| {
+                column.child(
+                    Button::new(("empty-group-close", group))
+                        .ghost()
+                        .xsmall()
+                        .label("Закрыть область")
+                        .on_click(cx.listener(|this, _, window, cx| this.toggle_split(window, cx))),
                 )
             })
-            .child(
-                Button::new(("empty-group-close", group))
-                    .ghost()
-                    .xsmall()
-                    .label("Закрыть область")
-                    .on_click(cx.listener(|this, _, window, cx| this.toggle_split(window, cx))),
-            )
-    }
-
-    /// The conversation: thread, pending requests, notice and composer.
-    fn render_chat(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Div {
-        let renderer = cx.processor(|this, ix: usize, window, cx| this.render_row(ix, window, cx));
-        // A new id per session replays the fade when switching sessions.
-        let thread_id = ElementId::NamedInteger("thread-enter".into(), self.session_key());
-        v_flex()
-            .size_full()
-            .child(motion::fade_in_if(
-                MessageScroller::new("thread", self.scroller.clone(), renderer)
-                    .flex_1()
-                    .min_h_0()
-                    .scrollbar(true)
-                    .jump_button(true)
-                    .with_row_style(StyleRefinement::default().px_0().pb_0()),
-                thread_id,
-                true,
-            ))
-            .children(self.render_requests(window, cx))
-            .children(self.notice.clone().map(|notice| {
-                h_flex().w_full().justify_center().px_6().pt_2().child(
-                    div()
-                        .w_full()
-                        .max_w(px(CONTENT_WIDTH))
-                        .text_xs()
-                        .text_color(cx.theme().danger)
-                        .child(notice),
-                )
-            }))
-            .child(self.render_composer(cx))
     }
 }
 

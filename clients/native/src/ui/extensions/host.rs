@@ -4,13 +4,15 @@ use gpui_kit::*;
 use proteus_contracts::app_protocol::AppSessionActivity;
 
 use crate::api::Api;
-use crate::ui::workspace::{Session, Workspace};
+use crate::ui::chat::{Chat, Session};
+use crate::ui::workspace::Workspace;
 
-/// What an extension gets from the client: read access to the open session,
+/// What an extension gets from the client: read access to the active chat's
+/// session,
 /// the server API, host events and navigation. It holds no strong reference,
 /// so extensions never keep the workspace alive.
 ///
-/// Reads must happen outside workspace updates: views read it while
+/// Reads must happen outside workspace and chat updates: views read it while
 /// rendering or from event handlers, never from their constructors (defer
 /// the first load instead).
 #[derive(Clone)]
@@ -20,9 +22,9 @@ pub(in crate::ui) struct Host {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::ui) enum HostEvent {
-    /// Another session became current.
+    /// Another chat became active, or the last one closed.
     SessionOpened,
-    /// A run of the current session finished; files and quotas may differ.
+    /// A run of the active chat finished; files and quotas may differ.
     RunSettled,
 }
 
@@ -34,10 +36,9 @@ impl Host {
     }
 
     pub(in crate::ui) fn read<R>(&self, cx: &App, read: impl FnOnce(&HostView) -> R) -> Option<R> {
-        let workspace = self.workspace.upgrade()?;
-        Some(read(&HostView {
-            workspace: workspace.read(cx),
-        }))
+        let workspace = self.workspace.upgrade()?.read(cx);
+        let chat = workspace.active_chat_view().map(|chat| chat.read(cx));
+        Some(read(&HostView { workspace, chat }))
     }
 
     pub(in crate::ui) fn api(&self, cx: &App) -> Option<Api> {
@@ -119,14 +120,16 @@ pub(in crate::ui) struct OpenDocument {
 /// Read-only view of the workspace for one call of [`Host::read`].
 pub(in crate::ui) struct HostView<'a> {
     workspace: &'a Workspace,
+    chat: Option<&'a Chat>,
 }
 
 impl HostView<'_> {
+    /// Session of the active chat.
     pub(in crate::ui) fn session(&self) -> Option<&Session> {
-        self.workspace.session.as_ref()
+        self.chat.map(|chat| &chat.session)
     }
 
-    /// Server-side activity of the current session.
+    /// Server-side activity of the active chat's session.
     pub(in crate::ui) fn activity(&self) -> Option<&AppSessionActivity> {
         let session = self.session()?;
         self.workspace

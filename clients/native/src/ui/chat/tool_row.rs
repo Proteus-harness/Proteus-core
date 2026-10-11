@@ -7,10 +7,10 @@ use gpui_kit::*;
 use proteus_contracts::app_protocol::AppTranscriptTool;
 use serde_json::Value;
 
-use super::format;
-use super::motion::{chevron, reveal};
-use super::workspace::Workspace;
+use super::Chat;
 use crate::tool_display::{self, DiffLine, PatchFile, PlanStep, StepStatus};
+use crate::ui::format;
+use crate::ui::motion::{chevron, reveal};
 
 const RESULT_LINES: usize = 40;
 const RESULT_CHARS: usize = 8_000;
@@ -23,7 +23,7 @@ fn row_id(name: &'static str, key: u64) -> ElementId {
     ElementId::NamedInteger(name.into(), key)
 }
 
-pub(super) fn tool_args(tool: &AppTranscriptTool) -> &Value {
+pub(in crate::ui) fn tool_args(tool: &AppTranscriptTool) -> &Value {
     tool.effective_args.as_ref().unwrap_or(&tool.args)
 }
 
@@ -88,13 +88,16 @@ pub(super) fn render_tool(
     key: u64,
     tool: &AppTranscriptTool,
     expanded: bool,
-    cx: &mut Context<Workspace>,
+    cx: &mut Context<Chat>,
 ) -> AnyElement {
     let muted = cx.theme().muted_foreground;
     let app: &App = cx;
-    let details = reveal(super::thread::reveal_key(key), expanded, app, || {
-        tool_details(key, tool, app).into_any_element()
-    });
+    let details = reveal(
+        super::thread::reveal_key(cx.entity_id(), key),
+        expanded,
+        app,
+        || tool_details(key, tool, app).into_any_element(),
+    );
     v_flex()
         .gap_1()
         .child(

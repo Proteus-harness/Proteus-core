@@ -211,3 +211,14 @@ pub(super) fn document(tab: &str, cx: &App) -> Option<(&'static Manifest, String
     manifest.document.as_ref()?;
     Some((manifest, argument.to_string()))
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn documents_never_look_like_chats() {
+        for manifest in &super::CATALOG {
+            let id = crate::tabs::document(manifest.id, "x");
+            assert!(!crate::tabs::is_chat(&id), "extension `{}`", manifest.id);
+        }
+    }
+}

@@ -1,20 +1,15 @@
 mod actions;
 mod badges;
-mod composer;
-mod context_usage;
-mod controls;
+mod chat;
+mod chats;
 mod drag;
 mod extensions;
 mod format;
 mod motion;
 mod prefs;
-mod requests;
 mod settings;
 mod sidebar;
 mod tabs;
-mod thread;
-mod tool_row;
-mod user_input;
 mod workspace;
 
 use gpui_kit::component::spinner::Spinner;
@@ -65,7 +60,7 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &ToggleSettings, window, cx| {
                 if this.settings.is_some() {
                     this.close_settings(cx);
-                    this.focus_composer(window, cx);
+                    this.focus_active_chat(window, cx);
                 } else {
                     this.open_settings(window, cx);
                 }
@@ -75,10 +70,7 @@ impl Render for Workspace {
                     this.toggle_sidebar_view(window, cx);
                 }
             }))
-            .on_action(cx.listener(|this, _: &NewSession, window, cx| {
-                this.new_session(cx);
-                this.focus_composer(window, cx);
-            }))
+            .on_action(cx.listener(|this, _: &NewSession, window, cx| this.new_session(window, cx)))
             .on_action(cx.listener(|this, _: &NextTab, window, cx| this.step_tab(1, window, cx)))
             .on_action(
                 cx.listener(|this, _: &PreviousTab, window, cx| this.step_tab(-1, window, cx)),
@@ -134,30 +126,11 @@ fn centered(content: impl IntoElement) -> Div {
 }
 
 impl Workspace {
-    fn session_title(&self) -> String {
-        self.session
-            .as_ref()
-            .and_then(|session| {
-                self.sessions
-                    .iter()
-                    .find(|summary| summary.session_dir == session.dir)
-            })
-            .map(format::session_title)
-            .unwrap_or_else(|| "Новая сессия".to_owned())
-    }
-
-    fn session_key(&self) -> u64 {
-        use std::hash::{Hash, Hasher};
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        self.session
-            .as_ref()
-            .map(|session| &session.dir)
-            .hash(&mut hasher);
-        hasher.finish()
-    }
-
     fn sync_window_title(&mut self, window: &mut Window) {
-        let title = format!("{} — Proteus", self.session_title());
+        let title = match self.active_chat_dir() {
+            Some(dir) => format!("{} — Proteus", self.session_title(dir)),
+            None => "Proteus".to_owned(),
+        };
         if self.window_title != title {
             window.set_window_title(&title);
             self.window_title = title;

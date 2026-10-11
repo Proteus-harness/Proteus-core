@@ -6,7 +6,7 @@ use proteus_contracts::domain::TokenUsageSnapshot;
 /// Context window fill: the provider measurement when known, otherwise the
 /// local estimate. Without a known window size there is nothing to show.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct ContextUsage {
+pub(in crate::ui) struct ContextUsage {
     pub used: u32,
     pub max: u32,
     pub trigger: Option<u32>,
@@ -56,7 +56,7 @@ impl ContextUsage {
     }
 }
 
-pub(super) fn tokens(value: u32) -> String {
+pub(in crate::ui) fn tokens(value: u32) -> String {
     match value {
         0..1_000 => value.to_string(),
         1_000..1_000_000 => format!("{:.0}k", value as f32 / 1_000.),

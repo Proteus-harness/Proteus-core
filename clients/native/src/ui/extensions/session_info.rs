@@ -6,7 +6,7 @@ use proteus_contracts::app_protocol::config::ConfigSummary;
 use super::host::HostView;
 use crate::tool_display::{self, PlanStep, StepStatus};
 use crate::transcript::Role;
-use crate::ui::tool_row::tool_args;
+use crate::ui::chat::tool_row::tool_args;
 
 pub(super) const CONTEXT: &str = "context";
 pub(super) const PLAN: &str = "plan";

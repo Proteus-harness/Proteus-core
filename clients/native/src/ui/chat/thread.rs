@@ -6,32 +6,49 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use proteus_contracts::app_protocol::AppTranscriptSubagent;
 
-use super::format;
-use super::motion::{chevron, fade_in_if, reveal};
+use super::Chat;
 use super::tool_row::{render_tool, tool_line};
-use super::workspace::Workspace;
 use crate::transcript::{Entry, Role};
+use crate::ui::format;
+use crate::ui::motion::{self, chevron, fade_in_if, reveal};
 
-pub(super) const CONTENT_WIDTH: f32 = 840.;
+pub(in crate::ui) const CONTENT_WIDTH: f32 = 840.;
 
-impl Workspace {
+impl Chat {
+    pub(super) fn toggle_expanded(&mut self, key: u64, cx: &mut Context<Self>) {
+        let open = !self.expanded.remove(&key);
+        if open {
+            self.expanded.insert(key);
+        }
+        motion::toggled(reveal_key(cx.entity_id(), key), open, cx);
+        let row = self
+            .session
+            .transcript
+            .entries()
+            .iter()
+            .position(|entry| entry.key == key);
+        if let Some(row) = row {
+            self.scroller.update(cx, |scroller, cx| {
+                scroller.remeasure_items(row..row + 1, cx)
+            });
+        }
+        cx.notify();
+    }
+
     pub(super) fn render_row(
         &mut self,
         ix: usize,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let Some(entry) = self
-            .session
-            .as_ref()
-            .and_then(|session| session.transcript.entries().get(ix))
-        else {
+        let entries = self.session.transcript.entries();
+        let Some(entry) = entries.get(ix) else {
             return div().into_any_element();
         };
         let expanded = self.expanded.contains(&entry.key);
         let fresh = self.fresh_rows.is_fresh(entry.key);
         let key = entry.key;
-        let last = ix + 1 == session_rows(self);
+        let last = ix + 1 == entries.len();
         let spacing = match (&entry.role, &entry.tool) {
             (Role::User, _) => Spacing {
                 top: 4.,
@@ -81,20 +98,13 @@ struct Spacing {
     bottom: f32,
 }
 
-fn session_rows(workspace: &Workspace) -> usize {
-    workspace
-        .session
-        .as_ref()
-        .map_or(0, |session| session.transcript.entries().len())
-}
-
 fn row_id(name: &'static str, key: u64) -> ElementId {
     ElementId::NamedInteger(name.into(), key)
 }
 
-/// Motion key of a row's expandable details.
-pub(super) fn reveal_key(key: u64) -> SharedString {
-    format!("thread-row-{key}").into()
+/// Motion key of a row's expandable details; row keys repeat across chats.
+pub(super) fn reveal_key(chat: EntityId, key: u64) -> SharedString {
+    format!("thread-row-{chat}-{key}").into()
 }
 
 fn copy_button(name: &'static str, key: u64, text: SharedString) -> Clipboard {
@@ -187,7 +197,7 @@ fn render_subagent(
     key: u64,
     agent: &AppTranscriptSubagent,
     expanded: bool,
-    cx: &mut Context<Workspace>,
+    cx: &mut Context<Chat>,
 ) -> AnyElement {
     let theme = cx.theme();
     let mut meta = format!("{} · инструментов: {}", agent.status, agent.tools.len());
@@ -195,7 +205,7 @@ fn render_subagent(
         meta.push_str(&format!(" · шагов: {iterations}"));
     }
     let app: &App = cx;
-    let tools = reveal(reveal_key(key), expanded, app, || {
+    let tools = reveal(reveal_key(cx.entity_id(), key), expanded, app, || {
         v_flex()
             .pl_5()
             .gap_1()

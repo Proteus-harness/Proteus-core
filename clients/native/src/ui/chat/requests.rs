@@ -6,21 +6,21 @@ use gpui_kit::*;
 use proteus_contracts::app_protocol::AppApprovalRequest;
 use proteus_contracts::contracts::UserInputRequest;
 
-use super::format;
+use super::Chat;
 use super::thread::CONTENT_WIDTH;
-use super::workspace::Workspace;
+use crate::ui::format;
 
 const PREVIEW_LINES: usize = 24;
 const PREVIEW_CHARS: usize = 6_000;
 
-impl Workspace {
+impl Chat {
     /// Approval and question cards the agent is waiting on.
     pub(super) fn render_requests(
         &mut self,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<impl IntoElement> {
-        let pending = self.session.as_ref()?.pending.clone()?;
+        let pending = self.session.pending.clone()?;
         if pending.approvals.is_empty() && pending.user_inputs.is_empty() {
             return None;
         }
@@ -173,7 +173,7 @@ impl Workspace {
     }
 }
 
-fn render_approval(request: &AppApprovalRequest, cx: &mut Context<Workspace>) -> AnyElement {
+fn render_approval(request: &AppApprovalRequest, cx: &mut Context<Chat>) -> AnyElement {
     let theme = cx.theme();
     let preview = request.preview.as_ref();
     let title = preview

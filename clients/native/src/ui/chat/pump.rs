@@ -1,0 +1,162 @@
+//! The live session stream: connection state and server events folded into
+//! the chat.
+
+use std::path::PathBuf;
+
+use gpui_kit::*;
+use proteus_contracts::app_protocol::AppServerEvent;
+use proteus_contracts::domain::Event as RuntimeEvent;
+
+use super::context_usage::ContextUsage;
+use super::{Chat, ChatEvent};
+use crate::api::Api;
+use crate::connection::{self, PumpItem};
+use crate::transcript::Change;
+
+/// Streams the session into the chat until the chat is dropped; dropping
+/// the task closes the channel, which stops the stream thread.
+pub(super) fn start(api: Api, session_dir: PathBuf, cx: &mut Context<Chat>) -> Task<()> {
+    let events = connection::spawn_pump(api, session_dir);
+    cx.spawn(async move |this, cx| {
+        while let Ok(first) = events.recv().await {
+            let mut batch = vec![first];
+            while let Ok(item) = events.try_recv() {
+                batch.push(item);
+            }
+            let applied = this.update(cx, |this, cx| {
+                for item in batch {
+                    this.apply(item, cx);
+                }
+                cx.notify();
+            });
+            if applied.is_err() {
+                break;
+            }
+        }
+    })
+}
+
+impl Chat {
+    fn apply(&mut self, item: PumpItem, cx: &mut Context<Self>) {
+        let session = &mut self.session;
+        match item {
+            PumpItem::Connected => {
+                session.cursor.begin_connection();
+                session.pending_cursor.begin_connection();
+                session.connected = true;
+                session.link_error = None;
+            }
+            PumpItem::Disconnected(error) => {
+                session.connected = false;
+                session.link_error = Some(error.into());
+            }
+            PumpItem::Event(event) => self.apply_event(*event, cx),
+        }
+    }
+
+    fn apply_event(&mut self, event: AppServerEvent, cx: &mut Context<Self>) {
+        if let AppServerEvent::SessionActivityUpdated {
+            session_dir,
+            activity,
+        } = event
+        {
+            cx.emit(ChatEvent::Activity {
+                session_dir,
+                activity,
+            });
+            return;
+        }
+        let session = &mut self.session;
+        if !session.cursor.accept(&event) {
+            return;
+        }
+        let change = match event {
+            AppServerEvent::SessionSnapshot { snapshot } => {
+                let snapshot = *snapshot;
+                session.execution = snapshot.execution;
+                session.root_thread = snapshot.root_thread_id;
+                session.transcript.reset(snapshot.transcript)
+            }
+            AppServerEvent::ExecutionUpdated { execution } => {
+                let settled = session.running() && execution.active.is_none();
+                session.execution = execution;
+                if settled {
+                    self.load_context(cx);
+                    cx.emit(ChatEvent::RunSettled);
+                }
+                Change::None
+            }
+            AppServerEvent::Runtime { envelope } => {
+                if let RuntimeEvent::TokenUsageUpdated { usage, .. } = &envelope.event
+                    && session
+                        .root_thread
+                        .is_none_or(|root| root == envelope.thread_id)
+                {
+                    session.context = ContextUsage::from_event(usage);
+                }
+                session
+                    .transcript
+                    .apply_runtime(envelope.thread_id, &envelope.event)
+            }
+            AppServerEvent::UserMessageSubmitted { text, images } => {
+                session.transcript.push_user(None, &text, images.len())
+            }
+            AppServerEvent::PendingRequestsUpdated { snapshot } => {
+                if session.pending_cursor.accept_stream(
+                    &snapshot.session_id.to_string(),
+                    &snapshot.stream_id,
+                    snapshot.seq,
+                ) {
+                    session.pending = Some(*snapshot);
+                }
+                if let Some(pending) = &session.pending {
+                    self.user_input.retain(pending);
+                }
+                Change::None
+            }
+            AppServerEvent::ModulesReloaded { .. }
+            | AppServerEvent::ProfileReloadStatus { error: None } => {
+                self.load_config(cx);
+                Change::None
+            }
+            AppServerEvent::Error { message } => {
+                self.notice = Some(message.into());
+                Change::None
+            }
+            AppServerEvent::ProfileReloadStatus { error: Some(error) } => {
+                self.notice = Some(format!("Не удалось перезагрузить профиль: {error}").into());
+                Change::None
+            }
+            AppServerEvent::Shutdown => {
+                cx.emit(ChatEvent::ServerStopped);
+                Change::None
+            }
+            _ => Change::None,
+        };
+        self.apply_change(change, cx);
+    }
+
+    fn apply_change(&mut self, change: Change, cx: &mut Context<Self>) {
+        if matches!(change, Change::Pushed)
+            && let Some(entry) = self.session.transcript.entries().last()
+        {
+            self.fresh_rows.mark(entry.key);
+        }
+        self.scroller.update(cx, |scroller, cx| match change {
+            Change::None => {}
+            Change::Pushed => {
+                scroller.append(1, cx);
+            }
+            Change::Updated(row) => {
+                scroller.remeasure_items(row..row + 1, cx);
+            }
+            Change::Spliced {
+                start,
+                removed,
+                inserted,
+            } => {
+                scroller.splice(start..start + removed, inserted, cx);
+            }
+        });
+    }
+}

@@ -13,8 +13,8 @@ use super::session_info::{
     AGENT, CONTEXT, PLAN, SESSION, completed, current_plan, model_label, session_stats,
 };
 use crate::tool_display::StepStatus;
-use crate::ui::context_usage::tokens;
-use crate::ui::controls::mode_label;
+use crate::ui::chat::context_usage::tokens;
+use crate::ui::chat::controls::mode_label;
 use crate::ui::motion::Number;
 
 type Read = fn(&HostView, &App) -> (Face, Details);

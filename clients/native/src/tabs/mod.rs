@@ -1,15 +1,17 @@
 //! Tab groups of the main area: which tabs are open, where they are, and how
 //! two groups share the width. Pure state, persisted with the preferences.
 //!
-//! Besides the chat, tabs are documents of extensions, addressed as
-//! `<extension>:<argument>`, e.g. `files:src/main.rs`.
+//! Tabs are chats, addressed as `chat:<session dir>`, and documents of
+//! extensions, addressed as `<extension>:<argument>`, e.g. `files:src/main.rs`.
+//! No extension is called `chat`, so the two never mix.
 
 use std::collections::HashSet;
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-/// The conversation itself; always open, cannot be closed.
-pub const CHAT: &str = "chat";
+/// Prefix of chat tab ids.
+const CHAT_PREFIX: &str = "chat:";
 pub const MIN_SPLIT: u16 = 200;
 pub const MAX_SPLIT: u16 = 800;
 const EVEN_SPLIT: u16 = 500;
@@ -32,9 +34,26 @@ pub fn document(extension: &str, argument: &str) -> String {
     format!("{extension}:{argument}")
 }
 
-/// Extension and argument of a document tab; `None` for the chat.
+/// Extension and argument of a document tab; `None` for chats.
 pub fn split_document(id: &str) -> Option<(&str, &str)> {
+    if is_chat(id) {
+        return None;
+    }
     id.split_once(':')
+}
+
+/// Tab id of the chat of an absolute session directory.
+pub fn chat(session_dir: &Path) -> String {
+    format!("{CHAT_PREFIX}{}", session_dir.to_string_lossy())
+}
+
+/// Session directory of a chat tab; `None` for documents.
+pub fn chat_dir(id: &str) -> Option<&Path> {
+    id.strip_prefix(CHAT_PREFIX).map(Path::new)
+}
+
+pub fn is_chat(id: &str) -> bool {
+    id.starts_with(CHAT_PREFIX)
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -50,11 +69,7 @@ pub struct TabGroup {
 impl Default for TabLayout {
     fn default() -> Self {
         Self {
-            groups: vec![TabGroup {
-                tabs: vec![CHAT.to_string()],
-                active: Some(CHAT.to_string()),
-                previous: None,
-            }],
+            groups: vec![TabGroup::default()],
             focused: 0,
             split: EVEN_SPLIT,
             preview: None,
@@ -89,9 +104,6 @@ impl TabLayout {
                 }
                 _ => {}
             }
-        }
-        if !seen.contains(CHAT) {
-            return Err("the chat tab is missing".into());
         }
         if let Some(preview) = &self.preview
             && !seen.contains(preview.as_str())
@@ -134,15 +146,21 @@ impl TabLayout {
         self.focused = group;
     }
 
-    /// Shows `id` where it is open, or opens it. A new tab avoids covering the
-    /// chat: it goes to the other group, splitting the area when allowed.
+    /// Shows `id` where it is open, or opens it. A chat joins the chat in
+    /// view; a document avoids covering a chat: it goes to the other group,
+    /// splitting the area when allowed.
     pub fn open(&mut self, id: &str, can_split: bool) {
         if let Some(group) = self.group_of(id) {
             self.activate(group, id);
             return;
         }
         let mut target = self.focused;
-        if self.active(target) == Some(CHAT) {
+        let shows_chat = |group| self.active(group).is_some_and(is_chat);
+        if is_chat(id) {
+            if self.is_split() && !shows_chat(target) && shows_chat(1 - target) {
+                target = 1 - target;
+            }
+        } else if shows_chat(target) {
             if self.is_split() {
                 target = 1 - target;
             } else if can_split {
@@ -213,9 +231,6 @@ impl TabLayout {
     }
 
     pub fn close(&mut self, id: &str) {
-        if id == CHAT {
-            return;
-        }
         let Some(group) = self.group_of(id) else {
             return;
         };
@@ -318,19 +333,41 @@ impl TabLayout {
         self.split = EVEN_SPLIT;
     }
 
-    /// Closes tabs whose pages are gone, e.g. of a switched-off extension.
+    /// Closes tabs whose pages are gone, e.g. of a switched-off extension or
+    /// a deleted session.
     pub fn retain(&mut self, keep: impl Fn(&str) -> bool) {
         for group in 0..self.groups.len() {
             let gone: Vec<String> = self.groups[group]
                 .tabs
                 .iter()
-                .filter(|tab| tab.as_str() != CHAT && !keep(tab))
+                .filter(|tab| !keep(tab))
                 .cloned()
                 .collect();
             for id in gone {
                 self.detach(group, &id);
             }
         }
+    }
+
+    /// Open chat tabs, group by group.
+    pub fn chats(&self) -> impl Iterator<Item = &str> {
+        self.groups
+            .iter()
+            .flat_map(|group| group.tabs.iter())
+            .map(String::as_str)
+            .filter(|id| is_chat(id))
+    }
+
+    /// The chat that commands and extensions address: the chat shown in the
+    /// focused group, else `current` while it is open, else a chat in view,
+    /// else any open chat.
+    pub fn active_chat(&self, current: Option<&str>) -> Option<String> {
+        let shown = |group: usize| self.active(group).filter(|id| is_chat(id));
+        shown(self.focused)
+            .or_else(|| current.filter(|id| self.group_of(id).is_some()))
+            .or_else(|| (0..self.groups.len()).find_map(shown))
+            .or_else(|| self.chats().next())
+            .map(str::to_string)
     }
 
     fn detach(&mut self, group: usize, id: &str) {
@@ -360,139 +397,4 @@ impl TabLayout {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{CHAT, TabLayout};
-
-    fn tabs(layout: &TabLayout) -> Vec<(Vec<&str>, Option<&str>)> {
-        layout
-            .groups
-            .iter()
-            .map(|group| {
-                (
-                    group.tabs.iter().map(String::as_str).collect(),
-                    group.active.as_deref(),
-                )
-            })
-            .collect()
-    }
-
-    #[test]
-    fn opening_avoids_covering_the_chat() {
-        let mut layout = TabLayout::default();
-        layout.open("files", false);
-        assert_eq!(tabs(&layout), [(vec![CHAT, "files"], Some("files"))]);
-
-        let mut layout = TabLayout::default();
-        layout.open("files", true);
-        assert_eq!(
-            tabs(&layout),
-            [(vec![CHAT], Some(CHAT)), (vec!["files"], Some("files"))]
-        );
-        assert_eq!(layout.focused, 1);
-
-        // Opening an open tab only shows it; the chat group stays as it is.
-        layout.focus(0);
-        layout.open("notes", true);
-        layout.open("files", true);
-        assert_eq!(layout.active(1), Some("files"));
-        assert_eq!(layout.groups[1].tabs, ["files", "notes"]);
-        assert!(layout.validate().is_ok());
-    }
-
-    #[test]
-    fn closing_falls_back_and_merges_empty_groups() {
-        let mut layout = TabLayout::default();
-        layout.open("files", false);
-        layout.open("notes", false);
-        layout.activate(0, "files");
-        layout.activate(0, "notes");
-        layout.close("notes");
-        assert_eq!(layout.active(0), Some("files"));
-        layout.close(CHAT);
-        assert_eq!(layout.groups[0].tabs, [CHAT, "files"]);
-
-        layout.transfer(0);
-        assert_eq!(
-            tabs(&layout),
-            [(vec![CHAT], Some(CHAT)), (vec!["files"], Some("files"))]
-        );
-        layout.close("files");
-        assert_eq!(tabs(&layout), [(vec![CHAT], Some(CHAT))]);
-        assert_eq!(layout.focused, 0);
-    }
-
-    #[test]
-    fn moving_reorders_and_splits() {
-        let mut layout = TabLayout::default();
-        layout.open("files", false);
-        layout.open("notes", false);
-        layout.move_tab("notes", 0, Some(CHAT));
-        assert_eq!(layout.groups[0].tabs, ["notes", CHAT, "files"]);
-
-        layout.move_tab(CHAT, 1, None);
-        assert_eq!(
-            tabs(&layout),
-            [
-                (vec!["notes", "files"], Some("notes")),
-                (vec![CHAT], Some(CHAT))
-            ]
-        );
-        // A third group is not possible; dropping the last tab merges back.
-        layout.move_tab("files", 2, None);
-        assert_eq!(layout.groups.len(), 2);
-        layout.move_tab(CHAT, 0, Some("files"));
-        assert_eq!(tabs(&layout), [(vec!["notes", CHAT, "files"], Some(CHAT))]);
-    }
-
-    #[test]
-    fn split_toggles_and_validation_rejects_broken_layouts() {
-        let mut layout = TabLayout::default();
-        layout.open("files", false);
-        layout.toggle_split();
-        assert_eq!(tabs(&layout)[1], (vec![], None));
-        assert!(layout.validate().is_ok());
-        layout.toggle_split();
-        assert_eq!(tabs(&layout), [(vec![CHAT, "files"], Some("files"))]);
-
-        layout.retain(|id| id != "files");
-        assert_eq!(tabs(&layout), [(vec![CHAT], Some(CHAT))]);
-
-        let mut broken = TabLayout::default();
-        broken.groups[0].tabs.push(CHAT.into());
-        assert!(broken.validate().is_err());
-        let mut broken = TabLayout::default();
-        broken.groups[0].tabs = vec!["files".into()];
-        broken.groups[0].active = Some("files".into());
-        assert!(broken.validate().is_err());
-    }
-
-    #[test]
-    fn preview_tab_is_replaced_until_kept() {
-        let mut layout = TabLayout::default();
-        layout.open_preview("files:a.rs", false);
-        layout.open_preview("files:b.rs", false);
-        assert_eq!(
-            tabs(&layout),
-            [(vec![CHAT, "files:b.rs"], Some("files:b.rs"))]
-        );
-        assert_eq!(layout.preview.as_deref(), Some("files:b.rs"));
-
-        // A kept tab stays; the next preview opens next to it.
-        layout.keep("files:b.rs");
-        layout.open_preview("files:c.rs", false);
-        layout.open_preview("files:b.rs", false);
-        assert_eq!(layout.groups[0].tabs, [CHAT, "files:b.rs", "files:c.rs"]);
-        assert_eq!(layout.active(0), Some("files:b.rs"));
-        assert_eq!(layout.preview.as_deref(), Some("files:c.rs"));
-
-        // Closing the preview tab forgets it.
-        layout.close("files:c.rs");
-        assert_eq!(layout.preview, None);
-        assert!(layout.validate().is_ok());
-        assert_eq!(
-            super::split_document("files:src/a:b.rs"),
-            Some(("files", "src/a:b.rs"))
-        );
-        assert_eq!(super::split_document(CHAT), None);
-    }
-}
+mod tests;

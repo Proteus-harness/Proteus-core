@@ -5,22 +5,24 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use proteus_contracts::app_protocol::AppQueuedUserMessage;
 
-use super::format;
+use super::Chat;
 use super::thread::CONTENT_WIDTH;
-use super::workspace::Workspace;
+use crate::ui::{format, prefs};
 
-impl Workspace {
+impl Chat {
     pub(super) fn render_composer(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
-        let session = self.session.as_ref();
-        let running = session.is_some_and(|session| session.running());
-        let ready = session.is_some_and(|session| session.connected);
+        let session = &self.session;
+        let running = session.running();
+        let ready = session.connected;
         let queued = session
-            .and_then(|session| session.pending.as_ref())
+            .pending
+            .as_ref()
             .map(|pending| pending.queued_user_messages.as_slice())
             .unwrap_or_default();
+        let extras = (self.extras)(cx.entity_id(), cx);
 
-        let keys = match super::prefs::current(cx).send {
+        let keys = match prefs::current(cx).send {
             crate::preferences::SendMode::Enter => "Enter",
             crate::preferences::SendMode::CtrlEnter => "Ctrl+Enter",
         };
@@ -76,10 +78,7 @@ impl Workspace {
                                 h_flex()
                                     .ml_auto()
                                     .gap_2()
-                                    .child(self.render_badge_strip(
-                                        crate::preferences::BadgePlace::Composer,
-                                        cx,
-                                    ))
+                                    .children(extras)
                                     .children(stop)
                                     .child(send),
                             ),
@@ -88,7 +87,7 @@ impl Workspace {
     }
 }
 
-fn render_queued(message: &AppQueuedUserMessage, cx: &Context<Workspace>) -> impl IntoElement {
+fn render_queued(message: &AppQueuedUserMessage, cx: &Context<Chat>) -> impl IntoElement {
     let theme = cx.theme();
     let message_id = message.message_id;
     let images = (message.image_count > 0).then(|| format!("+{} img", message.image_count));

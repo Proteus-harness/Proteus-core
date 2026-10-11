@@ -5,10 +5,10 @@ use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use proteus_contracts::app_protocol::AppRunStatus;
 
 use crate::preferences::BadgePlace;
-use crate::tabs::{CHAT, TabLayout};
+use crate::tabs::{self, TabLayout};
+use crate::ui::chat::ChatState;
 use crate::ui::drag;
 use crate::ui::extensions;
 use crate::ui::workspace::Workspace;
@@ -48,13 +48,6 @@ impl Render for DraggedTab {
     }
 }
 
-/// What the chat tab says about the run and the connection.
-enum ChatState {
-    Idle,
-    Busy(&'static str),
-    Trouble(&'static str),
-}
-
 struct TabLabel {
     icon: Icon,
     title: SharedString,
@@ -62,32 +55,19 @@ struct TabLabel {
 }
 
 impl Workspace {
-    fn chat_state(&self) -> ChatState {
-        let Some(session) = &self.session else {
-            return ChatState::Idle;
-        };
-        if !session.connected {
-            return match session.link_error {
-                Some(_) => ChatState::Trouble("Переподключение…"),
-                None => ChatState::Busy("Подключение…"),
-            };
-        }
-        match session.execution.active.as_ref().map(|run| &run.status) {
-            Some(AppRunStatus::CancelRequested) => ChatState::Busy("Остановка…"),
-            Some(_) => ChatState::Busy("Работает…"),
-            None => ChatState::Idle,
-        }
+    fn chat_state(&self, id: &str, cx: &App) -> Option<ChatState> {
+        Some(self.chats.get(id)?.view.read(cx).session.state())
     }
 
     fn tab_label(&self, id: &str, cx: &App) -> TabLabel {
-        if id == CHAT {
-            let tooltip = match self.chat_state() {
-                ChatState::Busy(text) | ChatState::Trouble(text) => Some(text.into()),
-                ChatState::Idle => None,
+        if let Some(dir) = tabs::chat_dir(id) {
+            let tooltip = match self.chat_state(id, cx) {
+                Some(ChatState::Busy(text) | ChatState::Trouble(text)) => Some(text.into()),
+                _ => None,
             };
             return TabLabel {
                 icon: Icon::new(Lucide::MessageSquare),
-                title: self.session_title().into(),
+                title: self.session_title(dir).into(),
                 tooltip,
             };
         }
@@ -183,11 +163,10 @@ impl Workspace {
     ) -> impl IntoElement + use<> {
         let theme = cx.theme();
         let label = self.tab_label(id, cx);
-        let closable = id != CHAT;
         let tab_group = SharedString::from(format!("tab-{id}"));
         let (hover, primary) = (theme.list_hover, theme.primary);
         let lifted = drag::is_source(&format!("tab:{id}"), cx);
-        let icon = match (id == CHAT).then(|| self.chat_state()) {
+        let icon = match self.chat_state(id, cx) {
             Some(ChatState::Busy(_)) => Spinner::new().xsmall().into_any_element(),
             Some(ChatState::Trouble(_)) => Icon::new(IconName::TriangleAlert)
                 .small()
@@ -215,7 +194,7 @@ impl Workspace {
             .flex_none()
             .max_w(px(240.))
             .pl_3()
-            .pr(if closable { px(4.) } else { px(12.) })
+            .pr(px(4.))
             .gap_2()
             .text_sm()
             .cursor_pointer()
@@ -240,31 +219,29 @@ impl Workspace {
                     .when(preview, |title| title.italic())
                     .child(label.title),
             )
-            .when(closable, |tab| {
-                tab.child(
-                    div()
-                        .when(!active, |close| {
-                            close
-                                .invisible()
-                                .group_hover(tab_group, |style| style.visible())
-                        })
-                        .child(
-                            Button::new(ElementId::Name(format!("tab-close-{id}").into()))
-                                .ghost()
-                                .xsmall()
-                                .icon(IconName::Close)
-                                .tooltip("Закрыть вкладку")
-                                .on_click(cx.listener(move |this, _, window, cx| {
-                                    cx.stop_propagation();
-                                    this.close_tab(&close_id, window, cx);
-                                })),
-                        ),
-                )
-                .on_mouse_down(
-                    MouseButton::Middle,
-                    cx.listener(move |this, _, window, cx| this.close_tab(&middle_id, window, cx)),
-                )
-            })
+            .child(
+                div()
+                    .when(!active, |close| {
+                        close
+                            .invisible()
+                            .group_hover(tab_group, |style| style.visible())
+                    })
+                    .child(
+                        Button::new(ElementId::Name(format!("tab-close-{id}").into()))
+                            .ghost()
+                            .xsmall()
+                            .icon(IconName::Close)
+                            .tooltip("Закрыть вкладку")
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                cx.stop_propagation();
+                                this.close_tab(&close_id, window, cx);
+                            })),
+                    ),
+            )
+            .on_mouse_down(
+                MouseButton::Middle,
+                cx.listener(move |this, _, window, cx| this.close_tab(&middle_id, window, cx)),
+            )
             .when(active && focused, |tab| {
                 tab.child(
                     div()

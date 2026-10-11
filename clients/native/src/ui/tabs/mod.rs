@@ -1,4 +1,4 @@
-//! Tabs of the main area: the chat and extension documents (files) in one
+//! Tabs of the main area: chats and extension documents (files) in one
 //! or two groups. The layout lives in the client preferences; this module
 //! turns user actions into layout changes and keeps the focus where the
 //! user is.
@@ -13,7 +13,7 @@ use gpui_kit::*;
 use super::extensions::{self, Host, OpenDocument, SurfaceView};
 use super::prefs;
 use super::workspace::Workspace;
-use crate::tabs::{CHAT, TabLayout};
+use crate::tabs::{self, TabLayout};
 
 /// Width the main area needs before a new tab may split it.
 const SPLIT_WIDTH: f32 = 760.;
@@ -29,11 +29,16 @@ impl Workspace {
         layout
     }
 
-    fn update_tabs(&mut self, cx: &mut Context<Self>, change: impl FnOnce(&mut TabLayout)) {
+    pub(super) fn update_tabs(
+        &mut self,
+        cx: &mut Context<Self>,
+        change: impl FnOnce(&mut TabLayout),
+    ) {
         let mut layout = prefs::current(cx).tabs.clone();
         layout.retain(|id| tab_available(id, cx));
         change(&mut layout);
         self.documents.retain(|id, _| layout.group_of(id).is_some());
+        self.sync_chats(&layout, cx);
         prefs::update(cx, |prefs| prefs.tabs = layout);
         cx.notify();
     }
@@ -55,8 +60,7 @@ impl Workspace {
         Some(view)
     }
 
-    /// Opens a document as a tab, or shows it where it is open. A preview
-    /// tab is replaced by the next preview until it is kept.
+    /// Opens a document as a tab, or shows it where it is open.
     pub(super) fn open_document(
         &mut self,
         id: &str,
@@ -66,6 +70,19 @@ impl Workspace {
     ) -> Option<AnyView> {
         let view = self.ensure_document(id, window, cx)?;
         self.close_settings(cx);
+        self.show_tab(id, open, window, cx);
+        Some(view.view)
+    }
+
+    /// Opens a tab whose page exists, or shows it where it is open. A
+    /// preview tab is replaced by the next preview until it is kept.
+    pub(super) fn show_tab(
+        &mut self,
+        id: &str,
+        open: OpenDocument,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let can_split = self.main_width(window) >= px(SPLIT_WIDTH);
         self.update_tabs(cx, |tabs| {
             if open.preview {
@@ -76,9 +93,8 @@ impl Workspace {
             }
         });
         if open.focus {
-            view.focus.focus(window, cx);
+            self.focus_tab(id, window, cx);
         }
-        Some(view.view)
     }
 
     /// Rough width of the area right of the sidebar.
@@ -191,8 +207,10 @@ impl Workspace {
     }
 
     fn focus_tab(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
-        if id == CHAT {
-            self.focus_composer(window, cx);
+        if tabs::is_chat(id) {
+            if let Some(chat) = self.chats.get(id) {
+                chat.view.update(cx, |chat, cx| chat.focus(window, cx));
+            }
         } else if let Some(view) = self.ensure_document(id, window, cx) {
             view.focus.focus(window, cx);
         }
@@ -212,7 +230,8 @@ impl Workspace {
     }
 }
 
-/// Whether a tab id stands for something that can be shown.
+/// Whether a tab id stands for something that can be shown. Chats whose
+/// sessions are gone are closed when the workspace starts.
 pub(super) fn tab_available(id: &str, cx: &App) -> bool {
-    id == CHAT || extensions::document(id, cx).is_some()
+    tabs::is_chat(id) || extensions::document(id, cx).is_some()
 }

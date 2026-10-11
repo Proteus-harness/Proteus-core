@@ -240,8 +240,4 @@ impl Recent {
             .get(&key)
             .is_some_and(|at| at.elapsed() < Self::WINDOW)
     }
-
-    pub(super) fn clear(&mut self) {
-        self.marks.clear();
-    }
 }

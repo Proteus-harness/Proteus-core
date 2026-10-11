@@ -67,7 +67,7 @@ impl Workspace {
             .is_some_and(|view| view.focus.contains_focused(window, cx));
         if self.sidebar_view(cx) == Some(first) && focused {
             self.show_sidebar(None, window, cx);
-            self.focus_composer(window, cx);
+            self.focus_active_chat(window, cx);
         } else {
             self.close_settings(cx);
             self.show_sidebar(Some(first), window, cx);
@@ -180,21 +180,21 @@ impl Workspace {
                     .ghost()
                     .small()
                     .tooltip("Новая сессия (Ctrl+N)")
-                    .on_click(cx.listener(|this, _, _, cx| this.new_session(cx))),
+                    .on_click(cx.listener(|this, _, window, cx| this.new_session(window, cx))),
             )
         })
     }
 
     fn render_sessions(&self, cx: &Context<Self>) -> Div {
         let theme = cx.theme();
-        let current = self.session.as_ref().map(|session| session.dir.clone());
+        let current = self.active_chat_dir();
         let workspace_name = self
             .workspace_path
             .file_name()
             .map(|name| name.to_string_lossy().into_owned())
             .unwrap_or_else(|| self.workspace_path.display().to_string());
         let items = self.sessions.iter().enumerate().map(|(ix, summary)| {
-            let selected = current.as_ref() == Some(&summary.session_dir);
+            let selected = current == Some(summary.session_dir.as_path());
             self.render_session_item(ix, summary, selected, cx)
         });
         v_flex()
@@ -278,6 +278,8 @@ impl Workspace {
                     .text_color(theme.muted_foreground)
                     .child(format::relative_time(summary.updated_at_ms)),
             )
-            .on_click(cx.listener(move |this, _, _, cx| this.select_session(dir.clone(), cx)))
+            .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
+                this.select_session(dir.clone(), event.click_count(), window, cx)
+            }))
     }
 }
