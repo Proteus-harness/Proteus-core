@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use anyhow::{Context as _, Result, anyhow};
 use serde::{Deserialize, Serialize};
 
+use crate::sessions::SessionMarks;
 use crate::tabs::TabLayout;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -43,6 +44,7 @@ pub struct Preferences {
     pub send: SendMode,
     pub extensions: ExtensionPreferences,
     pub tabs: TabLayout,
+    pub sessions: SessionMarks,
 }
 
 /// Where the compact icon of an extension is shown.

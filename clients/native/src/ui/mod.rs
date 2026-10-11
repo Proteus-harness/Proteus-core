@@ -145,7 +145,7 @@ impl Render for Workspace {
                 ))
             }
             Status::Ready => {
-                self.sync_window_title(window);
+                self.sync_window_title(window, cx);
                 self.sync_badges(window, cx);
                 let tabs = self.render_tabs(window, cx);
                 root.child(motion::rise_in(
@@ -167,9 +167,9 @@ fn centered(content: impl IntoElement) -> Div {
 }
 
 impl Workspace {
-    fn sync_window_title(&mut self, window: &mut Window) {
+    fn sync_window_title(&mut self, window: &mut Window, cx: &App) {
         let title = match self.active_chat_dir() {
-            Some(dir) => format!("{} — Proteus", self.session_title(dir)),
+            Some(dir) => format!("{} — Proteus", self.session_title(dir, cx)),
             None => "Proteus".to_owned(),
         };
         if self.window_title != title {

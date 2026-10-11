@@ -6,6 +6,7 @@ mod files;
 mod graphics;
 mod launch;
 mod preferences;
+mod sessions;
 mod settings;
 mod tabs;
 mod tool_display;

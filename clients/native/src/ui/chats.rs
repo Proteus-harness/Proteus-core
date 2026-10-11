@@ -30,8 +30,12 @@ impl Workspace {
         tabs::chat_dir(self.active_chat.as_deref()?)
     }
 
-    /// Title of a session as the session list knows it.
-    pub(super) fn session_title(&self, dir: &Path) -> String {
+    /// Title of a session: the name the user gave it, else what the session
+    /// list knows.
+    pub(super) fn session_title(&self, dir: &Path, cx: &App) -> String {
+        if let Some(title) = super::prefs::current(cx).sessions.title(dir) {
+            return title.to_owned();
+        }
         self.sessions
             .iter()
             .find(|summary| summary.session_dir == dir)

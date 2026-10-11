@@ -8,6 +8,7 @@ use proteus_contracts::app_protocol::AppSessionSummary;
 
 use super::chats::OpenChat;
 use super::extensions::{OpenDocument, SurfaceView};
+use super::panels::Renaming;
 use super::settings::SettingsView;
 use super::tabs::{SplitResize, TabDrop};
 use crate::api::Api;
@@ -75,6 +76,10 @@ pub struct Workspace {
     /// another one when it ends.
     pub(super) sessions_loading: bool,
     pub(super) sessions_stale: bool,
+    /// Archived sessions are listed.
+    pub(super) show_archived: bool,
+    /// A session name being edited in the list.
+    pub(super) renaming: Option<Renaming>,
     /// Open chat tabs by tab id.
     pub(super) chats: HashMap<String, OpenChat>,
     /// Chats being resumed, and how they open.
@@ -138,6 +143,8 @@ impl Workspace {
             sessions: Vec::new(),
             sessions_loading: false,
             sessions_stale: false,
+            show_archived: false,
+            renaming: None,
             chats: HashMap::new(),
             opening: HashMap::new(),
             active_chat: None,

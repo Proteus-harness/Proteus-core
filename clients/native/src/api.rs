@@ -7,17 +7,17 @@ use anyhow::{Result, anyhow, bail};
 use proteus_contracts::app_protocol::config::ConfigSummary;
 use proteus_contracts::app_protocol::config_builder::{ConfigBuilderSnapshot, ConfigHistory};
 use proteus_contracts::app_protocol::http::{
-    ApprovalRequest, CancelRequest, DeleteQueuedMessageRequest, NewSessionRequest,
-    ResumeSessionRequest, SendRequest, SessionOpened, SetConfigBuilderRequest, SetModelRequest,
-    SetPermissionModeRequest, SetReasoningEffortRequest, UserInputRequest,
+    ApprovalRequest, CancelRequest, DeleteQueuedMessageRequest, DeleteSessionRequest,
+    NewSessionRequest, ResumeSessionRequest, SendRequest, SessionOpened, SetConfigBuilderRequest,
+    SetModelRequest, SetPermissionModeRequest, SetReasoningEffortRequest, UserInputRequest,
 };
 use proteus_contracts::app_protocol::{
     AppBootstrap, AppContextMapSnapshot, AppServerEvent, AppSessionSummary, StdioOutput,
 };
 use proteus_contracts::contracts::{ModelQuotaSnapshot, UserInputResponse};
 use proteus_contracts::domain::{MessageId, PermissionMode};
-use serde::Serialize;
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::files::{Changes, FileContent, FileDiff, Listing, SearchResult};
@@ -66,6 +66,21 @@ impl Api {
             source_session_dir: source.map(Path::to_path_buf),
         };
         self.command("/new-session", None, &body)
+    }
+
+    /// Deletes a saved session from disk; `false` when it was already gone.
+    pub fn delete_session(&self, session_dir: &Path) -> Result<bool> {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Deleted {
+            deleted: bool,
+        }
+        let body = DeleteSessionRequest {
+            id: Some(request_id("delete-session")),
+            session_dir: session_dir.to_path_buf(),
+        };
+        let deleted: Deleted = self.command("/delete-session", None, &body)?;
+        Ok(deleted.deleted)
     }
 
     pub fn send(&self, request: &SendRequest) -> Result<Value> {

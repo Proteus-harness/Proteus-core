@@ -2,7 +2,10 @@
 //! `panel:<name>` like chats and documents, opened pinned, by default in a
 //! fixed pane on the left.
 
+mod session_menu;
 mod sessions;
+
+pub(super) use session_menu::Renaming;
 
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::*;

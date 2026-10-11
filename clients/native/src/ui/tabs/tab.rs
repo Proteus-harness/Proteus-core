@@ -79,7 +79,7 @@ impl Workspace {
             };
             return TabLabel {
                 icon: Icon::new(Lucide::MessageSquare),
-                title: self.session_title(dir).into(),
+                title: self.session_title(dir, cx).into(),
                 tooltip,
             };
         }
