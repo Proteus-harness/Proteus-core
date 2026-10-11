@@ -1,8 +1,0 @@
-include = [
-  "fragments/openai-chatgpt.toml",
-  "fragments/codex-peer-runtime.toml",
-  "fragments/codex-explore-peer.toml",
-]
-
-[profile]
-name = "codex-chatgpt-explore"

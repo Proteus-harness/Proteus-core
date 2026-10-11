@@ -634,7 +634,7 @@ async fn init_codex_writes_loadable_config_with_runtime_fragment() {
         .await
         .expect("generated config loads");
 
-    assert_eq!(config.profile.name, "codex-proxy");
+    assert_eq!(config.profile.name, "codex");
     assert_eq!(config.active_provider.as_deref(), Some("anthropic"));
     assert_eq!(
         config.active_model_config().expect("active model").provider,

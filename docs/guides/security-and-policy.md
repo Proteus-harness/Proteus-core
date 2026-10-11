@@ -362,7 +362,7 @@ Reference `codex-patch` выбран в Codex-family profiles. Он приним
 пути как `A`/`M`/`D`. Подробная граница default file-update mode и provenance:
 [codex-patch/UPSTREAM.md](../../modules/reference/codex-patch/UPSTREAM.md).
 
-В packaged proxy-профилях `codex`/`glm` model-facing форма `apply_patch` —
+В подписочном профиле `codex` model-facing форма `apply_patch` —
 обычный function tool. Явно настроенный freeform custom tool всё равно проходит
 через тот же `ToolOrchestrator`, `ApprovalPolicy` и process tool adapter.
 
@@ -623,7 +623,7 @@ per-command изоляция описана модели явно; это зад
 ## codex_policy
 
 `codex_policy` поставляется тем же `policy-pack` и используется
-экспериментальным named config `codex` (`configs/codex.config.toml`). Это не отдельный
+подписочным named config `codex` (`configs/codex.config.toml`). Это не отдельный
 security layer: core применяет его через тот же `ApprovalPolicy` slot и тот же
 mode-aware wrapper.
 

@@ -1,6 +1,6 @@
 # Строгий Codex-shaped behavior overlay. Provider задаётся отдельно.
 [profile]
-name = "codex-proxy"
+name = "codex"
 
 [agent_control]
 # Experimental Codex-like async control surface. Переключите на `task`,

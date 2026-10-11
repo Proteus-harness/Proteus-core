@@ -24,7 +24,7 @@
 git clone <repo> Agent
 cd Agent
 ./install.sh
-proteus --config codex-chatgpt doctor
+proteus --config codex doctor
 ```
 
 Установщик принимает `PROTEUS_BIN_DIR`, `PROTEUS_HOME` и
@@ -40,10 +40,10 @@ proteus --config codex-chatgpt doctor
 
 ```bash
 proteus-reference-module auth openai_codex login
-proteus --config codex-chatgpt modules list
-proteus --config codex-chatgpt tools list
+proteus --config codex modules list
+proteus --config codex tools list
 cd /path/to/project
-proteus --config codex-chatgpt "Расскажи о структуре проекта"
+proteus --config codex "Расскажи о структуре проекта"
 ```
 
 `proteus` без запроса открывает интерактивный CLI. Сессии и журнал сохраняются

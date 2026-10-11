@@ -125,28 +125,55 @@ pub(super) async fn fixture_config(endpoint: &str) -> AppConfig {
         .await
         .expect("tracked Codex profile loads");
 
-    config
+    // Exercise the maintained assembly against a local Responses fixture:
+    // no OAuth credentials or live subscription endpoint are involved.
+    let mut provider = config
         .providers
-        .get_mut(config.active_provider.as_ref().unwrap())
-        .expect("active Codex provider")
-        .stream = false;
-    let model = config
+        .remove(config.active_provider.as_ref().unwrap())
+        .expect("active Codex provider");
+    provider.provider = "openai".to_owned();
+    provider.stream = false;
+    config.providers.insert("openai".to_owned(), provider);
+    config.active_provider = Some("openai".to_owned());
+    let models = config
         .module_config
         .get_mut("model")
-        .and_then(|models| models.get_mut("openai"))
-        .and_then(Value::as_object_mut)
-        .expect("OpenAI process export config");
-    model.remove("api_key_file");
-    model.remove("api_key_json_key");
-    model.remove("base_url_file");
-    model.remove("base_url_json_key");
-    model.insert("api_key".to_owned(), json!("local-fixture-only"));
-    model.insert("base_url".to_owned(), json!(endpoint));
-    model.insert("http1_only".to_owned(), json!(true));
+        .expect("model export configs");
+    models.remove("openai_codex");
+    models.insert(
+        "openai".to_owned(),
+        json!({
+            "implementation": "openai",
+            "api_key": "local-fixture-only",
+            "base_url": endpoint,
+            "http1_only": true,
+            "max_input_tokens": 400000,
+            "support_verbosity": true,
+            "default_verbosity": "low",
+            "capabilities": {
+                "supports_image_input": false,
+                "supports_parallel_tool_calls": true,
+                "supports_freeform_tools": false,
+                "supports_json_schema": true,
+                "supports_reasoning_config": true,
+            },
+        }),
+    );
 
-    for component in config.components.values_mut() {
+    // Keep the existing context baseline for recovery/replay tests.
+    config
+        .module_config
+        .get_mut("context")
+        .unwrap()
+        .get_mut("codex_context")
+        .unwrap()["providers"] = json!(["project_instructions", "skills", "environment"]);
+
+    for (component_id, component) in &mut config.components {
         let mut value = serde_json::to_value(&*component).expect("component config value");
         value["command"] = json!(env!("CARGO_BIN_EXE_proteus-reference-module"));
+        if component_id == "reference-model" {
+            value["exports"]["model"] = json!({"openai": {}});
+        }
         *component = serde_json::from_value::<ProcessComponentConfig>(value)
             .expect("fixture worker command");
     }

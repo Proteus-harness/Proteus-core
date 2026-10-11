@@ -100,15 +100,16 @@ Diagnostic успешен, если сценарий можно пройти б�
    и запросов ввода.
 6. Открыть сохранённую сессию, затем диагностические расширения в настройках:
    расход, анализ, сборку и архитектуру. Проверить выбранную сессию и профиль.
-7. После выполнения проверить сохранённые данные:
+7. После выполнения проверить сохранённые данные. Для основного `config.toml`:
 
    ```bash
-   proteus --config codex-chatgpt doctor
-   proteus --config codex-chatgpt eval report "/path/to/session-dir"
-   proteus --config codex-chatgpt replay workflow "/path/to/session-dir" --json
+   proteus doctor
+   proteus eval report "/path/to/session-dir"
+   proteus replay workflow "/path/to/session-dir" --json
    ```
 
-   Для журнала с несколькими ходами укажите `--turn-id`. Replay пока отклоняет
+   Если сценарий запущен с другим профилем, используйте тот же `--config` при
+   проверке. Для журнала с несколькими ходами укажите `--turn-id`. Replay пока отклоняет
    ход с доставленным steering/follow-up и внешними `Canceled`/`Timeout`;
    эти статусы проверяются через `TurnSettled` и cold `/history`.
 

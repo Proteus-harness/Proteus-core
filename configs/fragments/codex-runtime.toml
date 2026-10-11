@@ -1,4 +1,4 @@
-# Общий Codex-shaped runtime для tracked codex/glm профилей и `proteus init
+# Общий Codex-shaped runtime для подписочной сборки codex и `proteus init
 # codex`. Это config fragment, а не самостоятельный профиль или standard pack:
 # provider и profile-specific policy/context задаёт overlay.
 

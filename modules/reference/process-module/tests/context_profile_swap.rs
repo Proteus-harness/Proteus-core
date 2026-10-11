@@ -38,13 +38,15 @@ async fn context_search_profile_prefetches_code_and_preserves_workflow_replay() 
             .expect("scripts/test.py must prepare PROTEUS_TEST_DCP_MODULE"),
     );
     assert!(dcp_module.is_file(), "prepared DCP module must exist");
-    for (profile, prefetch) in [("codex-chatgpt", false), ("context-search-chatgpt", true)] {
+    for (profile, prefetch) in [
+        ("config.toml", false),
+        ("context-search-chatgpt.config.toml", true),
+    ] {
         let store_root = tempfile::tempdir().unwrap();
         let config_path = store_root.path().join("config.json");
-        let mut config =
-            AppConfig::load(Some(&root.join(format!("configs/{profile}.config.toml"))))
-                .await
-                .unwrap();
+        let mut config = AppConfig::load(Some(&root.join(format!("configs/{profile}"))))
+            .await
+            .unwrap();
         for component in config.components.values_mut() {
             let mut value = serde_json::to_value(&*component).unwrap();
             if value["command"] == "proteus-reference-module" {

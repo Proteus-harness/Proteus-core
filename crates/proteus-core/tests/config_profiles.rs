@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use proteus_core::core::{AgentControlSurface, AppConfig, ModuleCatalog};
+use proteus_core::core::{AppConfig, ModuleCatalog};
 use proteus_module_protocol::current_process_contract_authority;
 
 fn workspace_root() -> PathBuf {
@@ -10,7 +10,7 @@ fn workspace_root() -> PathBuf {
 #[tokio::test]
 async fn context_search_profile_changes_only_the_context_selection_and_configuration() {
     let root = workspace_root();
-    let base = AppConfig::load(Some(&root.join("configs/codex-chatgpt.config.toml")))
+    let base = AppConfig::load(Some(&root.join("configs/config.toml")))
         .await
         .unwrap();
     let experiment = AppConfig::load(Some(
@@ -41,36 +41,38 @@ async fn context_search_profile_changes_only_the_context_selection_and_configura
 #[tokio::test]
 async fn subscription_profiles_keep_root_and_every_peer_on_oauth() {
     let root = workspace_root();
-    let config = AppConfig::load(Some(&root.join("configs/codex-chatgpt.config.toml")))
-        .await
-        .unwrap();
-    let mut configs = vec![config.clone()];
-    for role in &config.agent_control.roles {
-        assert!(role.config.starts_with("codex-chatgpt-"));
-        configs.push(
-            AppConfig::load(Some(
-                &root.join(format!("configs/{}.config.toml", role.config)),
-            ))
+    for profile in ["config.toml", "codex.config.toml"] {
+        let config = AppConfig::load(Some(&root.join("configs").join(profile)))
             .await
-            .unwrap(),
-        );
-    }
-    assert_eq!(configs.len(), 3);
-    for config in configs {
-        assert_eq!(config.providers.len(), 1);
-        assert_eq!(config.active_provider.as_deref(), Some("chatgpt"));
-        assert_eq!(config.providers["chatgpt"].provider, "openai_codex");
-        let settings = config
-            .process_export_config("model", "openai_codex")
             .unwrap();
-        assert_eq!(settings["implementation"], "openai_codex");
-        assert!(
-            !settings
-                .as_object()
-                .unwrap()
-                .keys()
-                .any(|key| key.starts_with("api_key"))
-        );
+        let mut configs = vec![config.clone()];
+        for role in &config.agent_control.roles {
+            assert!(role.config.starts_with("codex-"));
+            configs.push(
+                AppConfig::load(Some(
+                    &root.join(format!("configs/{}.config.toml", role.config)),
+                ))
+                .await
+                .unwrap(),
+            );
+        }
+        assert_eq!(configs.len(), 3);
+        for config in configs {
+            assert_eq!(config.providers.len(), 1);
+            assert_eq!(config.active_provider.as_deref(), Some("chatgpt"));
+            assert_eq!(config.providers["chatgpt"].provider, "openai_codex");
+            let settings = config
+                .process_export_config("model", "openai_codex")
+                .unwrap();
+            assert_eq!(settings["implementation"], "openai_codex");
+            assert!(
+                !settings
+                    .as_object()
+                    .unwrap()
+                    .keys()
+                    .any(|key| key.starts_with("api_key"))
+            );
+        }
     }
 }
 
@@ -158,53 +160,4 @@ async fn tracked_profiles_resolve_selected_exports_with_current_contracts() {
             );
         }
     }
-}
-
-#[tokio::test]
-async fn codex_family_fragments_preserve_profile_specific_overlays() {
-    let root = workspace_root();
-    let codex = AppConfig::load(Some(&root.join("configs/codex.config.toml")))
-        .await
-        .expect("codex config");
-    let glm = AppConfig::load(Some(&root.join("configs/glm.config.toml")))
-        .await
-        .expect("glm config");
-
-    for config in [&codex, &glm] {
-        assert_eq!(
-            config.modules.workflow.as_deref(),
-            Some("coding.codex_loop")
-        );
-        assert_eq!(config.modules.context.as_deref(), Some("codex_context"));
-        assert_eq!(config.modules.policy.as_deref(), Some("codex_policy"));
-        assert!(config.modules.tool_exposure.is_none());
-        assert!(
-            config
-                .tools
-                .enabled
-                .iter()
-                .any(|tool| tool == "exec_command")
-        );
-
-        let roles = &config.agent_control.roles;
-        assert_eq!(roles.len(), 2);
-        assert_eq!(roles[0].name, "explore");
-        assert_eq!(roles[0].config, "codex-explore");
-        assert_eq!(roles[1].name, "coder");
-        assert_eq!(roles[1].config, "codex-coder");
-    }
-
-    assert_eq!(codex.profile.name, "codex-proxy");
-    assert_eq!(
-        codex.agent_control.surface,
-        AgentControlSurface::Collaboration
-    );
-    let codex_settings = codex.process_export_config("model", "openai").unwrap();
-    assert_eq!(codex_settings["support_verbosity"], true);
-    assert!(codex_settings.get("stream_error_fallback").is_none());
-
-    assert_eq!(glm.profile.name, "glm-proxy");
-    let glm_settings = glm.process_export_config("model", "openai").unwrap();
-    assert_eq!(glm_settings["stream_error_fallback"], true);
-    assert!(glm_settings.get("support_verbosity").is_none());
 }

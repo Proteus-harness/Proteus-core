@@ -4,6 +4,8 @@ Proteus принимает TOML и JSON. Schema pre-release и strict: неиз�
 должны приводить к ошибке, а не игнорироваться.
 
 Полный рабочий пример: [configs/config.toml](../../configs/config.toml).
+Он включает подписочную сборку `codex` и добавляет DCP. Подписочная сборка без DCP:
+[configs/codex.config.toml](../../configs/codex.config.toml).
 Минимальный fake-model профиль:
 [proteus.example.toml](../../examples/configs/proteus.example.toml).
 
@@ -25,8 +27,8 @@ directory файлы `.toml` / `.json` merge-ятся лексикографич
 
 Directory mode предназначен для одного profile, разложенного на fragments.
 Каталог `configs/` в репозитории содержит альтернативные named profiles
-(`codex`, `glm`, `opencode`) и потому не должен передаваться целиком через
-`--config configs`: выбирайте конкретный файл или named config.
+(`codex`, `context-search-chatgpt`, `opencode`) и потому не должен передаваться
+целиком через `--config configs`: выбирайте конкретный файл или named config.
 
 ```toml
 include = "../../configs/proteus.provider.example.toml"
@@ -37,15 +39,17 @@ config file. Includes merge-ятся слева направо, затем те�
 перекрывает результат. Objects merge recursively; arrays и scalar values
 заменяются целиком. Include cycle — ошибка.
 
-Tracked `codex`/`glm` profiles используют явные fragments:
+Поставляемая подписочная сборка `codex` использует явные fragments:
 
 ```text
-configs/fragments/openai-proxy.toml  provider launch/credential references
+configs/config.toml                 codex.config.toml + DCP overlay
+configs/codex.config.toml           подписочная сборка без DCP
+configs/fragments/openai-chatgpt.toml OAuth provider launch/capabilities
 configs/fragments/codex-runtime.toml parent modules/tools и peer lifecycle/routing
 configs/fragments/codex-profile.toml strict Codex policy/context overlay
 configs/fragments/codex-peer-runtime.toml общий workflow/components/runtime peers
 configs/fragments/codex-{explore,coder}-peer.toml prompt/tools/policy конкретного peer
-configs/codex-{explore,coder}.config.toml provider/model named child configs
+configs/codex-{explore,coder}.config.toml подписочные named child configs
 ```
 
 Fragment не является profile, module pack или неявным default: он не
@@ -53,6 +57,9 @@ Fragment не является profile, module pack или неявным defaul
 provider и каждый behavior slot. Массивы не append-ятся. `components` — map и
 merge-ится рекурсивно: например, profile может добавить новый exact export, не
 повторяя launch-параметры и остальные exports component-а.
+
+Root `codex` и основной `config.toml` используют подписочные child configs.
+Отдельные API/proxy-профили не поставляются.
 
 `~`, `$HOME` и `${HOME}` раскрываются в path fields.
 
@@ -65,7 +72,7 @@ merge-ится рекурсивно: например, profile может доб
 ```bash
 mkdir -p .local
 cp -a configs .local/configs
-PROTEUS_CONFIG_HOME="$PWD/.local" proteus --config codex-chatgpt
+PROTEUS_CONFIG_HOME="$PWD/.local" proteus --config codex
 ```
 
 Копирование выполняется один раз в отсутствующий `.local/configs/`; затем
@@ -211,7 +218,7 @@ OpenCode или отдельный API proxy не требуются.
 ```bash
 proteus-reference-module auth openai_codex login
 proteus-reference-module auth openai_codex status
-proteus --config codex-chatgpt
+proteus --config codex
 ```
 
 Для машины без callback в браузере:
@@ -240,13 +247,14 @@ token автоматически обновляется вместе с access t
 proteus-reference-module auth openai_codex logout
 ```
 
-Готовый `codex-chatgpt` использует `gpt-5.6-luna` и собственные
-`codex-chatgpt-explore`/`codex-chatgpt-coder`: peers также обращаются через
+Готовый `codex` использует `gpt-5.6-luna` и собственные
+`codex-explore`/`codex-coder`: peers также обращаются через
 подписку. Модель при запуске задаётся в `providers.chatgpt.model`; доступные
 модели и лимиты определяются аккаунтом. Фрагмент `fragments/openai-chatgpt.toml` задаёт explicit
 model export, capabilities и консервативный порог контекста 200000 tokens.
 
-В root-профиле `codex-chatgpt` включён самостоятельный
+Основной `config.toml` включает `codex.config.toml`, сохраняя его model/provider,
+workflow, compactor, peers и остальные параметры, и добавляет самостоятельный
 [DCP component](../../modules/reference/dcp/README.md): `hook.dcp`, model tool
 `compress` и пользовательская команда `/dcp`. Для запуска нужен Node.js 22+,
 собранный модуль и executable `proteus-dcp` в `PATH`; portable и `install.sh`
@@ -260,12 +268,12 @@ ln -s "$PWD/modules/reference/dcp/dist/worker.js" "$HOME/.local/bin/proteus-dcp"
 
 Не заменяйте существующий launcher без проверки его назначения. При переносе
 checkout обновите ссылку; при переносе модуля сохраняйте его dependencies.
-Сборки, включающие `codex-chatgpt` через `include`, наследуют DCP. Самостоятельные
-`codex`, `codex-chatgpt-explore` и `codex-chatgpt-coder` его не включают.
+Сборки, включающие основной `config.toml` через `include`, наследуют DCP.
+Чистый подписочный `codex`, `codex-explore` и `codex-coder` его не включают.
 Workflow, model и обычный `codex` compactor не заменены: DCP меняет только
 outgoing view, а параметры hook/tool exports в профиле одинаковы.
 
-Экспериментальный `context-search-chatgpt` включает этот же profile и меняет
+Экспериментальный `context-search-chatgpt` включает основной `config.toml` и меняет
 только context selection на `repo_aware`. Запуск:
 
 ```bash
@@ -279,8 +287,9 @@ proteus --config context-search-chatgpt
 экспериментов, а не заявление о Codex parity: `repo_aware` также добавляет task
 chunk и иначе оформляет project instructions. Поиск может добавить шум и
 увеличить первый запрос. Он не видит историю прочитанных файлов и не удаляет
-из контекста уже известные модели фрагменты. Выбор обычного `codex-chatgpt`
-возвращает `codex_context` той же root-сборки с DCP.
+из контекста уже известные модели фрагменты. Запуск без `--config` возвращает
+основной `config.toml` с `codex_context` и DCP; `--config codex` выбирает
+чистую подписочную сборку без DCP.
 
 `openai_codex` сам запрашивает `GET /backend-api/codex/models` с ChatGPT OAuth.
 Интерфейс приложения показывает все возвращённые модели, включая entries с отметкой «скрытая»,
@@ -366,7 +375,7 @@ HTTP-повторов после первой попытки: по умолча�
 Повторы заканчиваются после успешных HTTP-заголовков: ошибки чтения/разбора
 JSON body и уже открытого SSE stream не запускают эту политику повторно.
 Диагностический `stream_error_fallback` остаётся отдельной явной настройкой;
-tracked Codex profile её не включает.
+поставляемая подписочная сборка её не включает.
 
 Для SSE OpenAI и OpenAI-compatible adapter принимает
 `module_config.model.<id>.stream_idle_timeout_ms`: неотрицательное целое число,
@@ -424,10 +433,11 @@ Anthropic adapter передаёт это отключение отсутств�
 
 `proteus init codex` создаёт top-level `config.toml`, parent/peer fragments,
 prompts и named child configs `codex-explore.config.toml` /
-`codex-coder.config.toml`. Provider example явно встраивается как в parent,
-так и в оба child config; локальный OpenAI proxy из tracked
-`codex.config.toml` туда не протекает. Установочные named configs, напротив,
-сами выбирают OpenAI-compatible provider и `gpt-5.6-luna`.
+`codex-coder.config.toml`. Это самостоятельный генератор конфигурации с выбранным
+provider example, а не установка подписочного `codex`. Provider example
+явно встраивается как в parent, так и в оба child config. Созданные child configs
+независимы от одноимённых поставляемых подписочных profiles.
+Поставляемая сборка и её peers используют ChatGPT OAuth и `gpt-5.6-luna`.
 В generated runtime роли ссылаются на абсолютные пути созданных рядом
 child profiles; запуск parent по явному пути не подхватывает одноимённый
 профиль из глобального config home.
@@ -1015,8 +1025,9 @@ max_summary_bytes = 8192
 конфигу другого полного Proteus. Его provider/model, instructions, workflow,
 tools, policy и содержательные ограничения не наследуются от root. Parent role
 содержит только имя/описание, config reference и технические process/lifecycle
-bounds. Packaged `codex.config.toml` использует `codex-explore` и
-`codex-coder`; их tool surfaces и policy находятся в отдельных child profiles.
+bounds. Поставляемый `codex.config.toml` использует
+`codex-explore` и `codex-coder`; их tool surfaces и policy
+находятся в отдельных child profiles.
 
 In-process mini-agent, loop-oriented slot и его inline role schema удалены без
 legacy alias, fallback или dual-read. `agent_control` — отдельная top-level

@@ -86,15 +86,17 @@ context/EOF semantics выбирается реализацией, module error 
 [Conformance](../../modules/reference/process-module/tests/conformance.rs)
 проверяет handshake и canonical DTO обоих exports. Существующий
 [workflow fixture](../../modules/reference/process-module/tests/codex_model_resume/patch_interception.rs)
-использует tracked Codex profile: function patch и shell interception проходят
-policy, approval, journal, cold history и replay с выбранным `codex` export.
+загружает чистый подписочный `codex` без DCP, затем явно выбирает локальный mock
+Responses provider. Function patch и shell interception проходят
+policy, approval, journal, cold history и replay с выбранным `codex` export;
+этот сценарий не проверяет DCP или подключение по ChatGPT OAuth.
 Перехваченные `shell`/`exec_command` сохраняют `workdir`: одноимённый файл в
 корне остаётся неизменным, patch применяется в указанном подкаталоге.
 Оба patch exports проверяются с относительным/абсолютным рабочим каталогом
 внутри workspace и отказом для недопустимого каталога.
 
 Этот срез сохраняет локальную workspace path boundary Proteus и function
-surface proxy-профилей. Optional PreserveLineEndings, remote environments,
+surface подписочного профиля. Optional PreserveLineEndings, remote environments,
 applied-delta/diff-progress protocol и upstream output wrappers не заявлены.
 Это source-anchored regression, а не запуск двух полных runtimes.
 
@@ -336,7 +338,7 @@ workflow. Неидемпотентный append подтверждает отс�
 совпадения synthetic provider item ids или missing-output поведения hosted
 и tool-search items. Он проверяет сохранение известного прогресса и
 function/custom-call нормализацию следующего запроса. Custom fixture явно
-включает capability локального Responses server; packaged proxy по-прежнему
+включает capability локального Responses server; подписочный profile по-прежнему
 объявляет function surface.
 
 ### Cancel, Timeout И Ошибка Batch

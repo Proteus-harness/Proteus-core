@@ -1,110 +1,27 @@
-active_provider = "anthropic"
-
-[[instructions]]
-kind = "System"
-file = "prompts/direct-patch.md"
-priority = 90
-
-[providers.anthropic]
-provider = "anthropic"
-model = "deepseek-v4-pro"
-reasoning_efforts = ["high", "max"]
-stream = true
-
-[module_config.model.anthropic]
-implementation = "anthropic"
-api_key_file = "$HOME/.config/Proteus-agent/secrets/anthropic.json"
-api_key_json_key = "anthropic_api_key"
-base_url_file = "$HOME/.config/Proteus-agent/secrets/anthropic.json"
-base_url_json_key = "base_url"
-auth = "bearer"
-api_version = "2023-06-01"
-
-[providers.anthropic.reasoning]
-effort = "high"
-summary = true
-budget_tokens = 8192
+# Основная локальная сборка: подписочный Codex с DCP.
+include = "codex.config.toml"
 
 [profile]
-name = "coding-local"
+name = "default"
 
 [modules]
-# Provided by the explicit reference process worker installed by ./install.sh.
-workflow = "coding.single_loop"
-context = "repo_aware"
-policy = "ask_write"
-compactor = "codex"
+hooks = ["hook.dcp"]
 
-[components.reference-workflow]
-command = "proteus-reference-module"
-
-[components.reference-workflow.exports.workflow."coding.single_loop"]
-
-[components.reference-context]
-command = "proteus-reference-module"
-
-[components.reference-context.exports.context.repo_aware]
-
-[components.reference-capabilities]
-command = "proteus-reference-module"
-env_allowlist = ["HOME", "PROTEUS_HOME"]
-
-[components.reference-capabilities.exports.tool.rg_search]
-
-[components.reference-capabilities.exports.context_provider.rg_search]
-
-[components.reference-capabilities.exports.tool.jsonl_memory]
-
-[components.reference-capabilities.exports.context_provider.skills]
-
-[components.reference-capabilities.exports.policy.ask_write]
-
-[components.reference-capabilities.exports.tool.direct_patch]
-
-[components.reference-capabilities.exports.compactor.codex]
-
-[components.reference-capabilities.exports.tool."reference.tools"]
-
+# Arrays заменяются целиком; здесь сохраняется полный tool set с DCP.
 [tools]
-# Full local coding toolset. File I/O and repo navigation come from
-# file-tools, git helpers come from git-tools, shell comes from shell-tool,
-# apply_patch, search and remember_fact come from explicitly selected process tools.
-# Run ./install.sh before using this profile so the reference worker is on PATH.
-enabled = ["skill", "search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "lsp_diagnostics", "git_status", "git_diff", "request_user_input", "apply_patch", "write_file", "shell", "remember_fact"]
+enabled = ["apply_patch", "exec_command", "find_files", "git_diff", "git_status", "grep", "list_dir", "lsp_diagnostics", "read_file", "read_many_files", "remember_fact", "request_permissions", "request_user_input", "search", "shell", "skill", "update_plan", "write_file", "write_stdin", "compress", "dcp"]
 
-[permissions]
-mode = "normal"
+# Самостоятельный Node component; proteus-dcp должен быть доступен в PATH.
+[components.dcp]
+command = "proteus-dcp"
+env_allowlist = ["HOME", "XDG_DATA_HOME"]
 
-[module_config.policy.ask_write]
-allow = ["skill", "search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff", "request_user_input"]
-ask_before = ["lsp_diagnostics", "apply_patch", "write_file", "shell", "remember_fact"]
+[components.dcp.exports.hook."hook.dcp"]
+[components.dcp.exports.tool."dcp.tools"]
 
-[module_config.context.repo_aware]
-search_provider = "rg_search"
-providers = ["project_instructions", "skills", "manifest", "git_status", "repo_tree", "memory", "search"]
-max_context_bytes = 60000
-max_bytes_per_file = 8000
-max_search_results = 50
-memory_limit = 5
-repo_tree_max_entries = 300
-repo_tree_max_depth = 3
-repo_tree_skip_entries = [".git", "target", "node_modules", ".proteus", "sessions", "dist", "build", ".env", "secrets.json", "config.local.json"]
-project_instruction_files = ["AGENTS.md", "CLAUDE.md", ".cursorrules"]
-manifest_files = ["Cargo.toml", "package.json", "pyproject.toml", "go.mod", "pom.xml", "build.gradle", "composer.json"]
+# Оба exports делят prune state и требуют одинаковых настроек.
+[module_config.hook."hook.dcp"]
+compress = { mode = "range", protectTags = true }
 
-[app_server]
-approval_timeout_ms = 0
-
-[runtime]
-model_timeout_ms = 10800000
-context_timeout_ms = 30000
-workflow_timeout_ms = 14400000
-
-[event_log]
-path = ".proteus/events.jsonl"
-
-[components.reference-model]
-command = "proteus-reference-module"
-env_allowlist = ["HOME", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy"]
-
-[components.reference-model.exports.model.anthropic]
+[module_config.tool."dcp.tools"]
+compress = { mode = "range", protectTags = true }
