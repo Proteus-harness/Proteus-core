@@ -9,8 +9,8 @@ use async_trait::async_trait;
 use super::{ReplayState, calls_equal, messages_equal};
 use crate::{
     contracts::{
-        ExecutionAttribution, ToolExecutionRecorder, WorkflowHistoryCheckpoint,
-        WorkflowHistoryRecorder,
+        ExecutionAttribution, OperationOwner, ToolExecutionRecorder, WorkflowCheckpointAck,
+        WorkflowHistoryCheckpoint, WorkflowHistoryRecorder,
     },
     core::{
         HistoryMutationKind, JournalEntry, JournalRecord, ToolCallRecordPhase,
@@ -22,7 +22,11 @@ use crate::{
 
 #[derive(Debug, Clone)]
 pub(crate) struct RecordedCheckpoint {
+    previous_revision: u64,
+    revision: u64,
     messages: Vec<CanonicalMessage>,
+    ack_messages: Vec<CanonicalMessage>,
+    bindings: Vec<crate::contracts::WorkflowToolResultBinding>,
     calls: Vec<ToolCall>,
     position: (usize, usize, usize),
 }
@@ -32,15 +36,18 @@ pub(crate) fn recorded_checkpoints(
     thread: ThreadId,
     turn: TurnId,
     direct_exchange_ids: &HashSet<ExchangeId>,
-) -> Vec<RecordedCheckpoint> {
+) -> Result<Vec<RecordedCheckpoint>> {
     let mut model_requests = 0;
     let mut requested = HashSet::new();
     let mut results = HashSet::new();
     let mut checkpoints = Vec::new();
-    for record in records
-        .iter()
-        .filter(|record| record.thread_id == Some(thread) && record.turn_id == Some(turn))
-    {
+    let mut projection = crate::core::session_journal::JournalValidationState::default();
+    for record in records {
+        projection.apply(record)?;
+        if record.thread_id != Some(thread) || record.turn_id != Some(turn) {
+            continue;
+        }
+
         match &record.entry {
             JournalEntry::ModelRequestRecorded(request)
                 if direct_exchange_ids.contains(&request.exchange_id) =>
@@ -48,7 +55,7 @@ pub(crate) fn recorded_checkpoints(
                 model_requests += 1
             }
             JournalEntry::ToolCallRecorded(tool)
-                if tool.phase == ToolCallRecordPhase::Requested =>
+                if matches!(tool.phase, ToolCallRecordPhase::Requested { .. }) =>
             {
                 requested.insert(tool.call.id.clone());
             }
@@ -64,6 +71,10 @@ pub(crate) fn recorded_checkpoints(
                     .map(|binding| binding.call_id.clone())
                     .collect::<HashSet<_>>();
                 checkpoints.push(RecordedCheckpoint {
+                    previous_revision: mutation.previous_revision,
+                    revision: projection.history_revision(),
+                    ack_messages: projection.history().to_vec(),
+                    bindings: mutation.tool_results.clone(),
                     messages: mutation.messages.clone(),
                     calls: mutation
                         .tool_results
@@ -80,7 +91,7 @@ pub(crate) fn recorded_checkpoints(
             _ => {}
         }
     }
-    checkpoints
+    Ok(checkpoints)
 }
 
 struct CommittedHistory {
@@ -92,6 +103,7 @@ struct CommittedHistory {
 pub(crate) struct ReplayCheckpointRecorder {
     state: Arc<ReplayState>,
     initial: Vec<CanonicalMessage>,
+    execution_id: Option<crate::domain::ExecutionId>,
     expected: Mutex<VecDeque<RecordedCheckpoint>>,
     committed: Mutex<CommittedHistory>,
 }
@@ -110,8 +122,14 @@ impl ReplayCheckpointRecorder {
                 compactions: 0,
             }),
             initial,
+            execution_id: None,
             expected: Mutex::new(expected.into()),
         }
+    }
+
+    pub(crate) fn with_execution(mut self, execution_id: crate::domain::ExecutionId) -> Self {
+        self.execution_id = Some(execution_id);
+        self
     }
 
     pub(crate) fn committed_history(&self) -> Vec<CanonicalMessage> {
@@ -130,11 +148,25 @@ impl ReplayCheckpointRecorder {
 
 #[async_trait]
 impl WorkflowHistoryRecorder for ReplayCheckpointRecorder {
-    async fn checkpoint(&self, checkpoint: WorkflowHistoryCheckpoint) -> Result<()> {
+    async fn checkpoint(
+        &self,
+        checkpoint: WorkflowHistoryCheckpoint,
+    ) -> Result<WorkflowCheckpointAck> {
         let result = (|| {
             let expected = self.expected.lock().unwrap().pop_front().ok_or_else(|| {
                 anyhow::anyhow!("workflow added an unrecorded history checkpoint")
             })?;
+            if let Some(target) = &checkpoint.preparation_target {
+                ensure!(
+                    self.execution_id
+                        .is_none_or(|execution| execution == target.execution_id),
+                    "checkpoint preparation execution differs from replay execution"
+                );
+                ensure!(
+                    target.revision == expected.previous_revision,
+                    "checkpoint preparation revision differs from recorded boundary"
+                );
+            }
             let progress = checkpoint.history;
             let prepared = prepare_failed_history_update(
                 &self.initial,
@@ -219,6 +251,33 @@ impl WorkflowHistoryRecorder for ReplayCheckpointRecorder {
                 ),
                 "checkpoint history differs from its recorded snapshot"
             );
+            for (recorded, actual) in expected.messages.iter().zip(&prepared.final_messages) {
+                inner.message_ids.insert(recorded.id, actual.id);
+                for (recorded_part, actual_part) in recorded.parts.iter().zip(&actual.parts) {
+                    inner
+                        .part_ids
+                        .insert(recorded_part.part_id, actual_part.part_id);
+                }
+            }
+            for (recorded, actual) in expected.bindings.iter().zip(&checkpoint.tool_results) {
+                inner
+                    .message_ids
+                    .insert(recorded.message_id, actual.message_id);
+                inner.part_ids.insert(recorded.part_id, actual.part_id);
+            }
+            let mut value = serde_json::to_value(&expected.ack_messages)?;
+            super::hooks::rewrite_strings(&mut value, &inner.expected_to_actual);
+            let mut ack_messages: Vec<CanonicalMessage> = serde_json::from_value(value)?;
+            for message in &mut ack_messages {
+                if let Some(actual) = inner.message_ids.get(&message.id) {
+                    message.id = *actual;
+                }
+                for part in &mut message.parts {
+                    if let Some(actual) = inner.part_ids.get(&part.part_id) {
+                        part.part_id = *actual;
+                    }
+                }
+            }
             drop(inner);
             let mut committed = self.committed.lock().unwrap();
             ensure!(
@@ -239,7 +298,16 @@ impl WorkflowHistoryRecorder for ReplayCheckpointRecorder {
             committed.history = history;
             committed.capture = capture;
             committed.compactions = progress.compactions.len();
-            Ok(())
+            if let Some(target) = &mut self.state.lock().target {
+                target.revision = expected.revision;
+            }
+            Ok(WorkflowCheckpointAck {
+                history: progress,
+                // The source fold includes captured results already visible
+                // at this acknowledgement, independently of stub timing.
+                messages: ack_messages,
+                revision: Some(expected.revision),
+            })
         })();
         if let Err(error) = &result {
             self.state
@@ -260,10 +328,13 @@ impl ToolExecutionRecorder for ReplayCheckpointRecorder {
     async fn tool_call_requested(
         &self,
         attribution: ExecutionAttribution,
+        owner: OperationOwner,
         call: &ToolCall,
     ) -> Result<()> {
         self.committed.lock().unwrap().capture.validate_call(call)?;
-        self.state.tool_call_requested(attribution, call).await
+        self.state
+            .tool_call_requested(attribution, owner, call)
+            .await
     }
     async fn tool_call_resolved(
         &self,
@@ -295,7 +366,11 @@ impl ToolExecutionRecorder for ReplayCheckpointRecorder {
         let CommittedHistory {
             capture, history, ..
         } = &mut *committed;
-        capture.record(history, result)?;
+        if capture.record(history, result)? {
+            if let Some(target) = &mut self.state.lock().target {
+                target.revision = target.revision.saturating_add(1);
+            }
+        }
         Ok(())
     }
 }

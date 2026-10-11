@@ -220,7 +220,7 @@ async fn assert_canonical_session(config: &AppConfig, session_dir: &Path) {
             matches!(
                 &record.entry,
                 JournalEntry::ToolCallRecorded(tool)
-                    if tool.phase == ToolCallRecordPhase::Requested
+                    if matches!(tool.phase, ToolCallRecordPhase::Requested { .. })
                         && tool.call.id == "call_write_before_failure"
             )
         })

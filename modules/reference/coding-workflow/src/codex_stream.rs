@@ -68,7 +68,7 @@ pub(crate) fn sample(
             }
         })();
         let (results, tool_failure) = in_flight.drain();
-        turn.append_tool_results(results);
+        turn.append_tool_results(results)?;
         match tool_failure {
             Some(error) => Err(error),
             None => outcome,

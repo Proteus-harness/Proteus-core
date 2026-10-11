@@ -422,6 +422,7 @@ impl AgentRuntime {
             ),
             store: self.session.session_store.clone(),
             history: self.session.history.clone(),
+            revision: self.session.history_revision.clone(),
             model_context: self.session.model_context.clone(),
             interrupted_turns: self.session.interrupted_turns.clone(),
             initial_history: history.clone(),
@@ -430,6 +431,7 @@ impl AgentRuntime {
             tools: workflow_context.tool_recorder.clone(),
             capture: Default::default(),
             recorded_compactions: Default::default(),
+            recorded_changed_compactions: Default::default(),
             pending_effects: Default::default(),
         });
         workflow_context.history_recorder = checkpoint_recorder.clone();
@@ -464,6 +466,19 @@ impl AgentRuntime {
         let mut workflow_output = match workflow_result {
             Ok(output) => output,
             Err(error) => {
+                if error
+                    .downcast_ref::<crate::contracts::WorkflowFailure>()
+                    .and_then(|failure| failure.history.as_ref())
+                    .is_some_and(|progress| {
+                        checkpoint_recorder
+                            .validate_accepted_preparations(&progress.compactions)
+                            .is_err()
+                    })
+                {
+                    return self
+                        .fail_turn_preserving_steering(turn_id, error, &delivery_records)
+                        .await;
+                }
                 return self
                     .fail_turn_with_progress(
                         turn_id,
@@ -475,6 +490,13 @@ impl AgentRuntime {
                     .await;
             }
         };
+        if let Err(error) =
+            checkpoint_recorder.validate_accepted_preparations(&workflow_output.compactions)
+        {
+            return self
+                .fail_turn_preserving_steering(turn_id, error, &delivery_records)
+                .await;
+        }
         if cancellation.is_cancelled() {
             return self
                 .fail_turn_preserving_steering(
@@ -531,6 +553,9 @@ impl AgentRuntime {
             self.persist_config_snapshot_for_session(config_snapshot);
         }
         history.push(user_message.clone());
+        self.session
+            .history_revision
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         *self.session.history_turn.lock().await = Some(turn_id);
         Ok(history.clone())
     }

@@ -1,5 +1,8 @@
 use proteus_contracts::{
-    contracts::{CompactionInput, ToolExposureRequest},
+    contracts::{
+        ContextPreparationInput, ContextPreparationResult, ContextPreparationTarget,
+        ToolExposureRequest,
+    },
     domain::{
         CacheHints, ContextBundle, Event, HistoryCompactionReport, ToolCall, ToolResult, ToolSpec,
     },
@@ -19,11 +22,13 @@ use super::{
 pub(super) struct PreparedRequest {
     pub(super) request: CanonicalModelRequest,
     pub(super) compaction: Option<HistoryCompactionReport>,
+    pub(super) preparation_target: Option<ContextPreparationTarget>,
 }
 
 struct CompactedMessages {
     messages: Vec<CanonicalMessage>,
     report: Option<HistoryCompactionReport>,
+    target: Option<ContextPreparationTarget>,
 }
 
 #[derive(Clone, Copy)]
@@ -222,6 +227,7 @@ fn request_from_state_with_instruction_blocks_and_options(
         CompactedMessages {
             messages: request.messages.clone(),
             report: None,
+            target: None,
         }
     };
     request.messages = compacted.messages;
@@ -245,6 +251,7 @@ fn request_from_state_with_instruction_blocks_and_options(
     Ok(PreparedRequest {
         request,
         compaction: compacted.report,
+        preparation_target: compacted.target,
     })
 }
 
@@ -277,28 +284,31 @@ fn compact_messages(
     .into_iter()
     .flatten()
     .max();
-    let compaction_input = CompactionInput::new(input.task.clone(), request.clone())
-        .with_reason(reason)
-        .with_token_estimate(token_estimate)
-        .with_window_tokens(input.runtime.max_input_tokens);
+    let compaction_input =
+        ContextPreparationInput::new(request.messages.clone(), Some(request.clone()))
+            .with_reason(reason)
+            .with_token_estimate(token_estimate)
+            .with_window_tokens(input.runtime.max_input_tokens);
     let input_json = to_json_string(&compaction_input)?;
-    let output_json = match host.compact_history_json(String::from(input_json)) {
+    let output_json = match host.prepare_context_json(String::from(input_json)) {
         Ok(json) => json,
         Err(error) => return Err(error),
     };
-    let output: proteus_contracts::contracts::CompactionOutput =
-        from_json_string(output_json.as_str())?;
-    proteus_contracts::contracts::validate_compaction_output(&compaction_input, &output)
+    let result: ContextPreparationResult = from_json_string(output_json.as_str())?;
+    let output = result.output;
+    proteus_contracts::contracts::validate_context_preparation_output(&compaction_input, &output)
         .map_err(|error| ProcessModuleError::new(error.to_string()))?;
     if output.messages.is_empty() && !request.messages.is_empty() {
         return Err(ProcessModuleError::new(
             "compactor returned empty messages for non-empty history",
         ));
     }
-    let report = HistoryCompactionReport::from_compaction_output(&compaction_input, &output);
+    let report =
+        HistoryCompactionReport::from_context_preparation_output(&compaction_input, &output);
     Ok(CompactedMessages {
         messages: output.messages,
         report: Some(report),
+        target: result.target,
     })
 }
 

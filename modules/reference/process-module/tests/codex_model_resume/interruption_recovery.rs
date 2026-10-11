@@ -303,7 +303,7 @@ async fn check_interruption(mode: Interruption) {
     assert!(known[0].text_or_status().contains("effect committed"));
     assert!(results(&before.history, PENDING_CALL).is_empty());
     let second_requested = before.records.iter().filter(|record| matches!(&record.entry,
-        JournalEntry::ToolCallRecorded(tool) if tool.call.id == PENDING_CALL && tool.phase == ToolCallRecordPhase::Requested)).count();
+        JournalEntry::ToolCallRecorded(tool) if tool.call.id == PENDING_CALL && matches!(tool.phase, ToolCallRecordPhase::Requested { .. }))).count();
     assert_eq!(
         second_requested,
         usize::from(matches!(mode, Interruption::BatchError))

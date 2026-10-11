@@ -45,19 +45,6 @@ pub fn render_topology_runtime_path(snapshot: &TopologySnapshot) -> String {
         snapshot.tools.iter().filter(|tool| tool.enabled).count()
     ));
 
-    let parked = ["compactor"];
-    let parked = parked
-        .into_iter()
-        .filter_map(|slot_id| {
-            let slot = snapshot.slots.iter().find(|slot| slot.id == slot_id)?;
-            let active = slot.active_module.as_deref().unwrap_or("-");
-            Some(format!("{slot_id}={active}"))
-        })
-        .collect::<Vec<_>>();
-    if !parked.is_empty() {
-        out.push_str(&format!("\nParked/support slots: {}\n", parked.join(", ")));
-    }
-
     if !snapshot.warnings.is_empty() {
         out.push_str("\nWarnings\n");
         for warning in &snapshot.warnings {
@@ -101,23 +88,6 @@ pub fn render_topology_runtime_mermaid(snapshot: &TopologySnapshot) -> String {
         ),
     );
     labels.insert("output".to_owned(), "Final output".to_owned());
-
-    let parked = ["compactor"]
-        .into_iter()
-        .filter_map(|slot_id| {
-            let slot = snapshot.slots.iter().find(|slot| slot.id == slot_id)?;
-            Some(format!(
-                "{slot_id}: {}",
-                slot.active_module.as_deref().unwrap_or("-")
-            ))
-        })
-        .collect::<Vec<_>>();
-    if !parked.is_empty() {
-        labels.insert(
-            "parked".to_owned(),
-            format!("parked/support<br/>{}", parked.join("<br/>")),
-        );
-    }
 
     if !snapshot.warnings.is_empty() {
         labels.insert(

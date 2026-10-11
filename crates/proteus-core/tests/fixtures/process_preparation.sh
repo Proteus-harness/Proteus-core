@@ -1,9 +1,9 @@
 #!/bin/sh
 set -eu
 
-mode=${1:?process compactor fixture mode is required}
+mode=${1:?process preparation fixture mode is required}
 module_id=${2:-fixture}
-component_id=${3:-compactor-fixture}
+component_id=${3:-preparation-fixture}
 marker=${4:-}
 
 rpc_id() {
@@ -18,9 +18,9 @@ fi
 if [ "$mode" = "mismatch" ]; then
     slot=context
 else
-    slot=compactor
+    slot=hook
 fi
-printf '%s\n' "{\"jsonrpc\":\"2.0\",\"id\":$initialize_id,\"result\":{\"protocol_version\":\"v3\",\"component_id\":\"$component_id\",\"exports\":[{\"slot\":\"$slot\",\"module_id\":\"$module_id\",\"contract_version\":\"v11\",\"composition\":\"select_one\",\"module_features\":[],\"config_schema\":null}]}}"
+printf '%s\n' "{\"jsonrpc\":\"2.0\",\"id\":$initialize_id,\"result\":{\"protocol_version\":\"v3\",\"component_id\":\"$component_id\",\"exports\":[{\"slot\":\"$slot\",\"module_id\":\"$module_id\",\"contract_version\":\"v5\",\"composition\":\"ordered_many\",\"module_features\":[],\"config_schema\":null}]}}"
 
 while IFS= read -r compact_request; do
     request_id=$(rpc_id "$compact_request")
@@ -44,6 +44,6 @@ while IFS= read -r compact_request; do
             ;;
     esac
 
-    messages=$(printf '%s' "$compact_request" | python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin)["params"]["params"]["request"]["messages"]))')
-    printf '%s\n' "{\"jsonrpc\":\"2.0\",\"id\":$request_id,\"result\":{\"output\":{\"messages\":$messages,\"changed\":false,\"summary\":null,\"token_estimate\":null,\"original_token_estimate\":null,\"trigger_tokens\":null,\"user_message_replacements\":[],\"summary_source\":null,\"skipped_reason\":null,\"metadata\":{\"fixture\":true}}}}"
+    messages=$(printf '%s' "$compact_request" | python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin)["params"]["params"]["event"]["input"]["messages"]))')
+    printf '%s\n' "{\"jsonrpc\":\"2.0\",\"id\":$request_id,\"result\":{\"result\":{\"action\":\"context_preparation\",\"output\":{\"messages\":$messages,\"changed\":false,\"summary\":null,\"token_estimate\":null,\"original_token_estimate\":null,\"trigger_tokens\":null,\"user_message_replacements\":[],\"summary_source\":null,\"skipped_reason\":null,\"metadata\":{\"fixture\":true}}}}}"
 done

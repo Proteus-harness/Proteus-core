@@ -18,6 +18,7 @@ use crate::{
 use super::WorkflowReplayOptions;
 
 mod model_exchanges;
+mod operations;
 use model_exchanges::select_exchanges;
 
 #[derive(Debug, Clone)]
@@ -37,6 +38,8 @@ pub(super) struct WorkflowReplayFixture {
     pub final_history: Vec<CanonicalMessage>,
     pub context: Option<ContextBundle>,
     pub exchanges: Vec<RecordedModelExchange>,
+    pub auxiliary: Vec<RecordedModelExchange>,
+    pub initial_revision: u64,
     pub tools: Vec<RecordedToolInvocation>,
     pub compactions: Vec<HistoryCompactionReport>,
     pub settlement: TurnSettled,
@@ -44,6 +47,7 @@ pub(super) struct WorkflowReplayFixture {
 
 #[derive(Debug, Clone)]
 pub(super) struct RecordedModelExchange {
+    pub owner: crate::contracts::OperationOwner,
     pub completed_messages: Vec<CanonicalMessage>,
     pub exchange_id: ExchangeId,
     pub request: CanonicalModelRequest,
@@ -52,6 +56,7 @@ pub(super) struct RecordedModelExchange {
 
 #[derive(Debug, Clone)]
 pub(super) struct RecordedToolInvocation {
+    pub owner: crate::contracts::OperationOwner,
     pub call: ToolCall,
     pub approval_reason: Option<String>,
     pub resolution: ToolCallResolution,
@@ -61,6 +66,7 @@ pub(super) struct RecordedToolInvocation {
 
 #[derive(Debug)]
 struct PendingToolInvocation {
+    owner: crate::contracts::OperationOwner,
     call: ToolCall,
     approval_reason: Option<String>,
     resolution: Option<ToolCallResolution>,
@@ -88,10 +94,6 @@ pub(super) fn load_fixture(
     ensure_replayable_settlement(turn_id, &settlement)?;
     let history = select_history(&projection.records, turn_id, thread_id, &opened)?;
     let exchanges = select_exchanges(&projection.records, execution_id, thread_id, turn_id)?;
-    let direct_exchange_ids = exchanges
-        .iter()
-        .map(|exchange| exchange.exchange_id)
-        .collect();
     let tools = select_tools(&projection.records, execution_id, thread_id)?;
     let hooks = projection
         .records
@@ -106,18 +108,17 @@ pub(super) fn load_fixture(
             let JournalEntry::HookInvoked(trace) = &record.entry else {
                 return None;
             };
-            if matches!(
-                trace.input.event,
-                crate::contracts::HookEvent::BeforeModel {
-                    origin: crate::contracts::ModelCallOrigin::Compactor,
-                    ..
-                }
-            ) {
-                return None;
-            }
             Some(trace.clone())
         })
         .collect::<Vec<_>>();
+    operations::validate(&projection.records, execution_id, thread_id, turn_id)?;
+    let (exchanges, auxiliary): (Vec<_>, Vec<_>) = exchanges
+        .into_iter()
+        .partition(|exchange| exchange.owner == crate::contracts::OperationOwner::Workflow);
+    let direct_exchange_ids = exchanges
+        .iter()
+        .map(|exchange| exchange.exchange_id)
+        .collect();
     let context_request = hooks
         .iter()
         .find_map(|trace| match &trace.input.event {
@@ -158,7 +159,7 @@ pub(super) fn load_fixture(
             thread_id,
             turn_id,
             &direct_exchange_ids,
-        ),
+        )?,
         journal_path: store.journal_path(),
         execution_id,
         session_id: store.session_id(),
@@ -170,6 +171,8 @@ pub(super) fn load_fixture(
         final_history: history.final_history,
         context,
         exchanges,
+        auxiliary,
+        initial_revision: history.initial_revision,
         tools,
         compactions,
         settlement,
@@ -254,6 +257,7 @@ fn ensure_replayable_settlement(turn_id: TurnId, settlement: &TurnSettled) -> Re
 }
 
 struct SelectedHistory {
+    initial_revision: u64,
     initial: Vec<CanonicalMessage>,
     final_history: Vec<CanonicalMessage>,
 }
@@ -267,6 +271,7 @@ fn select_history(
     let mut state = crate::core::session_journal::JournalValidationState::default();
     let mut turn_open = false;
     let mut initial = None;
+    let mut initial_revision = None;
     let mut final_history = None;
 
     for record in records {
@@ -300,6 +305,7 @@ fn select_history(
                     }
                     validate_current_user_message(&history, opened, turn_id)?;
                     initial = Some(history.to_vec());
+                    initial_revision = Some(state.history_revision());
                 } else if mutation.mutation == HistoryMutationKind::Append
                     && mutation
                         .messages
@@ -323,6 +329,7 @@ fn select_history(
     }
 
     Ok(SelectedHistory {
+        initial_revision: initial_revision.context("selected turn has no initial revision")?,
         initial: initial.ok_or_else(|| {
             anyhow!(
                 "turn {turn_id} has no persisted current user message before workflow execution"
@@ -359,9 +366,10 @@ fn select_tools(
     }) {
         match &record.entry {
             JournalEntry::ToolCallRecorded(recorded) => match &recorded.phase {
-                ToolCallRecordPhase::Requested => {
+                ToolCallRecordPhase::Requested { owner } => {
                     positions.insert(recorded.call.id.clone(), pending.len());
                     pending.push(PendingToolInvocation {
+                        owner: owner.clone(),
                         call: recorded.call.clone(),
                         approval_reason: None,
                         resolution: None,
@@ -395,6 +403,7 @@ fn select_tools(
         .map(|pending| {
             let call_id = pending.call.id.clone();
             Ok(RecordedToolInvocation {
+                owner: pending.owner,
                 call: pending.call,
                 approval_reason: pending.approval_reason,
                 resolution: pending

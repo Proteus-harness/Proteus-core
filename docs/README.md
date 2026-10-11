@@ -24,7 +24,7 @@
 | Разобрать возможности и ограничения исполнения вне чата | [Исполнение вне чата](architecture/execution-runtime.md) |
 | Понять, как собирается и обновляется агент | [План сборки](architecture/assembly-plan.md), [обновление во время работы](architecture/hot-swap.md) |
 | Добавить модуль или изменить слот | [Слоты и модули](architecture/modules.md), [запуск модулей](architecture/process-module-architecture.md), [правила добавления слота](architecture/slot-governance.md) |
-| Разобрать предложение общих операций hooks/tools и замены compactor slot | [Операции hooks и tools](architecture/hook-tool-operations.md) — предложенная граница, не реализованный API |
+| Разобрать операции hooks/tools и подготовку контекста | [Операции hooks и tools](architecture/hook-tool-operations.md) — действующая граница, checkpoint и replay |
 | Проверить согласованность модулей | [Контракты между наборами модулей](architecture/pack-contracts.md) |
 | Разобрать взаимодействие агентов | [Взаимодействие агентов](architecture/subagents.md) |
 | Разобрать историю, события и повтор выполнения | [Работа во время выполнения](guides/runtime-and-events.md), [данные хода агента](architecture/canonical-turn-data.md) |

@@ -24,7 +24,7 @@ test("wire v3 multiplexes current hook/tool exports and cancellation tolerates a
   });
   const write = (frame) => child.stdin.write(JSON.stringify({ jsonrpc: "2.0", ...frame }) + "\n");
   const send = (id, method, params) => new Promise((resolve) => { waiters.set(id, resolve); write({ id, method, params }); });
-  const binding = (slot, module_id) => ({ slot, module_id, contract_version: slot === "hook" ? "v4" : "v5", composition: "ordered_many", module_config: { state_dir: directory }, host_features: [] });
+  const binding = (slot, module_id) => ({ slot, module_id, contract_version: slot === "hook" ? "v5" : "v6", composition: "ordered_many", module_config: { state_dir: directory }, host_features: [] });
   const envelope = (id, slot, module_id, params) => ({ export: { slot, module_id }, lineage: { root_invocation_id: id, parent_invocation_id: null, depth: 0 }, params });
   const list = (id) => send(id, "list", envelope(id, "tool", "dcp.tools", null));
   t.after(async () => { child.stdin.end(); await closed; lines.close(); await rm(directory, { recursive: true }); });

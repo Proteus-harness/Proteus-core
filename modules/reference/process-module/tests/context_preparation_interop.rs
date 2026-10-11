@@ -8,8 +8,14 @@ use std::{
 
 use async_trait::async_trait;
 use proteus_contracts::{
-    contracts::{CompactionHost, CompactionInput},
-    domain::{AgentTask, ContextChunk, ContextRenderMode, HistoryCompactionReport, ModelRef},
+    contracts::{
+        ContextPreparationInput, ContextPreparationOutput, ExecutionAttribution, HookEvent,
+        HookHost, HookInput, HookResponse,
+    },
+    domain::{
+        ContextChunk, ContextRenderMode, HistoryCompactionReport, ModelRef, ToolCall, ToolResult,
+        new_execution_id,
+    },
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, CanonicalPart,
         ContentPart, FinishReason, MessageRole, PartProvenance, PartScope,
@@ -24,7 +30,7 @@ use proteus_process_host::ProcessSpec;
 use serde_json::{Value, json};
 
 fn strategy(module_id: &str) -> Value {
-    if module_id == "codex" {
+    if module_id == "codex_compact" {
         json!({"trigger_tokens": 100})
     } else {
         json!({"trigger_messages": 3, "retain_user_turns": 1})
@@ -34,9 +40,26 @@ fn strategy(module_id: &str) -> Value {
 struct SummaryHost;
 
 struct DelayedSummaryHost;
+struct NoModelHost;
+#[async_trait]
+impl HookHost for NoModelHost {
+    async fn complete_model(
+        &self,
+        _request: CanonicalModelRequest,
+    ) -> anyhow::Result<CanonicalModelResponse> {
+        anyhow::bail!("standalone preparation has no model")
+    }
+    async fn execute_tool(&self, _call: ToolCall) -> anyhow::Result<ToolResult> {
+        anyhow::bail!("standalone preparation has no tools")
+    }
+}
 
 #[async_trait]
-impl CompactionHost for DelayedSummaryHost {
+impl HookHost for DelayedSummaryHost {
+    async fn execute_tool(&self, _call: ToolCall) -> anyhow::Result<ToolResult> {
+        anyhow::bail!("summary fixture does not execute tools")
+    }
+
     async fn complete_model(
         &self,
         request: CanonicalModelRequest,
@@ -50,8 +73,8 @@ impl CompactionHost for DelayedSummaryHost {
 async fn explicit_compactor_budget_limits_the_whole_model_callback() {
     let workspace = tempfile::tempdir().unwrap();
     for (budget, succeeds) in [(200, false), (5_000, true)] {
-        let mut value = serde_json::to_value(config("codex")).unwrap();
-        value["components"]["swappable-compactor"]["exports"]["compactor"]["codex"]["timeout_ms"] =
+        let mut value = serde_json::to_value(config("codex_compact")).unwrap();
+        value["components"]["swappable-compactor"]["exports"]["hook"]["codex_compact"]["timeout_ms"] =
             json!(budget);
         let config: AppConfig = serde_json::from_value(value).unwrap();
         let cwd = workspace.path().to_path_buf();
@@ -62,16 +85,21 @@ async fn explicit_compactor_budget_limits_the_whole_model_callback() {
         .await
         .unwrap()
         .unwrap();
-        let input = CompactionInput::new(
-            AgentTask::new("Current task.", cwd),
-            CanonicalModelRequest::new(ModelRef::new("fake", "fixture"), history()),
+        let input = ContextPreparationInput::new(
+            history(),
+            Some(CanonicalModelRequest::new(
+                ModelRef::new("fake", "fixture"),
+                history(),
+            )),
         )
-        .with_config(strategy("codex"))
         .with_token_estimate(Some(100_000));
-        let result = registry
-            .compactor
-            .compact(input, Arc::new(DelayedSummaryHost))
-            .await;
+        let result = prepare(
+            &registry,
+            input,
+            workspace.path(),
+            Arc::new(DelayedSummaryHost),
+        )
+        .await;
         if succeeds {
             assert!(result.unwrap().changed);
         } else {
@@ -81,7 +109,11 @@ async fn explicit_compactor_budget_limits_the_whole_model_callback() {
 }
 
 #[async_trait]
-impl CompactionHost for SummaryHost {
+impl HookHost for SummaryHost {
+    async fn execute_tool(&self, _call: ToolCall) -> anyhow::Result<ToolResult> {
+        anyhow::bail!("summary fixture does not execute tools")
+    }
+
     async fn complete_model(
         &self,
         _request: CanonicalModelRequest,
@@ -94,20 +126,50 @@ impl CompactionHost for SummaryHost {
     }
 }
 
+fn hook_input(input: ContextPreparationInput, cwd: &Path) -> HookInput {
+    HookInput {
+        event: HookEvent::BeforeContext {
+            output: ContextPreparationOutput::unchanged(input.messages.clone()),
+            input,
+            target: None,
+        },
+        attribution: ExecutionAttribution::detached(new_execution_id()),
+        cwd: cwd.to_path_buf(),
+        conversation: None,
+    }
+}
+async fn prepare(
+    registry: &RuntimeRegistry,
+    input: ContextPreparationInput,
+    cwd: &Path,
+    host: Arc<dyn HookHost>,
+) -> anyhow::Result<ContextPreparationOutput> {
+    let original = input.messages.clone();
+    match registry.hooks[0]
+        .1
+        .invoke(hook_input(input, cwd), host)
+        .await?
+    {
+        HookResponse::ContextPreparation { output } => Ok(output),
+        HookResponse::Continue => Ok(ContextPreparationOutput::unchanged(original)),
+        _ => anyhow::bail!("unexpected preparation response"),
+    }
+}
+
 fn python_worker() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../examples/modules/compactor-process/compact.py")
+        .join("../../../examples/modules/context-preparation-process/prepare.py")
 }
 
 fn config(module_id: &str) -> AppConfig {
-    let command = if module_id == "codex" {
+    let command = if module_id == "codex_compact" {
         json!({"command": env!("CARGO_BIN_EXE_proteus-reference-module")})
     } else {
         json!({"command": "python3", "args": [python_worker()],
             "env": {"PYTHONDONTWRITEBYTECODE": "1"}})
     };
     let mut component = command;
-    component["exports"] = json!({"compactor": {module_id: {"timeout_ms": 5000}}});
+    component["exports"] = json!({"hook": {module_id: {"timeout_ms": 5000}}});
     let mut config = AppConfig::default();
     config
         .module_config
@@ -122,10 +184,10 @@ fn config(module_id: &str) -> AppConfig {
         }))
         .unwrap(),
     );
-    config.modules.compactor = Some(module_id.to_owned());
+    config.modules.hooks = vec![module_id.to_owned()];
     config
         .module_config
-        .entry("compactor".to_owned())
+        .entry("hook".to_owned())
         .or_default()
         .insert(module_id.to_owned(), strategy(module_id));
     config.components.insert(
@@ -177,7 +239,6 @@ async fn check_names(module_id: &str) {
     .await
     .unwrap()
     .unwrap();
-    let strategy = strategy(module_id);
     let original = history();
     let mut baseline = None;
     for (case, rename) in [
@@ -194,28 +255,27 @@ async fn check_names(module_id: &str) {
         if let Some((index, name)) = rename {
             messages[index].name = name.map(str::to_owned);
         }
-        let input = CompactionInput::new(
-            AgentTask::new("Current task.", cwd.clone()),
-            proteus_contracts::model_standard::CanonicalModelRequest::new(
-                ModelRef::new("fake", "fixture"),
-                messages.clone(),
-            ),
+        let input = ContextPreparationInput::new(
+            messages.clone(),
+            (module_id == "codex_compact").then(|| {
+                CanonicalModelRequest::new(ModelRef::new("fake", "fixture"), messages.clone())
+            }),
         )
-        .with_token_estimate(Some(100_000))
-        .with_config(strategy.clone());
-        let output = registry
-            .compactor
-            .compact(input.clone(), Arc::new(SummaryHost))
-            .await
-            .unwrap();
+        .with_token_estimate(Some(100_000));
+        let host: Arc<dyn HookHost> = if module_id == "codex_compact" {
+            Arc::new(SummaryHost)
+        } else {
+            Arc::new(NoModelHost)
+        };
+        let output = prepare(&registry, input.clone(), &cwd, host).await.unwrap();
         assert!(output.changed, "{module_id}: {case} must still compact");
-        let report = HistoryCompactionReport::from_compaction_output(&input, &output);
+        let report = HistoryCompactionReport::from_context_preparation_output(&input, &output);
         assert_eq!(report.input_messages, messages.len());
         assert_eq!(report.output_messages, output.messages.len());
         assert_eq!(report.original_token_estimate, Some(100_000));
         assert_eq!(report.output_token_estimate, output.token_estimate);
         assert_eq!(report.skipped_reason, None);
-        if module_id == "codex" {
+        if module_id == "codex_compact" {
             assert_eq!(report.trigger_tokens, Some(100));
             assert_eq!(report.summary_source.as_deref(), Some("model"));
             assert!(report.output_token_estimate.is_some());
@@ -270,22 +330,22 @@ async fn check_names(module_id: &str) {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn rust_compactor_uses_scope_not_workflow_message_names() {
-    check_names("codex").await;
+    check_names("codex_compact").await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn python_compactor_uses_scope_not_workflow_message_names() {
+async fn python_preparation_is_model_free_and_uses_scope_not_workflow_message_names() {
     check_names("python_suffix").await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn python_compactor_rejects_invalid_launch_settings_and_canonical_scope() {
     let workspace = tempfile::tempdir().unwrap();
-    let version = current_process_contract_authority("compactor")
+    let version = current_process_contract_authority("hook")
         .unwrap()
         .contract_version;
     let invalid_export = ProcessExportBinding::new(
-        "compactor",
+        "hook",
         "python_suffix",
         version,
         json!({"retain_user_turns": 0}),
@@ -312,8 +372,7 @@ async fn python_compactor_rejects_invalid_launch_settings_and_canonical_scope() 
         format!("{error:#}").contains("retain_user_turns must be a positive integer"),
         "{error:#}"
     );
-    let export =
-        ProcessExportBinding::new("compactor", "python_suffix", version, json!({})).unwrap();
+    let export = ProcessExportBinding::new("hook", "python_suffix", version, json!({})).unwrap();
     let target = export.export_ref();
     let binding = ProcessComponentBinding::new("python-compactor", [export]).unwrap();
     let spec = ProcessSpec::new("python3")
@@ -326,14 +385,8 @@ async fn python_compactor_rejects_invalid_launch_settings_and_canonical_scope() 
     .await
     .unwrap()
     .unwrap();
-    let input = CompactionInput::new(
-        AgentTask::new("Current task.", workspace.path().to_path_buf()),
-        proteus_contracts::model_standard::CanonicalModelRequest::new(
-            ModelRef::new("fake", "fixture"),
-            history(),
-        ),
-    );
-    let valid = serde_json::to_value(input).unwrap();
+    let input = ContextPreparationInput::new(history(), None);
+    let valid = serde_json::to_value(hook_input(input, workspace.path())).unwrap();
     for scope in [
         None,
         Some(json!("unknown")),
@@ -341,7 +394,7 @@ async fn python_compactor_rejects_invalid_launch_settings_and_canonical_scope() 
         Some(json!([])),
     ] {
         let mut invalid = valid.clone();
-        let part = invalid["request"]["messages"][0]["parts"][0]
+        let part = invalid["event"]["input"]["messages"][0]["parts"][0]
             .as_object_mut()
             .unwrap();
         if let Some(scope) = scope {
@@ -350,7 +403,7 @@ async fn python_compactor_rejects_invalid_launch_settings_and_canonical_scope() 
             part.remove("scope");
         }
         let terminal = broker
-            .invoke(&target, "compact", invalid, Duration::from_secs(5))
+            .invoke(&target, "hook.invoke", invalid, Duration::from_secs(5))
             .await
             .unwrap();
         assert!(
@@ -362,7 +415,7 @@ async fn python_compactor_rejects_invalid_launch_settings_and_canonical_scope() 
     // Malformed input must neither crash the component nor cause a permissive
     // fallback. The same worker still accepts a correctly marked request.
     let terminal = broker
-        .invoke(&target, "compact", valid, Duration::from_secs(5))
+        .invoke(&target, "hook.invoke", valid, Duration::from_secs(5))
         .await
         .unwrap();
     assert!(

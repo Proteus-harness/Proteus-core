@@ -15,6 +15,11 @@ test("real TS worker multiplexes exports, redirects logs and cancels only the ad
   await writeFile(entry, `import {setTimeout} from 'node:timers/promises';
     export default function(hooks: {on: Function, config: {tag: string}}) {
       console.log('ported log');
+      hooks.on('before_context', async (event: any, ctx: any) => {
+        const model = await ctx.completeModel({messages: []});
+        const tool = await ctx.executeTool({id:'nested', name:'read_file',args:{path:'a'}});
+        return {action:'context_preparation', output:{...event.output,metadata:{model,tool}}};
+      });
       hooks.on('before_tool', async (event: any, ctx: any) => {
         if(event.call.name==='wait') await setTimeout(2000, undefined, {signal:ctx.signal});
         return {action:'block_tool',reason:hooks.config.tag};
@@ -25,9 +30,20 @@ test("real TS worker multiplexes exports, redirects logs and cancels only the ad
   let stderr = "";
   child.stderr.setEncoding("utf8").on("data", (text) => { stderr += text; });
   const replies = new Map();
+  const callbacks = [];
+  let failModel = false;
+  const modelFailure = {kind:"context_window_exceeded",message:"fixture overflow",completed_messages:[]};
   const lines = createInterface({ input: child.stdout });
   lines.on("line", (line) => {
     const frame = JSON.parse(line);
+    if (frame.id.startsWith("m:")) {
+      callbacks.push(frame);
+      const reply = failModel && frame.method === "host.model.complete"
+        ? {error:{code:-32100,message:"fixture model failed",data:modelFailure}}
+        : {result:{value:frame.method}};
+      child.stdin.write(`${JSON.stringify({jsonrpc:"2.0",id:frame.id,...reply})}\n`);
+      return;
+    }
     const waiter = replies.get(frame.id);
     if (waiter) { replies.delete(frame.id); waiter(frame); }
   });
@@ -35,7 +51,7 @@ test("real TS worker multiplexes exports, redirects logs and cancels only the ad
     replies.set(id, resolve);
     child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`);
   });
-   const binding = (id) => ({ slot: "hook", module_id: id, contract_version: "v4", composition: "ordered_many", module_config: { entry, settings: { tag: id } }, host_features: [] });
+   const binding = (id) => ({ slot: "hook", module_id: id, contract_version: "v5", composition: "ordered_many", module_config: { entry, settings: { tag: id } }, host_features: [] });
   const invocation = (id, module, name) => ({
     export: { slot: "hook", module_id: module },
     lineage: { root_invocation_id: id, parent_invocation_id: null, depth: 0 },
@@ -56,6 +72,18 @@ test("real TS worker multiplexes exports, redirects logs and cancels only the ad
     const denied = await send("h:1:4", "host.tools.invoke", invocation("h:1:4", "a", "read"));
     assert.match(denied.error.message, /unsupported hook method/);
     assert.match(stderr, /ported log/);
+    const preparation = invocation("h:1:5", "a", "read");
+    preparation.params.event = {event:"before_context",input:{messages:[],request:null,token_estimate:null,window_tokens:null,reason:null},output:{messages:[],changed:false},target:null};
+    const prepared = await send("h:1:5", "hook.invoke", preparation);
+    assert.equal(prepared.result.result.action, "context_preparation");
+    assert.deepEqual(callbacks.map(frame=>frame.method), ["host.model.complete", "host.tools.execute"]);
+    assert.ok(callbacks.every(frame=>frame.params.invocation_id==="h:1:5"));
+    assert.equal(prepared.result.result.output.metadata.model.value, "host.model.complete");
+    failModel = true;
+    preparation.lineage.root_invocation_id = "h:1:6";
+    const failed = await send("h:1:6", "hook.invoke", preparation);
+    assert.equal(failed.error.code, -32000);
+    assert.deepEqual(failed.error.data, modelFailure);
   } finally {
     child.stdin.end();
     await closed;

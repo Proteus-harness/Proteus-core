@@ -1,5 +1,5 @@
 use proteus_contracts::{
-    contracts::ModelCallOrigin,
+    contracts::{ModelCallOrigin, OperationOwner},
     domain::{
         AgentOutput, AgentTask, ExchangeId, ExecutionId, HistoryCompactionReport, RecordId,
         SessionId, ThreadId, ToolCall, ToolCallResolution, ToolResult, TurnId,
@@ -10,7 +10,7 @@ use proteus_contracts::{
 };
 use serde::{Deserialize, Serialize};
 
-pub const JOURNAL_SCHEMA_VERSION: u32 = 18;
+pub const JOURNAL_SCHEMA_VERSION: u32 = 19;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -46,6 +46,7 @@ pub struct HistoryMutated {
 pub struct ModelRequestRecorded {
     pub exchange_id: ExchangeId,
     pub origin: ModelCallOrigin,
+    pub owner: OperationOwner,
     pub request: CanonicalModelRequest,
 }
 
@@ -73,7 +74,7 @@ pub struct ModelResponseRecorded {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "phase", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ToolCallRecordPhase {
-    Requested,
+    Requested { owner: OperationOwner },
     ApprovalRequested { reason: String },
     Resolved { resolution: ToolCallResolution },
 }

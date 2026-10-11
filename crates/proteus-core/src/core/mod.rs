@@ -4,8 +4,8 @@ mod approval;
 mod assembly;
 mod bound_model;
 mod bound_tools;
-mod compaction_host;
 mod config;
+mod context_preparation;
 pub(crate) use config::CONFIG_BUILDER_OVERLAY;
 mod config_snapshot;
 mod context_provider;
@@ -13,6 +13,7 @@ pub(crate) mod core_slots;
 mod eval_report;
 mod event_store;
 mod execution_hooks;
+mod extension_operations;
 mod model_call_scope;
 mod model_context;
 mod model_service;
@@ -99,7 +100,6 @@ pub use workflow_replay::{
 pub(crate) use approval::{CachedApprovalTransport, ChannelApprovalTransport, PendingApproval};
 pub(crate) use assembly::catalog_module_source;
 pub(crate) use bound_tools::ToolExecutionObserver;
-pub(crate) use compaction_host::RuntimeCompactionHost;
 pub(crate) use context_provider::RepoAwareContextProvider;
 pub(crate) use event_store::{FanoutEventSink, JsonlEventStore};
 pub(crate) use model_service::ModelService;
@@ -107,7 +107,7 @@ pub(crate) use module_catalog::{ModuleBuildContext, PolicyBuildContext};
 pub(crate) use permission_mode::ModeAwarePolicy;
 pub(crate) use runtime::{
     QueuedMessagesSnapshot, ReservedRunCompletion, SteeringQueueReceipt, UserMessageReservation,
-    prepare_failed_history_update, prepare_history_update, without_root_steering,
+    prepare_failed_history_update, prepare_history_update,
 };
 pub(crate) use tool_orchestrator::ToolOrchestrator;
 pub(crate) use user_input::{

@@ -14,11 +14,11 @@ Codex определяются в [roadmap.md](../product/roadmap.md).
 - `CanonicalMessage.phase` — typed commentary/final_answer или отсутствие
   классификации;
 - OpenAI Responses adapter читает phase и возвращает его в следующий request;
-- workflows, compactor, journal и history сохраняют порядок сообщений;
+- workflows, preparation hook, journal и history сохраняют порядок сообщений;
 - `coding.codex_loop` берёт последнее непустое assistant message
   как terminal output.
 
-Действующие версии: `workflow/v19`, `compactor/v11`, journal schema v18 и config snapshot v7.
+Действующие версии: `workflow/v20`, `hook/v5`, journal schema v19 и config snapshot v7.
 
 Upstream anchors среза: `codex-rs/protocol/src/models.rs`,
 `codex-rs/codex-api/src/sse/responses.rs`,
@@ -64,7 +64,7 @@ requests, прямое исполнение ранее скрытого tool, jo
 ### Применение Патчей
 
 Codex-family profiles используют reference export `tool/codex_patch` через общий
-`tool/v5`. Parser, default `NormalizeToLf` replacement algorithm, verification
+`tool/v6`. Parser, default `NormalizeToLf` replacement algorithm, verification
 и порядок записи адаптированы из `codex-rs/apply-patch/src/` pinned commit;
 [provenance и ограничения](../../modules/reference/codex-patch/UPSTREAM.md)
 перечисляют точные upstream files.
@@ -258,7 +258,7 @@ parser, все формы команд и event lifecycle этим срезом 
 
 ### Продолжение После Модельной Ошибки
 
-`coding.codex_loop` возвращает выполненные шаги через общий `workflow/v19`
+`coding.codex_loop` возвращает выполненные шаги через общий `workflow/v20`
 failure envelope. Core сохраняет их до `TurnSettled(Error)`: следующий turn
 получает завершённые assistant items и tool results с исходными call ids.
 
@@ -273,13 +273,13 @@ model items и tool calls, `core/src/session/turn.rs` — завершённые
 и в [Proteus](../../modules/reference/coding-workflow/src/codex_sampling.rs).
 Codex при этом обновляет context accounting: [preflight следующего turn](https://github.com/openai/codex/blob/67cc3c318dc8b5532db6ade4182b1dc6f3870889/codex-rs/core/src/session/turn.rs#L1032-L1061)
 проверяет сохранённую оценку. Proteus передаёт факты предыдущих запросов через
-`runtime.model_context` общего `workflow/v19`. [Расчёт в модуле](../../modules/reference/coding-workflow/src/model_context.rs)
+`runtime.model_context` общего `workflow/v20`. [Расчёт в модуле](../../modules/reference/coding-workflow/src/model_context.rs)
 повторяет `fill_to_context_window`: при известном raw window usable равен 95%,
 новая last-оценка — `max(usable - cumulative, 0)`, cumulative становится usable.
 Повторное переполнение того же окна может дать нулевую last-оценку: это не
 безусловная команда сжать историю. При неизвестном окне новое наблюдение не
 создаётся. Ответ с реальным usage или принятая compaction снимают overflow hint;
-ответ без usage сохраняет его. После смены модели compactor применяет текущие
+ответ без usage сохраняет его. После смены модели hook `codex_compact` применяет текущие
 лимиты к сохранённой оценке. Синтетические токены не попадают в usage/cost.
 
 [Process regression](../../modules/reference/process-module/tests/codex_model_resume/context_overflow.rs)
@@ -300,7 +300,7 @@ workflow выбирает этот progress для history. Исходные ids
 в journal, cold transcript и следующем HTTP request. Незавершённые дельты не
 попадают в history. В fixture повторы отключены (`stream_max_retries = 0`),
 исходный turn остаётся `Error`; Error и успешное продолжение
-проходят workflow replay. Внутренний summary compactor этим путём не сохраняется
+проходят workflow replay. Внутренний summary preparation hook этим путём не сохраняется
 как пользовательская история. Неподтверждённые items после crash/внешнего Cancel
 не восстанавливаются. Раннее исполнение calls и повтор SSE
 проверяется отдельным сценарием выше.
@@ -409,9 +409,9 @@ summary без tools и output cap, порог 90% известного raw wind
 соответствующей парой call/result и сбрасывается retry budget. Переполнение
 запроса из одного summary prompt, отмена и session budget завершаются сразу.
 Остальные сбои повторяются с backoff в пределах
-`module_config.compactor.codex.stream_max_retries`: default `5`, максимум `100`,
+`module_config.hook.codex_compact.stream_max_retries`: default `5`, максимум `100`,
 `0` отключает повторы, как `ModelProviderInfo::stream_max_retries` выбранного
-Codex. Настройка принадлежит compactor и задаётся отдельно от workflow и
+Codex. Настройка принадлежит hook `codex_compact` и задаётся отдельно от workflow и
 HTTP provider. Это поведение самого компонента;
 recovery после ошибки обычного workflow model call сюда не входит.
 
@@ -419,21 +419,22 @@ recovery после ошибки обычного workflow model call сюда �
 проверяет фактические запросы, короткий retry после HTTP 400
 `context_length_exceeded`, единственное исполнение tool и cold history. Workflow
 replay сценария `tool → summary → обычный model response → Success` использует
-записанный результат compaction и только прямые model outcomes workflow; исходный
+записанный `BeforeContext` outcome и owner/parent tree дочерних model/tool records; исходный
 journal остаётся неизменным, model/tool implementations повторно не вызываются.
 Matched replay подтверждён и для summary после retry при переполнении context
 window и после HTTP 500: listener провайдера уже закрыт, исходный tool artifact удалён;
 воспроизводятся два прямых model exchanges и один tool outcome.
-Внутренние summary exchanges сохраняются в журнале с origin `compactor`.
-Это проверка orchestration по готовому compaction report, а не повторное исполнение
-алгоритма compactor. [Recovery regression](../../modules/reference/process-module/tests/codex_compaction/recovery.rs)
+Внутренние summary exchanges сохраняются в журнале с origin `auxiliary`.
+Это проверка orchestration по typed preparation trace и его дочерним records,
+а не повторное исполнение алгоритма сжатия. [Recovery regression](../../modules/reference/process-module/tests/codex_compaction/recovery.rs)
 проверяет исчерпание summary retries, переполнение минимального prompt и отмену:
 выполненный tool остаётся в journal и cold history, новый summary не появляется,
-root получает `Error` или `Canceled`. Replay ошибки compactor без changed
-checkpoint явно отклоняется. Полный compaction lifecycle, remote branches и
-replay внутренних типизированных веток ошибки compactor пока не подтверждены.
+root получает `Error` или `Canceled`. Завершённый `Error` preparation replay
+использует failed trace и проверяет дочерние exchanges без changed checkpoint.
+Внешний `Canceled` проверяется settlement и cold history; timing отмены replay
+не эмулирует. Внутренний алгоритм summary и remote upstream branches не запускаются.
 
-Проверки [совместимости compactor](../../modules/reference/process-module/tests/codex_compaction/compatibility.rs)
+Проверки [совместимости Codex preparation](../../modules/reference/process-module/tests/codex_compaction/compatibility.rs)
 проводят summary дольше 30 секунд при достаточном общем бюджете workflow и
 pre-turn compaction после успешного ответа с большим provider usage.
 Последний usage предыдущего хода учитывается и в памяти, и после cold resume.
@@ -446,7 +447,7 @@ pre-turn compaction после успешного ответа с большим
 в journal. Сценарии проверяют checkpoint, cold history, следующий HTTP request
 и matched replay pre-turn compaction.
 
-Локальный compactor сохраняет отдельную retry policy выбранного baseline:
+Локальный hook `codex_compact` сохраняет отдельную retry policy выбранного baseline:
 после специальных веток interruption, context overflow и session budget он
 повторяет остальные model errors в пределах своего бюджета. Для ожидания
 используется собственный backoff; SSE retry advice здесь не применяется.
@@ -464,9 +465,9 @@ cargo test -p model-pack codex_parity_preserves_ordered_commentary_and_final_mes
 cargo test -p model-pack --lib adapters::openai::round_trip_tests
 cargo test -p proteus-reference-module --test codex_model_resume
 cargo test -p coding-workflow codex_loop_preserves_commentary_and_uses_the_last_message_as_final_output
-cargo test -p codex-compactor
+python3 scripts/test.py -p codex-context-preparation
 cargo test -p context-pack
-cargo test -p proteus-reference-module --test codex_compaction --test compactor_interop
+cargo test -p proteus-reference-module --test codex_compaction --test context_preparation_interop
 cargo test -p proteus-reference-module --test conformance
 ./scripts/test.py -p proteus-core --test module_swap
 ```

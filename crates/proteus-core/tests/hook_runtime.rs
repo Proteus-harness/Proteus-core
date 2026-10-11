@@ -190,7 +190,11 @@ async fn assert_replay(runtime: &AgentRuntime, config: &AppConfig) {
     )
     .await
     .unwrap();
-    assert!(replay.comparison.matched, "{:?}", replay.comparison.issues);
+    assert!(
+        replay.comparison.matched,
+        "issues={:?}; replay error={:?}",
+        replay.comparison.issues, replay.replay.error
+    );
     assert!(replay.source_journal_unchanged);
     assert_eq!(replay.recorded.status, replay.replay.status);
 }
@@ -320,7 +324,12 @@ async fn interruption_during_after_hook_preserves_already_completed_effect() {
             _ => false,
         }));
             }
-            runtime.run("continue without tools".into()).await.unwrap();
+            runtime
+                .run("continue without tools".into())
+                .await
+                .unwrap_or_else(|error| {
+                    panic!("follow-up {expected:?}, persist={persist}: {error:#}")
+                });
             let next_history = if runtime.session_dir().is_some() {
                 let next_request = records(&runtime)
                     .into_iter()

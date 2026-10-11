@@ -254,7 +254,7 @@ proteus-reference-module auth openai_codex logout
 model export, capabilities и консервативный порог контекста 200000 tokens.
 
 Основной `config.toml` включает `codex.config.toml`, сохраняя его model/provider,
-workflow, compactor, peers и остальные параметры, и добавляет самостоятельный
+workflow, preparation hook, peers и остальные параметры, и добавляет самостоятельный
 [DCP component](../../modules/reference/dcp/README.md): `hook.dcp`, model tool
 `compress` и пользовательская команда `/dcp`. Для запуска нужен Node.js 22+,
 собранный модуль и executable `proteus-dcp` в `PATH`; portable и `install.sh`
@@ -270,7 +270,7 @@ ln -s "$PWD/modules/reference/dcp/dist/worker.js" "$HOME/.local/bin/proteus-dcp"
 checkout обновите ссылку; при переносе модуля сохраняйте его dependencies.
 Сборки, включающие основной `config.toml` через `include`, наследуют DCP.
 Чистый подписочный `codex`, `codex-explore` и `codex-coder` его не включают.
-Workflow, model и обычный `codex` compactor не заменены: DCP меняет только
+Workflow, model и обычный `codex_compact` preparation hook не заменены: DCP меняет только
 outgoing view, а параметры hook/tool exports в профиле одинаковы.
 
 Экспериментальный `context-search-chatgpt` включает основной `config.toml` и меняет
@@ -444,14 +444,14 @@ child profiles; запуск parent по явному пути не подхва
 
 ## Выбор Behavior Modules
 
-`[modules]` имеет пять optional selection keys (ordered hooks задаются отдельно):
+`[modules]` имеет четыре optional selection keys (ordered hooks задаются отдельно):
 
 ```toml
 [modules]
 workflow = "coding.single_loop"
 context = "repo_aware"
 policy = "ask_write"
-compactor = "codex"
+hooks = ["codex_compact"]
 tool_exposure = "codex_dynamic"
 ```
 
@@ -467,7 +467,7 @@ tool_exposure = "codex_dynamic"
 
 ## Process Components И Exports
 
-### Настройки Codex Context И Compactor
+### Настройки Codex Context И Preparation Hook
 
 Reference context implementations `simple`, `repo_aware` и `codex_context`
 отвергают неизвестные поля в своём `module_config.context.<id>` при
@@ -498,8 +498,8 @@ Context builder не вызывает tools и не получает права 
 завершается явной ошибкой. Уменьшайте исходный `project_doc_max_bytes` либо
 увеличивайте общий бюджет, вместо незаметного удаления AGENTS.md.
 
-Local `codex` compactor по умолчанию запускается при достижении 90% известного
-сырого окна модели. `module_config.compactor.codex.trigger_tokens` задаёт
+Hook `codex_compact` по умолчанию запускается при достижении 90% известного
+сырого окна модели. `module_config.hook.codex_compact.trigger_tokens` задаёт
 абсолютный порог, ограниченный теми же 90%. Если окно неизвестно и явного порога
 нет, автоматическое сжатие не запускается. `trigger_fraction` и прежние
 environment overrides удалены; старые/неизвестные module-config keys отвергаются.
@@ -512,21 +512,22 @@ Summary использует текущую модель и её инструк�
 refs и файлы остаются в journal/store. Текущий ввод при pre-turn compaction
 добавляется после сжатия и сохраняет свои изображения.
 
-`module_config.compactor.codex.stream_max_retries` задаёт число повторов summary
+`module_config.hook.codex_compact.stream_max_retries` задаёт число повторов summary
 после первой попытки: по умолчанию `5`, `0` отключает повторы, значения выше
 `100` ограничиваются сотней, как в выбранном Codex. Это отдельная настройка
-compactor; она не наследует retry budget workflow или HTTP provider. Для
+hook; она не наследует retry budget workflow или HTTP provider. Для
 сравнения одной сборки задавайте одинаковый stream budget явно. При переполнении
-контекста compactor сокращает историю и сбрасывает счётчик повторов; переполнение
+контекста hook сокращает историю и сбрасывает счётчик повторов; переполнение
 запроса из одного summary prompt, отмена и session budget завершаются сразу.
 
-Без export override compactor наследует общий `runtime.workflow_timeout_ms`:
-внутренние model calls и повторные попытки расходуют оставшийся бюджет turn.
+Без export override hook наследует общий `runtime.workflow_timeout_ms`:
+внутренние model/tool calls и повторные попытки расходуют оставшийся бюджет turn.
 `runtime.model_timeout_ms` ограничивает отдельный model call. Protocol deadline
-compactor имеет запас 1000 мс для settlement внешнего timeout; общий лимит turn
-от этого не увеличивается. `components.<id>.exports.compactor.<module>.timeout_ms`
+hook имеет запас 1000 мс для settlement внешнего timeout; общий лимит turn
+от этого не увеличивается. `components.<id>.exports.hook.<module>.timeout_ms`
 может явно ограничить всю compaction сильнее. При `workflow_timeout_ms = 0`
-compactor требует явный положительный export timeout.
+hook использует явный положительный export timeout либо общий protocol
+default 30000 мс. Эти правила одинаковы для всех hook implementations.
 
 ### Объявление Exports
 
@@ -603,7 +604,7 @@ depth, counts и deadlines задаёт host, поэтому transport-cycle val
 config больше нет. Подробности — в
 `process-module-architecture.md`.
 
-Отдельный runnable пример с workflow, context, compactor и capabilities в
+Отдельный runnable пример с workflow, context, preparation hook и capabilities в
 одном component — `examples/configs/proteus.one-component.example.toml`.
 Это evidence topology, а не новый default: несколько components по-прежнему
 нужны, когда владелец хочет разные failure domains.
@@ -663,7 +664,7 @@ workflow:         coding.single_loop, coding.codex_loop,
 context:          simple, repo_aware, codex_context
 context_provider: skills, rg_search, jsonl_memory, sqlite_memory
 policy:           allow_all, ask_write, codex_policy, opencode_policy
-compactor:        codex
+hook:             codex_compact, hook.instructions, hook.output_budget
 tool_exposure:    codex_dynamic
 tool:             reference.tools и узкие selectors, direct_patch, codex_patch,
                   rg_search, jsonl_memory, sqlite_memory
@@ -776,7 +777,7 @@ disabled_mcp_servers = ["team.tools:database"]
 Core не читает `SKILL.md`: любой `context_provider/v4` может предоставить
 typed skill catalog, либо вернуть `null`, если не поддерживает эту возможность.
 Одинаковые host-owned `SkillRuntimeSettings` передаются context provider и
-`tool/v5`; в reference skill-pack один фильтр используется для списка и загрузки.
+`tool/v6`; в reference skill-pack один фильтр используется для списка и загрузки.
 `name` ограничен 64 ASCII-символами без `--`, `description` — 1024 символами;
 дополнительные поля Agent Skills не предоставляют новых прав tools.
 
@@ -1119,7 +1120,7 @@ Pi/OpenCode tool handlers (включая изменение args), JSON-stdin P
 `updatedInput` и Stop scripts Codex/Claude Code. Completion review сохраняет
 root turn, имеет общий workflow deadline и лимит 8 продолжений.
 Неподдержанные upstream действия отклоняются явно; это адаптер переноса,
-не загрузчик чужих plugins. Модуль использует тот же `hook/v4`, без отдельной
+не загрузчик чужих plugins. Модуль использует тот же `hook/v5`, без отдельной
 registration или authority surface в Core.
 
 ### DCP Context Pruning
@@ -1132,8 +1133,8 @@ registration или authority surface в Core.
 opaque config двух exports должен совпадать. Пример не устанавливает executable
 автоматически: нужен абсолютный путь к подготовленному `dist/worker.js`.
 
-DCP заменяет только outgoing model context, не cold history; выбранный
-`compactor` остаётся независимым. `/dcp stats`, `/dcp context` и
+DCP заменяет только outgoing model context, не cold history. Стратегия
+подготовки `codex_compact` выбирается отдельным hook export. `/dcp stats`, `/dcp context` и
 `/dcp decompress [NUMBER]` принадлежат тому же component; управление не
 предоставляется модели. Это механизм из DCP 3.2.0, не вся оболочка OpenCode
 с её commands/TUI/RPC и не объявление parity экспериментального профиля.
@@ -1153,7 +1154,7 @@ prompt = "Review $ARGUMENTS carefully"
 строки, не shell expansion. Команда не запускает tools сама и не выдаёт новых прав.
 Имена проверяются; пустой prompt или результат expansion, дубли с host/module
 командами, зарезервированные `exit`/`quit` и неизвестные поля дают ошибку.
-Module-команды объявляются реализацией tool через `tool/v5`,
+Module-команды объявляются реализацией tool через `tool/v6`,
 а не этим блоком; отключение tool убирает его команду из каталога.
 
 Полный список текущей сборки — `/help`; [семантика и API](runtime-and-events.md#slash-команды).

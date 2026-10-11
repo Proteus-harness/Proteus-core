@@ -4,6 +4,10 @@ pub(super) fn model_messages(
     trace: &HookTrace,
 ) -> Vec<&[proteus_contracts::model_standard::CanonicalMessage]> {
     let mut sets = vec![];
+    if let HookEvent::BeforeContext { input, output, .. } = &trace.input.event {
+        sets.push(input.messages.as_slice());
+        sets.push(output.messages.as_slice());
+    }
     if let HookEvent::BeforeModel { request, .. } = &trace.input.event {
         sets.push(request.messages.as_slice());
     }
@@ -11,6 +15,12 @@ pub(super) fn model_messages(
         sets.push(history.as_slice());
     }
     for step in &trace.steps {
+        if let HookStepOutcome::Accepted {
+            response: HookResponse::ContextPreparation { output },
+        } = &step.outcome
+        {
+            sets.push(output.messages.as_slice());
+        }
         if let HookStepOutcome::Accepted {
             response: proteus_contracts::contracts::HookResponse::ModelContext { messages, .. },
         } = &step.outcome
@@ -92,7 +102,11 @@ fn validate_trace_inner(record: &JournalRecord, trace: &HookTrace, redacted: boo
     let mut event = trace.input.event.clone();
     let mut failed = false;
     let mut ids = std::collections::HashSet::new();
+    let mut invocation_ids = std::collections::HashSet::new();
     for step in &trace.steps {
+        if !invocation_ids.insert(step.invocation_id) {
+            bail!("hook trace contains duplicate invocation identity");
+        }
         if step.module_id.trim().is_empty() || !ids.insert(&step.module_id) {
             bail!("hook trace contains blank or duplicate module id");
         }
@@ -124,7 +138,7 @@ fn validate_trace_inner(record: &JournalRecord, trace: &HookTrace, redacted: boo
                     apply_hook_response(&event, response)?
                 };
             }
-            HookStepOutcome::Failed { message } => {
+            HookStepOutcome::Failed { message, .. } => {
                 if message.trim().is_empty() {
                     bail!("hook trace has an empty failure");
                 }

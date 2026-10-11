@@ -1,7 +1,6 @@
 # DCP: Context View И `compress`
 
-Самостоятельный процессный модуль Node.js 22+, а не UI-расширение и не
-реализация слота `compactor`. Один component предоставляет `hook/hook.dcp`
+Самостоятельный процессный модуль Node.js 22+. Один component предоставляет `hook/hook.dcp`
 и `tool/dcp.tools`; права каждого export остаются правами его slot.
 
 ## Подключение
@@ -39,12 +38,13 @@ deduplication и purgeErrors. Автоматические стратегии з
 compression pipeline, а не добавляются произвольно перед каждым запросом.
 Hook применяет сохранённое состояние к следующему model request. Исходные
 canonical messages остаются в journal/history: меняется только outgoing view.
-Обычный compactor выбранного профиля остаётся отдельным механизмом и может
-создать настоящий history checkpoint.
+Выбранный preparation hook профиля может предложить замену working history;
+workflow принимает её через настоящий history checkpoint. DCP не изменяет
+историю на `BeforeContext` и возвращает `Continue`.
 После такого checkpoint DCP сверяет сохранённые ссылки с текущей canonical
 history: блоки, потерявшие необходимые сообщения, и зависимые родительские
 блоки перестают действовать. Оставшиеся валидные блоки сохраняются; summary
-compactor не становится причиной полного сброса pruning state. Валидный
+preparation hook не становится причиной полного сброса pruning state. Валидный
 дочерний блок снова действует, если удалён только охватывавший его родитель;
 накопленная статистика сжатия сохраняется.
 
@@ -72,13 +72,13 @@ app-server требует idle session. Остальные upstream команд
 
 Это перенос механизма DCP, **не совместимость со всей оболочкой OpenCode**:
 
-- `hook/v4` получает read-only snapshot текущего разговора; `tool/v5` читает
+- `hook/v5` получает read-only snapshot текущего разговора; `tool/v6` читает
   его через `host.conversation.read` с invocation-bound source message id,
   а пользовательское управление — через `host.conversation.snapshot`
   с bound session id, без требования assistant call.
   Произвольного чтения чужих sessions и записи истории нет.
 - Tool invocation принимает обязательные host-owned `skills: SkillRuntimeSettings`
-  общего `tool/v5`, хотя DCP не использует настройки навыков для pruning.
+  общего `tool/v6`, хотя DCP не использует настройки навыков для pruning.
 - Canonical ToolCall/ToolResult проецируются в upstream tool parts, затем
   восстанавливаются без потери identity существующих сообщений. Изменённые
   request-only parts получают новые ids; неизменённые media/reasoning сохраняются.
@@ -152,5 +152,5 @@ fresh-state persistence, согласование блоков после уда
 готовит свежую Node-сборку до Rust tests. `hook_runtime` дополнительно проверяет
 actual model requests, cold history и replay `Success`/`Error` без повторных
 effects; `hook_runtime::dcp::composition` сочетает DCP с реально сработавшими
-Rust Codex и Python suffix compactors, checkpoint и новым runtime/component,
+Rust Codex и Python suffix preparation hooks, checkpoint и новым runtime/component,
 использующим ту же session и сохранённое DCP state.

@@ -16,10 +16,11 @@ use std::{
 use async_trait::async_trait;
 use proteus_contracts::{
     contracts::{
-        CompactionHost, CompactionInput, CompactionOutput, ExecutionAttribution, ToolContext,
+        ContextPreparationInput, ContextPreparationOutput, ExecutionAttribution, HookEvent,
+        HookHost, HookInput, HookResponse, ToolContext,
     },
     domain::{
-        AgentTask, ContextChunk, ContextRenderMode, ModelRef, ToolCall, ToolResult, new_call_id,
+        AgentTask, ContextChunk, ContextRenderMode, ToolCall, ToolResult, new_call_id,
         new_execution_id,
     },
     model_standard::{
@@ -86,8 +87,8 @@ fn search_config(module_id: &str, mode: &str) -> AppConfig {
     config
 }
 
-fn compactor_config(module_id: &str, mode: &str, marker: Option<&Path>) -> AppConfig {
-    let mut args = vec![mode, module_id, "compactor-fixture"];
+fn preparation_config(module_id: &str, mode: &str, marker: Option<&Path>) -> AppConfig {
+    let mut args = vec![mode, module_id, "preparation-fixture"];
     let marker_text;
     if let Some(marker) = marker {
         marker_text = marker.display().to_string();
@@ -95,13 +96,13 @@ fn compactor_config(module_id: &str, mode: &str, marker: Option<&Path>) -> AppCo
     }
 
     let mut config = test_model::config();
-    config.modules.compactor = Some(module_id.to_owned());
+    config.modules.hooks = vec![module_id.to_owned()];
     config.components.insert(
-        "compactor-fixture".to_owned(),
+        "preparation-fixture".to_owned(),
         component(
-            "compactor",
+            "hook",
             module_id,
-            "crates/proteus-core/tests/fixtures/process_compactor.sh",
+            "crates/proteus-core/tests/fixtures/process_preparation.sh",
             &args,
         ),
     );
@@ -282,37 +283,55 @@ async fn process_handshake_does_not_block_the_async_runtime() {
 }
 
 #[derive(Default)]
-struct NoModelCompactionHost;
-
+struct NoOperationsHookHost;
 #[async_trait]
-impl CompactionHost for NoModelCompactionHost {
+impl HookHost for NoOperationsHookHost {
     async fn complete_model(
         &self,
-        _request: CanonicalModelRequest,
+        _: CanonicalModelRequest,
     ) -> anyhow::Result<CanonicalModelResponse> {
         anyhow::bail!("fixture must not request model completion")
     }
+    async fn execute_tool(&self, _: ToolCall) -> anyhow::Result<ToolResult> {
+        anyhow::bail!("fixture must not request nested tool")
+    }
 }
-
-fn compaction_input(cwd: &Path) -> CompactionInput {
-    CompactionInput::new(
-        AgentTask::new("current task", cwd.to_path_buf()),
-        proteus_contracts::model_standard::CanonicalModelRequest::new(
-            ModelRef::new("fake", "fake-model"),
-            vec![
-                CanonicalMessage::text(MessageRole::User, "old task"),
-                CanonicalMessage::text(MessageRole::Assistant, "old answer"),
-            ],
-        ),
+fn preparation_input() -> ContextPreparationInput {
+    ContextPreparationInput::new(
+        vec![
+            CanonicalMessage::text(MessageRole::User, "old task"),
+            CanonicalMessage::text(MessageRole::Assistant, "old answer"),
+        ],
+        None,
     )
     .with_reason("test")
 }
-
-async fn compact(registry: &RuntimeRegistry, cwd: &Path) -> anyhow::Result<CompactionOutput> {
-    registry
-        .compactor
-        .compact(compaction_input(cwd), Arc::new(NoModelCompactionHost))
-        .await
+async fn prepare(
+    registry: &RuntimeRegistry,
+    cwd: &Path,
+) -> anyhow::Result<ContextPreparationOutput> {
+    let input = preparation_input();
+    let event = HookEvent::BeforeContext {
+        output: ContextPreparationOutput::unchanged(input.messages.clone()),
+        input,
+        target: None,
+    };
+    let response = registry.hooks[0]
+        .1
+        .invoke(
+            HookInput {
+                event,
+                attribution: ExecutionAttribution::detached(new_execution_id()),
+                cwd: cwd.to_path_buf(),
+                conversation: None,
+            },
+            Arc::new(NoOperationsHookHost),
+        )
+        .await?;
+    let HookResponse::ContextPreparation { output } = response else {
+        anyhow::bail!("fixture returned wrong response");
+    };
+    Ok(output)
 }
 
 #[tokio::test]
@@ -320,15 +339,15 @@ async fn dead_process_is_restarted_lazily_for_the_same_selected_module() {
     let workspace = tempfile::tempdir().expect("workspace");
     let marker = workspace.path().join("exited-once");
     let selected = registry(
-        &compactor_config("fixture", "exit_once", Some(&marker)),
+        &preparation_config("fixture", "exit_once", Some(&marker)),
         workspace.path(),
     )
-    .expect("selected process compactor");
+    .expect("selected process preparation");
 
-    compact(&selected, workspace.path())
+    prepare(&selected, workspace.path())
         .await
         .expect_err("first process must exit");
-    let output = compact(&selected, workspace.path())
+    let output = prepare(&selected, workspace.path())
         .await
         .expect("next request must use a fresh process");
 
@@ -347,19 +366,19 @@ async fn multiple_exports_share_one_component_process_and_lifecycle() {
             workspace_file("crates/proteus-core/tests/fixtures/process_component.sh"),
             "multi-fixture",
             "fixture-search",
-            "fixture-compactor",
+            "fixture-preparation",
             marker,
         ],
         "handshake_timeout_ms": 3_000,
         "exports": {
             "tool": {"fixture-search": {"timeout_ms": 3_000}},
-            "compactor": {"fixture-compactor": {"timeout_ms": 3_000}},
+            "hook": {"fixture-preparation": {"timeout_ms": 3_000}},
         },
     }))
     .expect("multi-export component config");
     let mut config = test_model::config();
     config.tools.enabled = vec!["search".to_owned()];
-    config.modules.compactor = Some("fixture-compactor".to_owned());
+    config.modules.hooks = vec!["fixture-preparation".to_owned()];
     config
         .components
         .insert("multi-fixture".to_owned(), component);
@@ -371,9 +390,9 @@ async fn multiple_exports_share_one_component_process_and_lifecycle() {
     let chunks: Vec<ContextChunk> =
         serde_json::from_value(result.metadata["chunks"].clone()).unwrap();
     assert_eq!(chunks[0].source, "shared-component");
-    let output = compact(&selected, workspace.path())
+    let output = prepare(&selected, workspace.path())
         .await
-        .expect("shared compactor export");
+        .expect("shared preparation export");
     assert_eq!(output.metadata["fixture"], true);
 
     let starts = std::fs::read_to_string(&marker).expect("startup marker");

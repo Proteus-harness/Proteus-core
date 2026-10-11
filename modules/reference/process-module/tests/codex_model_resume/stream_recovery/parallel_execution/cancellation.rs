@@ -87,7 +87,7 @@ async fn cancel_preserves_completed_tool_and_never_dispatches_queued_calls() {
             .records
             .iter()
             .all(|record| !matches!(&record.entry,
-        JournalEntry::ToolCallRecorded(tool) if tool.phase == ToolCallRecordPhase::Requested
+        JournalEntry::ToolCallRecorded(tool) if matches!(tool.phase, ToolCallRecordPhase::Requested { .. })
             && (tool.call.id == "call_write" || tool.call.id == "call_serial" || tool.call.id == "call_c")))
     );
     assert!(

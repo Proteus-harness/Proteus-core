@@ -49,7 +49,7 @@ def run(command, js, wait_for):
       snapshot.revision+=1000;
       snapshot.requests.push(
         {...base,exchange_id:'diagnostic-error',status:'error',usage:null,finished_at_ms:base.started_at_ms+2000},
-        {...base,exchange_id:'diagnostic-summary',origin:'compactor',turn_id:'diagnostic-turn',finished_at_ms:base.started_at_ms+9000},
+        {...base,exchange_id:'diagnostic-summary',origin:'auxiliary',turn_id:'diagnostic-turn',finished_at_ms:base.started_at_ms+9000},
         {...base,exchange_id:'diagnostic-unfinished',status:'unfinished',turn_id:null,usage:null,finished_at_ms:null});
       snapshot.latest_turn_id='diagnostic-turn';window.analysisFixture=snapshot;""")
     js(f"{root}.querySelector('.usage-footer button').click()")
@@ -64,7 +64,7 @@ def run(command, js, wait_for):
     assert js(f"const rows=[...{root}.querySelectorAll('.usage-request')];return rows[0].dataset.exchangeId==='diagnostic-summary' && rows.at(-1).dataset.exchangeId==='diagnostic-unfinished'"), 'Duration sort hides slow request or treats unfinished as zero'
     js(f"const root={root};const select=root.querySelector('[aria-label=\"Период расхода\"]');select.value='latest';select.dispatchEvent(new Event('change'));root.querySelector('.usage-request').open=true;root.querySelector('.usage-footer button').click()")
     wait_for(lambda: js(f"return !{root}.querySelector('.usage-footer button').disabled"), 'Report refresh did not finish')
-    assert js(f"const root={root};return root.querySelectorAll('.usage-request').length===1 && root.querySelector('.usage-request').open && root.textContent.includes('Ход 2') && root.textContent.includes('Сжатие контекста')"), 'Refresh lost turn filter/details or stable turn identity'
+    assert js(f"const root={root};return root.querySelectorAll('.usage-request').length===1 && root.querySelector('.usage-request').open && root.textContent.includes('Ход 2') && root.textContent.includes('Вспомогательный запрос')"), 'Refresh lost turn filter/details or stable turn identity'
     # Inspect the exact downloadable JSON without creating a file or invoking a download dialog.
     js("""window.analysisCreateURL=URL.createObjectURL;URL.createObjectURL=blob=>{window.analysisExport=blob;return window.analysisCreateURL(blob)};
       window.analysisAnchorClick=HTMLAnchorElement.prototype.click;HTMLAnchorElement.prototype.click=function(){if(!this.download)window.analysisAnchorClick.call(this)};""")

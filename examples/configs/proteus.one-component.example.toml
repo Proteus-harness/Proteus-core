@@ -14,10 +14,10 @@ model = "fake-tool-model"
 stream = true
 
 [modules]
+hooks = ["codex_compact"]
 workflow = "coding.codex_loop"
 context = "simple"
 policy = "allow_all"
-compactor = "codex"
 tool_exposure = "codex_dynamic"
 
 # Этот профиль намеренно собирает callback-связанные exports в один process.
@@ -41,7 +41,7 @@ command = "proteus-reference-module"
 
 [components.reference-agent.exports.tool.direct_patch]
 
-[components.reference-agent.exports.compactor.codex]
+[components.reference-agent.exports.hook.codex_compact]
 
 [components.reference-agent.exports.tool_exposure.codex_dynamic]
 

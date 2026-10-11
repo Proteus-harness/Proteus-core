@@ -9,9 +9,12 @@ import { hostId, nonblank, object } from "./validation.mjs";
 // A transplanted console.log must not corrupt the component's JSON-lines stdout.
 globalThis.console = new Console({ stdout: process.stderr, stderr: process.stderr });
 const send = (frame) => process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", ...frame })}\n`);
-const error = (id, code, message) => send({ id, error: { code, message } });
+const error = (id, code, message, data) => send({ id, error: { code, message, ...(data === undefined ? {} : { data }) } });
 const active = new Map();
 const exports = new Map();
+const pending = new Map();
+const canceledCallbacks = new Set();
+let callbackSequence = 0;
 let generation;
 let ready = false;
 
@@ -26,8 +29,8 @@ async function initialize(request) {
   const manifest = [];
   for (const binding of params.exports) {
     object(binding, ["slot", "module_id", "contract_version", "composition", "module_config", "host_features"], [], "export binding");
-    if (binding.slot !== "hook" || binding.contract_version !== "v4" || binding.composition !== "ordered_many") {
-      throw new Error("worker supports only hook/v4 ordered_many exports");
+    if (binding.slot !== "hook" || binding.contract_version !== "v5" || binding.composition !== "ordered_many") {
+      throw new Error("worker supports only hook/v5 ordered_many exports");
     }
     nonblank(binding.module_id, "module id");
     if (exports.has(binding.module_id)) throw new Error("duplicate export module id");
@@ -40,7 +43,7 @@ async function initialize(request) {
     await extension.default(hooks.api);
     hooks.seal();
     exports.set(binding.module_id, hooks);
-    manifest.push({ slot: "hook", module_id: binding.module_id, contract_version: "v4", composition: "ordered_many", module_features: [], config_schema: null });
+    manifest.push({ slot: "hook", module_id: binding.module_id, contract_version: "v5", composition: "ordered_many", module_features: [], config_schema: null });
   }
   ready = true;
   send({ id: request.id, result: { protocol_version: "v3", component_id: params.component_id, exports: manifest } });
@@ -52,6 +55,31 @@ function cancel(request) {
   hostId(request.params.invocation_id, generation);
   if (!["user", "timeout", "shutdown"].includes(request.params.cause)) throw new Error("invalid cancel cause");
   active.get(request.params.invocation_id)?.controller.abort(new Error(`hook canceled: ${request.params.cause}`));
+}
+
+function callback(invocationId, signal, method, params) {
+  signal.throwIfAborted();
+  const id = `m:${generation}:${++callbackSequence}`;
+  return new Promise((resolve, reject) => {
+    const canceled = () => { pending.delete(id); canceledCallbacks.add(id); reject(signal.reason); };
+    signal.addEventListener("abort", canceled, { once: true });
+    pending.set(id, { resolve, reject, cleanup: () => signal.removeEventListener("abort", canceled) });
+    send({ id, method, params: { invocation_id: invocationId, params } });
+  });
+}
+function settleCallback(frame) {
+  object(frame, ["jsonrpc", "id", "result" in frame ? "result" : "error"], [], "callback response");
+  if (!new RegExp(`^m:${generation}:[1-9]\\d*$`).test(frame.id)) throw new Error("invalid callback response id");
+  if (canceledCallbacks.delete(frame.id)) return;
+  const waiter = pending.get(frame.id);
+  if (!waiter) throw new Error("unmatched callback response");
+  pending.delete(frame.id);
+  waiter.cleanup();
+  if (frame.error) {
+    const failure = new Error(frame.error.message);
+    if ("data" in frame.error) failure.data = structuredClone(frame.error.data);
+    waiter.reject(failure);
+  } else waiter.resolve(frame.result);
 }
 
 function invoke(request) {
@@ -77,9 +105,9 @@ function invoke(request) {
   const controller = new AbortController();
   active.set(request.id, { controller, lineage });
   // Keep reading stdin while each invocation awaits its own handlers.
-  Promise.resolve().then(() => hooks.invoke(params.params, controller.signal)).then(
+  Promise.resolve().then(() => hooks.invoke(params.params, controller.signal, (method, params) => callback(request.id, controller.signal, method, params))).then(
     (result) => send({ id: request.id, result }),
-    (failure) => error(request.id, controller.signal.aborted ? -32800 : -32000, String(failure.message ?? failure)),
+    (failure) => error(request.id, controller.signal.aborted ? -32800 : -32000, String(failure.message ?? failure), failure.data),
   ).finally(() => active.delete(request.id));
 }
 
@@ -89,6 +117,10 @@ for await (const line of lines) {
   try {
     request = JSON.parse(line);
     if (request.jsonrpc !== "2.0") throw new Error("jsonrpc must be 2.0");
+    if (ready && ("result" in request || "error" in request)) {
+      settleCallback(request);
+      continue;
+    }
     if (ready && request.method === "$/cancelRequest") {
       cancel(request);
       continue;

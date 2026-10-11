@@ -107,6 +107,15 @@ impl SessionStore {
         load_records(&self.session_dir, self.session_id)
     }
 
+    /// Read the committed writer revision without scanning every record on each hook.
+    /// A read-only cold store has not acquired a writer lease; use its projection then.
+    pub(crate) async fn history_revision(&self) -> Result<u64> {
+        match self.writer.lock().await.cached_history_revision() {
+            Some(revision) => Ok(revision),
+            None => Ok(self.load_projection()?.history_revision),
+        }
+    }
+
     pub fn load_projection(&self) -> Result<JournalProjection> {
         JournalProjection::build(self.session_id, self.load_records()?)
     }

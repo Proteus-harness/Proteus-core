@@ -253,14 +253,18 @@ impl JournalValidationState {
             }
             JournalEntry::ToolCallRecorded(tool) => {
                 let owner = self.require_execution_fact(record)?;
-                if matches!(tool.phase, ToolCallRecordPhase::Requested)
-                    && record.thread_id.zip(record.turn_id) == self.capture_owner
+                if matches!(
+                    &tool.phase,
+                    ToolCallRecordPhase::Requested {
+                        owner: crate::contracts::OperationOwner::Workflow
+                    }
+                ) && record.thread_id.zip(record.turn_id) == self.capture_owner
                 {
                     self.capture.validate_call(&tool.call)?;
                 }
                 let lifecycle = self.tool_calls.entry(tool.call.id.clone()).or_default();
                 match &tool.phase {
-                    ToolCallRecordPhase::Requested => {
+                    ToolCallRecordPhase::Requested { .. } => {
                         if lifecycle.call.is_some() {
                             bail!("tool call {} was requested more than once", tool.call.id);
                         }

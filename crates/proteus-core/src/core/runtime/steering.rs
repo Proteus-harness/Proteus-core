@@ -8,7 +8,6 @@
 
 use std::{
     collections::VecDeque,
-    future::Future,
     sync::{
         Arc, Mutex as StdMutex,
         atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -47,25 +46,6 @@ pub(crate) use weave::{weave_deliveries_into_failed_history, weave_deliveries_in
 const MAX_QUEUED_MESSAGES: usize = 32;
 const MAX_QUEUED_BYTES: usize = 512 * 1024;
 const MAX_MESSAGE_BYTES: usize = 256 * 1024;
-
-tokio::task_local! {
-    static ROOT_STEERING_SUPPRESSED: ();
-}
-
-/// Runs an internal model call without consuming or observing a root-steering
-/// boundary. Compaction uses this scope so queued user input reaches the next
-/// workflow model request, never the summarizer request hidden behind the
-/// `HistoryCompactor` contract.
-pub(crate) async fn without_root_steering<F>(future: F) -> F::Output
-where
-    F: Future,
-{
-    ROOT_STEERING_SUPPRESSED.scope((), future).await
-}
-
-fn root_steering_is_suppressed() -> bool {
-    ROOT_STEERING_SUPPRESSED.try_with(|()| ()).is_ok()
-}
 
 #[derive(Debug, Clone)]
 pub(crate) struct ReservedUserMessage {
@@ -470,7 +450,9 @@ impl Model for SteeringModel {
     }
 
     async fn stream(&self, request: CanonicalModelRequest) -> Result<ModelEventStream> {
-        if root_steering_is_suppressed() {
+        if crate::core::model_call_scope::current_model_call_origin()
+            == crate::contracts::ModelCallOrigin::Auxiliary
+        {
             return self.inner.stream(request).await;
         }
         let request = self.prepare_request(request).await?;
@@ -488,7 +470,9 @@ impl Model for SteeringModel {
     }
 
     async fn complete(&self, request: CanonicalModelRequest) -> Result<CanonicalModelResponse> {
-        if root_steering_is_suppressed() {
+        if crate::core::model_call_scope::current_model_call_origin()
+            == crate::contracts::ModelCallOrigin::Auxiliary
+        {
             return self.inner.complete(request).await;
         }
         let request = self.prepare_request(request).await?;

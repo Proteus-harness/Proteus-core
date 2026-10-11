@@ -1,21 +1,20 @@
 //! Local summary retry and context-window recovery at the compactor boundary.
 use crate::summary::{ensure_not_cancelled, try_model_summary};
 use proteus_contracts::{
-    contracts::CompactionInput,
+    contracts::ContextPreparationInput,
     model_standard::{CanonicalMessage, ContentPart, ModelFailureKind},
-    process_module::{CompactorModuleHostMut, ProcessModuleError},
+    process_module::{HookModuleHost, ProcessModuleError},
 };
 use rand::Rng;
 use std::time::Duration;
 
 pub(crate) fn complete_summary_with_recovery(
-    input: &CompactionInput,
+    input: &ContextPreparationInput,
+    config: &crate::config::CompactorConfig,
     mut history: Vec<CanonicalMessage>,
-    host: &mut CompactorModuleHostMut<'_>,
+    host: &mut dyn HookModuleHost,
 ) -> Result<String, ProcessModuleError> {
-    let max_retries = crate::config::CompactorConfig::parse(&input.config)
-        .map_err(ProcessModuleError::new)?
-        .stream_max_retries;
+    let max_retries = config.stream_max_retries;
     let mut retries = 0;
     loop {
         match try_model_summary(input, &history, host) {
@@ -60,7 +59,7 @@ fn retry_delay(attempt: u64) -> Duration {
 }
 
 fn wait_for_retry(
-    host: &mut CompactorModuleHostMut<'_>,
+    host: &mut dyn HookModuleHost,
     delay: Duration,
 ) -> Result<(), ProcessModuleError> {
     let mut remaining = delay;

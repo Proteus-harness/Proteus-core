@@ -5,7 +5,7 @@ include = "codex.config.toml"
 name = "default"
 
 [modules]
-hooks = ["hook.dcp"]
+hooks = ["codex_compact", "hook.dcp"]
 
 # Arrays заменяются целиком; здесь сохраняется полный tool set с DCP.
 [tools]

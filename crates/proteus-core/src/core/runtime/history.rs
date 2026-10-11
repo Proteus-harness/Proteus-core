@@ -142,6 +142,15 @@ impl super::AgentRuntime {
                     && matches!(&record.entry, crate::core::JournalEntry::HistoryMutated(mutation)
                         if mutation.compaction.as_ref().is_some_and(|report| report.changed))
             }).count();
+            let offered_compactions = compactions.iter().filter(|report| report.changed).count();
+            if recorded_compactions > offered_compactions {
+                refresh_committed_history(&mut history, projection.history)?;
+                ensure!(
+                    preserve_completed_suffix,
+                    "successful workflow discarded a committed preparation checkpoint"
+                );
+                return Ok(());
+            }
             pending_compaction = compactions
                 .iter()
                 .filter(|report| report.changed)
@@ -203,6 +212,11 @@ impl super::AgentRuntime {
         }
         if compactions.iter().any(|report| report.changed) {
             self.session.interrupted_turns.lock().await.clear();
+        }
+        if *history != update.final_messages {
+            self.session
+                .history_revision
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         }
         *history = update.final_messages;
         Ok(())

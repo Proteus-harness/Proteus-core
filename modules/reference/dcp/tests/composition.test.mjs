@@ -81,11 +81,11 @@ test("tracked python_suffix keeps its retained user prompt after DCP and cold re
   const c = f.messages.at(-1).parts[0].payload.ToolCall.call;
   f.messages.push(toolResult(c, "Compressed 3 messages"), message("Assistant", "CONTROLLER CONTINUES"));
   const retainedId = f.messages[2].id;
-  const path = fileURLToPath(new URL("../../../../examples/modules/compactor-process/compact.py", import.meta.url));
-  const py = "import runpy,sys,json; f=runpy.run_path(sys.argv[1])['compact']; print(json.dumps(f(json.load(sys.stdin))))";
+  const path = fileURLToPath(new URL("../../../../examples/modules/context-preparation-process/prepare.py", import.meta.url));
+  const py = `import runpy,sys,json; f=runpy.run_path(sys.argv[1])['compact']; print(json.dumps(f(json.load(sys.stdin), {"trigger_messages":3,"retain_user_turns":1})))`;
   const compacted = JSON.parse(execFileSync("python3", ["-B", "-c", py, path], { input: JSON.stringify({
-    task: { text: "KEPT USER PROMPT", cwd: "/tmp" }, request: { messages: f.messages }, token_estimate: 1000,
-    window_tokens: 2000, config: { trigger_messages: 3, retain_user_turns: 1 }, reason: "manual" }) }));
+    messages: f.messages, request: null, token_estimate: 1000,
+    window_tokens: 2000, reason: "manual" }) }));
   assert.equal(compacted.output.changed, true);
   assert.ok(compacted.output.messages.some((m) => m.id === retainedId));
   f.messages = compacted.output.messages;

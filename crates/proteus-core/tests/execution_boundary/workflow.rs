@@ -4,8 +4,9 @@ use super::*;
 async fn standalone_workflow_assembles_and_runs_without_model_or_conversation() {
     let workspace = tempfile::tempdir().unwrap();
     let config: AppConfig = serde_json::from_value(json!({
-        "modules": {"workflow": "independent"},
-        "components": {"standalone": {"command": "python3", "args": ["-B", workspace_file("crates/proteus-core/tests/fixtures/standalone_workflow.py")], "exports": {"workflow": {"independent": {}}}}}
+        "modules": {"workflow": "independent", "hooks":["python_suffix"]},
+        "module_config":{"hook":{"python_suffix":{"trigger_messages":2,"retain_user_turns":1}}},
+        "components": {"suffix":{"command":"python3","args":["-B",workspace_file("examples/modules/context-preparation-process/prepare.py")],"exports":{"hook":{"python_suffix":{}}}}, "standalone": {"command": "python3", "args": ["-B", workspace_file("crates/proteus-core/tests/fixtures/standalone_workflow.py")], "exports": {"workflow": {"independent": {}}}}}
     })).unwrap();
     let assembly = PreparedAssembly::from_config(config, workspace.path().into(), None).unwrap();
     assert!(assembly.plan().model.is_none());

@@ -46,6 +46,7 @@ impl ExecutionRecorder for CollectingExecutionRecorder {
         &self,
         exchange_id: ExchangeId,
         origin: ModelCallOrigin,
+        _owner: crate::contracts::OperationOwner,
         request: &CanonicalModelRequest,
     ) -> Result<()> {
         self.facts
@@ -266,7 +267,7 @@ async fn request_metadata_cannot_choose_model_call_origin() {
         .with_client_metadata(client_metadata);
 
     crate::core::model_call_scope::with_model_call_origin(
-        ModelCallOrigin::Compactor,
+        ModelCallOrigin::Auxiliary,
         model.complete(request),
     )
     .await
@@ -274,7 +275,7 @@ async fn request_metadata_cannot_choose_model_call_origin() {
 
     let facts = recorder.facts.lock().await;
     assert_eq!(facts.requests.len(), 1);
-    assert_eq!(facts.requests[0].1, ModelCallOrigin::Compactor);
+    assert_eq!(facts.requests[0].1, ModelCallOrigin::Auxiliary);
 }
 
 #[tokio::test]
@@ -490,4 +491,33 @@ async fn canceling_one_bound_model_does_not_cancel_its_sibling() {
     assert_eq!(response_text(&result_b.unwrap()), "B");
     assert!(scope_a.cancellation.is_cancelled());
     assert!(!scope_b.cancellation.is_cancelled());
+}
+
+#[tokio::test]
+async fn auxiliary_response_is_recorded_without_agent_presentation() {
+    let scope = ExecutionScope::fresh(CancellationToken::new());
+    let sink = Arc::new(CollectingSink::default());
+    let recorder = Arc::new(CollectingExecutionRecorder::default());
+    let model = BoundModel::new(
+        Arc::new(ModelService::new(Arc::new(ImmediateAdapter::new()))),
+        ModelExecutionBinding::for_turn(
+            scope,
+            Arc::new(EventEmitter::new(sink.clone())),
+            new_session_id(),
+            new_thread_id(),
+            new_turn_id(),
+            recorder.clone(),
+        ),
+        0,
+    );
+    crate::core::model_call_scope::with_model_call_origin(
+        ModelCallOrigin::Auxiliary,
+        model.complete(request("immediate", "aux")),
+    )
+    .await
+    .unwrap();
+    assert!(sink.events.lock().await.is_empty());
+    let facts = recorder.facts.lock().await;
+    assert_eq!(facts.responses.len(), 1);
+    assert_eq!(facts.requests[0].1, ModelCallOrigin::Auxiliary);
 }

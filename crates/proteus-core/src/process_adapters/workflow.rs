@@ -13,14 +13,14 @@ use crate::{
     contracts::{
         PROCESS_WORKFLOW_CONTRACT_VERSION, PROCESS_WORKFLOW_METHOD, ProcessWorkflowInput,
         ProcessWorkflowResponse, WORKFLOW_HOST_BUILD_CONTEXT_METHOD,
-        WORKFLOW_HOST_COMPACT_HISTORY_METHOD, WORKFLOW_HOST_COMPLETE_MODEL_METHOD,
-        WORKFLOW_HOST_EMIT_EVENT_METHOD, WORKFLOW_HOST_EXECUTE_TOOL_METHOD,
-        WORKFLOW_HOST_EXECUTE_TOOLS_METHOD, WORKFLOW_HOST_RUNTIME_STATUS_METHOD,
+        WORKFLOW_HOST_COMPLETE_MODEL_METHOD, WORKFLOW_HOST_EMIT_EVENT_METHOD,
+        WORKFLOW_HOST_EXECUTE_TOOL_METHOD, WORKFLOW_HOST_EXECUTE_TOOLS_METHOD,
+        WORKFLOW_HOST_PREPARE_CONTEXT_METHOD, WORKFLOW_HOST_RUNTIME_STATUS_METHOD,
         WORKFLOW_HOST_SELECT_TOOLS_METHOD, WORKFLOW_HOST_VISIBLE_TOOLS_METHOD, Workflow,
-        WorkflowBuildContextRequest, WorkflowCompactHistoryRequest, WorkflowCompleteModelRequest,
-        WorkflowEmitEventRequest, WorkflowExecuteToolRequest, WorkflowExecuteToolsRequest,
-        WorkflowHostAck, WorkflowInvocationContext, WorkflowOutput, WorkflowRuntimeStatusRequest,
-        WorkflowSelectToolsRequest, WorkflowVisibleToolsRequest,
+        WorkflowBuildContextRequest, WorkflowCompleteModelRequest, WorkflowEmitEventRequest,
+        WorkflowExecuteToolRequest, WorkflowExecuteToolsRequest, WorkflowHostAck,
+        WorkflowInvocationContext, WorkflowOutput, WorkflowPrepareContextRequest,
+        WorkflowRuntimeStatusRequest, WorkflowSelectToolsRequest, WorkflowVisibleToolsRequest,
     },
     core::workflow_host::WorkflowHostRuntime,
     domain::AgentTask,
@@ -74,13 +74,14 @@ impl Workflow for ProcessWorkflowAdapter {
         history: Vec<CanonicalMessage>,
         ctx: WorkflowInvocationContext,
     ) -> Result<WorkflowOutput> {
+        let cwd = task.cwd.clone();
         let input = ProcessWorkflowInput {
             task,
             history,
             runtime: ctx.runtime_info(self.workflow_timeout_ms)?,
         };
         let cancellation = ctx.execution().scope.cancellation.clone();
-        let runtime = Arc::new(WorkflowHostRuntime::new(ctx));
+        let runtime = Arc::new(WorkflowHostRuntime::new(ctx, cwd));
         let dispatcher: Arc<dyn AsyncHostRequestDispatcher> = Arc::new(ProcessWorkflowDispatcher {
             runtime: runtime.clone(),
         });
@@ -100,8 +101,20 @@ impl Workflow for ProcessWorkflowAdapter {
             anyhow::bail!("workflow returned success with an unconsumed model stream");
         }
         match response {
-            ProcessWorkflowResponse::Success { result } => Ok(result),
-            ProcessWorkflowResponse::Error { failure } => Err(failure.into()),
+            ProcessWorkflowResponse::Success { result } => {
+                anyhow::ensure!(
+                    !runtime.has_rejected_preparation(),
+                    "workflow returned success after rejecting a context preparation checkpoint"
+                );
+                Ok(result)
+            }
+            ProcessWorkflowResponse::Error { mut failure } => {
+                if runtime.has_rejected_preparation() {
+                    // Rejected material cannot bypass checkpoint validation through settlement.
+                    failure.history = None;
+                }
+                Err(failure.into())
+            }
         }
     }
 }
@@ -162,14 +175,14 @@ impl AsyncHostRequestDispatcher for ProcessWorkflowDispatcher {
                     async move { host_result(runtime.next_model_stream(input).await, &method) },
                 )
             }
-            WORKFLOW_HOST_COMPACT_HISTORY_METHOD => {
-                let input = match decode::<WorkflowCompactHistoryRequest>(request.params, &method) {
+            WORKFLOW_HOST_PREPARE_CONTEXT_METHOD => {
+                let input = match decode::<WorkflowPrepareContextRequest>(request.params, &method) {
                     Ok(input) => input,
                     Err(error) => return Box::pin(async move { Err(error) }),
                 };
                 let runtime = Arc::clone(&self.runtime);
                 Box::pin(
-                    async move { host_result(runtime.compact_history(input.input).await, &method) },
+                    async move { host_result(runtime.prepare_context(input.input).await, &method) },
                 )
             }
             WORKFLOW_HOST_VISIBLE_TOOLS_METHOD => {
@@ -236,13 +249,9 @@ impl AsyncHostRequestDispatcher for ProcessWorkflowDispatcher {
                     Err(error) => return Box::pin(async move { Err(error) }),
                 };
                 let runtime = Arc::clone(&self.runtime);
-                Box::pin(async move {
-                    runtime
-                        .checkpoint_history(input)
-                        .await
-                        .map_err(|error| callback_error(&method, error))?;
-                    encode(WorkflowHostAck::default(), &method)
-                })
+                Box::pin(
+                    async move { host_result(runtime.checkpoint_history(input).await, &method) },
+                )
             }
             _ => Box::pin(async move {
                 Err(ProcessModuleRpcError::new(

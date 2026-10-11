@@ -112,6 +112,7 @@ impl Tool for ProcessTool {
                 PROCESS_TOOL_INVOKE_METHOD,
                 &request,
                 Arc::new(host::ToolHost {
+                    operations: ctx.host,
                     conversation: ctx.conversation,
                     session_id: ctx.conversation_session_id,
                     call: call.clone(),

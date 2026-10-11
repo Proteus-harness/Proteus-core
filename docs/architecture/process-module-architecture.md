@@ -149,7 +149,7 @@ composition(slot contract) = select_one | ordered_many
 Composition хранится в общей authority table и подтверждается отдельно для
 каждого export:
 
-- `select_one`: workflow, model, context, policy, compactor,
+- `select_one`: workflow, model, context, policy,
   tool exposure;
 - `ordered_many`: tool, context provider, hook.
 
@@ -181,7 +181,7 @@ Composition хранится в общей authority table и подтвержд
       {
         "slot": "tool",
         "module_id": "reference.tools",
-        "contract_version": "v5",
+        "contract_version": "v6",
         "composition": "ordered_many",
         "module_config": {},
         "host_features": []
@@ -212,7 +212,7 @@ Composition хранится в общей authority table и подтвержд
       {
         "slot": "tool",
         "module_id": "reference.tools",
-        "contract_version": "v5",
+        "contract_version": "v6",
         "composition": "ordered_many",
         "module_features": [],
         "config_schema": null
@@ -369,25 +369,24 @@ Rust host и модуль используют один
 
 | Slot | Contract | Module methods | Host callbacks |
 |---|---|---|---|
-| hook | v4 | `hook.invoke` | — |
+| hook | v5 | `hook.invoke` | `host.model.complete`, `host.tools.execute` (по фазе invocation) |
 | tool exposure | v4 | `select` | — |
 | policy | v2 | `evaluate`, `evaluate_visibility` | — |
 | context provider | v4 | `provide`, `catalog` | — |
-| tool | v5 | `list`, `invoke` | `host.conversation.read`, `host.conversation.snapshot` (только чтение, conversation-bound invocation) |
+| tool | v6 | `list`, `invoke` | `host.model.complete`, `host.tools.execute`, `host.conversation.read`, `host.conversation.snapshot` |
 | context | v3 | `build` | `host.context.provide` |
 | model | v12 | `describe`, `catalog`, `quota`, `stream` | `host.model.emit` (acknowledged canonical events) |
-| compactor | v11 | `compact` | `host.model.complete` |
-| workflow | v19 | `run` | runtime status, context, model, compaction, history checkpoint, tool visibility/selection/execution, events |
+| workflow | v20 | `run` | runtime status, context, model, context preparation, history checkpoint, tool visibility/selection/execution, events |
 
 Canonical source:
 `crates/proteus-module-protocol/src/authority.rs`. Изменение таблицы требует
 DTO, adapter, protocol/conformance и swap evidence в одном commit.
 
-Предложение общих model/tool callbacks для hooks/tools и подготовки рабочей
-истории описано в [hook-tool-operations.md](hook-tool-operations.md). Оно ещё
-не реализовано и не изменяет эту таблицу authority или действующие версии.
+Общие model/tool callbacks для hooks/tools и подготовка рабочей истории
+описаны в [hook-tool-operations.md](hook-tool-operations.md). Отдельный
+compactor slot/export удалён; стратегия выбирается hook export.
 
-`tool/v5` возвращает из `list` definitions
+`tool/v6` возвращает из `list` definitions
 `{ spec: ToolSpec, model_visible: boolean, user_command: ToolUserCommand | null }`.
 Все поля обязательны, включая явный nullable `user_command`; bare ToolSpec и
 старые versions не принимаются. `ToolUserCommand` содержит `name`, `description`
@@ -409,33 +408,36 @@ Invocation shape и ToolSpec provider boundary не меняются. Новый
   разговорной пользовательской операции вне Turn, но не делает conversation
   обязательной для обычного detached tool.
 
-History writes и model callback отсутствуют. Без bound conversation/session,
-до требуемого checkpoint, при неоднозначной source identity или отмене — явная
-ошибка. Обычные detached tools работают без history/model; одинаковые callback
+Прямые history writes отсутствуют; model/tool callbacks используют общий
+auxiliary path с invocation-bound owner. Для conversation reads отсутствие
+bound conversation/session, требуемого checkpoint или однозначной source
+identity даёт явную ошибку; эти данные не обязательны model/tool callbacks.
+Отмена прекращает разрешённую дочернюю работу. Обычные detached tools работают без history/model; одинаковые callback
 права действуют для всех implementations, не объединяются с правами других exports.
 
 `ToolSpec` содержит обязательный boolean `supports_parallel_tool_calls`,
 независимый от `safety`. Он проходит через tool list, policy, tool exposure,
-canonical model request, workflow/compactor, journal schema v18 и config
+canonical model request, workflow/preparation hooks, journal schema v19 и config
 snapshot v7. Rust
 constructor задаёт `false`, модуль обязан передать поле в JSON явно. Selector
 сохраняет зарегистрированное значение; несовпадение отклоняется. Старые
 версии этих contracts и ToolSpec без поля не принимаются. Wire остаётся v3;
 параллельность вызовов не меняет composition slot-а и его host authority.
 
-`workflow/v19` использует обязательный `runtime.execution_id`, явные nullable
+`workflow/v20` использует обязательный `runtime.execution_id`, явные nullable
 `runtime.conversation` и `runtime.model_ref`. Conversation содержит полный
 набор session/thread/turn ids; частичная attribution не принимается. Standalone
 invocation передаёт `conversation: null` и может передать пустую history.
 `WorkflowInvocationContext::Execution` предоставляет execution-bound model,
 context и tools без создания chat identity. `Agent` добавляет события чата,
-steering и history recorder. Chat events, history checkpoints и compaction
-без разговорного контекста завершаются явной ошибкой. Tool callbacks обоих
+steering и history recorder. Chat events и root history checkpoints без
+разговорного контекста завершаются явной ошибкой. Context preparation
+работает также с частной историей без модели и root checkpoint. Tool callbacks обоих
 invocation modes используют один registry/policy/approval/safety path.
 Ненастроенная модель отсутствует и в wire reference, и в ExecutionContext;
 `host.model.complete/stream` возвращает явную ошибку, без fake adapter.
 
-`workflow/v19` передаёт в `runtime` непрозрачный `intent: string | null` и
+`workflow/v20` передаёт в `runtime` непрозрачный `intent: string | null` и
 эффективный `permission_mode` запуска. Семантику имени определяет выбранный
 workflow; неподдерживаемое намерение должно давать явную ошибку, а не обычный
 запуск с проигнорированными параметрами. Поле не расширяет authority: host
@@ -448,12 +450,12 @@ workflow; неподдерживаемое намерение должно да�
 Соседние usage объединяются: `total_tokens` — сумма реальных input+output
 этой группы, `last_tokens` — последний ответ. Успешный summary также даёт
 реальный usage; overflow учитывается только для обычного model request с
-известным окном. Ошибки compactor не становятся обычным overflow.
+известным окном. Ошибки auxiliary preparation не становятся обычным overflow.
 Core восстанавливает факты из существующих model/history records, исключая
 другие threads и detached/nested executions; replay берёт префикс до выбранного
 `TurnOpened`. Без session store те же факты хранятся в памяти. Очистка истории
 сбрасывает их. Смена модели сама по себе не удаляет предыдущие наблюдения.
-Расчёт оценок и выбор compaction принадлежат workflow/compactor, а не Core.
+Расчёт оценок и выбор compaction принадлежат workflow/preparation hook, а не Core.
 Эта поверхность не записывает синтетические значения в provider `TokenUsage`.
 
 Обязательное `runtime.interrupted_turns` содержит нейтральные факты
@@ -464,7 +466,7 @@ Core восстанавливает их из journal либо памяти; в�
 `coding.codex_loop` представляет их request-only маркером `<turn_aborted>`
 из выбранного upstream; marker не становится новым принятым вводом пользователя.
 
-`workflow/v19` возвращает strict terminal envelope: `status = "success"` с
+`workflow/v20` возвращает strict terminal envelope: `status = "success"` с
 `result: WorkflowOutput` либо `status = "error"` с `failure: WorkflowFailure`.
 Ошибка алгоритма может содержать `history: WorkflowHistoryUpdate` — завершённые
 `new_messages`, optional `history_replacement` и `compactions`; `model_failure`
@@ -475,15 +477,20 @@ Core сохраняет явно возвращённую историю до `T
 validator, что и успешный output: новые сообщения имеют роли assistant/tool
 либо принадлежат доставленному Core steering; replacement требует changed
 compaction и точного current user message либо typed цепочки его замен
-через `user_message_replacements` с новыми ids. При ошибке допустим завершённый
-replacement без последующего ответа. Core не создаёт `AgentOutput` для ошибки.
+через `user_message_replacements` с новыми ids. При ошибке допустим принятый
+replacement без последующего ответа. Неподтверждённый staged preparation
+candidate не возвращается через terminal/failure history; потерянный ACK
+не отменяет durable commit и не разрешает заменить его stale копией. Core не создаёт `AgentOutput` для ошибки.
 Отсутствующий `history` означает отсутствие возвращённых данных, а не отсутствие
 side effects. Потеря модуля, cancel и timeout не восстанавливают его локальное
 состояние. Эта граница одинакова для всех workflow exports.
 
 `host.history.checkpoint` принимает `WorkflowHistoryCheckpoint`: cumulative
 `history: WorkflowHistoryUpdate` относительно исходного input и ordered
-`tool_results: Vec<WorkflowToolResultBinding>`. Binding содержит `call_id`,
+`tool_results: Vec<WorkflowToolResultBinding>` и обязательный nullable
+`preparation_target`. Для нового preparation target содержит host-owned
+execution id и revision исходного snapshot; stale target отклоняется до commit.
+Binding содержит `call_id`,
 обязательный `execution_call: ToolCall`, заранее выделенные `message_id` и
 `part_id`. Исходный call с этим `call_id` должен ровно один раз присутствовать
 в conversation history и ещё не иметь результата. `execution_call.id` совпадает
@@ -495,7 +502,12 @@ binding сам по себе не даёт ей дополнительных п�
 execution binding даже при отсутствии последующего tool request.
 
 Core валидирует update тем же history validator, вплетает доставленный steering
-и подтверждает callback после durable checkpoint. Новое сокращение history
+и подтверждает callback после durable checkpoint через
+`WorkflowCheckpointAck { history, messages, revision }`. Для bound root это
+фактически принятая canonical history, включая доставленные tool results и
+steering; workflow заменяет локальную принятую копию этим ответом, сохраняя
+request-only context отдельно. Для частной истории ACK имеет `revision: null`
+и не создаёт root checkpoint. Новое сокращение history
 требует нового changed compaction. Terminal output использует тот же cumulative
 формат: подтверждённый prefix повторно не добавляется. Failure может вернуть
 prefix без уже записанного tool result, потерянного при передаче ответа модулю;
@@ -511,7 +523,7 @@ tools. Запрос без результата остаётся неизвес�
 
 ## Model Stream В Workflow
 
-`workflow/v19` предоставляет всем exports два callbacks:
+`workflow/v20` предоставляет всем exports два callbacks:
 
 - `host.model.stream.start(WorkflowCompleteModelRequest) -> { stream_id }`;
 - `host.model.stream.next({ stream_id }) -> WorkflowModelStreamItem` с
@@ -524,7 +536,7 @@ cursor и конкурентный next завершаются явной оши
 Success с неполученным terminal отклоняется. Прерванный незавершённый model
 exchange не получает synthetic response и не поддерживается workflow replay.
 `host.model.complete` остаётся самостоятельной операцией полного запроса,
-в том числе для compactor; скрытого перехода между двумя операциями нет.
+в том числе для подготовки контекста; скрытого перехода между двумя операциями нет.
 
 Core читает model stream независимо от tool callback, сохраняет model facts и
 публикует UI deltas. Очередь до 64 completed items сохраняет порядок и создаёт
@@ -597,7 +609,7 @@ reference-workflow       workflow
 reference-context        context
         │ host.context.provide
         ▼
-reference-capabilities   providers, policy, compactor,
+reference-capabilities   providers, policy, preparation hook,
                          tool exposure, tools
 ```
 
@@ -676,7 +688,7 @@ ToolRegistry
   -> invoke
 ```
 
-Component не задаёт execution/chat ownership. В `tool/v5` host передаёт
+Component не задаёт execution/chat ownership. В `tool/v6` host передаёт
 `ExecutionAttribution` из активного execution binding: `ExecutionId` обязателен,
 а `SessionId`/`ThreadId`/`TurnId` существуют только как optional agent
 projection. Detached execution проходит wire без fake chat identities.
@@ -721,11 +733,11 @@ component binding. Reference-модуль не является standard/default
 Python examples доказывают независимость wire от Rust:
 
 - `examples/modules/search-process/search.py` (tool и context provider exports);
-- `examples/modules/compactor-process/compact.py`;
+- `examples/modules/context-preparation-process/prepare.py`;
 - `examples/modules/agent-worker/agent.py`.
 
 JS/TS [`hook-process`](../../examples/modules/hook-process/README.md) использует
-тот же wire v3 с несколькими `hook/v4` exports, concurrent invocations и
+тот же wire v3 с несколькими `hook/v5` exports, concurrent invocations и
 адресной отменой через `AbortSignal`. SDK и porting helpers находятся внутри
 внешнего component; в Core нет language- или origin-specific пути исполнения.
 
@@ -734,7 +746,7 @@ JS/TS [`hook-process`](../../examples/modules/hook-process/README.md) испол
 ```bash
 cargo run -p proteus-module-protocol --bin proteus-component-conformance -- \
   --component-id python-search \
-  --export '{"slot":"tool","module_id":"python_rg","contract_version":"v5","module_config":{}}' \
+  --export '{"slot":"tool","module_id":"python_rg","contract_version":"v6","module_config":{}}' \
   --probe-export tool/python_rg \
   --probe-method list \
   --probe-params 'null' \
@@ -822,15 +834,15 @@ Core переносит исходные part ids после повторног�
 Дельты аргументов не
 становятся вызовом. Workflow явно выбирает сохранение этого
 progress. В `coding.codex_loop` сохраняется только output прямого model call,
-а не внутренний summary неудачного compactor. Завершённые calls проходят общий
+а не внутренний summary неудачного preparation hook. Завершённые calls проходят общий
 checkpoint/registry/policy/safety path до retry или terminal Error; Core сам
 не исполняет tools из модельного progress.
 Классы `context_window_exceeded`, `stream_disconnected`, `retryable`, `interrupted`,
 `session_budget_exceeded`, `other` задают общую алгоритмическую границу. Вариант
 `retryable` несёт `retry_delay_ms: integer | null` — рекомендацию задержки;
-бюджет и решение о повторе принадлежат workflow/compactor. Provider implementation распознаёт
+бюджет и решение о повторе принадлежат workflow/preparation hook. Provider implementation распознаёт
 свои коды, остальные слои не разбирают текст. `host.model.complete` передаёт
-этот DTO в JSON-RPC error `data` для workflow/compactor; Rust helper сохраняет
+этот DTO в JSON-RPC error `data` для workflow/hooks/tools; Rust helper сохраняет
 его в `ProcessModuleError.model_failure`. Неизвестные поля и отсутствие
 обязательных полей внутри `ModelFailure` отклоняются; обычная callback error
 без модельной причины остаётся общей ошибкой. Broker wire остаётся v3.
@@ -840,17 +852,18 @@ event; это причина, а не команда Core повторить з�
 классифицирует так ошибки чтения SSE, таймаут ожидания целого SSE-события и EOF
 без завершения, сохраняя остальные
 ошибки данных и deadline отдельными. Codex workflow принимает решение о повторе
-с подтверждённой историей; compactor сохраняет свою политику повторов.
-Действуют `model/v12`, `workflow/v19`, `compactor/v11` и journal schema v18,
+с подтверждённой историей; preparation hook сохраняет свою политику повторов.
+Действуют `model/v12`, `workflow/v20`, `hook/v5`, `tool/v6` и journal schema v19,
 без readers старых форм.
 Передача `ToolCall` в существующем `CanonicalMessage` не меняет wire/storage DTO.
 
-Journal schema v18 записывает `ModelMessageRecorded { exchange_id, message }`
+Journal schema v19 записывает `ModelMessageRecorded { exchange_id, message }`
 до доставки completed item и сохраняет полный `ModelFailure`; workflow replay
 воспроизводит последовательность completed items и возвращает тот же
 `kind`, текст и `completed_messages`. Ветвление workflow по типу ошибки прямого
 model call воспроизводится без разбора текста. Это не запуск внутреннего
-алгоритма compactor: его replay по-прежнему использует готовый report/history.
+алгоритма подготовки: replay подставляет BeforeContext trace и проверенное
+дочернее дерево операций, включая failure и unchanged результаты.
 HTTP status и Retry-After в этот минимальный DTO пока не входят.
 
 Canonical события не используют lossy `module.progress`. Host держит очередь
@@ -910,15 +923,17 @@ invocation authority и проверяемого lifecycle — без второ
 
 ## Typed Hook Chain
 
-`hook/v4` имеет `composition=ordered_many`; host выбирает exact exports
+`hook/v5` имеет `composition=ordered_many`; host выбирает exact exports
 по `modules.hooks` в порядке config snapshot. Wire input содержит typed event,
 execution attribution и cwd; cancellation token остаётся host-only.
 Input также содержит обязательный nullable `conversation`: для
 conversation-bound before-model это read-only canonical history и model-context
-observations, для остальных событий/standalone — `null`. Handler меняет только
+observations; before-context получает bound snapshot/revision; остальные
+события/standalone передают `null`. Handler меняет только
 event, не snapshot; история и доступ к модели не требуются общим операциям.
-Методы `host.*` не разрешены. События: turn-start/end (best-effort notifications),
-before-model (messages/instructions), before-tool (block/args), after-tool (output),
+Общие model/tool callbacks разрешены по actionable phase; lifecycle
+notifications не запускают дочернюю работу. События: turn-start/end (best-effort notifications),
+before-context (typed preparation), before-model (messages/instructions), before-tool (block/args), after-tool (output),
 before-stop (bounded continuation того же root turn).
 Каждый mutating response валидируется до следующего handler. Идентичность,
 policy и effect status изменять нельзя. Pre-model/pre-tool failure не допускает
@@ -931,7 +946,7 @@ execution state в единственном shared mutable поле. Reload ме
 
 ### Completion Review И Workflow Continuation
 
-`hook/v4` включает `tool_arguments { args }` к before-tool и
+`hook/v5` включает `tool_arguments { args }` к before-tool и
 `continue_turn { reason }` к `before_stop`. Tool identity неизменна, изменённые
 args валидируются после каждого export до policy/approval; journal хранит
 исходный Requested и effective call в успешном trace/approval/resolution.
@@ -944,7 +959,7 @@ Root вызывает `before_stop { task, history, output, attempt, continuatio
 остаётся best-effort и не возобновляет execution. Replay исполняет тот же root
 review loop с записанными responses, без запуска hook executables.
 
-`workflow/v19` требует nullable `runtime.continuation`. Значение содержит
+`workflow/v20` требует nullable `runtime.continuation`. Значение содержит
 `attempt`, `reason`, `current_user_message_id`, `history: WorkflowHistoryUpdate`.
 При continuation input history включает прошлый кандидат и может заканчиваться
 assistant/tool; текущий user определяется явным anchor. Output/checkpoints/

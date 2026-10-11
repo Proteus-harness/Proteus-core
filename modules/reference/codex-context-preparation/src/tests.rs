@@ -1,16 +1,16 @@
 use std::{collections::BTreeMap, sync::Mutex};
 
 use proteus_contracts::{
-    contracts::{CompactionInput, CompactionOutput},
+    contracts::{ContextPreparationInput, ContextPreparationOutput},
     domain::{
-        AgentTask, CacheHints, ModelLimits, ModelRef, ReasoningConfig, ResponseFormat,
-        SamplingConfig, ToolCall, ToolChoice, ToolResult, ToolSafety, ToolSpec, new_call_id,
+        CacheHints, ModelLimits, ModelRef, ReasoningConfig, ResponseFormat, SamplingConfig,
+        ToolCall, ToolChoice, ToolResult, ToolSafety, ToolSpec, new_call_id,
     },
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart, FinishReason,
         InstructionBlock, InstructionKind, MessageRole,
     },
-    process_module::{CompactorModuleHost, ProcessModuleError},
+    process_module::{HookModuleHost, ProcessModuleError},
 };
 use serde_json::json;
 
@@ -114,8 +114,8 @@ fn many_image_only_users_leave_no_image_payload_in_replacement() {
 }
 
 use crate::{
-    budget::{estimate_messages_tokens, resolve_trigger_tokens},
-    compaction::compact,
+    budget::estimate_messages_tokens,
+    compaction::compact as compact_algorithm,
     history::{message_text, select_recent_user_messages},
     summary::{COMPACTION_PROMPT, SUMMARY_PREFIX, validate_summary_response_for_test},
 };
@@ -154,7 +154,7 @@ impl TestHost {
     }
 }
 
-impl CompactorModuleHost for TestHost {
+impl HookModuleHost for TestHost {
     fn is_cancelled(&self) -> Result<bool, ProcessModuleError> {
         Ok(self.cancelled)
     }
@@ -201,17 +201,73 @@ fn request(messages: Vec<CanonicalMessage>) -> CanonicalModelRequest {
         .with_metadata(json!({"phase":"regular_turn", "existing":"preserved"}))
 }
 
-fn input(messages: Vec<CanonicalMessage>, token_estimate: u32) -> CompactionInput {
-    CompactionInput::new(
-        AgentTask::new("continue implementation", std::path::PathBuf::from("/repo")),
-        request(messages),
-    )
-    .with_token_estimate(Some(token_estimate))
-    .with_config(json!({ "trigger_tokens": 100 }))
-    .with_reason("test")
+// Algorithm tests own settings explicitly; runtime settings come from hook initialize.
+struct TestInput {
+    request: CanonicalModelRequest,
+    config: serde_json::Value,
+    token_estimate: Option<u32>,
+    window_tokens: Option<u32>,
+    reason: Option<String>,
+}
+impl TestInput {
+    fn new(request: CanonicalModelRequest) -> Self {
+        Self {
+            request,
+            config: json!({}),
+            token_estimate: None,
+            window_tokens: None,
+            reason: None,
+        }
+    }
+    fn with_config(mut self, config: serde_json::Value) -> Self {
+        self.config = config;
+        self
+    }
+    fn with_token_estimate(mut self, value: Option<u32>) -> Self {
+        self.token_estimate = value;
+        self
+    }
+    fn with_window_tokens(mut self, value: Option<u32>) -> Self {
+        self.window_tokens = value;
+        self
+    }
+    fn with_reason(mut self, value: &str) -> Self {
+        self.reason = Some(value.to_owned());
+        self
+    }
+    fn preparation(&self) -> ContextPreparationInput {
+        let mut input =
+            ContextPreparationInput::new(self.request.messages.clone(), Some(self.request.clone()));
+        input.token_estimate = self.token_estimate;
+        input.window_tokens = self.window_tokens;
+        input.reason = self.reason.clone();
+        input
+    }
+}
+fn compact(
+    input: TestInput,
+    host: &mut TestHost,
+) -> Result<ContextPreparationOutput, ProcessModuleError> {
+    let config =
+        crate::config::CompactorConfig::parse(&input.config).map_err(ProcessModuleError::new)?;
+    compact_algorithm(input.preparation(), &config, host)
+}
+fn resolve_trigger_tokens(input: &TestInput) -> Result<Option<u32>, String> {
+    let config = crate::config::CompactorConfig::parse(&input.config)?;
+    Ok(crate::budget::resolve_trigger_tokens(
+        &input.preparation(),
+        &config,
+    ))
 }
 
-fn compact_with_host(input: CompactionInput, host: &mut TestHost) -> CompactionOutput {
+fn input(messages: Vec<CanonicalMessage>, token_estimate: u32) -> TestInput {
+    TestInput::new(request(messages))
+        .with_token_estimate(Some(token_estimate))
+        .with_config(json!({ "trigger_tokens": 100 }))
+        .with_reason("test")
+}
+
+fn compact_with_host(input: TestInput, host: &mut TestHost) -> ContextPreparationOutput {
     compact(input, host).unwrap()
 }
 
@@ -519,4 +575,37 @@ fn trigger_is_ninety_percent_of_raw_window_and_clamps_explicit_limit() {
 
     let null = input(Vec::new(), 0).with_config(serde_json::Value::Null);
     assert!(resolve_trigger_tokens(&null).is_err());
+}
+
+#[test]
+fn preparation_hook_preserves_a_preceding_changed_candidate_when_below_threshold() {
+    use proteus_contracts::contracts::{ExecutionAttribution, HookEvent, HookInput, HookResponse};
+    use proteus_contracts::process_module::HookModule;
+    let source = CanonicalMessage::text(MessageRole::User, "Original history");
+    let retained = CanonicalMessage::text(MessageRole::User, "Retained material");
+    let input = ContextPreparationInput::new(vec![source], None).with_token_estimate(Some(100_000));
+    let mut prior = ContextPreparationOutput::changed(vec![retained], None);
+    prior.token_estimate = Some(20);
+    let hook = HookInput {
+        event: HookEvent::BeforeContext {
+            input,
+            output: prior,
+            target: None,
+        },
+        attribution: ExecutionAttribution::detached(proteus_contracts::domain::new_execution_id()),
+        cwd: "/repo".into(),
+        conversation: None,
+    };
+    let module = crate::CodexPreparationHook(
+        crate::config::CompactorConfig::parse(&json!({"trigger_tokens":100})).unwrap(),
+    );
+    let mut host = TestHost::unavailable();
+    let result = module
+        .invoke_json(serde_json::to_string(&hook).unwrap(), &mut host)
+        .unwrap();
+    assert_eq!(
+        serde_json::from_str::<HookResponse>(&result).unwrap(),
+        HookResponse::Continue
+    );
+    assert!(host.requests.lock().unwrap().is_empty());
 }

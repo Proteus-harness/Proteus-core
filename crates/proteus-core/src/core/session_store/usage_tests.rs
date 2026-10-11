@@ -45,7 +45,7 @@ async fn usage_tracks_exchanges_and_matches_read_only_cold_journal() {
     for (model, origin) in [
         ("first", ModelCallOrigin::Direct),
         ("first", ModelCallOrigin::Direct),
-        ("summary", ModelCallOrigin::Compactor),
+        ("summary", ModelCallOrigin::Auxiliary),
         ("unknown", ModelCallOrigin::Direct),
     ] {
         let exchange_id = new_exchange_id();
@@ -56,6 +56,7 @@ async fn usage_tracks_exchanges_and_matches_read_only_cold_journal() {
                 JournalEntry::ModelRequestRecorded(ModelRequestRecorded {
                     exchange_id,
                     origin,
+                    owner: crate::contracts::OperationOwner::Workflow,
                     request: CanonicalModelRequest::new(
                         ModelRef::new("fixture", model),
                         vec![CanonicalMessage::text(MessageRole::User, "private prompt")],
@@ -138,7 +139,7 @@ async fn usage_tracks_exchanges_and_matches_read_only_cold_journal() {
         Some(800)
     );
     assert_eq!(warm.requests[1].status, ModelUsageStatus::Error);
-    assert_eq!(warm.requests[2].origin, ModelCallOrigin::Compactor);
+    assert_eq!(warm.requests[2].origin, ModelCallOrigin::Auxiliary);
     assert_eq!(warm.requests[3].status, ModelUsageStatus::Canceled);
     assert!(warm.requests[1].usage.is_none() && warm.requests[3].usage.is_none());
     let json = serde_json::to_string(&warm).unwrap();

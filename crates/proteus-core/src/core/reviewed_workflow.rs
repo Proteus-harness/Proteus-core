@@ -92,6 +92,7 @@ pub(super) async fn run(
             .checkpoint(WorkflowHistoryCheckpoint {
                 history: progress.clone(),
                 tool_results: vec![],
+                preparation_target: None,
             })
             .await?;
         history = output

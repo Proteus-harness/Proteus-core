@@ -7,9 +7,9 @@ use crate::{
 use anyhow::{Result, bail};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
-pub const PROCESS_HOOK_CONTRACT_VERSION: &str = "v4";
+pub const PROCESS_HOOK_CONTRACT_VERSION: &str = "v5";
 pub const PROCESS_HOOK_INVOKE_METHOD: &str = "hook.invoke";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -28,6 +28,12 @@ pub enum HookEvent {
     TurnStarted {
         task: AgentTask,
         history: Vec<CanonicalMessage>,
+    },
+    BeforeContext {
+        input: super::ContextPreparationInput,
+        output: super::ContextPreparationOutput,
+        #[serde(deserialize_with = "Option::deserialize")]
+        target: Option<super::ContextPreparationTarget>,
     },
     BeforeModel {
         origin: ModelCallOrigin,
@@ -67,6 +73,9 @@ pub enum HookTurnStatus {
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
 pub enum HookResponse {
     Continue,
+    ContextPreparation {
+        output: super::ContextPreparationOutput,
+    },
     ModelContext {
         messages: Vec<CanonicalMessage>,
         instructions: Vec<InstructionBlock>,
@@ -92,6 +101,9 @@ impl<'de> Deserialize<'de> for HookResponse {
         #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
         enum Wire {
             Continue {},
+            ContextPreparation {
+                output: super::ContextPreparationOutput,
+            },
             ModelContext {
                 messages: Vec<CanonicalMessage>,
                 instructions: Vec<InstructionBlock>,
@@ -111,6 +123,7 @@ impl<'de> Deserialize<'de> for HookResponse {
         }
         Ok(match Wire::deserialize(deserializer)? {
             Wire::Continue {} => Self::Continue,
+            Wire::ContextPreparation { output } => Self::ContextPreparation { output },
             Wire::ModelContext {
                 messages,
                 instructions,
@@ -136,6 +149,12 @@ pub fn apply_hook_response(event: &HookEvent, response: &HookResponse) -> Result
     let mut event = event.clone();
     match (&mut event, response) {
         (_, HookResponse::Continue) => {}
+        (
+            HookEvent::BeforeContext { input, output, .. },
+            HookResponse::ContextPreparation { output: candidate },
+        ) => {
+            *output = super::context_preparation::compose_outputs(input, output, candidate)?;
+        }
         (
             HookEvent::BeforeModel { request, .. },
             HookResponse::ModelContext {
@@ -230,7 +249,7 @@ pub trait HookHandler: Send + Sync {
     async fn invoke(
         &self,
         input: HookInput,
-        cancellation: super::CancellationToken,
+        host: Arc<dyn super::HookHost>,
     ) -> Result<HookResponse>;
 }
 #[async_trait]
@@ -254,6 +273,7 @@ impl ExecutionHooks for NoExecutionHooks {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct HookTrace {
+    pub owner: super::OperationOwner,
     pub input: HookInput,
     pub steps: Vec<HookStep>,
     pub output: Option<HookEvent>,
@@ -261,14 +281,21 @@ pub struct HookTrace {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct HookStep {
+    pub invocation_id: uuid::Uuid,
     pub module_id: String,
     pub outcome: HookStepOutcome,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
 pub enum HookStepOutcome {
-    Accepted { response: HookResponse },
-    Failed { message: String },
+    Accepted {
+        response: HookResponse,
+    },
+    Failed {
+        message: String,
+        #[serde(deserialize_with = "Option::deserialize")]
+        model_failure: Option<crate::model_standard::ModelFailure>,
+    },
 }
 
 #[cfg(test)]

@@ -1,6 +1,6 @@
 # Canonical Turn Data
 
-Текущий формат — journal schema v18, config snapshot v7 и session metadata v4. Resume history,
+Текущий формат — journal schema v19, config snapshot v7 и session metadata v4. Resume history,
 transcript, eval, prompt replay и workflow replay читают canonical journal.
 
 Canonical context parts сохраняют обязательный `ContextChunk.render_mode`:
@@ -116,7 +116,7 @@ root/child threads. `record_id` идентифицирует record и дела�
   replace после compaction; содержит previous/new revision и сами canonical
   messages;
 - `model_request_recorded` — полный request после `RequestShaper`, до adapter
-  call, с `exchange_id` и обязательным typed `origin` (`direct` или `compactor`);
+  call, с `exchange_id` и обязательным typed `origin` (`direct` или `auxiliary`);
 - `model_message_recorded` — принятый completed item с `exchange_id`, до доставки workflow;
 - `model_response_recorded` — terminal canonical response или canonical error,
   связанный с `exchange_id`;
@@ -133,7 +133,8 @@ Tool call пишется до invocation, result — после. Поэтому 
 оборванный model exchange, а не пустой ответ.
 
 `origin` назначает Core на границе host callback: прямой вызов модели workflow
-получает `direct`, внутренний summary call — `compactor`. Небольшой invocation
+получает `direct`, callback hook/tool — `auxiliary`. Typed OperationOwner
+(Workflow, Hook с invocation_id, Tool с call_id) задаёт родительскую связь. Небольшой invocation
 scope отделён от `ExecutionScope`; происхождение не выводится из `module_id`
 или provider metadata и не меняет authority. Поле принадлежит journal envelope,
 а не `CanonicalModelRequest`: provider request и process/wire contracts не меняются.
@@ -324,7 +325,7 @@ recorded/replay outcome и usage, text equality, local/hosted/citation counts и
 
 ### Workflow Replay v0
 
-Replay сохраняет записанный `ExecutionId`: он доступен workflow/v19 и может
+Replay сохраняет записанный `ExecutionId`: он доступен workflow/v20 и может
 участвовать в deterministic ids и terminal metadata.
 
 `proteus --config <profile> replay workflow
@@ -337,16 +338,13 @@ turns, `--turn-id` обязателен. Неизвестный id, child turn, 
 model/tool record, overlap turns или runtime-owned `Canceled`/`Timeout`
 отклоняется без эвристики.
 
-До построения последовательности workflow replay проверяет завершённость всех
-model exchanges выбранного turn, включая `compactor`. В последовательность model
-outcomes и позиции checkpoint входят только `direct` exchanges. Результат
-compaction восстанавливается из записанных report/history; summary exchanges
-остаются в журнале и доступны prompt replay, учёту usage и eval. Replay не
-исполняет внутренний алгоритм compactor и не воспроизводит его typed error branches.
-Поддержанный путь требует записанного checkpoint с changed compaction и следующего
-model request с origin `direct`. Вложенный summary call без такого результата
-или следующего запроса отклоняется до запуска replay: его нельзя принять за
-успешный model-free turn.
+До построения последовательности replay проверяет завершённость всех model/tool
+операций и owner graph выбранного turn. Workflow-owned Direct exchanges остаются
+в последовательности workflow. Hook/Tool-owned Auxiliary exchanges потребляются
+с записанным родительским subtree ровно один раз, без повторного исполнения.
+BeforeContext trace возвращает записанный результат подготовки, включая failure
+или unchanged, без требования следующего Direct call. Подробности — в
+[hook-tool-operations.md](hook-tool-operations.md).
 
 Replay runtime строит выбранные Workflow и Policy, но не вызывает real provider
 adapters, subagents или настоящие tools. Model responses и tool results последовательно берутся из

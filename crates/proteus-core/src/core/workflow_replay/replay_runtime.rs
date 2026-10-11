@@ -6,7 +6,7 @@ use std::{
 use anyhow::{Result, anyhow, bail};
 
 use crate::{
-    contracts::{ApprovalResponse, ToolExposureOutput},
+    contracts::{ApprovalResponse, OperationOwner, ToolExposureOutput},
     core::ModelResponseOutcome,
     domain::{
         CacheHints, CallId, ContextBundle, HistoryCompactionReport, HostedToolKind, MessageId,
@@ -27,11 +27,12 @@ mod adapters;
 mod hooks;
 pub(super) use hooks::ReplayHooks;
 mod checkpoints;
-mod compaction;
+mod operations;
+mod preparation;
 pub(super) use checkpoints::{RecordedCheckpoint, ReplayCheckpointRecorder, recorded_checkpoints};
 
 pub(super) use adapters::{
-    ReplayApprovalTransport, ReplayCompactor, ReplayContextBuilder, ReplayModel,
+    ReplayApprovalTransport, ReplayContextBuilder, ReplayContextPreparation, ReplayModel,
     ReplayToolExposure, register_replay_tools,
 };
 
@@ -40,13 +41,16 @@ pub(super) struct ReplayState {
     capabilities: ModelCapabilities,
     context: Option<ContextBundle>,
     registered_tool_names: HashSet<String>,
-    incoming_user_message_id: MessageId,
 }
 
 struct ReplayStateInner {
     hooks: Vec<(crate::contracts::HookTrace, bool)>,
     exchanges: Vec<RecordedModelExchange>,
     next_exchange: usize,
+    auxiliary: Vec<(RecordedModelExchange, bool)>,
+    target: Option<crate::contracts::ContextPreparationTarget>,
+    message_ids: HashMap<crate::domain::MessageId, crate::domain::MessageId>,
+    part_ids: HashMap<crate::domain::PartId, crate::domain::PartId>,
     tools: Vec<ExpectedToolState>,
     actual_to_expected: HashMap<CallId, CallId>,
     expected_to_actual: HashMap<CallId, CallId>,
@@ -82,7 +86,7 @@ impl ReplayState {
         context: Option<ContextBundle>,
         registered_tool_names: HashSet<String>,
         snapshot_reasoning: &ReasoningConfig,
-        incoming_user_message_id: MessageId,
+        _incoming_user_message_id: MessageId,
     ) -> Self {
         let capabilities = exchanges
             .first()
@@ -101,6 +105,10 @@ impl ReplayState {
                 hooks: hooks.into_iter().map(|trace| (trace, false)).collect(),
                 exchanges,
                 next_exchange: 0,
+                auxiliary: Vec::new(),
+                target: None,
+                message_ids: HashMap::new(),
+                part_ids: HashMap::new(),
                 tools: tools
                     .into_iter()
                     .map(|recorded| ExpectedToolState {
@@ -125,8 +133,21 @@ impl ReplayState {
             capabilities,
             context,
             registered_tool_names,
-            incoming_user_message_id,
         }
+    }
+
+    pub fn bind_history(&self, execution_id: crate::domain::ExecutionId, revision: u64) {
+        self.lock().target = Some(crate::contracts::ContextPreparationTarget {
+            execution_id,
+            revision,
+        });
+    }
+
+    pub fn set_auxiliary(&self, exchanges: Vec<RecordedModelExchange>) {
+        self.lock().auxiliary = exchanges
+            .into_iter()
+            .map(|exchange| (exchange, false))
+            .collect();
     }
 
     pub fn capabilities(&self) -> ModelCapabilities {
@@ -171,6 +192,20 @@ impl ReplayState {
                     origin: crate::contracts::ModelCallOrigin::Direct,
                     request,
                 } => Some(request.clone()),
+                _ => None,
+            }
+        }) {
+            return Ok(request);
+        }
+        // Failed preparation may have no following direct model request. Its
+        // template still proves the selected tools. Prefer BeforeModel above:
+        // workflow adds selector metadata only after preparation completes.
+        if let Some(request) = inner.hooks.iter().find_map(|(trace, consumed)| {
+            if *consumed || trace.owner != OperationOwner::Workflow {
+                return None;
+            }
+            match &trace.input.event {
+                crate::contracts::HookEvent::BeforeContext { input, .. } => input.request.clone(),
                 _ => None,
             }
         }) {
@@ -222,8 +257,27 @@ impl ReplayState {
 
     pub fn tool_exposure(&self) -> Result<ToolExposureOutput> {
         let request = self.current_request()?;
-        let tools = request
-            .tools
+        // Selection happens before context preparation. The workflow may then
+        // clear or otherwise restrict tools before its BeforeModel boundary
+        // (for example, a final review disables calls). That later request
+        // proves selector telemetry, but not the earlier selected schemas.
+        let selected = self.lock().hooks.iter().find_map(|(trace, consumed)| {
+            if *consumed || trace.owner != OperationOwner::Workflow {
+                return None;
+            }
+            match &trace.input.event {
+                crate::contracts::HookEvent::BeforeContext { input, .. } => {
+                    input.request.as_ref().map(|request| request.tools.clone())
+                }
+                crate::contracts::HookEvent::BeforeModel {
+                    origin: crate::contracts::ModelCallOrigin::Direct,
+                    request,
+                } => Some(request.tools.clone()),
+                _ => None,
+            }
+        });
+        let tools = selected
+            .unwrap_or(request.tools)
             .into_iter()
             .filter(|tool| self.registered_tool_names.contains(&tool.name))
             .collect();
@@ -253,7 +307,18 @@ impl ReplayState {
     }
 
     pub fn replay_tool_result(&self, actual_call_id: &str) -> Result<ToolResult> {
-        let inner = self.lock();
+        let mut inner = self.lock();
+        let expected_id = expected_tool(&inner, actual_call_id)?
+            .recorded
+            .call
+            .id
+            .clone();
+        operations::consume_body(
+            &mut inner,
+            &OperationOwner::Tool {
+                call_id: expected_id,
+            },
+        );
         let expected = expected_tool(&inner, actual_call_id)?;
         if !expected.recorded.resolution.permits_side_effect() {
             bail!(
@@ -291,6 +356,16 @@ impl ReplayState {
         if remaining_hooks != 0 {
             inner.issues.push(format!(
                 "workflow left {remaining_hooks} recorded hook boundaries unconsumed"
+            ));
+        }
+        let remaining_auxiliary = inner
+            .auxiliary
+            .iter()
+            .filter(|(_, consumed)| !consumed)
+            .count();
+        if remaining_auxiliary != 0 {
+            inner.issues.push(format!(
+                "workflow left {remaining_auxiliary} owned auxiliary exchanges unconsumed"
             ));
         }
         let model_exchanges = inner.next_exchange;

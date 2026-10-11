@@ -283,7 +283,8 @@ async fn check_surface(surface: Surface, policy_mode: PolicyMode, broken_stream:
         .iter()
         .filter_map(|record| match &record.entry {
             JournalEntry::ToolCallRecorded(tool)
-                if tool.phase == ToolCallRecordPhase::Requested && tool.call.id == CALL_ID =>
+                if matches!(tool.phase, ToolCallRecordPhase::Requested { .. })
+                    && tool.call.id == CALL_ID =>
             {
                 Some(&tool.call)
             }

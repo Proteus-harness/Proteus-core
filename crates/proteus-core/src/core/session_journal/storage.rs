@@ -147,6 +147,10 @@ impl JournalWriterState {
         self.initialized.then(|| self.usage.snapshot(session_id))
     }
 
+    pub(crate) fn cached_history_revision(&self) -> Option<u64> {
+        self.initialized.then(|| self.history_revision())
+    }
+
     pub(crate) fn history_revision(&self) -> u64 {
         self.validation.history_revision()
     }

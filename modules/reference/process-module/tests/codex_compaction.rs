@@ -21,7 +21,7 @@ mod recovery;
 mod replay;
 
 const COMPACTION_PROMPT: &str =
-    include_str!("../../codex-compactor/src/upstream/compact_prompt.md");
+    include_str!("../../codex-context-preparation/src/upstream/compact_prompt.md");
 const USER_TASK: &str = "Прочитай probe.txt.";
 const TOOL_CALL_TEXT: &str = "Сначала прочитаю файл.";
 const SUMMARY_TEXT: &str = "Файл прочитан; можно продолжать задачу.";
@@ -30,7 +30,7 @@ const FINAL_TEXT: &str = "Готово.";
 fn expected_summary() -> String {
     format!(
         "{}\n{SUMMARY_TEXT}",
-        include_str!("../../codex-compactor/src/upstream/summary_prefix.md").trim_end()
+        include_str!("../../codex-context-preparation/src/upstream/summary_prefix.md").trim_end()
     )
 }
 
@@ -190,7 +190,7 @@ fn config(endpoint: &str) -> AppConfig {
         }],
         "modules": {
             "workflow": "coding.codex_loop",
-            "compactor": "codex",
+            "hooks": ["codex_compact"],
             "policy": "allow_all",
             "context": "codex_context"
         },
@@ -208,7 +208,7 @@ fn config(endpoint: &str) -> AppConfig {
                     "capabilities": {"supports_reasoning_config": true}
                 }
             },
-            "compactor": {"codex": {"trigger_tokens": 1000}},
+            "hook": {"codex_compact": {"trigger_tokens": 1000}},
             "context": {"codex_context": {"providers": ["project_instructions", "environment"]}}
         },
         "components": {
@@ -217,7 +217,7 @@ fn config(endpoint: &str) -> AppConfig {
                 "exports": {
                     "model": {"openai": {}},
                     "workflow": {"coding.codex_loop": {}},
-                    "compactor": {"codex": {}},
+                    "hook": {"codex_compact": {}},
                     "context": {"codex_context": {}},
                     "policy": {"allow_all": {}},
                     "tool": {"reference.tools": {}}
@@ -268,9 +268,9 @@ async fn check_codex_compaction(retry: SummaryRetry) {
     ));
     config
         .module_config
-        .get_mut("compactor")
+        .get_mut("hook")
         .unwrap()
-        .get_mut("codex")
+        .get_mut("codex_compact")
         .unwrap()["stream_max_retries"] = json!(1);
     config
         .module_config

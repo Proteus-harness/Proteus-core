@@ -44,7 +44,7 @@ async function initialize(frame) {
   for (const binding of input.exports) {
     object(binding, ["slot", "module_id", "contract_version", "composition", "module_config", "host_features"], "binding");
     const expected = binding.slot === "hook" ? "hook.dcp" : binding.slot === "tool" ? "dcp.tools" : null;
-    const version = binding.slot === "hook" ? "v4" : "v5";
+    const version = binding.slot === "hook" ? "v5" : "v6";
     if (!expected || binding.module_id !== expected || binding.contract_version !== version || binding.composition !== "ordered_many" ||
       !Array.isArray(binding.host_features) || binding.host_features.length || exports.has(binding.slot)) throw new Error("unsupported DCP export");
     const settings = configuration(binding.module_config);

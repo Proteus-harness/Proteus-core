@@ -9,10 +9,10 @@ priority = 90
 name = "coding-local"
 
 [modules]
+hooks = ["codex_compact"]
 workflow = "coding.single_loop"
 context = "repo_aware"
 policy = "ask_write"
-compactor = "codex"
 
 [components.reference-workflow]
 command = "proteus-reference-module"
@@ -40,7 +40,7 @@ env_allowlist = ["HOME", "PROTEUS_HOME"]
 
 [components.reference-capabilities.exports.tool.direct_patch]
 
-[components.reference-capabilities.exports.compactor.codex]
+[components.reference-capabilities.exports.hook.codex_compact]
 
 [components.reference-capabilities.exports.tool."reference.tools"]
 
@@ -61,7 +61,7 @@ mode = "normal"
 allow = ["skill", "search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff", "request_user_input"]
 ask_before = ["lsp_diagnostics", "apply_patch", "write_file", "shell", "remember_fact"]
 
-[module_config.compactor.codex]
+[module_config.hook.codex_compact]
 # Порог по умолчанию: 90% окна модели; trigger_tokens может задать меньший.
 
 [module_config.context.repo_aware]

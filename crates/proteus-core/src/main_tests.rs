@@ -159,11 +159,11 @@ fn inspect_topology_reports_invalid_backend_without_building_it() {
 fn read_only_cli_paths_do_not_start_unrelated_process_components() {
     let dir = tempfile::tempdir().expect("workspace");
     let marker = dir.path().join("process-search-started");
-    let compactor_marker = dir.path().join("process-compactor-started");
+    let preparation_marker = dir.path().join("process-preparation-started");
     let workflow_marker = dir.path().join("process-workflow-started");
     let mut config = crate::test_model::config();
     config.modules.workflow = Some("workflow-marker".to_owned());
-    config.modules.compactor = Some("compactor-marker".to_owned());
+    config.modules.hooks = vec!["preparation-marker".to_owned()];
     config.agent_control.surface = proteus_core::core::AgentControlSurface::None;
     config.tools.path = None;
     config.tools.enabled = vec!["request_user_input".to_owned()];
@@ -179,10 +179,10 @@ fn read_only_cli_paths_do_not_start_unrelated_process_components() {
             "args": ["-c", format!("touch {}", marker.display())],
             "exports": {"context": {"search-marker": {"timeout_ms": 1000}}}
         },
-        "compactor-fixture": {
+        "preparation-fixture": {
             "command": "/bin/sh",
-            "args": ["-c", format!("touch {}", compactor_marker.display())],
-            "exports": {"compactor": {"compactor-marker": {"timeout_ms": 1000}}}
+            "args": ["-c", format!("touch {}", preparation_marker.display())],
+            "exports": {"hook": {"preparation-marker": {"timeout_ms": 1000}}}
         }
     }))
     .expect("component configs");
@@ -217,7 +217,7 @@ fn read_only_cli_paths_do_not_start_unrelated_process_components() {
             entry.level == "ok"
                 && entry
                     .message
-                    .contains("процесс модуля compactor-fixture (реализаций слотов: 1)")
+                    .contains("процесс модуля preparation-fixture (реализаций слотов: 1)")
         }));
         assert!(findings.entries.iter().any(|entry| {
             entry.level == "ok"
@@ -232,8 +232,8 @@ fn read_only_cli_paths_do_not_start_unrelated_process_components() {
         "read-only CLI path unexpectedly spawned process search"
     );
     assert!(
-        !compactor_marker.exists(),
-        "read-only CLI path unexpectedly spawned process compactor"
+        !preparation_marker.exists(),
+        "read-only CLI path unexpectedly spawned process preparation hook"
     );
     assert!(
         !workflow_marker.exists(),
@@ -649,7 +649,7 @@ async fn init_codex_writes_loadable_config_with_runtime_fragment() {
         config.process_export_config("tool", "codex_patch").unwrap()["reject_self_move"],
         true
     );
-    assert_eq!(config.modules.compactor.as_deref(), Some("codex"));
+    assert!(config.modules.hooks.contains(&"codex_compact".to_owned()));
     assert_eq!(config.agent_control.roles.len(), 2);
     for role in &config.agent_control.roles {
         let path = Path::new(&role.config);

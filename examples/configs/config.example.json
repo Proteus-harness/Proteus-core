@@ -24,7 +24,9 @@
     "workflow": "coding.plan_execute_review",
     "context": "simple",
     "policy": "ask_write",
-    "compactor": "codex"
+    "hooks": [
+      "codex_compact"
+    ]
   },
   "components": {
     "reference-workflow": {
@@ -49,8 +51,8 @@
         "policy": {
           "ask_write": {}
         },
-        "compactor": {
-          "codex": {}
+        "hook": {
+          "codex_compact": {}
         }
       }
     },

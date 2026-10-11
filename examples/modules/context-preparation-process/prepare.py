@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Dependency-free process HistoryCompactor example for Proteus.
+"""Dependency-free context preparation hook for Proteus.
 
 The module keeps a valid suffix beginning at one of the most recent user
-turns. Contract v11 permits the same host.model.complete callback for every
-compactor, but this deterministic example does not need to call it.
+turns. The hook/v5 boundary offers model and tool callbacks, but this
+deterministic implementation does not need them.
 """
 
 from __future__ import annotations
@@ -24,9 +24,9 @@ from component_runtime import (  # noqa: E402
     run_component,
 )
 
-SLOT = "compactor"
+SLOT = "hook"
 MODULE_ID = "python_suffix"
-CONTRACT_VERSION = "v11"
+CONTRACT_VERSION = "v5"
 
 INITIALIZE_FIELDS = {
     "protocol_version",
@@ -42,11 +42,10 @@ EXPORT_INITIALIZE_FIELDS = {
     "host_features",
 }
 INPUT_FIELDS = {
-    "task",
+    "messages",
     "request",
     "token_estimate",
     "window_tokens",
-    "config",
     "reason",
 }
 STRATEGY_FIELDS = {"trigger_messages", "retain_user_turns"}
@@ -81,7 +80,7 @@ def validate_initialize(params: Any) -> str:
         raise ProtocolError("initialize component_id must be a non-empty string")
     exports = params["exports"]
     if not isinstance(exports, list) or len(exports) != 1:
-        raise ProtocolError("python compactor component requires exactly one export")
+        raise ProtocolError("python preparation component requires exactly one export")
     export = require_object(
         exports[0], EXPORT_INITIALIZE_FIELDS, "initialize export"
     )
@@ -89,7 +88,7 @@ def validate_initialize(params: Any) -> str:
         SLOT,
         MODULE_ID,
         CONTRACT_VERSION,
-        "select_one",
+        "ordered_many",
     )
     actual_identity = (
         export["slot"],
@@ -102,19 +101,18 @@ def validate_initialize(params: Any) -> str:
     if not isinstance(export["module_config"], dict):
         raise ProtocolError("initialize module_config must be an object")
     if export["host_features"] != []:
-        raise ProtocolError("compactor v11 does not negotiate host features")
+        raise ProtocolError("hook v5 does not negotiate host features")
     return component_id
 
 
-def validate_input(params: Any) -> tuple[dict[str, Any], int, int]:
-    compaction = require_object(params, INPUT_FIELDS, "CompactionInput")
-    if not isinstance(compaction["request"], dict):
-        raise ProtocolError("CompactionInput.request must be an object")
-    if not isinstance(compaction["request"].get("messages"), list):
-        raise ProtocolError("CompactionInput.request.messages must be an array")
-    if any(not isinstance(message, dict) for message in compaction["request"]["messages"]):
-        raise ProtocolError("CompactionInput.request.messages must contain objects")
-    for message in compaction["request"]["messages"]:
+def validate_input(params: Any, strategy: Any) -> tuple[dict[str, Any], int, int]:
+    preparation = require_object(params, INPUT_FIELDS, "ContextPreparationInput")
+    if preparation["request"] is not None and not isinstance(preparation["request"], dict):
+        raise ProtocolError("ContextPreparationInput.request must be an object or null")
+    messages = preparation["messages"]
+    if not isinstance(messages, list) or any(not isinstance(message, dict) for message in messages):
+        raise ProtocolError("ContextPreparationInput.messages must contain canonical objects")
+    for message in messages:
         parts = message.get("parts")
         if not isinstance(parts, list):
             raise ProtocolError("canonical message parts must be an array")
@@ -124,12 +122,8 @@ def validate_input(params: Any) -> tuple[dict[str, Any], int, int]:
             for part in parts
         ):
             raise ProtocolError("canonical part scope must be conversation, request or trace")
-
-    strategy = compaction["config"]
-    if strategy is None:
-        strategy = {}
     trigger_messages, retain_user_turns = validate_strategy(strategy)
-    return compaction, trigger_messages, retain_user_turns
+    return preparation, trigger_messages, retain_user_turns
 
 
 def is_context_message(message: dict[str, Any]) -> bool:
@@ -156,15 +150,15 @@ def unchanged(messages: list[dict[str, Any]], reason: str) -> dict[str, Any]:
             "summary_source": None,
             "skipped_reason": reason,
             "metadata": {
-                "compactor": MODULE_ID,
+                "strategy": MODULE_ID,
             },
         }
     }
 
 
-def compact(params: Any) -> dict[str, Any]:
-    compaction, trigger_messages, retain_user_turns = validate_input(params)
-    messages = compaction["request"]["messages"]
+def compact(params: Any, strategy: Any) -> dict[str, Any]:
+    compaction, trigger_messages, retain_user_turns = validate_input(params, strategy)
+    messages = compaction["messages"]
     if len(messages) <= trigger_messages:
         return unchanged(messages, "below_trigger_messages")
 
@@ -202,7 +196,7 @@ def compact(params: Any) -> dict[str, Any]:
             "summary_source": "deterministic_suffix",
             "skipped_reason": None,
             "metadata": {
-                "compactor": MODULE_ID,
+                "strategy": MODULE_ID,
                 "retained_user_turns": retained_users,
             },
         }
@@ -225,7 +219,7 @@ def initialize(params: Any) -> dict[str, Any]:
                 "slot": SLOT,
                 "module_id": MODULE_ID,
                 "contract_version": CONTRACT_VERSION,
-                "composition": "select_one",
+                "composition": "ordered_many",
                 "module_features": [], "config_schema": None,
             }
         ],
@@ -235,15 +229,28 @@ def initialize(params: Any) -> dict[str, Any]:
 def invoke(context: InvocationContext, method: str, params: Any) -> dict[str, Any]:
     if context.export != {"slot": SLOT, "module_id": MODULE_ID}:
         raise ProtocolError(f"unknown component export: {context.export!r}")
-    if method != "compact":
+    if method != "hook.invoke":
         raise ProtocolError(f"unknown method: {method!r}")
     if strategy_config is None:
-        raise ProtocolError("python compactor export is not initialized")
+        raise ProtocolError("python preparation export is not initialized")
     context.ensure_active()
-    compaction = require_object(params, INPUT_FIELDS, "CompactionInput")
-    result = compact({**compaction, "config": dict(strategy_config)})
+    hook = require_object(params, {"event", "attribution", "cwd", "conversation"}, "HookInput")
+    event = hook["event"]
+    if not isinstance(event, dict):
+        raise ProtocolError("hook event must be an object")
+    if event.get("event") != "before_context":
+        return {"result": {"action": "continue"}}
+    event = require_object(event, {"event", "input", "output", "target"}, "BeforeContext")
+    prior = event["output"]
+    if not isinstance(prior, dict) or not isinstance(prior.get("messages"), list):
+        raise ProtocolError("BeforeContext output must be a preparation candidate")
+    preparation = require_object(event["input"], INPUT_FIELDS, "ContextPreparationInput")
+    validate_input(preparation, dict(strategy_config))
+    result = compact({**preparation, "messages": prior["messages"]}, dict(strategy_config))["output"]
     context.ensure_active()
-    return result
+    if prior.get("changed") and not result["changed"]:
+        return {"result": {"action": "continue"}}
+    return {"result": {"action": "context_preparation", "output": result}}
 
 
 def main() -> int:

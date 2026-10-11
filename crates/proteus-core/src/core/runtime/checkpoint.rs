@@ -25,6 +25,7 @@ pub(super) struct TurnHistoryRecorder {
     pub(super) attribution: ExecutionAttribution,
     pub(super) store: Option<SessionStore>,
     pub(super) history: Arc<Mutex<Vec<CanonicalMessage>>>,
+    pub(super) revision: Arc<std::sync::atomic::AtomicU64>,
     pub(super) model_context: Arc<Mutex<crate::core::model_context::ModelContextState>>,
     pub(super) interrupted_turns: Arc<Mutex<Vec<crate::contracts::WorkflowHistoryInterruption>>>,
     pub(super) initial_history: Vec<CanonicalMessage>,
@@ -32,11 +33,26 @@ pub(super) struct TurnHistoryRecorder {
     pub(super) steering: Option<SteeringModel>,
     pub(super) tools: Arc<dyn ToolExecutionRecorder>,
     pub(super) capture: Mutex<HistoryCapture>,
+    pub(super) recorded_changed_compactions: std::sync::atomic::AtomicUsize,
     pub(super) recorded_compactions: Mutex<usize>,
     pub(super) pending_effects: Mutex<Vec<ToolResult>>,
 }
 
 impl TurnHistoryRecorder {
+    pub(super) fn validate_accepted_preparations(
+        &self,
+        reports: &[crate::domain::HistoryCompactionReport],
+    ) -> Result<()> {
+        ensure!(
+            reports.iter().filter(|report| report.changed).count()
+                >= self
+                    .recorded_changed_compactions
+                    .load(std::sync::atomic::Ordering::SeqCst),
+            "workflow discarded a committed context preparation"
+        );
+        Ok(())
+    }
+
     async fn normalize_progress(
         &self,
         history: &mut crate::contracts::WorkflowHistoryUpdate,
@@ -58,8 +74,13 @@ impl TurnHistoryRecorder {
             return Ok(());
         }
         let mut history = self.history.lock().await;
+        let previous = history.clone();
         for result in effects.drain(..) {
             capture.record(&mut history, &result)?;
+        }
+        if *history != previous {
+            self.revision
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         }
         Ok(())
     }
@@ -72,6 +93,7 @@ impl crate::core::reviewed_workflow::CandidateHistoryNormalizer for TurnHistoryR
             Some(model) => model.delivery_records().await,
             None => Vec::new(),
         };
+        self.validate_accepted_preparations(&output.compactions)?;
         weave_deliveries_into_output(output, &deliveries)?;
         Ok(())
     }
@@ -79,7 +101,10 @@ impl crate::core::reviewed_workflow::CandidateHistoryNormalizer for TurnHistoryR
 
 #[async_trait]
 impl WorkflowHistoryRecorder for TurnHistoryRecorder {
-    async fn checkpoint(&self, mut checkpoint: WorkflowHistoryCheckpoint) -> Result<()> {
+    async fn checkpoint(
+        &self,
+        mut checkpoint: WorkflowHistoryCheckpoint,
+    ) -> Result<crate::contracts::WorkflowCheckpointAck> {
         let allowed = self.normalize_progress(&mut checkpoint.history).await?;
         let progress = checkpoint.history;
         let prepared = prepare_failed_history_update(
@@ -93,6 +118,17 @@ impl WorkflowHistoryRecorder for TurnHistoryRecorder {
         let mut capture = self.capture.lock().await;
         let mut recorded_compactions = self.recorded_compactions.lock().await;
         let mut history = self.history.lock().await;
+        let current_revision = match &self.store {
+            Some(store) => store.history_revision().await?,
+            None => self.revision.load(std::sync::atomic::Ordering::SeqCst),
+        };
+        if let Some(target) = &checkpoint.preparation_target {
+            ensure!(
+                target.execution_id == self.attribution.execution_id
+                    && target.revision == current_revision,
+                "stale context preparation target"
+            );
+        }
         ensure!(
             progress.compactions.len() >= *recorded_compactions,
             "checkpoint discarded previously reported compactions"
@@ -126,10 +162,34 @@ impl WorkflowHistoryRecorder for TurnHistoryRecorder {
             self.model_context.lock().await.compacted();
             self.interrupted_turns.lock().await.clear();
         }
+        let revision = match &self.store {
+            Some(store) => store.history_revision().await?,
+            None => {
+                if *history != next_history {
+                    current_revision.saturating_add(1)
+                } else {
+                    current_revision
+                }
+            }
+        };
+        self.revision
+            .store(revision, std::sync::atomic::Ordering::SeqCst);
         *history = next_history;
         *capture = next_capture;
         *recorded_compactions = progress.compactions.len();
-        Ok(())
+        self.recorded_changed_compactions.store(
+            progress
+                .compactions
+                .iter()
+                .filter(|report| report.changed)
+                .count(),
+            std::sync::atomic::Ordering::SeqCst,
+        );
+        Ok(crate::contracts::WorkflowCheckpointAck {
+            history: progress,
+            messages: history.clone(),
+            revision: Some(revision),
+        })
     }
 }
 
@@ -150,12 +210,15 @@ impl ToolExecutionRecorder for TurnHistoryRecorder {
     async fn tool_call_requested(
         &self,
         attribution: ExecutionAttribution,
+        owner: crate::contracts::OperationOwner,
         call: &ToolCall,
     ) -> Result<()> {
-        if attribution == self.attribution {
+        if attribution == self.attribution && owner == crate::contracts::OperationOwner::Workflow {
             self.capture.lock().await.validate_call(call)?;
         }
-        self.tools.tool_call_requested(attribution, call).await
+        self.tools
+            .tool_call_requested(attribution, owner, call)
+            .await
     }
 
     async fn tool_call_resolved(
@@ -189,7 +252,13 @@ impl ToolExecutionRecorder for TurnHistoryRecorder {
         self.tools.tool_result_recorded(attribution, result).await?;
         if attribution == self.attribution {
             let mut effects = self.pending_effects.lock().await;
-            capture.record(&mut *self.history.lock().await, result)?;
+            let mut history = self.history.lock().await;
+            let previous = history.clone();
+            capture.record(&mut history, result)?;
+            if self.store.is_none() && *history != previous {
+                self.revision
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
             // No cancellation point between accepting final and retiring raw.
             effects.retain(|effect| effect.call_id != result.call_id);
         }

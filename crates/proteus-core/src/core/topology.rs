@@ -204,7 +204,6 @@ mod tests {
             vec![
                 "workflow",
                 "context",
-                "compactor",
                 "tool_exposure",
                 "model",
                 "policy",

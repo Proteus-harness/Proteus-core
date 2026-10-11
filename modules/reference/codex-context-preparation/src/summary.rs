@@ -1,10 +1,10 @@
 use proteus_contracts::{
-    contracts::CompactionInput,
+    contracts::ContextPreparationInput,
     domain::{ResponseFormat, ToolChoice},
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, FinishReason, MessageRole,
     },
-    process_module::{CompactorModuleHostMut, ProcessModuleError},
+    process_module::{HookModuleHost, ProcessModuleError},
 };
 
 use crate::history::message_text;
@@ -17,12 +17,12 @@ pub(crate) const COMPACTION_PROMPT: &str = include_str!("upstream/compact_prompt
 pub(crate) const SUMMARY_PREFIX: &str = include_str!("upstream/summary_prefix.md");
 
 pub(crate) fn try_model_summary(
-    input: &CompactionInput,
+    input: &ContextPreparationInput,
     summary_history: &[CanonicalMessage],
-    host: &mut CompactorModuleHostMut<'_>,
+    host: &mut dyn HookModuleHost,
 ) -> Result<String, ProcessModuleError> {
     ensure_not_cancelled(host)?;
-    let request = model_summary_request(input, summary_history);
+    let request = model_summary_request(input, summary_history)?;
     let request_json =
         serde_json::to_string(&request).map_err(|error| compaction_error(error.to_string()))?;
     let response_json = host.complete_model_json(request_json)?;
@@ -65,13 +65,16 @@ fn validate_summary_response(response: &CanonicalModelResponse) -> Result<String
 }
 
 fn model_summary_request(
-    input: &CompactionInput,
+    input: &ContextPreparationInput,
     summary_history: &[CanonicalMessage],
-) -> CanonicalModelRequest {
+) -> Result<CanonicalModelRequest, ProcessModuleError> {
     // Preserve the pending model request's model, base instructions, reasoning,
     // cache, limits, sampling, metadata and client metadata. Local Codex builds
     // a default Prompt then replaces only its input and base instructions.
-    let mut request = input.request.clone();
+    let mut request = input
+        .request
+        .clone()
+        .ok_or_else(|| compaction_error("Codex summary requires a model request template"))?;
     request.messages = summary_history.to_vec();
     request
         .messages
@@ -81,7 +84,7 @@ fn model_summary_request(
     request.response_format = ResponseFormat::Text;
     request.limits.max_output_tokens = None;
     suppress_stream_deltas(&mut request);
-    request
+    Ok(request)
 }
 
 /// The core-only marker prevents the invisible compaction completion from
@@ -99,7 +102,7 @@ fn suppress_stream_deltas(request: &mut CanonicalModelRequest) {
 }
 
 pub(crate) fn ensure_not_cancelled(
-    host: &mut CompactorModuleHostMut<'_>,
+    host: &mut dyn HookModuleHost,
 ) -> Result<(), ProcessModuleError> {
     match host.is_cancelled() {
         Ok(false) => Ok(()),

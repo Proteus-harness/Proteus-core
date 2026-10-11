@@ -1,7 +1,6 @@
 //! Adapters that expose trusted config-defined stdio processes as module slots.
 
 mod client;
-mod compactor;
 mod config;
 mod context;
 mod hook;
@@ -17,7 +16,6 @@ mod workflow;
 pub use config::{ProcessComponentConfig, ProcessExportLaunchConfig};
 
 pub(crate) use client::*;
-pub(crate) use compactor::*;
 pub(crate) use config::{ProcessComponentLauncher, ProcessExportConfig};
 pub(crate) use context::*;
 pub(crate) use hook::*;
@@ -27,3 +25,5 @@ pub(crate) use policy::*;
 pub(crate) use tool::*;
 pub(crate) use tool_exposure::*;
 pub(crate) use workflow::*;
+
+mod operation_host;

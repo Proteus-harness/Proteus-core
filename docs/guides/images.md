@@ -66,7 +66,7 @@ boundary и журнал идут ссылки, поэтому изображе�
 байты по `session_dir` и `path=<sha256>`. Здесь `path` является идентификатором,
 а не произвольным filesystem path. Исходные файлы владельца не нужны для resume.
 
-Local `codex` compactor повторяет pinned upstream: в рабочем replacement
+Local hook `codex_compact` повторяет pinned upstream: в рабочем replacement
 сохраняется текст recent user messages, а исторические image parts удаляются.
 Image-only input сохраняет пустой текстовый anchor. Исходные refs и байты остаются
 в journal/store. Текущий ввод при pre-turn compaction добавляется после сжатия

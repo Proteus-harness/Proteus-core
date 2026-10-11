@@ -9,12 +9,12 @@ priority = 90
 name = "dev-slim"
 
 [modules]
+hooks = ["codex_compact"]
 # Slim profile for dogfooding Proteus itself. Keep this focused on the active
 # coding-agent path; parked/research capabilities stay out of the hot surface.
 workflow = "coding.single_loop"
 context = "repo_aware"
 policy = "ask_write"
-compactor = "codex"
 
 [components.reference-workflow]
 command = "proteus-reference-module"
@@ -37,7 +37,7 @@ command = "proteus-reference-module"
 
 [components.reference-capabilities.exports.tool.direct_patch]
 
-[components.reference-capabilities.exports.compactor.codex]
+[components.reference-capabilities.exports.hook.codex_compact]
 
 [components.reference-capabilities.exports.tool."reference.tools"]
 
@@ -51,7 +51,7 @@ mode = "normal"
 allow = ["search", "read_file", "list_dir", "find_files", "grep", "git_status", "git_diff", "request_user_input"]
 ask_before = ["apply_patch", "shell"]
 
-[module_config.compactor.codex]
+[module_config.hook.codex_compact]
 # Порог по умолчанию: 90% окна модели; trigger_tokens может задать меньший.
 
 [module_config.context.repo_aware]

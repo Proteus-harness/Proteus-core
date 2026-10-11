@@ -22,6 +22,7 @@ pub struct SessionConversationSnapshot {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ConversationSnapshot {
+    pub revision: u64,
     pub messages: Vec<CanonicalMessage>,
     pub model_context: Vec<ModelContextObservation>,
 }
@@ -83,6 +84,7 @@ mod tests {
             vec![ContentPart::ToolCall { call: call.clone() }],
         );
         let snapshot = ConversationSnapshot {
+            revision: 0,
             messages: vec![message.clone()],
             model_context: vec![],
         };

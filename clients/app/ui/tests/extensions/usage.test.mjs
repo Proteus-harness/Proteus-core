@@ -8,10 +8,10 @@ const request = (input = 1000) => ({ model: { provider: 'subscription', model: '
 test('cost partitions cached input and output reasoning without double counting', () => {
   const item = request();
   assert.ok(Math.abs(requestCost(item, []).value - .000301) < 1e-12);
-  const total = summarize([item, { ...item, origin: 'compactor' }], []);
+  const total = summarize([item, { ...item, origin: 'auxiliary' }], []);
   assert.equal(total.input + total.output, 2400);
   assert.equal(total.reasoning, 160);
-  assert.equal(total.compactions, 1);
+  assert.equal(total.auxiliaryRequests, 1);
   assert.equal(total.reported, 2);
 });
 
@@ -52,12 +52,12 @@ const exchange = (id, extra = {}) => ({ ...request(), exchange_id: id, turn_id: 
 
 test('diagnostic filters preserve scope totals and keep compaction and unassigned requests addressable', () => {
   const items = [exchange('ok'), exchange('failed', { status: 'error', usage: null }),
-    exchange('summary', { origin: 'compactor', turn_id: 'turn-b' }), exchange('outside', { turn_id: null, status: 'unfinished', finished_at_ms: null })];
+    exchange('summary', { origin: 'auxiliary', turn_id: 'turn-b' }), exchange('outside', { turn_id: null, status: 'unfinished', finished_at_ms: null })];
   const snapshot = { latest_turn_id: 'turn-b', requests: items };
   const scoped = scopedRequests(snapshot, 'all', 'all');
   assert.deepEqual(selectRequests(scoped, { status: 'problems' }, []).map(item => item.exchange_id), ['failed', 'outside']);
   assert.deepEqual(selectRequests(scoped, { status: 'missing_usage' }, []).map(item => item.exchange_id), ['failed']);
-  assert.deepEqual(selectRequests(scoped, { query: 'SUMMARY turn-B', origin: 'compactor' }, []).map(item => item.exchange_id), ['summary']);
+  assert.deepEqual(selectRequests(scoped, { query: 'SUMMARY turn-B', origin: 'auxiliary' }, []).map(item => item.exchange_id), ['summary']);
   assert.deepEqual(scopedRequests(snapshot, 'latest', 'all').map(item => item.exchange_id), ['summary']);
   assert.equal(summarize(scoped, []).requests, 4, 'list filters must not change the scope summary');
   assert.equal(scopedRequests({ ...snapshot, latest_turn_id: null }, 'latest', 'all').length, 0);

@@ -13,7 +13,7 @@ pub struct SessionUsageSnapshot {
     pub session_id: SessionId,
     pub revision: u64,
     pub latest_turn_id: Option<TurnId>,
-    /// Порядок начала запросов. Повторы и compactor exchanges — отдельные строки.
+    /// Порядок начала запросов. Повторы и auxiliary exchanges — отдельные строки.
     pub requests: Vec<ModelRequestUsage>,
 }
 

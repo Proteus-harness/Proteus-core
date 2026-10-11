@@ -2,9 +2,9 @@ use std::collections::HashMap;
 
 use anyhow::{Result, bail};
 use proteus_contracts::process_module::{
-    CompactorModuleObject, ContextBuilderModuleObject, ContextProviderModuleObject, ModuleRegistry,
-    PolicyModuleObject, ProcessModuleError, ProcessModuleResult, ToolExposureModuleObject,
-    ToolModuleObject, WorkflowModuleObject,
+    ContextBuilderModuleObject, ContextProviderModuleObject, ModuleRegistry, PolicyModuleObject,
+    ProcessModuleError, ProcessModuleResult, ToolExposureModuleObject, ToolModuleObject,
+    WorkflowModuleObject,
 };
 use serde_json::{Value, json};
 
@@ -17,7 +17,6 @@ pub struct CollectedModules {
     pub policies: HashMap<String, PolicyModuleObject>,
     pub context_providers: HashMap<String, ContextProviderModuleObject>,
     pub contexts: HashMap<String, ContextBuilderModuleObject>,
-    pub compactors: HashMap<String, CompactorModuleObject>,
     pub exposures: HashMap<String, ToolExposureModuleObject>,
     pub hooks: HashMap<String, proteus_contracts::process_module::HookModuleObject>,
     pub workflows: HashMap<String, WorkflowModuleObject>,
@@ -27,7 +26,11 @@ impl CollectedModules {
     pub fn load(slot: &str, module_id: &str, module_config: Value) -> Result<Self> {
         let mut modules = Self::with_config(module_config);
         if slot == "hook" {
-            hook_pack::register_hook(&mut modules, module_id)?;
+            if module_id == "codex_compact" {
+                codex_context_preparation::register_modules(&mut modules)?;
+            } else {
+                hook_pack::register_hook(&mut modules, module_id)?;
+            }
             return Ok(modules);
         }
         if slot == "model" {
@@ -65,7 +68,6 @@ impl CollectedModules {
                 context_pack::register_modules
             }
             ("context_provider", "skills") => skill_pack::register_modules,
-            ("compactor", "codex") => codex_compactor::register_modules,
             ("tool_exposure", "codex_dynamic") => codex_tool_exposure::register_modules,
             ("policy", "allow_all" | "ask_write" | "codex_policy" | "opencode_policy") => {
                 policy_pack::register_modules
@@ -92,7 +94,6 @@ impl CollectedModules {
             policies: HashMap::new(),
             context_providers: HashMap::new(),
             contexts: HashMap::new(),
-            compactors: HashMap::new(),
             exposures: HashMap::new(),
             workflows: HashMap::new(),
             hooks: HashMap::new(),
@@ -157,14 +158,6 @@ impl ModuleRegistry for CollectedModules {
         builder: ContextBuilderModuleObject,
     ) -> ProcessModuleResult<()> {
         insert(&mut self.contexts, module_id, builder)
-    }
-
-    fn register_compactor(
-        &mut self,
-        module_id: String,
-        compactor: CompactorModuleObject,
-    ) -> ProcessModuleResult<()> {
-        insert(&mut self.compactors, module_id, compactor)
     }
 
     fn register_tool_exposure(

@@ -190,7 +190,8 @@ fn codex_stream_emits_one_usage_snapshot_only_for_successful_terminal_request() 
             FinishReason::Stop,
         );
         response.usage = actual.clone();
-        let mut pre_turn = proteus_contracts::contracts::CompactionOutput::unchanged(vec![]);
+        let mut pre_turn =
+            proteus_contracts::contracts::ContextPreparationOutput::unchanged(vec![]);
         pre_turn.trigger_tokens = Some(12_800);
         let mut host = FakeHost::with_responses(vec![response])
             .with_compaction_outputs(vec![pre_turn])
@@ -336,7 +337,7 @@ fn image_only_current_user_survives_first_request_and_mid_turn_text_only_replace
     let mut replacement = CanonicalMessage::text(MessageRole::User, "");
     replacement.parts[0].provenance = proteus_contracts::model_standard::PartProvenance::Compactor;
     let summary = CanonicalMessage::text(MessageRole::User, "summary");
-    let mut compacted = proteus_contracts::contracts::CompactionOutput::changed(
+    let mut compacted = proteus_contracts::contracts::ContextPreparationOutput::changed(
         vec![replacement.clone(), summary],
         Some("summary".into()),
     );
@@ -353,7 +354,7 @@ fn image_only_current_user_survives_first_request_and_mid_turn_text_only_replace
         .with_end_turn(false),
     ])
     .with_compaction_outputs(vec![
-        proteus_contracts::contracts::CompactionOutput::unchanged(vec![]),
+        proteus_contracts::contracts::ContextPreparationOutput::unchanged(vec![]),
         compacted,
     ]);
     let output: WorkflowModuleOutput = serde_json::from_str(

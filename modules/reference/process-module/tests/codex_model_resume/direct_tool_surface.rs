@@ -338,7 +338,7 @@ async fn tracked_codex_profile_exposes_and_executes_policy_visible_tools_directl
         .iter()
         .filter_map(|record| match &record.entry {
             JournalEntry::ToolCallRecorded(tool)
-                if tool.phase == ToolCallRecordPhase::Requested
+                if matches!(tool.phase, ToolCallRecordPhase::Requested { .. })
                     && tool.call.name == "write_file" =>
             {
                 Some(&tool.call.id)

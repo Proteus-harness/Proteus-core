@@ -15,7 +15,7 @@ provider = "openai_codex"
 model = "gpt-5.6-luna"
 stream = true
 reasoning_efforts = []
-[module_config.compactor.codex]
+[module_config.hook.codex_compact]
 
 # Массив полностью заменяет роли codex-runtime: peers также используют подписку.
 [[agent_control.roles]]
@@ -35,9 +35,9 @@ summary = true
 mode = "normal"
 
 [modules]
+hooks = ["codex_compact"]
 workflow = "coding.codex_loop"
 context = "codex_context"
-compactor = "codex"
 policy = "codex_policy"
 
 [module_config.context.codex_context]

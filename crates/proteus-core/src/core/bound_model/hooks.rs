@@ -13,6 +13,9 @@ impl BoundModel {
         }
         let mut request = self.service.prepare_request(request)?;
         self.binding.bind_request(&mut request)?;
+        if current_model_call_origin() == crate::contracts::ModelCallOrigin::Auxiliary {
+            return Ok(request);
+        }
         let conversation = if self.hooks.is_active() {
             match &self.binding.conversation {
                 Some(reader) => Some(reader.read().await?),

@@ -14,15 +14,14 @@ model = "fake-tool-model"
 stream = true
 
 [modules]
-hooks = ["hook.instructions", "hook.output_budget"]
+hooks = ["codex_compact", "hook.instructions", "hook.output_budget"]
 workflow = "coding.codex_loop"
 context = "simple"
 policy = "allow_all"
-compactor = "codex"
 tool_exposure = "codex_dynamic"
 
 # Один component экспортирует workflow, tools и две независимые hook contributions.
-# Их authority задаётся активным slot; hooks включены только в этом примере.
+# Их authority задаётся активным slot; дополнительные contributions включены в этом примере.
 [components.reference-agent]
 command = "proteus-reference-module"
 
@@ -42,7 +41,7 @@ command = "proteus-reference-module"
 
 [components.reference-agent.exports.tool.direct_patch]
 
-[components.reference-agent.exports.compactor.codex]
+[components.reference-agent.exports.hook.codex_compact]
 
 [components.reference-agent.exports.tool_exposure.codex_dynamic]
 

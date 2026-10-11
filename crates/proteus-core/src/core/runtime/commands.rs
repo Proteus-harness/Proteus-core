@@ -36,9 +36,11 @@ impl AgentRuntime {
             .ok_or_else(|| anyhow!("unknown module command: /{name}"))?;
         let conversation = Arc::new(super::conversation::TurnConversation {
             history: self.session.history.clone(),
+            revision: self.session.history_revision.clone(),
+            store: self.session.session_store.clone(),
             context: self.session.model_context.clone(),
         });
-        self.bind_detached_tools(&admission)
+        self.bind_detached_tools(&admission)?
             .execute_enriched(
                 self.services.cwd.clone(),
                 ToolCall::new(

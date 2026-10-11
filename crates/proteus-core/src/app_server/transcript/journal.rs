@@ -65,10 +65,11 @@ pub(crate) fn journal_transcript_messages(
             }
             JournalEntry::ToolCallRecorded(tool)
                 if record.turn_id != live_turn_id
-                    && visibility.is_root_record(record.thread_id, record.turn_id) =>
+                    && visibility.is_root_record(record.thread_id, record.turn_id)
+                    && visibility.visible_tool_calls.contains(&tool.call.id) =>
             {
                 match &tool.phase {
-                    ToolCallRecordPhase::Requested => state.append_tool_call(&tool.call),
+                    ToolCallRecordPhase::Requested { .. } => state.append_tool_call(&tool.call),
                     ToolCallRecordPhase::Resolved { resolution } => {
                         state.apply_resolution(&tool.call, resolution)
                     }
@@ -77,7 +78,8 @@ pub(crate) fn journal_transcript_messages(
             }
             JournalEntry::ToolResultRecorded(tool)
                 if record.turn_id != live_turn_id
-                    && visibility.is_root_record(record.thread_id, record.turn_id) =>
+                    && visibility.is_root_record(record.thread_id, record.turn_id)
+                    && visibility.visible_tool_calls.contains(&tool.result.call_id) =>
             {
                 if state.seen_results.insert(tool.result.call_id.clone()) {
                     append_transcript_tool_result(&mut state.transcript, &tool.result);
@@ -86,7 +88,8 @@ pub(crate) fn journal_transcript_messages(
             JournalEntry::ToolEffectRecorded(tool)
                 if record.turn_id != live_turn_id
                     && visibility.is_root_record(record.thread_id, record.turn_id)
-                    && !final_results.contains(&tool.result.call_id) =>
+                    && !final_results.contains(&tool.result.call_id)
+                    && visibility.visible_tool_calls.contains(&tool.result.call_id) =>
             {
                 if state.seen_results.insert(tool.result.call_id.clone()) {
                     append_transcript_tool_result(&mut state.transcript, &tool.result);
@@ -109,6 +112,7 @@ pub(crate) fn journal_transcript_messages(
 #[derive(Default)]
 struct TranscriptVisibility {
     root_threads: HashMap<TurnId, ThreadId>,
+    visible_tool_calls: HashSet<CallId>,
     visible_model_responses: HashSet<crate::domain::ExchangeId>,
 }
 
@@ -134,7 +138,12 @@ impl TranscriptVisibility {
 
         for record in &projection.records {
             if let JournalEntry::ToolCallRecorded(tool) = &record.entry
-                && matches!(tool.phase, ToolCallRecordPhase::Requested)
+                && matches!(
+                    &tool.phase,
+                    ToolCallRecordPhase::Requested {
+                        owner: crate::contracts::OperationOwner::Workflow
+                    }
+                )
                 && is_root_record(&root_threads, record.thread_id, record.turn_id)
             {
                 root_lifecycle_calls.insert(tool.call.id.clone());
@@ -168,6 +177,7 @@ impl TranscriptVisibility {
 
         Self {
             root_threads,
+            visible_tool_calls: root_lifecycle_calls,
             visible_model_responses,
         }
     }
@@ -405,6 +415,7 @@ mod tests {
                 JournalEntry::ModelRequestRecorded(ModelRequestRecorded {
                     exchange_id,
                     origin: ModelCallOrigin::Direct,
+                    owner: crate::contracts::OperationOwner::Workflow,
                     request,
                 }),
             ),
@@ -427,7 +438,9 @@ mod tests {
                 5,
                 JournalEntry::ToolCallRecorded(ToolCallRecorded {
                     call: call.clone(),
-                    phase: ToolCallRecordPhase::Requested,
+                    phase: ToolCallRecordPhase::Requested {
+                        owner: crate::contracts::OperationOwner::Workflow,
+                    },
                 }),
             ),
             record(

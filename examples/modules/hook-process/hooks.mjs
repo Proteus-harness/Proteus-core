@@ -1,16 +1,16 @@
 import { frozenCopy, nonblank, object } from "./validation.mjs";
 
-const events = new Set(["turn_started", "before_model", "before_tool", "after_tool", "before_stop", "turn_settled"]);
+const events = new Set(["turn_started", "before_context", "before_model", "before_tool", "after_tool", "before_stop", "turn_settled"]);
 
 function responseFor(event, raw) {
   const response = raw === undefined ? { action: "continue" } : raw;
   const fields = {
-    continue: [], model_context: ["messages", "instructions"],
+    continue: [], context_preparation: ["output"], model_context: ["messages", "instructions"],
     block_tool: ["reason"], tool_output: ["output"], tool_arguments: ["args"], continue_turn: ["reason"],
   }[response?.action];
   if (!fields) throw new Error("unsupported hook action");
   object(response, ["action", ...fields], [], "hook response");
-  const permitted = { model_context: "before_model", block_tool: "before_tool", tool_output: "after_tool", tool_arguments: "before_tool", continue_turn: "before_stop" };
+  const permitted = { context_preparation: "before_context", model_context: "before_model", block_tool: "before_tool", tool_output: "after_tool", tool_arguments: "before_tool", continue_turn: "before_stop" };
   if (response.action !== "continue" && permitted[response.action] !== event.event) {
     throw new Error(`action ${response.action} is not allowed for ${event.event}`);
   }
@@ -21,6 +21,10 @@ function responseFor(event, raw) {
   if (response.action === "model_context" &&
       (!Array.isArray(response.messages) || !Array.isArray(response.instructions))) {
     throw new Error("model context requires messages and instructions arrays");
+  }
+  if (response.action === "context_preparation" &&
+      (!response.output || !Array.isArray(response.output.messages) || typeof response.output.changed !== "boolean")) {
+    throw new Error("context preparation requires a typed output candidate");
   }
   return structuredClone(response);
 }
@@ -50,7 +54,7 @@ export function createHooks(settings = {}) {
   return {
     api,
     seal() { sealed = true; },
-    async invoke(input, signal) {
+    async invoke(input, signal, callback) {
       object(input, ["event", "attribution", "cwd", "conversation"], [], "HookInput");
       if (!events.has(input.event?.event)) throw new Error("unsupported canonical hook event");
       nonblank(input.cwd, "cwd");
@@ -59,6 +63,8 @@ export function createHooks(settings = {}) {
       const ctx = Object.freeze({
         cwd: input.cwd, attribution: frozenCopy(input.attribution),
         config: api.config, signal,
+        completeModel: (request) => callback("host.model.complete", { request }),
+        executeTool: (call) => callback("host.tools.execute", { call }),
         conversation: frozenCopy(input.conversation),
       });
       for (const registration of registrations) {
@@ -71,6 +77,7 @@ export function createHooks(settings = {}) {
         if (response.action === "continue") continue;
         final = response;
         if (["block_tool", "continue_turn"].includes(response.action)) break;
+        if (response.action === "context_preparation") event.output = response.output;
         if (response.action === "tool_arguments") { event.call.args = response.args; event.call.raw_arguments = null; }
         if (response.action === "tool_output") event.result.output = response.output;
         if (response.action === "model_context") {

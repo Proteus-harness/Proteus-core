@@ -143,6 +143,7 @@ async fn actual_app_server_resume_restores_root_context_across_threads_and_respe
             .append_execution_journal_entry(
                 owner,
                 JournalEntry::ModelRequestRecorded(ModelRequestRecorded {
+                    owner: crate::contracts::OperationOwner::Workflow,
                     exchange_id,
                     origin: ModelCallOrigin::Direct,
                     request,

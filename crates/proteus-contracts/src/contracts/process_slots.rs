@@ -31,7 +31,7 @@ pub const PROCESS_CONTEXT_PROVIDER_CONTRACT_VERSION: &str = "v4";
 pub const PROCESS_CONTEXT_PROVIDER_METHOD: &str = "provide";
 pub const PROCESS_CONTEXT_PROVIDER_CATALOG_METHOD: &str = "catalog";
 
-pub const PROCESS_TOOL_CONTRACT_VERSION: &str = "v5";
+pub const PROCESS_TOOL_CONTRACT_VERSION: &str = "v6";
 pub const PROCESS_TOOL_LIST_METHOD: &str = "list";
 pub const PROCESS_TOOL_INVOKE_METHOD: &str = "invoke";
 

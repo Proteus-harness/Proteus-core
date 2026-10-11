@@ -1,6 +1,6 @@
-# Process HistoryCompactor Example
+# Process Context Preparation Hook
 
-`compact.py` — dependency-free пример внешнего `HistoryCompactor`. Python не
+`prepare.py` — dependency-free пример внешнего preparation hook. Python не
 является частью контракта: процесс можно написать на любом языке, который
 читает и пишет newline-delimited JSON-RPC 2.0.
 
@@ -8,31 +8,31 @@
 
 ```toml
 [modules]
-compactor = "python_suffix"
+hooks = ["python_suffix"]
 
 [components.python-compactor]
 command = "python3"
-args = ["examples/modules/compactor-process/compact.py"]
+args = ["examples/modules/context-preparation-process/prepare.py"]
 
-[components.python-compactor.exports.compactor.python_suffix]
+[components.python-compactor.exports.hook.python_suffix]
 timeout_ms = 30000
 
-[module_config.compactor.python_suffix]
+[module_config.hook.python_suffix]
 trigger_messages = 12
 retain_user_turns = 2
 ```
 
-Процесс проверяет `module_config.compactor.python_suffix` при initialize и
+Процесс проверяет `module_config.hook.python_suffix` при initialize и
 сохраняет неизменяемые настройки своего единственного export. Неизвестные
 ключи, нулевые и отрицательные значения завершают handshake ошибкой.
-Перед каждой compaction export подставляет эти настройки в `CompactionInput.config`;
-invoke не может переопределить настройки запуска.
+Алгоритм получает настройки отдельно от `ContextPreparationInput`; invoke
+не может переопределить настройки запуска.
 
-Сам алгоритм `compact()` реализован как pure transform `CompactionInput ->
-CompactionOutput`: его можно вызвать отдельно с явным `input.config`. Он не использует разрешённый contract-ом
+Сам алгоритм `compact(input, strategy)` реализован как pure transform;
+его можно вызвать отдельно с явными настройками. Он не использует разрешённый contract-ом
 `host.model.complete`. Strategy сохраняет canonical context и suffix от одного
 из последних user turns. Это проверяемый пример протокола, а не качественная
-замена model-aware `modules.compactor = "codex"`.
+замена model-aware `modules.hooks = ["codex_compact"]`.
 
 Контекст определяется по canonical parts: непустое сообщение, у которого
 все parts имеют `scope = "request"`. Поле `name` не участвует: workflow может
@@ -40,7 +40,7 @@ CompactionOutput`: его можно вызвать отдельно с явны
 обычным user turn. Отсутствующий или неизвестный scope — ошибка входа.
 
 `summary_source` и `skipped_reason` возвращаются явными полями
-`CompactionOutput`, а не ключами `metadata`. Strategy считает сообщения, не
+`ContextPreparationOutput`, а не ключами `metadata`. Strategy считает сообщения, не
 токены, поэтому оценки и `trigger_tokens` остаются `null`. Общий отчёт берёт
 числа сообщений из input/output, а исходную оценку токенов — из input, если
 она была передана; module-specific `metadata` не переопределяет эти значения.
@@ -48,23 +48,26 @@ CompactionOutput`: его можно вызвать отдельно с явны
 Проверка общей семантики с Rust compactor через реальные worker processes:
 
 ```bash
-cargo test -p proteus-reference-module --test compactor_interop
+python3 scripts/test.py -p proteus-reference-module --test context_preparation_interop
 ```
 
 Процесс получает очищенное окружение с `PATH`; дополнительные имена
 родительских переменных перечисляются в `env_allowlist`, literal значения — в
 `env`.
 
-Worker использует общий component protocol v3 и compactor contract v11. Handshake
+Worker использует общий component protocol v3 и hook contract v5.
+На `BeforeContext` возвращает typed `context_preparation` candidate; workflow
+принимает его через общий checkpoint. Остальные фазы возвращают `Continue`.
+Model request nullable: алгоритм работает и без модели. Handshake
 можно проверить отдельно от core:
 
 ```bash
 cargo run -p proteus-module-protocol --bin proteus-component-conformance -- \
   --component-id python-compactor \
-  --export '{"slot":"compactor","module_id":"python_suffix","contract_version":"v11","module_config":{"trigger_messages":12,"retain_user_turns":2}}' \
-  -- python3 examples/modules/compactor-process/compact.py
+  --export '{"slot":"hook","module_id":"python_suffix","contract_version":"v5","module_config":{"trigger_messages":12,"retain_user_turns":2}}' \
+  -- python3 examples/modules/context-preparation-process/prepare.py
 ```
 
 Это только protocol handshake. Slot-level probe и runtime swap проверяются
-component conformance и `module_swap`, потому что корректный `CompactionInput`
+component conformance и `module_swap`, потому что корректный `ContextPreparationInput`
 содержит canonical model/message DTO.

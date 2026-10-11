@@ -428,7 +428,7 @@ async fn runtime_writes_config_snapshot_when_session_is_persisted() {
     assert_eq!(value["modules"]["workflow"], "coding.plan_execute_review");
     assert_eq!(value["modules"]["context"], "simple");
     assert_eq!(value["modules"]["policy"], "ask_write");
-    assert!(value["modules"]["compactor"].is_null());
+    assert!(value["modules"].get("compactor").is_none());
     assert!(value["modules"]["tool_exposure"].is_null());
     assert_eq!(value["agent_control_surface"], "task");
     assert!(value.get("subagent_surface").is_none());

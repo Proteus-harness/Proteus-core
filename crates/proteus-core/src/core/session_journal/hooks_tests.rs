@@ -22,8 +22,10 @@ fn trace(schema: serde_json::Value, args: serde_json::Value) -> HookTrace {
     let response = HookResponse::ToolArguments { args };
     let output = apply_hook_response(&input.event, &response).expect("live rewrite accepted");
     HookTrace {
+        owner: crate::contracts::OperationOwner::Workflow,
         input,
         steps: vec![HookStep {
+            invocation_id: uuid::Uuid::new_v4(),
             module_id: "rewrite".into(),
             outcome: HookStepOutcome::Accepted { response },
         }],
@@ -55,7 +57,9 @@ async fn strict_secret_schema_survives_hook_journal_while_values_are_redacted() 
                 trace.input.attribution,
                 JournalEntry::ToolCallRecorded(crate::core::ToolCallRecorded {
                     call: call.clone(),
-                    phase: crate::core::ToolCallRecordPhase::Requested,
+                    phase: crate::core::ToolCallRecordPhase::Requested {
+                        owner: crate::contracts::OperationOwner::Workflow,
+                    },
                 }),
             )
             .await

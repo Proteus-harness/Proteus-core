@@ -32,7 +32,7 @@ export function renderSummary(requests, rates) {
     metrics.append(metric);
   }
   box.append(metrics, row('Запросы', tokens(stats.requests)));
-  if (stats.compactions) box.append(row('Из них сжатие контекста', tokens(stats.compactions), 'muted'));
+  if (stats.auxiliaryRequests) box.append(row('Из них вспомогательные', tokens(stats.auxiliaryRequests), 'muted'));
   if (stats.errors) box.append(row('С ошибкой / отменой', tokens(stats.errors), 'muted'));
   if (stats.unfinished) box.append(row('Без записанного результата', tokens(stats.unfinished), 'muted'));
   if (stats.reported !== stats.requests) box.append(node('p', `Токены известны для ${stats.reported} из ${stats.requests} запросов. Остальной расход неизвестен.`, 'coverage muted'));
@@ -59,7 +59,7 @@ export function renderModels(requests, rates) {
 
 function requestDetails(request, cost) {
   const details = node('div', null, 'request-metadata');
-  details.append(row('Провайдер', request.model.provider), row('Тип', request.origin === 'compactor' ? 'Сжатие контекста' : 'Запрос модели'), row('Начало', new Date(request.started_at_ms).toLocaleString('ru-RU')), row('Длительность', duration(request)), row('Сообщений на входе', tokens(request.message_count)), row('Доступных инструментов', tokens(request.tool_count)), row('Уровень рассуждения', request.reasoning_effort ?? '—'), row('Лимит выхода', tokens(request.max_output_tokens)), row('Причина завершения', request.finish_reason ?? '—'));
+  details.append(row('Провайдер', request.model.provider), row('Тип', request.origin === 'auxiliary' ? 'Вспомогательный запрос' : 'Запрос модели'), row('Начало', new Date(request.started_at_ms).toLocaleString('ru-RU')), row('Длительность', duration(request)), row('Сообщений на входе', tokens(request.message_count)), row('Доступных инструментов', tokens(request.tool_count)), row('Уровень рассуждения', request.reasoning_effort ?? '—'), row('Лимит выхода', tokens(request.max_output_tokens)), row('Причина завершения', request.finish_reason ?? '—'));
   if (request.usage) {
     const usage = request.usage;
     const fields = [['Вход', 'input_tokens'], ['Из кэша', 'cached_input_tokens'], ['Запись кэша', 'cache_creation_input_tokens'], ['Выход', 'output_tokens'], ['Рассуждения', 'reasoning_output_tokens']];
@@ -99,7 +99,7 @@ export function renderRequests(requests, all, rates, wide, page, opened) {
     identity.append(state);
     if (wide) {
       const turn = request.turn_id == null ? 'Вне хода' : `Ход ${turns.indexOf(request.turn_id) + 1}`;
-      const origin = request.origin === 'compactor' ? ' · Сжатие контекста' : '';
+      const origin = request.origin === 'auxiliary' ? ' · Вспомогательный запрос' : '';
       identity.append(node('small', `${turn}${origin} · ${new Date(request.started_at_ms).toLocaleTimeString('ru-RU')}`, 'muted'));
     }
     summary.append(identity);

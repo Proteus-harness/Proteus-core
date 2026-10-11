@@ -31,6 +31,7 @@ pub struct ToolContext {
     pub agent_control: Option<Arc<dyn AgentControlToolHost>>,
     /// Read-only canonical history; absent for detached/non-conversation work.
     pub conversation: Option<Arc<dyn super::ConversationReader>>,
+    pub host: Option<Arc<dyn super::ToolHost>>,
     pub conversation_session_id: Option<crate::domain::SessionId>,
 }
 
@@ -44,6 +45,7 @@ impl ToolContext {
             task: None,
             agent_control: None,
             conversation: None,
+            host: None,
             conversation_session_id: None,
         }
     }

@@ -5,14 +5,14 @@
 
 mod model_stream;
 
-use std::{future::Future, path::PathBuf, sync::Arc, time::Duration};
+use std::{future::Future, path::PathBuf, time::Duration};
 
 use anyhow::{Result, anyhow};
 use tokio::time::timeout;
 
 use crate::{
     contracts::{
-        CompactionInput, CompactionOutput, ContextBuildInput, ExecutionAttribution,
+        ContextBuildInput, ContextPreparationInput, ContextPreparationResult, ExecutionAttribution,
         ModelCallOrigin, ToolExposureInput, ToolExposureOutput, ToolExposureRequest,
         WorkflowInvocationContext, WorkflowRuntimeStatus,
     },
@@ -21,7 +21,7 @@ use crate::{
 };
 
 use super::{
-    RuntimeCompactionHost, ToolOrchestrator,
+    ToolOrchestrator,
     agent_control::{TASK_TOOL, calls_are_parallel_eligible},
     model_call_scope::with_model_call_origin,
 };
@@ -29,26 +29,44 @@ use super::{
 /// Async host capability surface shared by all process Workflow exports.
 pub(crate) struct WorkflowHostRuntime {
     ctx: WorkflowInvocationContext,
+    cwd: PathBuf,
     tool_orchestrator: ToolOrchestrator,
     model_streams: model_stream::ModelStreams,
+    operation_gate: tokio::sync::RwLock<()>,
+    rejected_preparation: std::sync::atomic::AtomicBool,
 }
 
 impl WorkflowHostRuntime {
     pub(crate) async fn checkpoint_history(
         &self,
         checkpoint: crate::contracts::WorkflowHistoryCheckpoint,
-    ) -> Result<()> {
+    ) -> Result<crate::contracts::WorkflowCheckpointAck> {
         self.ensure_active()?;
-        self.ctx
+        let preparation = checkpoint.preparation_target.is_some();
+        let result = self
+            .ctx
             .agent()?
             .history_recorder
             .checkpoint(checkpoint)
-            .await
+            .await;
+        if preparation {
+            self.rejected_preparation
+                .store(result.is_err(), std::sync::atomic::Ordering::SeqCst);
+        }
+        result
     }
-    pub(crate) fn new(ctx: WorkflowInvocationContext) -> Self {
+    pub(crate) fn has_rejected_preparation(&self) -> bool {
+        self.rejected_preparation
+            .load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    pub(crate) fn new(ctx: WorkflowInvocationContext, cwd: PathBuf) -> Self {
         Self {
             ctx,
+            cwd,
             model_streams: Default::default(),
+            operation_gate: Default::default(),
+            rejected_preparation: Default::default(),
             tool_orchestrator: ToolOrchestrator::default(),
         }
     }
@@ -101,6 +119,11 @@ impl WorkflowHostRuntime {
         &self,
         request: CanonicalModelRequest,
     ) -> Result<crate::contracts::WorkflowModelStreamCursor> {
+        anyhow::ensure!(
+            !self.has_rejected_preparation(),
+            "model sampling requires an accepted context preparation checkpoint"
+        );
+        let _guard = self.operation_gate.read().await;
         self.ensure_active()?;
         self.model_streams
             .start(self.ctx.execution(), request)
@@ -122,6 +145,11 @@ impl WorkflowHostRuntime {
         &self,
         request: CanonicalModelRequest,
     ) -> Result<CanonicalModelResponse> {
+        anyhow::ensure!(
+            !self.has_rejected_preparation(),
+            "model sampling requires an accepted context preparation checkpoint"
+        );
+        let _guard = self.operation_gate.read().await;
         let ctx = self.ctx.clone();
         self.run_active(async move {
             with_model_call_origin(
@@ -133,42 +161,55 @@ impl WorkflowHostRuntime {
         .await
     }
 
-    pub(crate) async fn compact_history(&self, input: CompactionInput) -> Result<CompactionOutput> {
-        let ctx = self.ctx.agent()?.clone();
-        self.run_active(async move {
-            ctx.emit(Event::HistoryCompactionStarted {
-                reason: input.reason.clone(),
-                input_messages: input.request.messages.len(),
-                token_estimate: input.token_estimate,
-                trigger_tokens: None,
+    pub(crate) async fn prepare_context(
+        &self,
+        input: ContextPreparationInput,
+    ) -> Result<ContextPreparationResult> {
+        let _guard = self.operation_gate.try_write().map_err(|_| {
+            anyhow!("context preparation requires completed model and tool operations")
+        })?;
+        anyhow::ensure!(
+            !self.model_streams.is_active().await,
+            "context preparation requires a closed model stream"
+        );
+        let execution = self.ctx.execution();
+        let attribution = self
+            .ctx
+            .agent()
+            .map(|ctx| {
+                ExecutionAttribution::for_turn(
+                    ctx.execution.scope.execution_id,
+                    ctx.session_id,
+                    ctx.thread_id,
+                    ctx.turn_id,
+                )
             })
-            .await?;
-            let host = Arc::new(RuntimeCompactionHost::new(ctx.clone()));
-            match ctx.compactor.compact(input.clone(), host).await {
-                Ok(output) => {
-                    let report = crate::domain::HistoryCompactionReport::from_compaction_output(
-                        &input, &output,
-                    );
-                    ctx.emit(Event::HistoryCompactionCompleted {
-                        report: report.clone(),
-                    })
-                    .await?;
-                    Ok(output)
+            .unwrap_or_else(|_| ExecutionAttribution::detached(execution.scope.execution_id));
+        let preparation: std::sync::Arc<dyn crate::contracts::ContextPreparation> =
+            match self.ctx.agent() {
+                Ok(ctx) => ctx.context_preparation.clone(),
+                Err(_) => {
+                    std::sync::Arc::new(super::context_preparation::RuntimeContextPreparation::new(
+                        execution.clone(),
+                        attribution,
+                        self.cwd.clone(),
+                        None,
+                    ))
                 }
-                Err(error) => {
-                    ctx.emit(Event::HistoryCompactionFailed {
-                        reason: input.reason.clone(),
-                        input_messages: input.request.messages.len(),
-                        token_estimate: input.token_estimate,
-                        trigger_tokens: None,
-                        message: format!("{error:#}"),
-                    })
-                    .await?;
-                    Err(error)
+            };
+        self.run_active(async {
+            if let Ok(ctx) = self.ctx.agent() {
+                ctx.emit(Event::HistoryCompactionStarted { reason: input.reason.clone(), input_messages: input.messages.len(), token_estimate: input.token_estimate, trigger_tokens: None }).await?;
+            }
+            let result = preparation.prepare(input.clone()).await;
+            if let Ok(ctx) = self.ctx.agent() {
+                match &result {
+                    Ok(result) => ctx.emit(Event::HistoryCompactionCompleted { report: crate::domain::HistoryCompactionReport::from_context_preparation_output(&input, &result.output) }).await?,
+                    Err(error) => ctx.emit(Event::HistoryCompactionFailed { reason: input.reason.clone(), input_messages: input.messages.len(), token_estimate: input.token_estimate, trigger_tokens: None, message: format!("{error:#}") }).await?,
                 }
             }
-        })
-        .await
+            result
+        }).await
     }
 
     pub(crate) fn visible_tools(&self, cwd: PathBuf) -> Result<Vec<ToolSpec>> {
@@ -197,6 +238,7 @@ impl WorkflowHostRuntime {
     }
 
     pub(crate) async fn execute_tool(&self, task: AgentTask, call: ToolCall) -> Result<ToolResult> {
+        let _guard = self.operation_gate.read().await;
         self.run_active(async {
             match self.ctx.agent() {
                 Ok(ctx) => self.tool_orchestrator.execute(ctx, &task, call).await,
@@ -211,6 +253,7 @@ impl WorkflowHostRuntime {
         task: AgentTask,
         calls: Vec<ToolCall>,
     ) -> Result<Vec<ToolResult>> {
+        let _guard = self.operation_gate.read().await;
         self.run_active(execute_tool_batch(self, &task, calls))
             .await
     }
@@ -230,6 +273,7 @@ impl WorkflowHostRuntime {
             super::ToolExecutionBinding::detached(ctx.scope.clone()),
         )
         .with_hooks(ctx.hooks.clone())
+        .with_operations(ctx.operations.clone())
     }
 
     fn ensure_active(&self) -> Result<()> {

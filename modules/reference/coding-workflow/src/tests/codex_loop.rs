@@ -69,7 +69,7 @@ fn repeated_overflow_does_not_force_compaction_estimate() {
     let prepared = &compactions[0];
     assert_eq!(
         prepared.token_estimate,
-        estimate_message_tokens(&prepared.request.messages)
+        estimate_message_tokens(&prepared.messages)
     );
 }
 
@@ -276,7 +276,7 @@ fn codex_loop_returns_applied_compaction_when_model_call_fails() {
     let generated_summary = CanonicalMessage::text(MessageRole::User, "compacted summary")
         .with_metadata(json!({ "generated": true, "summary": true }));
     let compacted_history = vec![generated_summary.clone(), current_user];
-    let compacted_output = proteus_contracts::contracts::CompactionOutput::changed(
+    let compacted_output = proteus_contracts::contracts::ContextPreparationOutput::changed(
         vec![generated_summary],
         Some("compacted summary".to_owned()),
     );
@@ -576,7 +576,7 @@ fn codex_loop_returns_unrequested_tool_error_to_model_without_execution() {
 fn codex_loop_errors_when_changed_compaction_drops_current_user_message() {
     let input = workflow_input("change code");
     let input_json = serde_json::to_string(&input).expect("input json");
-    let mut bad_output = proteus_contracts::contracts::CompactionOutput::changed(
+    let mut bad_output = proteus_contracts::contracts::ContextPreparationOutput::changed(
         vec![CanonicalMessage::text(MessageRole::User, "summary only")],
         Some("summary only".to_owned()),
     );
@@ -591,7 +591,7 @@ fn codex_loop_errors_when_changed_compaction_drops_current_user_message() {
         .with_end_turn(false),
     ])
     .with_compaction_outputs(vec![
-        proteus_contracts::contracts::CompactionOutput::unchanged(Vec::new()),
+        proteus_contracts::contracts::ContextPreparationOutput::unchanged(Vec::new()),
         bad_output,
     ]);
 
@@ -629,7 +629,7 @@ fn codex_loop_separates_compacted_history_from_new_turn_messages() {
     let generated_summary = CanonicalMessage::text(MessageRole::User, "compacted summary")
         .with_metadata(json!({ "generated": true, "summary": true }));
     let compacted_history = vec![generated_summary.clone(), current_user.clone()];
-    let compacted_output = proteus_contracts::contracts::CompactionOutput::changed(
+    let compacted_output = proteus_contracts::contracts::ContextPreparationOutput::changed(
         vec![generated_summary],
         Some("compacted summary".to_owned()),
     );
@@ -649,7 +649,7 @@ fn codex_loop_separates_compacted_history_from_new_turn_messages() {
         "no second compaction before first sampling"
     );
     assert_eq!(
-        compactions[0].request.messages,
+        compactions[0].messages,
         input.history[..input.history.len() - 1]
     );
     assert_eq!(

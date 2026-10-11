@@ -203,7 +203,7 @@ fn turn_details(projection: &JournalProjection, turn_id: TurnId) -> Result<AppTu
                 } = &mut steps[index].data
                 {
                     match &tool.phase {
-                        ToolCallRecordPhase::Requested => {}
+                        ToolCallRecordPhase::Requested { .. } => {}
                         ToolCallRecordPhase::ApprovalRequested { reason } => {
                             *approval_reason = Some(reason.clone())
                         }

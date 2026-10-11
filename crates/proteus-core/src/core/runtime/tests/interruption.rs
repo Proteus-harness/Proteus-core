@@ -34,6 +34,7 @@ impl Workflow for InterruptionProbeWorkflow {
                                 compactions: vec![report.clone()],
                             },
                             tool_results: Vec::new(),
+                            preparation_target: None,
                         })
                         .await?;
                 }

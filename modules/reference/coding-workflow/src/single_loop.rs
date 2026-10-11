@@ -45,7 +45,7 @@ fn run_loop(
     let mut last_usage: Option<LastModelUsage> = None;
 
     for _round in 0..max_tool_rounds {
-        let prepared = request_from_state(
+        let mut prepared = request_from_state(
             input,
             host,
             &turn.model_messages,
@@ -56,11 +56,13 @@ fn run_loop(
         )?;
         if turn.apply_compaction_report(
             prepared.compaction.as_ref(),
+            prepared.preparation_target.as_ref(),
             &prepared.request.messages,
             PersistentRepair::Rebuild,
         )? {
             last_usage = None;
             turn.checkpoint(host, &[])?;
+            prepared.request.messages = turn.model_messages.clone();
         }
         let request = prepared.request;
         emit_event(
@@ -109,11 +111,11 @@ fn run_loop(
 
         turn.checkpoint_tools(host, input, &response.tool_calls, "single_loop")?;
         let results = execute_tools(host, input, &response.tool_calls, "single_loop")?;
-        turn.append_tool_results(results);
+        turn.append_tool_results(results)?;
         turn.checkpoint(host, &[])?;
     }
 
-    let prepared = request_from_state(
+    let mut prepared = request_from_state(
         input,
         host,
         &turn.model_messages,
@@ -124,10 +126,12 @@ fn run_loop(
     )?;
     if turn.apply_compaction_report(
         prepared.compaction.as_ref(),
+        prepared.preparation_target.as_ref(),
         &prepared.request.messages,
         PersistentRepair::Rebuild,
     )? {
         turn.checkpoint(host, &[])?;
+        prepared.request.messages = turn.model_messages.clone();
     }
     let mut request = prepared.request;
     request.tools.clear();

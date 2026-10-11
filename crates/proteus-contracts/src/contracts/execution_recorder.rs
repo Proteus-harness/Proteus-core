@@ -12,8 +12,8 @@ use crate::{
 pub enum ModelCallOrigin {
     /// An ordinary workflow or detached model call.
     Direct,
-    /// A model callback made through the `HistoryCompactor` host surface.
-    Compactor,
+    /// Auxiliary generation initiated by an execution-bound hook or tool.
+    Auxiliary,
 }
 
 /// Execution-bound sink for generic model lifecycle facts.
@@ -32,6 +32,7 @@ pub trait ExecutionRecorder: Send + Sync {
         &self,
         exchange_id: ExchangeId,
         origin: ModelCallOrigin,
+        owner: super::OperationOwner,
         request: &CanonicalModelRequest,
     ) -> Result<()>;
 
@@ -67,6 +68,7 @@ impl ExecutionRecorder for NoopExecutionRecorder {
         &self,
         _exchange_id: ExchangeId,
         _origin: ModelCallOrigin,
+        _owner: super::OperationOwner,
         _request: &CanonicalModelRequest,
     ) -> Result<()> {
         Ok(())

@@ -64,7 +64,7 @@ selected Workflow (controller policy)
           v
 WorkflowHostRuntime
           |
-          +--> Model / Context / Compactor
+          +--> Model / Context / Preparation Hooks
           +--> ToolOrchestrator (agent adapter) -> BoundTools
           |                                      `-> ToolRegistry / Policy / Approval / Tool
           +--> Context Providers / AgentControl
@@ -310,16 +310,17 @@ Workflow policy
           |
           v
 Core mechanisms
-  model / tools / context / compaction / events / recording
+  model / tools / context / preparation / events / recording
 ```
 
 `ExecutionScope` и process lifecycle не требуют chat identity. Модель в
 `ExecutionContext` необязательна. `WorkflowInvocationContext::Execution`
 позволяет вызвать standalone Workflow без conversation и с пустой history;
-вариант `Agent` добавляет `AgentWorkflowContext` с `TurnId`. Операции с history,
-chat events и compaction требуют именно разговорного контекста.
+вариант `Agent` добавляет `AgentWorkflowContext` с `TurnId`. Root history
+checkpoints и chat events требуют разговорного контекста; подготовка частного
+материала через hooks допускает отсутствие conversation и модели.
 
-Вход и результат текущего `workflow/v19` остаются agent-shaped: обязательны
+Вход и результат текущего `workflow/v20` остаются agent-shaped: обязательны
 `AgentTask`, аргумент history `Vec<CanonicalMessage>` и terminal `AgentOutput`.
 Отдельный вызов через `RuntimeRegistry::workflow_execution_context`
 использует нижние capabilities/process substrate, но публичный
@@ -342,7 +343,7 @@ git_status
 
 Все команды всё равно возвращаются в host через `host.tools.execute` и проходят
 `ToolRegistry -> policy -> approval -> safety`; модуль не запускает shell
-самостоятельно. Success path не вызывает context, compactor, tool exposure или
+самостоятельно. Success path не вызывает context, preparation hooks, tool exposure или
 model и не читает history. Runnable profile:
 `examples/configs/proteus.project-check.example.toml`.
 
@@ -352,7 +353,7 @@ approval и ошибку инструмента; исходные tools и model
 
 `AppConfig` без `active_provider` собирается без model export. Ошибка тестов
 возвращается с выводом команды; при настроенной модели controller добавляет
-объяснение. `workflow/v19` использует общий `execution_id`, optional
+объяснение. `workflow/v20` использует общий `execution_id`, optional
 `conversation { session_id, thread_id, turn_id }` и optional `model_ref`.
 Самостоятельный workflow может передать пустую history. `AgentTask` и
 `AgentOutput` остаются общими task/result DTO этого slot.
@@ -366,8 +367,8 @@ implementations отсутствуют в replay-каталоге, итог и h
 
 | Owner | Поля |
 |---|---|
-| `ExecutionContext` | `scope`, `model_timeout_ms`, `model`, `tools`, `policy`, `approval`, `permission_grants` |
-| `AgentWorkflowContext` | `tool_recorder`, `session_id`, `thread_id`, `turn_id`, `model_ref`, `instructions`, `intent`, `permission_mode`, `reasoning`, `context_timeout_ms`, `events`, `context`, `user_input`, `compactor`, `tool_exposure`, `agent_control`, queued messages, `thread_label` |
+| `ExecutionContext` | `scope`, `model_timeout_ms`, `model`, `hooks`, `operations`, `tools`, `policy`, `approval`, `permission_grants` |
+| `AgentWorkflowContext` | `tool_recorder`, `session_id`, `thread_id`, `turn_id`, `model_ref`, `instructions`, `intent`, `permission_mode`, `reasoning`, `context_timeout_ms`, `events`, `context`, `user_input`, `context_preparation`, `tool_exposure`, `agent_control`, queued messages, `thread_label` |
 
 `ExecutionScope` содержит identity и cancellation без chat types.
 `ExecutionContext` связывает generic handles с coherent runtime snapshot.
@@ -442,16 +443,18 @@ InvocationRef не взаимозаменяемы; broker lineage не пере�
 
 Prompt replay повторяет один сохранённый provider-neutral model request;
 workflow replay заново запускает Workflow с записанными model/tool outcomes.
-Core записывает typed origin model exchange (`direct`/`compactor`) на host
-callback boundary отдельно от `ExecutionScope` и provider request. Replay
-валидирует все пары, но последовательность workflow и checkpoint positions
-считает по `direct`; compaction берёт из записанных report/history. Внутренние
-summary exchanges остаются доступны учёту usage и eval, алгоритм compactor
-повторно не исполняется.
+Core записывает typed origin model exchange (`direct`/`auxiliary`) и
+`OperationOwner` на host callback boundary отдельно от `ExecutionScope` и
+provider request. Workflow-owned exchanges составляют последовательность
+workflow; дочерние model/tool records проверяются и потребляются вместе с
+outcome их hook/tool invocation. Preparation восстанавливается по typed
+`BeforeContext` trace, включая ошибку и отсутствие изменения, без повторного
+вызова выбранного алгоритма или его effects.
 Model outcome не обязателен: model-free Turn воспроизводится по tool facts,
-history и settlement. Без model request журнал не даёт replayable context,
-tool exposure и compaction input; запрос таких данных или незаписанный model/
-tool call отмечается как divergence, даже если Workflow перехватил ошибку.
+history и settlement. Без model request журнал не даёт replayable context и
+tool exposure; preparation без модели требует записанного trace. Запрос
+незаписанных model/tool/context данных отмечается как divergence, даже если
+Workflow перехватил ошибку.
 Они проверяют эквивалентность и projection, но не продолжают suspended Rust
 future после crash. Program counter, stack, local workflow variables, steering
 queue и cancellation token journal не восстанавливает.
@@ -529,8 +532,8 @@ composition(contract) = select_one | ordered_many
 ```
 
 `workflow`, `model`, `context`, `policy`,
-`compactor` и `tool_exposure` используют `select_one`.
-`tool`, `context_provider` и цепочка обработчиков `hook/v4` используют `ordered_many`.
+`tool_exposure` используют `select_one`.
+`tool`, `context_provider` и цепочка обработчиков `hook/v5` используют `ordered_many`.
 `modules.hooks` задаёт порядок обработчиков. Core определяет точки их вызова
 и проверяет результаты; обработчики используют тот же протокол процессных модулей.
 

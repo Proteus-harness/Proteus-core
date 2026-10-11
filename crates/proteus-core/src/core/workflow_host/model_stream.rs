@@ -35,6 +35,11 @@ impl Drop for ActiveStream {
 }
 
 impl ModelStreams {
+    pub(super) async fn is_active(&self) -> bool {
+        self.active
+            .try_lock()
+            .map_or(true, |active| active.is_some())
+    }
     pub(super) async fn start(
         &self,
         ctx: &ExecutionContext,
@@ -161,6 +166,11 @@ mod tests {
         let mut pending = Box::pin(streams.next(cursor.clone()));
         assert!(futures_util::poll!(&mut pending).is_pending());
         assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(50), streams.is_active())
+                .await
+                .unwrap()
+        );
+        assert!(
             streams
                 .next(cursor.clone())
                 .await
@@ -179,5 +189,6 @@ mod tests {
         assert!(sender.is_closed());
         assert!(streams.next(cursor).await.is_err());
         assert!(!streams.close().await);
+        assert!(!streams.is_active().await);
     }
 }

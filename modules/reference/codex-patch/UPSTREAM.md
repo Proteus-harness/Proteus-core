@@ -18,7 +18,7 @@ Reference export `tool/codex_patch` адаптирован из OpenAI Codex com
 рядом. Перенесённые файлы помечены как адаптированные.
 
 Выбран локальный режим и default `ApplyPatchPreserveLineEndings = false`.
-Путь исполнения — общий `tool/v5`: canonical `ToolCall` с opaque текстом
+Путь исполнения — общий `tool/v6`: canonical `ToolCall` с opaque текстом
 `args.patch` (function) либо `args.input` (freeform), cwd вызова внутри workspace,
 `ToolResult` или module error. Policy/approval/safety принадлежат общему tool path.
 Remote Environment ID отклоняется явно.

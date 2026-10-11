@@ -98,7 +98,7 @@ protocol/error/cancel/timeout cases работают без него.
 ```bash
 target/debug/proteus-component-conformance \
   --component-id tgrep-search \
-  --export '{"slot":"tool","module_id":"tgrep_search","contract_version":"v5","module_config":{}}' \
+  --export '{"slot":"tool","module_id":"tgrep_search","contract_version":"v6","module_config":{}}' \
   --probe-export tool/tgrep_search --probe-method list --probe-params null \
   -- python3 examples/modules/tgrep-search/tool.py
 ```

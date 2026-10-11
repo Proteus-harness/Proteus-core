@@ -145,7 +145,7 @@ Conformance CLI без probe проверяет handshake, но не повед�
 Команды для внешних Python examples находятся рядом с ними:
 [search](../../examples/modules/search-process/README.md),
 [tgrep search](../../examples/modules/tgrep-search/README.md),
-[compactor](../../examples/modules/compactor-process/README.md),
+[preparation hook](../../examples/modules/context-preparation-process/README.md),
 [workflow](../../examples/modules/agent-worker/README.md).
 
 ### Runtime, Journal И Replay
@@ -171,10 +171,10 @@ facts; совпавший final output не заменяет эти провер
 | Единственный OS writer | `proteus-core --test session_writer_lock` |
 | Prompt/workflow replay | `proteus-core --lib core::prompt_replay`, `core::workflow_replay` |
 | Codex stream/retry/tool progress/cold resume | `proteus-reference-module --test codex_model_resume` |
-| Local compaction и совместимость compactors | `codex-compactor`, `context-pack`, module targets `codex_compaction`, `compactor_interop` |
+| Context preparation и совместимость стратегий | `codex-context-preparation`, `context-pack`, module targets `codex_compaction`, `context_preparation_interop` |
 | Model-free controller | `coding-workflow project_check`, module target `project_check_workflow` |
 | Frozen admission и run intent | `core::runtime::tests::snapshot_atomicity`, `coding-workflow intents` |
-| Изображения: process workflow, cold resume, capability refusal, replay | `proteus-core --test execution_boundary images::`, provider encoding в `model-pack`, сохранение parts в `codex-compactor` |
+| Изображения: process workflow, cold resume, capability refusal, replay | `proteus-core --test execution_boundary images::`, provider encoding в `model-pack`, сохранение parts в `codex-context-preparation` |
 | Process peers и их tool surfaces | Core targets `process_agent_control`, `process_agent_pool` |
 
 Storage recovery проверяется отдельно от steady-state append: полный scan
@@ -279,8 +279,8 @@ dogfood/eval проверяется отдельно: scripted evidence не д�
 или качество summary на повседневных задачах.
 
 `hook_runtime::dcp::composition` проверяет DCP вместе с реально сработавшими
-Rust Codex и Python suffix compactors. Сначала `compress` меняет только outgoing
-view; затем compactor удаляет prefix history, сохраняя текущий user id. Проверяются
+Rust Codex и Python suffix preparation hooks. Сначала `compress` меняет только outgoing
+view; затем preparation hook предлагает удалить prefix history, сохраняя текущий user id. Проверяются
 checkpoint, отсутствие stale pruning оставленного user в следующем model request,
 новый runtime/process с той же session и сохранённым DCP state, cold transcript
 и workflow replay без повторного `compress`, model calls или записи state.
@@ -308,10 +308,15 @@ python3 clients/app/ui/tests/extensions_browser.py --commands-only
 
 ## Typed Hook Boundary
 
-Для `hook/v4` проверяются strict DTO/response validation, одинаковая authority
-без host callbacks, config order и отсутствие duplicate/unknown selection.
+Для `hook/v5` проверяются strict DTO/response validation, одинаковая authority
+с общими model/tool callbacks по actionable phase, config order и отсутствие duplicate/unknown selection.
 Boundary chain покрывает A→B/B→A, pre-effect failure, actual tool outcome
 при post-effect failure, targeted cancellation и component restart. Config
 builder roundtrip сохраняет order при изменении других slots. Изменение model
 request/tool result проверяется canonical journal и workflow replay в
 поддержанной границе; записанные transformed outcomes не применяются повторно.
+`context_preparation_interop` проверяет model-aware Codex и model-free Python с
+nullable request и detached attribution. Failed/unchanged preparation также
+сохраняет hook trace и owner/parent tree дочерних операций; replay потребляет
+его ровно один раз, без требования changed checkpoint. Объём production gate
+для новой общей границы остаётся full workspace плюс `module_swap`.

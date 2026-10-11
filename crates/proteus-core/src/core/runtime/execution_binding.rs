@@ -56,6 +56,8 @@ impl AgentRuntime {
         let conversation: Arc<dyn crate::contracts::ConversationReader> =
             Arc::new(super::conversation::TurnConversation {
                 history: self.session.history.clone(),
+                revision: self.session.history_revision.clone(),
+                store: self.session.session_store.clone(),
                 context: self.session.model_context.clone(),
             });
         let model_binding = ModelExecutionBinding::for_turn(
@@ -66,7 +68,8 @@ impl AgentRuntime {
             turn_id,
             execution_recorder,
         )
-        .with_conversation(conversation.clone());
+        .with_conversation(conversation.clone())
+        .with_tool_recorder(tool_recorder.clone());
         let execution = snapshot.runtime.registry.execution_context_for_model(
             model_binding,
             self.services.approval.clone(),
@@ -89,6 +92,19 @@ impl AgentRuntime {
             )
             .with_tool_recorder(tool_recorder);
         context.model_context = model_context;
+        context.context_preparation = Arc::new(
+            crate::core::context_preparation::RuntimeContextPreparation::new(
+                context.execution.clone(),
+                crate::contracts::ExecutionAttribution::for_turn(
+                    context.execution.scope.execution_id,
+                    context.session_id,
+                    context.thread_id,
+                    context.turn_id,
+                ),
+                snapshot.runtime.registry.cwd.clone(),
+                Some(conversation.clone()),
+            ),
+        );
         context.conversation = Some(conversation);
         Ok(context)
     }

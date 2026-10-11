@@ -95,7 +95,8 @@ fn projection_rejects_previous_record_schema() {
 fn model_request_origin_is_required_and_uses_snake_case() {
     let recorded = ModelRequestRecorded {
         exchange_id: new_exchange_id(),
-        origin: ModelCallOrigin::Compactor,
+        origin: ModelCallOrigin::Auxiliary,
+        owner: crate::contracts::OperationOwner::Workflow,
         request: CanonicalModelRequest::new(
             ModelRef::new("fake", "model"),
             vec![CanonicalMessage::text(MessageRole::User, "compact")],
@@ -103,7 +104,7 @@ fn model_request_origin_is_required_and_uses_snake_case() {
     };
     let mut value = serde_json::to_value(recorded).expect("serialize model request");
 
-    assert_eq!(value["origin"], "compactor");
+    assert_eq!(value["origin"], "auxiliary");
     value
         .as_object_mut()
         .expect("model request object")
@@ -140,6 +141,7 @@ fn detached_model_exchange_needs_no_chat_identity() {
             JournalEntry::ModelRequestRecorded(ModelRequestRecorded {
                 exchange_id,
                 origin: ModelCallOrigin::Direct,
+                owner: crate::contracts::OperationOwner::Workflow,
                 request,
             }),
         ),
@@ -214,6 +216,7 @@ fn execution_cannot_switch_between_detached_and_agent_attribution() {
             JournalEntry::ModelRequestRecorded(ModelRequestRecorded {
                 exchange_id: new_exchange_id(),
                 origin: ModelCallOrigin::Direct,
+                owner: crate::contracts::OperationOwner::Workflow,
                 request: detached_request.clone(),
             }),
         ),
@@ -251,6 +254,7 @@ fn execution_cannot_switch_between_detached_and_agent_attribution() {
             JournalEntry::ModelRequestRecorded(ModelRequestRecorded {
                 exchange_id: new_exchange_id(),
                 origin: ModelCallOrigin::Direct,
+                owner: crate::contracts::OperationOwner::Workflow,
                 request: detached_request,
             }),
         ),
@@ -344,6 +348,7 @@ fn model_request_requires_a_previously_opened_turn() {
         JournalEntry::ModelRequestRecorded(ModelRequestRecorded {
             exchange_id: new_exchange_id(),
             origin: ModelCallOrigin::Direct,
+            owner: crate::contracts::OperationOwner::Workflow,
             request,
         }),
     )];
@@ -385,6 +390,7 @@ fn agent_execution_fact_must_match_the_turn_execution() {
             JournalEntry::ModelRequestRecorded(ModelRequestRecorded {
                 exchange_id: new_exchange_id(),
                 origin: ModelCallOrigin::Direct,
+                owner: crate::contracts::OperationOwner::Workflow,
                 request,
             }),
         ),
@@ -432,6 +438,7 @@ fn model_exchange_can_use_a_child_thread_but_cannot_change_owner() {
             JournalEntry::ModelRequestRecorded(ModelRequestRecorded {
                 exchange_id,
                 origin: ModelCallOrigin::Direct,
+                owner: crate::contracts::OperationOwner::Workflow,
                 request,
             }),
         ),
@@ -507,6 +514,7 @@ fn background_child_exchange_may_finish_after_root_settlement() {
             JournalEntry::ModelRequestRecorded(ModelRequestRecorded {
                 exchange_id,
                 origin: ModelCallOrigin::Direct,
+                owner: crate::contracts::OperationOwner::Workflow,
                 request,
             }),
         ),
@@ -578,6 +586,7 @@ fn root_execution_fact_cannot_start_after_turn_settlement() {
             JournalEntry::ModelRequestRecorded(ModelRequestRecorded {
                 exchange_id: new_exchange_id(),
                 origin: ModelCallOrigin::Direct,
+                owner: crate::contracts::OperationOwner::Workflow,
                 request,
             }),
         ),
@@ -618,6 +627,7 @@ fn request_without_response_and_call_without_result_remain_interrupted() {
             JournalEntry::ModelRequestRecorded(ModelRequestRecorded {
                 exchange_id,
                 origin: ModelCallOrigin::Direct,
+                owner: crate::contracts::OperationOwner::Workflow,
                 request,
             }),
         ),
@@ -629,7 +639,9 @@ fn request_without_response_and_call_without_result_remain_interrupted() {
             3,
             JournalEntry::ToolCallRecorded(ToolCallRecorded {
                 call: call.clone(),
-                phase: ToolCallRecordPhase::Requested,
+                phase: ToolCallRecordPhase::Requested {
+                    owner: crate::contracts::OperationOwner::Workflow,
+                },
             }),
         ),
     ];
@@ -688,6 +700,7 @@ fn canceled_and_timeout_turns_keep_model_request_interrupted_without_synthetic_r
                 JournalEntry::ModelRequestRecorded(ModelRequestRecorded {
                     exchange_id,
                     origin: ModelCallOrigin::Direct,
+                    owner: crate::contracts::OperationOwner::Workflow,
                     request,
                 }),
             ),
@@ -777,7 +790,9 @@ fn canceled_turn_keeps_unresolved_approval_without_synthetic_tool_result() {
             2,
             JournalEntry::ToolCallRecorded(ToolCallRecorded {
                 call: call.clone(),
-                phase: ToolCallRecordPhase::Requested,
+                phase: ToolCallRecordPhase::Requested {
+                    owner: crate::contracts::OperationOwner::Workflow,
+                },
             }),
         ),
         record(

@@ -1,4 +1,4 @@
-//! Codex patch algorithm behind the ordinary tool/v5 component export.
+//! Codex patch algorithm behind the ordinary tool/v6 component export.
 
 use serde::Deserialize;
 use std::path::Path;

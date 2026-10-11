@@ -15,7 +15,7 @@
 вызов получает только права своего слота.
 
 Внешние модули работают через Component Runtime v2 и протокол wire v3. У
-`workflow` действует контракт v19, у `compactor` — v11, у `model` — v12.
+`workflow` действует контракт v20, у `hook` — v5, у `tool` — v6, у `model` — v12.
 Версии и разрешённые методы остальных слотов перечислены в
 [описании процессной границы](process-module-architecture.md). Один процесс
 может обслуживать несколько одновременных и вложенных вызовов. Загрузки
@@ -67,13 +67,12 @@ Wire shape и правила validation — в
 
 | Слот | Правило выбора | Где выбирается | Процессный контракт | Примеры имён |
 |---|---|---|---|---|
-| `hook` | `ordered_many` | `modules.hooks` (явный порядок) | да, `hook/v4` | `hook.instructions`, `hook.output_budget`, `hook.dcp` |
+| `hook` | `ordered_many` | `modules.hooks` (явный порядок) | да, `hook/v5` | `hook.instructions`, `hook.output_budget`, `codex_compact`, `hook.dcp` |
 | `workflow` | `select_one` | `modules.workflow` | да | `coding.single_loop`, `coding.codex_loop`, `coding.plan_execute_review`, `coding.project_check` |
 | `context` | `select_one` | `modules.context` | да, `context/v3` | `simple`, `repo_aware`, `codex_context` |
 | `policy` | `select_one` | `modules.policy` | да | `allow_all`, `ask_write`, `codex_policy`, `opencode_policy` |
-| `compactor` | `select_one` | `modules.compactor` | да | `codex` |
 | `tool_exposure` | `select_one` | `modules.tool_exposure` | да | `codex_dynamic` |
-| `tool` | `ordered_many` | предоставленные реализации + `tools.enabled` | да, `tool/v5` | `reference.tools` и узкие варианты |
+| `tool` | `ordered_many` | предоставленные реализации + `tools.enabled` | да, `tool/v6` | `reference.tools` и узкие варианты |
 | `context_provider` | `ordered_many` | предоставленные реализации + настройки контекста | да, `context_provider/v4` | `skills`, `rg_search`, `jsonl_memory`, `sqlite_memory` |
 | `model` | `select_one` | активный профиль модели | да, `model/v12` | `fake`, `openai`, `openai_compatible`, `openai_codex`, `anthropic` |
 
@@ -82,7 +81,7 @@ Wire shape и правила validation — в
 используют процессный контракт. Управление другими агентами в таблицу не
 входит: им владеет Core, это не выбираемый слот.
 
-Пользовательские slash-команды модуля — contributions существующего `tool/v5`,
+Пользовательские slash-команды модуля — contributions существующего `tool/v6`,
 не новый slot. `list` возвращает tool definitions с явным `model_visible` и
 nullable `user_command`; `tools.enabled` выбирает и эту поверхность.
 User-only tools не видны модели, но вызываются пользователем через ту же registry,
@@ -195,8 +194,8 @@ Core запускает модуль и отправляет ему первое
 
 ### Hooks
 
-`hook/v4` — typed contributions на host-owned точках `turn_started`,
-`before_model`, `before_tool`, `after_tool`, `before_stop`, `turn_settled`. Список
+`hook/v5` — typed contributions на host-owned точках `turn_started`,
+`before_context`, `before_model`, `before_tool`, `after_tool`, `before_stop`, `turn_settled`. Список
 `modules.hooks` задаёт порядок; пустой список отключает hooks. Один export
 не получает host callbacks и не вызывает tools/model/memory. Component
 по-прежнему задаёт общий lifecycle, authority одинаковая для каждого handler.
@@ -211,8 +210,8 @@ turn-start/turn-end best-effort. Cancellation и deadline адресуются �
 invocation; state после reload/restart принадлежит реализации, host его
 автоматически не восстанавливает. Canonical journal записывает input,
 accepted responses/failures и output цепочки. Workflow replay применяет
-записанные responses к raw boundaries без запуска hook-модулей; internal
-compactor hooks не исполняются повторно, как и summary model exchanges.
+записанные responses к raw boundaries без запуска hook-модулей. Nested
+model/tool subtree проверяется и потребляется вместе с родительским trace.
 
 `before_stop` проверяет успешный кандидат root turn. `continue_turn` с
 непустой причиной запускает тот же workflow, сохраняя историю и идентичность
@@ -225,7 +224,7 @@ UI-событие публикуется после принятия. Ошибк
 Внешний [`hook-process`](../../examples/modules/hook-process/README.md)
 предоставляет JS/TS SDK и явные обёртки для переноса отдельных Pi/OpenCode
 handlers и PreToolUse/Stop commands Codex/Claude. Он экспортирует обычный
-`hook/v4` с тем же contract и без дополнительных callbacks. Upstream lifecycle
+`hook/v5` с тем же contract и общими model/tool callbacks. Upstream lifecycle
 или неподдержанные actions не эмулируются; различия описаны рядом с примерами.
 
 [`DCP`](../../modules/reference/dcp/README.md) — независимый Node component
@@ -234,7 +233,7 @@ handlers и PreToolUse/Stop commands Codex/Claude. Он экспортирует
 canonical history. Hook получает immutable conversation snapshot в input;
 tool читает invocation-bound snapshot через `host.conversation.read`. Общий
 process lifecycle и внутренние blocks не объединяют authority exports. Это
-механизм с явными platform adaptations, не OpenCode shell/TUI/RPC и не compactor.
+механизм с явными platform adaptations, не OpenCode shell/TUI/RPC; durable history не заменяет.
 
 ### Workflow
 
@@ -248,10 +247,10 @@ journal остаются host-owned.
 Reference `coding.single_loop`, `coding.plan_execute_review` и
 `coding.codex_loop` сохраняют compaction и промежуточную историю через общий
 checkpoint contract до выполнения tools и после получения результатов.
-Ошибка следующего model/compactor call не удаляет завершённые действия;
+Ошибка следующего model/preparation call не удаляет завершённые действия;
 отмена оставляет подтверждённые результаты в cold history.
 `coding.plan_execute_review` переносит реальный model usage между фазами для
-триггера compactor и сбрасывает старый замер после сжатия.
+триггера preparation hook и сбрасывает старый замер после сжатия.
 Deferred `proteus_tool_call` сохраняет исходный call id и точный результат
 целевого tool: checkpoint объявляет реальные name/args, а model history
 сохраняет внешний вызов. Дополнительного внутреннего call id и remap metadata нет.
@@ -269,12 +268,12 @@ Plan-фаза ограничивает и выбранные tools, и compariso
 `runtime.permission_mode`; Core не знает их инструкций. Подробности и команды —
 в [runtime-and-events.md](../guides/runtime-and-events.md).
 
-`workflow/v19` возвращает success с `WorkflowOutput` либо error с
+`workflow/v20` возвращает success с `WorkflowOutput` либо error с
 `WorkflowFailure`. Ошибка может явно вернуть выполненную часть истории через
 `WorkflowHistoryUpdate`; Core проверяет её и сохраняет до terminal `Error`.
 `coding.codex_loop` использует этот путь после сбоя model call, включая
 завершённые assistant messages из `ModelFailure.completed_messages` прямого
-запроса. Ошибка compactor не добавляет внутренний summary в history. Это общий
+запроса. Ошибка preparation не добавляет внутренний summary в history. Это общий
 contract для любых workflow implementations, а не восстановление локального
 состояния потерянного модуля. Дополнительно `host.history.checkpoint` позволяет
 явно подтвердить промежуточную history и выбрать calls, результаты которых Core
@@ -317,10 +316,10 @@ Checkpoint связывает исходный call в history с явно об�
 исполнение без преобразования. Подмена module не требует имени Codex в host.
 
 `coding.project_check` — reference code-heavy controller на том же
-`workflow/v19`. Он детерминированно вызывает `git_status`, определяет project по
+`workflow/v20`. Он детерминированно вызывает `git_status`, определяет project по
 root marker, запускает фиксированную test command и, если модель настроена, обращается к ней только
 один раз для объяснения failed test. Success path не вызывает model, context
-или compactor. Это architecture probe, не default workflow и не special
+или context preparation. Это architecture probe, не default workflow и не special
 authority: direct process execution внутри него отсутствует, каждый tool
 проходит общий host safety path.
 Completion review повторно запускает проверки в том же turn; каждая попытка
@@ -364,47 +363,21 @@ Profile `context-search-chatgpt` демонстрирует замену `codex_
 выбранную policy в core, поэтому module не может обойти plan/normal/auto
 семантику.
 
-### Compactor
+### Подготовка Контекста Через Hooks
 
-Получает `CompactionInput.request` — полный pending canonical model request,
-включая history, instructions, reasoning, limits и cache. Выбранный module
-определяет summary request и возвращает replacement history. Он может вызвать
-`host.model.complete`. Этот
-callback доступен всему `compactor/v11`, а не только `codex`. Deterministic
-Python example не использует callback, но имеет ту же authority.
+Workflow вызывает host.context.prepare; выбранные hooks обрабатывают BeforeContext.
+ContextPreparationInput содержит материал messages и nullable request template,
+оценки, окно и причину. Host привязывает nullable execution/revision target.
+Output передаёт messages, changed, explicit user derivations и typed diagnostics.
+Workflow сохраняет candidate отдельно и принимает его только по checkpoint ACK;
+ACK возвращает фактическую accepted history. Stale revision отклоняется.
 
-Compactor наследует общий бюджет workflow; export `timeout_ms` может задать
-отдельный предел всей операции, включая model callbacks и retries. Подробности
-в [configuration.md](../guides/configuration.md).
-
-`CompactionOutput.user_message_replacements` явно связывает исходный
-conversation user message с новым сообщением, созданным compactor. Поля
-`source_message_id` и `replacement_message_id` образуют one-to-one отображение;
-новое сообщение имеет provenance `Compactor` и conversation scope. Host
-отклоняет неизвестный source, повторное использование id, отсутствующий target,
-сохранение source рядом с target и изменение содержимого под прежним id.
-Та же typed связь входит в `HistoryCompactionReport`: workflow, checkpoints,
-terminal validation и replay используют её для отслеживания текущего ввода.
-Оригинальный принятый ввод остаётся в журнале, компактное представление — в
-model history. При `changed = false` сообщения должны совпадать с input,
-а список замен должен быть пустым.
-
-`CompactionOutput` передаёт результат и диагностику явными полями:
-`token_estimate` — оценка после сжатия, `original_token_estimate` — оценка
-входа, `trigger_tokens` — порог токеновой стратегии, `summary_source` и
-`skipped_reason` — описательные строки без влияния на dispatch. Неприменимые
-поля остаются `null`; если module не оценивал вход, отчёт использует
-`CompactionInput.token_estimate`. Числа сообщений считаются по фактическим
-input/output. `metadata` — непрозрачные данные module, не источник этих полей.
-
-Тот же DTO возвращает workflow callback `host.history.compact`; актуальные
-границы — `compactor/v11` и `workflow/v19`, прежние slot versions не принимаются.
-Wire protocol остаётся v3, журнал использует schema v18.
-Workflow replay сохраняет typed поля `HistoryCompactionReport` и весь `metadata`, не подмешивая и не
-удаляя ключи с известными именами. Core помечает внутренний model callback
-compactor origin-ом `compactor` в journal envelope. Workflow replay проверяет
-завершённость этих exchanges, но восстанавливает compaction по report/history,
-не включая summary outcomes в последовательность прямых model calls workflow.
+Codex strategy выбирается `hook/codex_compact` в modules.hooks; настройки принадлежат
+module_config.hook.codex_compact. Python suffix использует тот же contract без модели.
+Отдельного compactor slot/export/adapter нет. Семантические reports и provenance
+Compactor сохраняют происхождение сжатия, но не дают особую authority.
+Подробности, ordered composition и replay — в
+[hook-tool-operations.md](hook-tool-operations.md).
 
 ### Tool Exposure
 
@@ -441,7 +414,7 @@ host-owned `ExecutionAttribution`: обязательный `ExecutionId` и opt
 
 Для узкого профиля тот же модуль принимает selectors `file_tools`,
 `git_tools`, `shell_tools`, `plan_tool`, `skill_tool`, `rust_lsp` и
-`policy_tools`. Они используют тот же `tool/v5` contract; selector не
+`policy_tools`. Они используют тот же `tool/v6` contract; selector не
 меняет authority.
 
 `apply_patch` предоставляется отдельным export `tool/direct_patch` или
@@ -572,7 +545,7 @@ cargo test -p proteus-reference-module --test conformance
 ```
 
 Тест выполняет не только handshake: он вызывает реальные file/search/patch/
-memory/policy/context/compactor/workflow paths, включая callbacks.
+memory/policy/context/preparation/workflow paths, включая callbacks.
 
 ## Единый Образец Реализации
 
@@ -639,11 +612,10 @@ memory/policy/context/compactor/workflow paths, включая callbacks.
 
 Адаптер слота сохраняет маршрутизацию вызовов, условия текущего вызова,
 отмену, ограничения по времени и различия в ошибках. `workflow` передаёт
-готовый `ModelFailure` в данные ошибки RPC; `compactor` получает его через
-`ModelFailure::from_error`. Оба используют общую упаковку ответа и ошибки из
-`host_rpc`, но по-разному преобразуют ошибку модели. В reference-модуле
-`model_aware_call` упаковывает обратные вызовы этих слотов в JSON и
-восстанавливает `ModelFailure` из данных ошибки. Для обратных вызовов
+готовый `ModelFailure` в данные ошибки RPC. Общие model callbacks hook/tool
+передают тот же typed failure через `OperationHost`, сохраняя invocation owner.
+В reference-модуле `model_aware_call` упаковывает обратные вызовы workflow,
+hook и tool в JSON и восстанавливает `ModelFailure` из данных ошибки. Для обратных вызовов
 `context` используются обычные ошибки; совпадение формата JSON не повод
 изменять их смысл.
 
@@ -662,7 +634,7 @@ memory/policy/context/compactor/workflow paths, включая callbacks.
 
 | Шаг | Где смотреть | Ответственность |
 |---|---|---|
-| Контракт слота | [tool.rs](../../crates/proteus-contracts/src/contracts/tool.rs) и [process_slots.rs](../../crates/proteus-contracts/src/contracts/process_slots.rs) | Общий `tool/v5` принимает `ToolCall` и возвращает `ToolResult`; canonical `SearchQuery` принадлежит [domain/search.rs](../../crates/proteus-contracts/src/domain/search.rs), не отдельному slot. |
+| Контракт слота | [tool.rs](../../crates/proteus-contracts/src/contracts/tool.rs) и [process_slots.rs](../../crates/proteus-contracts/src/contracts/process_slots.rs) | Общий `tool/v6` принимает `ToolCall` и возвращает `ToolResult`; canonical `SearchQuery` принадлежит [domain/search.rs](../../crates/proteus-contracts/src/domain/search.rs), не отдельному slot. |
 | Подключение выбранного export | [components.rs](../../crates/proteus-core/src/core/module_catalog/components.rs) и [tool.rs](../../crates/proteus-core/src/process_adapters/tool.rs) | Catalog регистрирует process tool provider; `list` обнаруживает `search`, `tools.enabled` включает его. Generic adapter вызывает `invoke`. |
 | Вызов компонента | [client.rs](../../crates/proteus-core/src/process_adapters/client.rs) и [broker.rs](../../crates/proteus-module-protocol/src/v3/broker.rs) | `ProcessExportClient` передаёт typed запрос и ссылку на export в `ComponentBroker`; broker управляет вызовом и общим process lifecycle компонента. |
 | Выбор export внутри модуля | [dispatch.rs](../../modules/reference/process-module/src/dispatch.rs) и [exports.rs](../../modules/reference/process-module/src/exports.rs) | Процессный модуль находит export по `slot/module_id`, проверяет метод и выбирает tool по `call.name`; результат упаковывается в `ProcessToolInvokeResponse`. |

@@ -28,10 +28,15 @@ async fn memory_recorder_keeps_observations_without_inventing_usage_or_summary_o
         inner: Arc::new(NoopExecutionRecorder),
         context: context.clone(),
     };
-    for origin in [ModelCallOrigin::Direct, ModelCallOrigin::Compactor] {
+    for origin in [ModelCallOrigin::Direct, ModelCallOrigin::Auxiliary] {
         let exchange = new_exchange_id();
         recorder
-            .model_request_recorded(exchange, origin, &request(Some(100_000)))
+            .model_request_recorded(
+                exchange,
+                origin,
+                crate::contracts::OperationOwner::Workflow,
+                &request(Some(100_000)),
+            )
             .await
             .unwrap();
         let mut response =
@@ -43,13 +48,18 @@ async fn memory_recorder_keeps_observations_without_inventing_usage_or_summary_o
             .unwrap();
     }
     for (origin, window) in [
-        (ModelCallOrigin::Compactor, Some(100_000)),
+        (ModelCallOrigin::Auxiliary, Some(100_000)),
         (ModelCallOrigin::Direct, None),
         (ModelCallOrigin::Direct, Some(100_000)),
     ] {
         let exchange = new_exchange_id();
         recorder
-            .model_request_recorded(exchange, origin, &request(window))
+            .model_request_recorded(
+                exchange,
+                origin,
+                crate::contracts::OperationOwner::Workflow,
+                &request(window),
+            )
             .await
             .unwrap();
         recorder
@@ -69,7 +79,12 @@ async fn memory_recorder_keeps_observations_without_inventing_usage_or_summary_o
     assert_eq!(context.lock().await.snapshot(), expected);
     let exchange = new_exchange_id();
     recorder
-        .model_request_recorded(exchange, ModelCallOrigin::Direct, &request(Some(100_000)))
+        .model_request_recorded(
+            exchange,
+            ModelCallOrigin::Direct,
+            crate::contracts::OperationOwner::Workflow,
+            &request(Some(100_000)),
+        )
         .await
         .unwrap();
     recorder
@@ -131,6 +146,7 @@ fn journal_prefix_excludes_other_threads_detached_and_nested_executions() {
             JournalEntry::ModelRequestRecorded(ModelRequestRecorded {
                 exchange_id,
                 origin: ModelCallOrigin::Direct,
+                owner: crate::contracts::OperationOwner::Workflow,
                 request: request(Some(window)),
             }),
         );

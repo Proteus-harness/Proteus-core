@@ -76,3 +76,24 @@ pub fn toml_component() -> String {
         serde_json::to_string(&reference_module()).unwrap()
     )
 }
+
+#[allow(dead_code)]
+pub fn no_context_preparation()
+-> std::sync::Arc<dyn proteus_contracts::contracts::ContextPreparation> {
+    struct Unchanged;
+    #[async_trait::async_trait]
+    impl proteus_contracts::contracts::ContextPreparation for Unchanged {
+        async fn prepare(
+            &self,
+            input: proteus_contracts::contracts::ContextPreparationInput,
+        ) -> anyhow::Result<proteus_contracts::contracts::ContextPreparationResult> {
+            Ok(proteus_contracts::contracts::ContextPreparationResult {
+                output: proteus_contracts::contracts::ContextPreparationOutput::unchanged(
+                    input.messages,
+                ),
+                target: None,
+            })
+        }
+    }
+    std::sync::Arc::new(Unchanged)
+}

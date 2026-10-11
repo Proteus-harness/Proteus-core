@@ -7,8 +7,7 @@ mod config_schemas;
 use crate::{
     contracts::{
         AgentControl, AgentWorkflowContext, ApprovalPolicy, ContextBuilder, EventEmitter,
-        ExecutionContext, HistoryCompactor, Model, ToolExposure, ToolRegistry, UserInputTransport,
-        Workflow,
+        ExecutionContext, Model, ToolExposure, ToolRegistry, UserInputTransport, Workflow,
     },
     core::{
         AgentControlRuntime, AppConfig, AssemblyPlan, BoundModel, ModeAwarePolicy,
@@ -16,7 +15,7 @@ use crate::{
         PreparedAssembly,
     },
     domain::{ModelRef, ReasoningConfig, SessionId, ThreadId, TurnId},
-    stubs::{DenyAllPolicy, EmptyContextBuilder, NoCompactor, NoWorkflow, UnfilteredToolExposure},
+    stubs::{DenyAllPolicy, EmptyContextBuilder, NoWorkflow, UnfilteredToolExposure},
 };
 
 #[derive(Clone)]
@@ -32,7 +31,6 @@ pub struct RuntimeRegistry {
     pub tools: ToolRegistry,
     pub(crate) process_tool_specs: Vec<(crate::contracts::ToolSource, crate::domain::ToolSpec)>,
     pub policy: Arc<dyn ApprovalPolicy>,
-    pub compactor: Arc<dyn HistoryCompactor>,
     pub tool_exposure: Arc<dyn ToolExposure>,
     pub agent_control: Option<Arc<dyn AgentControl>>,
     pub workflow: Arc<dyn Workflow>,
@@ -109,11 +107,6 @@ impl RuntimeRegistry {
                 Some(id) => catalog.build_context(id, &build_ctx)?,
                 None => Arc::new(EmptyContextBuilder),
             };
-        let compactor: Arc<dyn HistoryCompactor> =
-            match plan.module_id(crate::domain::ModuleKind::Compactor) {
-                Some(id) => catalog.build_compactor(id, &build_ctx)?,
-                None => Arc::new(NoCompactor),
-            };
         let tool_exposure: Arc<dyn ToolExposure> =
             match plan.module_id(crate::domain::ModuleKind::ToolExposure) {
                 Some(id) => catalog.build_tool_exposure(id, &build_ctx)?,
@@ -155,7 +148,6 @@ impl RuntimeRegistry {
             tools,
             process_tool_specs: surface.process_tool_specs,
             policy,
-            compactor,
             tool_exposure,
             agent_control,
             workflow,
@@ -189,16 +181,84 @@ impl RuntimeRegistry {
     ) -> Result<ExecutionContext> {
         let scope = model_binding.scope().clone();
         let attribution = model_binding.attribution();
-        let hooks = self.bind_hooks(scope.clone(), model_binding.recorder());
+        let chain = Arc::new(crate::core::RuntimeHookChain::new(
+            self.hooks.clone(),
+            scope.clone(),
+            model_binding.recorder(),
+            self.model_service.clone(),
+        ));
+        let hooks: Arc<dyn crate::contracts::ExecutionHooks> = chain.clone();
+        let weak_hooks: Arc<dyn crate::contracts::ExecutionHooks> = Arc::new(
+            super::extension_operations::WeakExecutionHooks(Arc::downgrade(&hooks)),
+        );
         let policy: Arc<dyn ApprovalPolicy> =
             Arc::new(ModeAwarePolicy::new(permission_mode, self.policy.clone()));
         let selected_tools = self.tools_for_model(model_ref)?;
+        let permission_grants: Arc<crate::contracts::ExecutionPermissionGrants> = Arc::default();
+        let origin = match attribution.agent {
+            Some(agent) => crate::contracts::RequestOrigin::for_turn(
+                scope.execution_id,
+                agent.thread_id,
+                agent.turn_id,
+            ),
+            None => crate::contracts::RequestOrigin::for_execution(scope.execution_id),
+        };
+        let tool_binding = crate::core::ToolExecutionBinding::attributed(
+            scope.clone(),
+            attribution,
+            origin,
+            model_binding.tool_recorder(),
+        );
         let tools = crate::core::BoundTools::new(
             selected_tools.clone(),
             policy.clone(),
             approval.clone(),
-            Arc::default(),
-            crate::core::ToolExecutionBinding::detached(scope.clone()),
+            permission_grants.clone(),
+            tool_binding,
+        )
+        .with_conversation(
+            model_binding.conversation_reader(),
+            attribution.agent.map(|agent| agent.session_id),
+        );
+        let auxiliary_model = self.model_service.as_ref().map(|service| {
+            Arc::new(
+                BoundModel::new(
+                    service.clone(),
+                    model_binding.clone(),
+                    self.runtime_config.model_timeout_ms,
+                )
+                .with_tool_authority(tools.clone())
+                .with_hooks(
+                    Arc::new(crate::contracts::NoExecutionHooks),
+                    attribution,
+                    self.cwd.clone(),
+                ),
+            ) as Arc<dyn Model>
+        });
+        let operations =
+            Arc::new_cyclic(|weak| super::extension_operations::InvocationOperations {
+                operations: Some(super::extension_operations::ExtensionOperations {
+                    model: auxiliary_model.clone(),
+                    tools: tools
+                        .clone()
+                        .with_hooks(weak_hooks)
+                        .with_operations(Some(Arc::new(
+                            super::extension_operations::WeakToolHost(weak.clone()),
+                        ))),
+                }),
+                owner: crate::contracts::OperationOwner::Workflow,
+                lineage: vec![],
+                cancellation: scope.cancellation.clone(),
+                cwd: self.cwd.clone(),
+                model_allowed: true,
+                tools_allowed: true,
+            });
+        chain.bind_operations(
+            operations
+                .operations
+                .as_ref()
+                .expect("bound operations")
+                .clone(),
         );
         let model = self.model_service.as_ref().map(|service| {
             Arc::new(
@@ -211,7 +271,7 @@ impl RuntimeRegistry {
                 .with_tool_authority(tools),
             ) as Arc<dyn Model>
         });
-        Ok(ExecutionContext::new(
+        let mut execution = ExecutionContext::new(
             scope,
             self.runtime_config.model_timeout_ms,
             model,
@@ -219,7 +279,10 @@ impl RuntimeRegistry {
             policy,
             approval,
         )
-        .with_hooks(hooks))
+        .with_hooks(hooks)
+        .with_operations(operations);
+        execution.permission_grants = permission_grants;
+        Ok(execution)
     }
 
     pub(crate) fn tools_for_model(&self, model: Option<&ModelRef>) -> Result<ToolRegistry> {
@@ -295,6 +358,17 @@ impl RuntimeRegistry {
         events: Arc<EventEmitter>,
         user_input: Arc<dyn UserInputTransport>,
     ) -> AgentWorkflowContext {
+        let preparation = Arc::new(super::context_preparation::RuntimeContextPreparation::new(
+            execution.clone(),
+            crate::contracts::ExecutionAttribution::for_turn(
+                execution.scope.execution_id,
+                session_id,
+                thread_id,
+                turn_id,
+            ),
+            self.cwd.clone(),
+            None,
+        ));
         AgentWorkflowContext::new(
             execution,
             session_id,
@@ -306,7 +380,7 @@ impl RuntimeRegistry {
             events,
             self.context.clone(),
             user_input,
-            self.compactor.clone(),
+            preparation,
             self.tool_exposure.clone(),
             self.agent_control.clone(),
         )

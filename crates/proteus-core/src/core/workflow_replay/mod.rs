@@ -25,8 +25,8 @@ pub use report::*;
 use fixture::load_fixture;
 use normalize::changed_compactions_equal;
 use replay_runtime::{
-    ReplayApprovalTransport, ReplayCompactor, ReplayContextBuilder, ReplayHooks, ReplayModel,
-    ReplayState, ReplayToolExposure, register_replay_tools,
+    ReplayApprovalTransport, ReplayContextBuilder, ReplayContextPreparation, ReplayHooks,
+    ReplayModel, ReplayState, ReplayToolExposure, register_replay_tools,
 };
 
 /// Replays one recorded root turn through its selected Workflow module.
@@ -86,6 +86,8 @@ pub async fn replay_workflow(
             .expect("persisted current user message")
             .id,
     ));
+    state.set_auxiliary(fixture.auxiliary.clone());
+    state.bind_history(fixture.execution_id, fixture.initial_revision);
     let tools = register_replay_tools(state.clone(), specs)?;
 
     let mut replay_config = config.clone();
@@ -165,11 +167,14 @@ pub async fn replay_workflow(
     let mut execution_context =
         ExecutionContext::new(scope, 0, Some(model), tools, policy, approval);
     execution_context.hooks = hooks.clone();
-    let checkpoint_recorder = Arc::new(replay_runtime::ReplayCheckpointRecorder::new(
-        state.clone(),
-        fixture.initial_history.clone(),
-        fixture.checkpoints.clone(),
-    ));
+    let checkpoint_recorder = Arc::new(
+        replay_runtime::ReplayCheckpointRecorder::new(
+            state.clone(),
+            fixture.initial_history.clone(),
+            fixture.checkpoints.clone(),
+        )
+        .with_execution(fixture.execution_id),
+    );
     let mut workflow_context = AgentWorkflowContext::new(
         execution_context,
         fixture.session_id,
@@ -181,7 +186,10 @@ pub async fn replay_workflow(
         events,
         Arc::new(ReplayContextBuilder::new(state.clone())),
         Arc::new(HeadlessUserInputTransport),
-        Arc::new(ReplayCompactor::new(state.clone())),
+        Arc::new(ReplayContextPreparation::new(
+            state.clone(),
+            fixture.snapshot.modules.hooks.clone(),
+        )),
         Arc::new(ReplayToolExposure::new(state.clone())),
         None,
     )

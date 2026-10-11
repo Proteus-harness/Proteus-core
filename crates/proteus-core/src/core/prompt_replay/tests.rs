@@ -119,6 +119,7 @@ impl TestJournal {
                     self.turn_id,
                 ),
                 JournalEntry::ModelRequestRecorded(ModelRequestRecorded {
+                    owner: crate::contracts::OperationOwner::Workflow,
                     exchange_id,
                     origin: ModelCallOrigin::Direct,
                     request,

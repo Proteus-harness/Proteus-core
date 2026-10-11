@@ -10,7 +10,7 @@ fn failure(
     )))
 }
 
-fn recovery_input(retries: u64) -> CompactionInput {
+fn recovery_input(retries: u64) -> TestInput {
     input(vec![CanonicalMessage::text(MessageRole::User, "work")], 500)
         .with_config(json!({"trigger_tokens": 100, "stream_max_retries": retries}))
 }

@@ -15,7 +15,7 @@ impl Compactor {
     fn id(self) -> &'static str {
         match self {
             Self::PythonSuffix => "python_suffix",
-            Self::Codex => "codex",
+            Self::Codex => "codex_compact",
         }
     }
 }
@@ -56,29 +56,28 @@ fn composition_config(kind: Compactor, capture: &Path, state: &Path) -> AppConfi
     let mut config: AppConfig = serde_json::from_value(json!({
         "active_provider": "dcp-probe",
         "providers": {"dcp-probe": {"provider":"dcp-probe", "model":"probe", "stream":true}},
-        "modules": {"workflow":"coding.codex_loop", "context":"codex_context", "policy":"allow_all", "compactor":kind.id(), "hooks":["hook.dcp"]},
+        "modules": {"workflow":"coding.codex_loop", "context":"codex_context", "policy":"allow_all", "hooks":[kind.id(), "hook.dcp"]},
         "tools": {"enabled":["compress","dcp"]},
         "components": {
             "reference-agent": {"command":test_model::reference_module(), "exports": {
-                "workflow":{"coding.codex_loop":{}}, "context":{"codex_context":{}}, "policy":{"allow_all":{}}, "compactor":{"codex":{}}
+                "workflow":{"coding.codex_loop":{}}, "context":{"codex_context":{}}, "policy":{"allow_all":{}}, "hook":{"codex_compact":{}}
             }},
             "dcp": {"command":"node", "args":[worker], "exports":{"hook":{"hook.dcp":{}},"tool":{"dcp.tools":{}}}},
             "probe": {"command":"python3", "args":["-B",workspace_file("crates/proteus-core/tests/fixtures/dcp_compaction_model.py")], "exports":{"model":{"dcp-probe":{}}}}
         },
         "module_config": {
             "context":{"codex_context":{"providers":[]}},
-            "hook":{"hook.dcp":{"state_dir":state}}, "tool":{"dcp.tools":{"state_dir":state}},
+            "hook":{"hook.dcp":{"state_dir":state}, "codex_compact":{"trigger_tokens":2000}, "python_suffix":{"trigger_messages":7,"retain_user_turns":1}}, "tool":{"dcp.tools":{"state_dir":state}},
             "model":{"dcp-probe":{
                 "descriptor":ProcessModelDescriptor{adapter_id:"dcp-probe".into(),capabilities:ModelCapabilities::basic_text_and_tools().with_streaming(true),hosted_tools:vec![]},
                 "capture":capture
-            }},
-            "compactor":{"codex":{"trigger_tokens":2000},"python_suffix":{"trigger_messages":7,"retain_user_turns":1}}
+            }}
         },
         "runtime":{"model_timeout_ms":5000,"workflow_timeout_ms":15000}
     })).unwrap();
     if matches!(kind, Compactor::PythonSuffix) {
         config.components.insert("suffix".into(), serde_json::from_value(json!({
-            "command":"python3", "args":["-B",workspace_file("examples/modules/compactor-process/compact.py")], "exports":{"compactor":{"python_suffix":{}}}
+            "command":"python3", "args":["-B",workspace_file("examples/modules/context-preparation-process/prepare.py")], "exports":{"hook":{"python_suffix":{}}}
         })).unwrap());
     }
     config
@@ -150,6 +149,22 @@ async fn check_composition(kind: Compactor) {
         })
         .expect("real compactor replacement was checkpointed");
     assert_eq!(checkpoint.mutation, HistoryMutationKind::Checkpoint);
+    let target = journal
+        .iter()
+        .find_map(|record| match &record.entry {
+            JournalEntry::HookInvoked(trace) => match &trace.output {
+                Some(HookEvent::BeforeContext {
+                    output,
+                    target: Some(target),
+                    ..
+                }) if output.changed => Some(target),
+                _ => None,
+            },
+            _ => None,
+        })
+        .expect("changed preparation has a host-bound target");
+    assert_eq!(target.revision, checkpoint.previous_revision);
+    assert_eq!(checkpoint.new_revision, checkpoint.previous_revision + 1);
     assert!(
         checkpoint
             .messages

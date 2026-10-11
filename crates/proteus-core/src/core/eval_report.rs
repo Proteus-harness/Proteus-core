@@ -127,7 +127,7 @@ impl EvalAccumulator {
                 }
             }
             JournalEntry::ToolCallRecorded(tool) => match &tool.phase {
-                ToolCallRecordPhase::Requested => {
+                ToolCallRecordPhase::Requested { .. } => {
                     self.tool_calls += 1;
                     self.calls.insert(tool.call.id.clone(), tool.call.clone());
                 }
@@ -325,6 +325,7 @@ mod tests {
             .append_execution_journal_entry(
                 attribution,
                 JournalEntry::ModelRequestRecorded(ModelRequestRecorded {
+                    owner: crate::contracts::OperationOwner::Workflow,
                     exchange_id,
                     origin: ModelCallOrigin::Direct,
                     request,
@@ -354,7 +355,9 @@ mod tests {
             json!({ "path": "src/output.rs" }),
         );
         for phase in [
-            ToolCallRecordPhase::Requested,
+            ToolCallRecordPhase::Requested {
+                owner: crate::contracts::OperationOwner::Workflow,
+            },
             ToolCallRecordPhase::ApprovalRequested {
                 reason: "write".to_owned(),
             },
@@ -390,8 +393,10 @@ mod tests {
                     .append_execution_journal_entry(
                         attribution,
                         JournalEntry::HookInvoked(HookTrace {
+                            owner: crate::contracts::OperationOwner::Workflow,
                             input,
                             steps: vec![HookStep {
+                                invocation_id: uuid::Uuid::new_v4(),
                                 module_id: "fixture".into(),
                                 outcome: HookStepOutcome::Accepted { response },
                             }],
@@ -405,7 +410,7 @@ mod tests {
                 .append_execution_journal_entry(
                     attribution,
                     JournalEntry::ToolCallRecorded(ToolCallRecorded {
-                        call: if !matches!(phase, ToolCallRecordPhase::Requested) {
+                        call: if !matches!(phase, ToolCallRecordPhase::Requested { .. }) {
                             let mut effective = call.clone();
                             effective.args = json!({ "path": "src/effective.rs" });
                             effective

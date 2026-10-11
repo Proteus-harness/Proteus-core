@@ -1,5 +1,5 @@
 use crate::history::message_text;
-use proteus_contracts::{contracts::CompactionInput, model_standard::CanonicalMessage};
+use proteus_contracts::{contracts::ContextPreparationInput, model_standard::CanonicalMessage};
 
 const DEFAULT_USER_MESSAGE_BUDGET_TOKENS: usize = 20_000;
 
@@ -61,16 +61,19 @@ fn truncate_middle_with_token_budget(text: &str, max_tokens: usize) -> String {
 /// Mirrors the pinned Codex local auto-compact limit: 90% of the raw context
 /// window, with an explicitly configured limit capped at that value. The
 /// caller must not invent a default when the provider did not expose a window.
-pub(crate) fn resolve_trigger_tokens(input: &CompactionInput) -> Result<Option<u32>, String> {
-    let configured = crate::config::CompactorConfig::parse(&input.config)?.trigger_tokens;
+pub(crate) fn resolve_trigger_tokens(
+    input: &ContextPreparationInput,
+    config: &crate::config::CompactorConfig,
+) -> Option<u32> {
+    let configured = config.trigger_tokens;
     let context_limit = input
         .window_tokens
         .map(|window| (u64::from(window) * 9 / 10) as u32);
     match (configured, context_limit) {
-        (Some(configured), Some(context_limit)) => Ok(Some(configured.min(context_limit))),
-        (Some(configured), None) => Ok(Some(configured)),
-        (None, Some(context_limit)) => Ok(Some(context_limit)),
-        (None, None) => Ok(None),
+        (Some(configured), Some(context_limit)) => Some(configured.min(context_limit)),
+        (Some(configured), None) => Some(configured),
+        (None, Some(context_limit)) => Some(context_limit),
+        (None, None) => None,
     }
 }
 

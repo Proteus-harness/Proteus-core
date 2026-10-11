@@ -33,7 +33,7 @@ class Peer:
         self.sequence = 0
         self.send({"id": "h:1:0", "method": "initialize", "params": {
             "protocol_version": "v3", "component_id": "tgrep-test", "exports": [{
-                "slot": "tool", "module_id": "tgrep_search", "contract_version": "v5",
+                "slot": "tool", "module_id": "tgrep_search", "contract_version": "v6",
                 "composition": "ordered_many", "host_features": [], "module_config": config,
             }],
         }})

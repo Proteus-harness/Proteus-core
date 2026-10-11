@@ -2,21 +2,21 @@ use std::{path::Path, sync::Arc, time::Duration};
 
 use proteus_contracts::{
     contracts::{
-        CONTEXT_HOST_PROVIDER_METHOD, ExecutionAttribution, PROCESS_COMPACTOR_METHOD,
-        PROCESS_CONTEXT_BUILD_METHOD, PROCESS_CONTEXT_PROVIDER_METHOD,
+        CONTEXT_HOST_PROVIDER_METHOD, ExecutionAttribution, PROCESS_CONTEXT_BUILD_METHOD,
+        PROCESS_CONTEXT_PROVIDER_METHOD, PROCESS_HOOK_INVOKE_METHOD,
         PROCESS_POLICY_EVALUATE_METHOD, PROCESS_TOOL_EXPOSURE_SELECT_METHOD,
         PROCESS_TOOL_INVOKE_METHOD, PROCESS_TOOL_LIST_METHOD, PROCESS_WORKFLOW_METHOD,
-        ProcessCompactionResponse, ProcessContextChunksResponse, ProcessContextInput,
-        ProcessContextProviderInput, ProcessContextProviderRequest, ProcessContextResponse,
+        ProcessContextChunksResponse, ProcessContextInput, ProcessContextProviderInput,
+        ProcessContextProviderRequest, ProcessContextResponse, ProcessHookResponse,
         ProcessPolicyEvaluateInput, ProcessPolicyResponse, ProcessToolExposureInput,
         ProcessToolExposureResponse, ProcessToolInvokeInput, ProcessToolInvokeResponse,
         ProcessToolListResponse, ProcessWorkflowInput, ProcessWorkflowResponse,
         ProcessWorkflowRuntimeInfo, ToolExposureInput, ToolExposureOutput, ToolExposureRequest,
-        WORKFLOW_HOST_BUILD_CONTEXT_METHOD, WORKFLOW_HOST_COMPACT_HISTORY_METHOD,
-        WORKFLOW_HOST_COMPLETE_MODEL_METHOD, WORKFLOW_HOST_EMIT_EVENT_METHOD,
+        WORKFLOW_HOST_BUILD_CONTEXT_METHOD, WORKFLOW_HOST_COMPLETE_MODEL_METHOD,
+        WORKFLOW_HOST_EMIT_EVENT_METHOD, WORKFLOW_HOST_PREPARE_CONTEXT_METHOD,
         WORKFLOW_HOST_RUNTIME_STATUS_METHOD, WORKFLOW_HOST_SELECT_TOOLS_METHOD,
         WORKFLOW_HOST_VISIBLE_TOOLS_METHOD, WorkflowBuildContextRequest,
-        WorkflowCompactHistoryRequest, WorkflowCompleteModelRequest, WorkflowHostAck,
+        WorkflowCompleteModelRequest, WorkflowHostAck, WorkflowPrepareContextRequest,
         WorkflowRuntimeStatus,
     },
     domain::{
@@ -160,7 +160,7 @@ fn all_reference_exports_share_a_component_and_route_over_one_broker() {
         ("context", "repo_aware"),
         ("context", "codex_context"),
         ("context_provider", "skills"),
-        ("compactor", "codex"),
+        ("hook", "codex_compact"),
         ("tool_exposure", "codex_dynamic"),
         ("hook", "hook.instructions"),
         ("hook", "hook.output_budget"),
@@ -223,7 +223,13 @@ fn all_reference_exports_share_a_component_and_route_over_one_broker() {
         use proteus_contracts::contracts::{
             HookEvent, HookInput, HookResponse, ModelCallOrigin, ProcessHookResponse,
         };
-        let event = if target.module_id == "hook.instructions" {
+        let event = if target.module_id == "codex_compact" {
+            HookEvent::BeforeContext {
+                input: proteus_contracts::contracts::ContextPreparationInput::new(vec![], None),
+                output: proteus_contracts::contracts::ContextPreparationOutput::unchanged(vec![]),
+                target: None,
+            }
+        } else if target.module_id == "hook.instructions" {
             HookEvent::BeforeModel {
                 origin: ModelCallOrigin::Direct,
                 request: proteus_contracts::model_standard::CanonicalModelRequest::new(
@@ -259,6 +265,10 @@ fn all_reference_exports_share_a_component_and_route_over_one_broker() {
                 assert_eq!(instructions.last().unwrap().text, "Verify assumptions");
             }
             HookResponse::ToolOutput { output } => assert_eq!(output, "аёж"),
+            HookResponse::ContextPreparation { output } => {
+                assert!(!output.changed);
+                assert!(output.messages.is_empty());
+            }
             other => panic!("unexpected hook response {other:?}"),
         }
     }
@@ -643,25 +653,33 @@ fn policy_exposure_provider_and_compactor_execute_in_worker() {
     );
     assert_eq!(chunks.result.len(), 1);
 
-    let compactor = connect(workspace.path(), "compactor", "codex", json!({}));
+    let hook = connect(workspace.path(), "hook", "codex_compact", json!({}));
     let messages = vec![CanonicalMessage::text(MessageRole::User, "small history")];
-    let compacted: ProcessCompactionResponse = invoke(
-        &compactor,
-        PROCESS_COMPACTOR_METHOD,
-        serde_json::to_value(
-            proteus_contracts::contracts::CompactionInput::new(
-                AgentTask::new("continue", workspace.path().to_path_buf()),
-                proteus_contracts::model_standard::CanonicalModelRequest::new(
-                    ModelRef::new("fake", "fake-model"),
+    let input = proteus_contracts::contracts::ContextPreparationInput::new(messages.clone(), None)
+        .with_token_estimate(Some(10));
+    let prepared: ProcessHookResponse = invoke(
+        &hook,
+        PROCESS_HOOK_INVOKE_METHOD,
+        serde_json::to_value(proteus_contracts::contracts::HookInput {
+            event: proteus_contracts::contracts::HookEvent::BeforeContext {
+                output: proteus_contracts::contracts::ContextPreparationOutput::unchanged(
                     messages.clone(),
                 ),
-            )
-            .with_token_estimate(Some(10)),
-        )
-        .expect("compaction input"),
+                input,
+                target: None,
+            },
+            attribution: ExecutionAttribution::detached(new_execution_id()),
+            cwd: workspace.path().to_path_buf(),
+            conversation: None,
+        })
+        .unwrap(),
     );
-    assert!(!compacted.output.changed);
-    assert_eq!(compacted.output.messages, messages);
+    let proteus_contracts::contracts::HookResponse::ContextPreparation { output } = prepared.result
+    else {
+        panic!("expected preparation report")
+    };
+    assert!(!output.changed);
+    assert_eq!(output.messages, messages);
 }
 
 struct ContextDispatcher;
@@ -785,18 +803,21 @@ fn dispatch_workflow_callback(
         }
         WORKFLOW_HOST_SELECT_TOOLS_METHOD => encode_callback(ToolExposureOutput::new(Vec::new())),
         WORKFLOW_HOST_VISIBLE_TOOLS_METHOD => encode_callback(Vec::<ToolSpec>::new()),
-        WORKFLOW_HOST_COMPACT_HISTORY_METHOD => {
-            let input: WorkflowCompactHistoryRequest = serde_json::from_value(request.params)
+        WORKFLOW_HOST_PREPARE_CONTEXT_METHOD => {
+            let input: WorkflowPrepareContextRequest = serde_json::from_value(request.params)
                 .map_err(|error| ProcessModuleRpcError::new(-32602, error.to_string()))?;
-            let mut output = proteus_contracts::contracts::CompactionOutput::unchanged(
-                input.input.request.messages,
+            let mut output = proteus_contracts::contracts::ContextPreparationOutput::unchanged(
+                input.input.messages,
             );
             output.original_token_estimate = Some(40);
             output.token_estimate = Some(40);
             output.trigger_tokens = Some(100);
             output.skipped_reason = Some("fixture_below_trigger".to_owned());
             output.metadata = json!({"trigger_tokens": 999, "input_messages": 999});
-            encode_callback(output)
+            encode_callback(proteus_contracts::contracts::ContextPreparationResult {
+                output,
+                target: None,
+            })
         }
         WORKFLOW_HOST_COMPLETE_MODEL_METHOD => {
             let input: WorkflowCompleteModelRequest = serde_json::from_value(request.params)
@@ -814,7 +835,16 @@ fn dispatch_workflow_callback(
                     .map_err(|error| ProcessModuleRpcError::new(-32602, error.to_string()))?;
             assert!(!checkpoint.history.new_messages.is_empty());
             assert!(checkpoint.tool_results.is_empty());
-            encode_callback(WorkflowHostAck::default())
+            let messages = checkpoint
+                .history
+                .history_replacement
+                .clone()
+                .unwrap_or_else(|| checkpoint.history.new_messages.clone());
+            encode_callback(proteus_contracts::contracts::WorkflowCheckpointAck {
+                history: checkpoint.history,
+                messages,
+                revision: None,
+            })
         }
         WORKFLOW_HOST_EMIT_EVENT_METHOD => encode_callback(WorkflowHostAck::default()),
         method => Err(ProcessModuleRpcError::new(
@@ -1096,7 +1126,7 @@ fn workflow_input(workspace: &Path) -> Value {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn targeted_cancel_keeps_concurrent_sibling_and_generation_alive() {
     let workspace = tempfile::tempdir().expect("workspace");
-    let workflow = ProcessExportBinding::new("workflow", "coding.single_loop", "v19", json!({}))
+    let workflow = ProcessExportBinding::new("workflow", "coding.single_loop", "v20", json!({}))
         .expect("workflow binding");
     let workflow_target = workflow.export_ref();
     let policy =

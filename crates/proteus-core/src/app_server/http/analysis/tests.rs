@@ -64,7 +64,8 @@ async fn cold_analysis_preserves_historical_inputs_failures_and_unknown_effects(
         owner,
         JournalEntry::ModelRequestRecorded(ModelRequestRecorded {
             exchange_id: exchange,
-            origin: ModelCallOrigin::Compactor,
+            origin: ModelCallOrigin::Auxiliary,
+            owner: crate::contracts::OperationOwner::Workflow,
             request: request.clone(),
         }),
     )
@@ -83,7 +84,9 @@ async fn cold_analysis_preserves_historical_inputs_failures_and_unknown_effects(
     for id in ["finished", "unknown"] {
         let call = ToolCall::new(id, "shell", json!({"command":"append"}));
         for phase in [
-            ToolCallRecordPhase::Requested,
+            ToolCallRecordPhase::Requested {
+                owner: crate::contracts::OperationOwner::Workflow,
+            },
             ToolCallRecordPhase::ApprovalRequested {
                 reason: "confirm append".into(),
             },
@@ -167,7 +170,7 @@ async fn cold_analysis_preserves_historical_inputs_failures_and_unknown_effects(
             ..
         } => {
             assert_eq!(**actual, request);
-            assert_eq!(*origin, ModelCallOrigin::Compactor);
+            assert_eq!(*origin, ModelCallOrigin::Auxiliary);
             assert_eq!(failure.as_ref().unwrap().message, "summary failed");
         }
         _ => panic!("model step"),

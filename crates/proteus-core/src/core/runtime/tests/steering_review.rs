@@ -8,7 +8,11 @@ struct ReviewingHook {
 }
 #[async_trait]
 impl HookHandler for ReviewingHook {
-    async fn invoke(&self, input: HookInput, _: CancellationToken) -> Result<HookResponse> {
+    async fn invoke(
+        &self,
+        input: HookInput,
+        _: Arc<dyn crate::contracts::HookHost>,
+    ) -> Result<HookResponse> {
         if let HookEvent::BeforeStop {
             history, attempt, ..
         } = input.event

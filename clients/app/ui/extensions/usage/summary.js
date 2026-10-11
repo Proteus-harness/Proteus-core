@@ -1,12 +1,12 @@
 import { requestCost } from './pricing.js';
 
 export function summarize(requests, rates) {
-  const result = { requests: requests.length, reported: 0, input: 0, output: 0, cached: null, write: null, reasoning: null, cost: 0, priced: 0, unfinished: 0, errors: 0, compactions: 0 };
+  const result = { requests: requests.length, reported: 0, input: 0, output: 0, cached: null, write: null, reasoning: null, cost: 0, priced: 0, unfinished: 0, errors: 0, auxiliaryRequests: 0 };
   result.detailsReported = { cached: 0, write: 0, reasoning: 0 };
   for (const request of requests) {
     if (request.status === 'unfinished') result.unfinished++;
     else if (request.status !== 'completed') result.errors++;
-    if (request.origin === 'compactor') result.compactions++;
+    if (request.origin === 'auxiliary') result.auxiliaryRequests++;
     if (request.usage) {
       result.reported++;
       result.input += request.usage.input_tokens;

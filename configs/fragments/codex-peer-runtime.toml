@@ -2,9 +2,9 @@
 # role prompt, tool surface и policy задаются named child config/profile.
 
 [modules]
+hooks = ["codex_compact"]
 workflow = "coding.codex_loop"
 context = "codex_context"
-compactor = "codex"
 
 [components.reference-workflow]
 command = "proteus-reference-module"
@@ -32,7 +32,7 @@ env_allowlist = ["HOME", "PROTEUS_HOME"]
 
 [components.reference-capabilities.exports.tool.codex_patch]
 
-[components.reference-capabilities.exports.compactor.codex]
+[components.reference-capabilities.exports.hook.codex_compact]
 
 [components.reference-capabilities.exports.tool.file_tools]
 
@@ -51,7 +51,7 @@ env_allowlist = ["HOME", "PROTEUS_HOME"]
 [agent_control]
 surface = "none"
 
-[module_config.compactor.codex]
+[module_config.hook.codex_compact]
 # Порог по умолчанию: 90% окна модели; trigger_tokens может задать меньший.
 
 [module_config.tool.codex_patch]

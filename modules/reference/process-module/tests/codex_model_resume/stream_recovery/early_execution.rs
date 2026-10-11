@@ -160,7 +160,7 @@ async fn check(ending: Ending) {
         assert_eq!(failures[0].kind, ModelFailureKind::StreamDisconnected);
         assert_eq!(failures[0].message, "idle timeout waiting for SSE");
     }
-    let tool_started = projection.records.iter().position(|record| matches!(&record.entry, JournalEntry::ToolCallRecorded(tool) if tool.call.id == CALL_ID && tool.phase == proteus_core::core::ToolCallRecordPhase::Requested)).unwrap();
+    let tool_started = projection.records.iter().position(|record| matches!(&record.entry, JournalEntry::ToolCallRecorded(tool) if tool.call.id == CALL_ID && matches!(tool.phase, proteus_core::core::ToolCallRecordPhase::Requested { .. }))).unwrap();
     let terminal = projection
         .records
         .iter()

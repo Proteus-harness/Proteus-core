@@ -43,14 +43,14 @@ Tool получает canonical `ToolCall`, cwd и обязательную exec
 `input.metadata` и возвращает structured `ContextChunk`; context не парсит
 текст tool output и не вызывает tool. Exports делят lifecycle, не authority.
 
-Компонент говорит на strict component protocol v3, `tool/v5` и
+Компонент говорит на strict component protocol v3, `tool/v6` и
 `context_provider/v4`. Отдельный
 protocol smoke без запуска всего `proteus-core`:
 
 ```bash
 cargo run -p proteus-module-protocol --bin proteus-component-conformance -- \
   --component-id python-search \
-  --export '{"slot":"tool","module_id":"python_rg","contract_version":"v5","module_config":{}}' \
+  --export '{"slot":"tool","module_id":"python_rg","contract_version":"v6","module_config":{}}' \
   --probe-export tool/python_rg \
   --probe-method list \
   --probe-params 'null' \

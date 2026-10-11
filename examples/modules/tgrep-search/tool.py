@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Standalone tool/search implementation using tgrep, Component v3 / tool v5."""
+"""Standalone tool/search implementation using tgrep, Component v3 / tool v6."""
 
 from __future__ import annotations
 
@@ -32,8 +32,8 @@ def initialize(params: Any) -> dict[str, Any]:
         "slot", "module_id", "contract_version", "composition", "module_config", "host_features",
     }, "initialize export")
     if (export["slot"] != "tool" or export["module_id"] != MODULE_ID
-            or export["contract_version"] != "v5" or export["composition"] != "ordered_many"):
-        raise ProtocolError("expected tool/tgrep_search v5 ordered_many")
+            or export["contract_version"] != "v6" or export["composition"] != "ordered_many"):
+        raise ProtocolError("expected tool/tgrep_search v6 ordered_many")
     if export["host_features"] != []:
         raise ProtocolError("tgrep tool does not use host features")
     supplied = export["module_config"]
@@ -43,7 +43,7 @@ def initialize(params: Any) -> dict[str, Any]:
         raise ProtocolError("binary and index_path must be non-empty strings")
     config = supplied.copy()
     return {"protocol_version": PROTOCOL_VERSION, "component_id": params["component_id"],
-            "exports": [{**EXPORT, "contract_version": "v5", "composition": "ordered_many",
+            "exports": [{**EXPORT, "contract_version": "v6", "composition": "ordered_many",
                          "module_features": [], "config_schema": None}]}
 
 

@@ -24,7 +24,7 @@ members = [
     "modules/reference/context-pack",
     "modules/reference/skill-pack",
     "modules/reference/rust-lsp",
-    "modules/reference/codex-compactor",
+    "modules/reference/codex-context-preparation",
     "modules/reference/codex-tool-exposure",
     "modules/reference/memory-pack",
     "modules/reference/policy-pack",
