@@ -16,6 +16,7 @@ use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::*;
 use gpui_kit::*;
 
+use crate::tabs::Edge;
 use workspace::Status;
 pub use workspace::Workspace;
 
@@ -28,7 +29,13 @@ gpui_kit::actions!(
         NextSettingsPage,
         PreviousSettingsPage,
         NextTab,
-        PreviousTab
+        PreviousTab,
+        SplitRight,
+        SplitDown,
+        FocusPaneLeft,
+        FocusPaneRight,
+        FocusPaneUp,
+        FocusPaneDown
     ]
 );
 
@@ -44,6 +51,13 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("alt-up", PreviousSettingsPage, Some(SETTINGS_CONTEXT)),
         KeyBinding::new("ctrl-tab", NextTab, None),
         KeyBinding::new("ctrl-shift-tab", PreviousTab, None),
+        KeyBinding::new("ctrl-\\", SplitRight, None),
+        // Shift+\ arrives as `|`.
+        KeyBinding::new("ctrl-|", SplitDown, None),
+        KeyBinding::new("ctrl-alt-left", FocusPaneLeft, None),
+        KeyBinding::new("ctrl-alt-right", FocusPaneRight, None),
+        KeyBinding::new("ctrl-alt-up", FocusPaneUp, None),
+        KeyBinding::new("ctrl-alt-down", FocusPaneDown, None),
     ]);
     extensions::bind_keys(cx);
 }
@@ -75,7 +89,25 @@ impl Render for Workspace {
             .on_action(
                 cx.listener(|this, _: &PreviousTab, window, cx| this.step_tab(-1, window, cx)),
             )
-            .on_drop(cx.listener(|this, _: &tabs::SplitDrag, _, cx| this.set_split(None, cx)));
+            .on_action(cx.listener(|this, _: &SplitRight, window, cx| {
+                this.split_active(Edge::Right, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &SplitDown, window, cx| {
+                this.split_active(Edge::Bottom, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &FocusPaneLeft, window, cx| {
+                this.focus_neighbor(Edge::Left, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &FocusPaneRight, window, cx| {
+                this.focus_neighbor(Edge::Right, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &FocusPaneUp, window, cx| {
+                this.focus_neighbor(Edge::Top, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &FocusPaneDown, window, cx| {
+                this.focus_neighbor(Edge::Bottom, window, cx)
+            }))
+            .on_drop(cx.listener(|this, _: &tabs::SplitDrag, _, cx| this.finish_resize(cx)));
         match &self.status {
             Status::Starting => root.child(centered(
                 h_flex()

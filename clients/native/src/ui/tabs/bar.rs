@@ -6,8 +6,7 @@ use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
-use crate::preferences::BadgePlace;
-use crate::tabs::{self, TabLayout};
+use crate::tabs::{self, Pane, PaneId, TabLayout};
 use crate::ui::chat::ChatState;
 use crate::ui::drag;
 use crate::ui::extensions;
@@ -90,15 +89,19 @@ impl Workspace {
 
     pub(super) fn render_tab_bar(
         &self,
-        group: usize,
+        pane: &Pane,
         layout: &TabLayout,
         cx: &Context<Self>,
     ) -> impl IntoElement + use<> {
         let theme = cx.theme();
-        let tabs = &layout.groups[group];
-        let focused = layout.focused == group;
-        let last = group + 1 == layout.groups.len();
-        let end_group = SharedString::from(format!("tab-end-{group}"));
+        let id = pane.id;
+        let focused = layout.focused == id;
+        let end_group = SharedString::from(format!("tab-end-{}", id.0));
+        let strip = self
+            .tab_strips
+            .get(&id)
+            .map(|(strip, _)| strip.clone())
+            .unwrap_or_default();
         h_flex()
             .h(px(BAR_HEIGHT))
             .flex_none()
@@ -107,20 +110,20 @@ impl Workspace {
             .border_color(theme.border)
             .child(
                 h_flex()
-                    .id(("tab-strip", group))
+                    .id(("tab-strip", id.0 as usize))
                     .flex_1()
                     .min_w_0()
                     .h_full()
                     .overflow_x_scroll()
-                    .track_scroll(&self.tab_strips[group].0)
-                    .children(tabs.tabs.iter().map(|id| {
-                        let active = tabs.active.as_deref() == Some(id.as_str());
-                        let preview = layout.preview.as_deref() == Some(id.as_str());
-                        self.render_tab(group, id, active, focused, preview, cx)
+                    .track_scroll(&strip)
+                    .children(pane.tabs.iter().map(|tab| {
+                        let active = pane.active.as_deref() == Some(tab.as_str());
+                        let preview = layout.preview.as_deref() == Some(tab.as_str());
+                        self.render_tab(id, tab, active, focused, preview, cx)
                     }))
                     .child(
                         div()
-                            .id(("tab-strip-end", group))
+                            .id(("tab-strip-end", id.0 as usize))
                             .group(end_group.clone())
                             .relative()
                             .flex_1()
@@ -129,32 +132,16 @@ impl Workspace {
                             .child(drag::insertion_mark::<DraggedTab>(end_group, cx))
                             .on_drop(cx.listener(move |this, dragged: &DraggedTab, window, cx| {
                                 this.tab_drag = false;
-                                this.move_tab(&dragged.id, group, None, window, cx);
+                                this.move_tab(&dragged.id, id, None, window, cx);
                             })),
                     ),
             )
-            .when(layout.is_split() && tabs.active.is_some(), |bar| {
-                bar.child(
-                    h_flex().flex_none().h_full().px_1().child(
-                        Button::new(("tab-transfer", group))
-                            .ghost()
-                            .small()
-                            .icon(Icon::new(Lucide::ArrowLeftRight))
-                            .tooltip("Перенести вкладку в соседнюю область")
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                this.transfer_tab(group, window, cx)
-                            })),
-                    ),
-                )
-            })
-            .when(last, |bar| {
-                bar.child(self.render_controls_strip(layout, cx))
-            })
+            .child(self.render_pane_controls(pane, layout, cx))
     }
 
     fn render_tab(
         &self,
-        group: usize,
+        pane: PaneId,
         id: &str,
         active: bool,
         focused: bool,
@@ -260,7 +247,7 @@ impl Workspace {
                 if event.click_count() > 1 {
                     this.keep_tab(&click_id, cx);
                 } else {
-                    this.activate_tab(group, &click_id, window, cx);
+                    this.activate_tab(pane, &click_id, window, cx);
                 }
             }))
             .on_drag(dragged, {
@@ -278,38 +265,7 @@ impl Workspace {
             })
             .on_drop(cx.listener(move |this, dragged: &DraggedTab, window, cx| {
                 this.tab_drag = false;
-                this.move_tab(&dragged.id, group, Some(&drop_id), window, cx);
+                this.move_tab(&dragged.id, pane, Some(&drop_id), window, cx);
             }))
-    }
-
-    /// Icons placed in the tab bar and the split toggle.
-    fn render_controls_strip(
-        &self,
-        layout: &TabLayout,
-        cx: &Context<Self>,
-    ) -> impl IntoElement + use<> {
-        let theme = cx.theme();
-        let split = layout.is_split();
-        h_flex()
-            .flex_none()
-            .h_full()
-            .px_2()
-            .gap_1()
-            .border_l_1()
-            .border_color(theme.border)
-            .child(self.render_badge_strip(BadgePlace::Header, cx))
-            .child(
-                Button::new("toggle-split")
-                    .ghost()
-                    .small()
-                    .icon(Icon::new(Lucide::Columns2))
-                    .selected(split)
-                    .tooltip(if split {
-                        "Объединить области"
-                    } else {
-                        "Разделить область"
-                    })
-                    .on_click(cx.listener(|this, _, window, cx| this.toggle_split(window, cx))),
-            )
     }
 }

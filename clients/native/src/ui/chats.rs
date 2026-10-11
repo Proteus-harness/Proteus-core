@@ -243,7 +243,7 @@ impl Workspace {
     /// Drops chats whose tabs closed and follows the layout to the active
     /// chat; extensions reread the session when it changes.
     pub(super) fn sync_chats(&mut self, layout: &TabLayout, cx: &mut Context<Self>) {
-        self.chats.retain(|id, _| layout.group_of(id).is_some());
+        self.chats.retain(|id, _| layout.contains(id));
         let active = layout
             .active_chat(self.active_chat.as_deref())
             .filter(|id| self.chats.contains_key(id));

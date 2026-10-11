@@ -9,10 +9,11 @@ use proteus_contracts::app_protocol::AppSessionSummary;
 use super::chats::OpenChat;
 use super::extensions::{OpenDocument, SurfaceView};
 use super::settings::SettingsView;
+use super::tabs::{SplitResize, TabDrop};
 use crate::api::Api;
 use crate::connection::{self, BackendGuard};
 use crate::launch::LaunchOptions;
-use crate::tabs;
+use crate::tabs::{self, PaneId};
 
 pub(super) enum Status {
     Starting,
@@ -92,13 +93,15 @@ pub struct Workspace {
     pub(super) sidebars: HashMap<&'static str, SurfaceView>,
     pub(super) documents: HashMap<String, SurfaceView>,
     pub(super) badges: HashMap<&'static str, AnyView>,
-    /// Split position while the divider between tab groups is dragged.
-    pub(super) split_drag: Option<u16>,
-    /// A tab is being dragged, so groups show where it can go.
+    /// Size of the split whose divider is being dragged.
+    pub(super) split_drag: Option<SplitResize>,
+    /// A tab is being dragged, so panes show where it can go.
     pub(super) tab_drag: bool,
-    /// Scroll of each group's tab strip and the active tab it last showed,
+    /// Where the dragged tab would land when dropped onto a pane.
+    pub(super) tab_drop: Option<TabDrop>,
+    /// Scroll of each pane's tab strip and the active tab it last showed,
     /// so a newly active tab is scrolled into view.
-    pub(super) tab_strips: [(ScrollHandle, Option<String>); 2],
+    pub(super) tab_strips: HashMap<PaneId, (ScrollHandle, Option<String>)>,
     pub(super) focus_handle: FocusHandle,
     _startup: Task<()>,
     _subscriptions: Vec<Subscription>,
@@ -150,7 +153,8 @@ impl Workspace {
             badges: HashMap::new(),
             split_drag: None,
             tab_drag: false,
-            tab_strips: Default::default(),
+            tab_drop: None,
+            tab_strips: HashMap::new(),
             focus_handle: cx.focus_handle(),
             _startup: startup,
             _subscriptions: subscriptions,

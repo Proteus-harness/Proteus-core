@@ -1,30 +1,34 @@
-//! Tabs of the main area: chats and extension documents (files) in one
-//! or two groups. The layout lives in the client preferences; this module
-//! turns user actions into layout changes and keeps the focus where the
-//! user is.
+//! Tabs of the main area: chats and extension documents (files) in a tree
+//! of panes. The layout lives in the client preferences; this module turns
+//! user actions into layout changes and keeps the focus where the user is.
 
 mod bar;
+mod controls;
+mod drop;
+mod split;
 mod view;
 
-pub(super) use view::SplitDrag;
+pub(super) use drop::TabDrop;
+pub(super) use split::{SplitDrag, SplitResize};
 
 use gpui_kit::*;
 
 use super::extensions::{self, Host, OpenDocument, SurfaceView};
 use super::prefs;
 use super::workspace::Workspace;
-use crate::tabs::{self, TabLayout};
+use crate::tabs::{self, Edge, PaneId, TabLayout};
 
-/// Width the main area needs before a new tab may split it.
+/// Width a pane needs before a new tab may split it.
 const SPLIT_WIDTH: f32 = 760.;
 
 impl Workspace {
-    /// The saved layout without tabs whose extensions are gone.
+    /// The saved layout without tabs whose extensions are gone, with the
+    /// split being resized at its current size.
     pub(super) fn tab_layout(&self, cx: &App) -> TabLayout {
         let mut layout = prefs::current(cx).tabs.clone();
         layout.retain(|id| tab_available(id, cx));
-        if let Some(split) = self.split_drag {
-            layout.set_split(split);
+        if let Some(resize) = &self.split_drag {
+            layout.set_weights(&resize.path, &resize.weights);
         }
         layout
     }
@@ -37,7 +41,7 @@ impl Workspace {
         let mut layout = prefs::current(cx).tabs.clone();
         layout.retain(|id| tab_available(id, cx));
         change(&mut layout);
-        self.documents.retain(|id, _| layout.group_of(id).is_some());
+        self.documents.retain(|id, _| layout.contains(id));
         self.sync_chats(&layout, cx);
         prefs::update(cx, |prefs| prefs.tabs = layout);
         cx.notify();
@@ -83,7 +87,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let can_split = self.main_width(window) >= px(SPLIT_WIDTH);
+        let can_split = self.focused_width(window, cx) >= px(SPLIT_WIDTH);
         self.update_tabs(cx, |tabs| {
             if open.preview {
                 tabs.open_preview(id, can_split);
@@ -97,19 +101,21 @@ impl Workspace {
         }
     }
 
-    /// Rough width of the area right of the sidebar.
-    fn main_width(&self, window: &Window) -> Pixels {
-        window.viewport_size().width - px(super::sidebar::SIDEBAR_WIDTH)
+    /// Rough width of the focused pane.
+    fn focused_width(&self, window: &Window, cx: &App) -> Pixels {
+        let layout = self.tab_layout(cx);
+        let share = layout.rect(layout.focused).map_or(1., |rect| rect.w);
+        (window.viewport_size().width - px(super::sidebar::SIDEBAR_WIDTH)) * share
     }
 
     pub(super) fn activate_tab(
         &mut self,
-        group: usize,
+        pane: PaneId,
         id: &str,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.update_tabs(cx, |tabs| tabs.activate(group, id));
+        self.update_tabs(cx, |tabs| tabs.activate(pane, id));
         self.focus_tab(id, window, cx);
     }
 
@@ -126,48 +132,66 @@ impl Workspace {
     pub(super) fn move_tab(
         &mut self,
         id: &str,
-        group: usize,
+        pane: PaneId,
         before: Option<&str>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.update_tabs(cx, |tabs| tabs.move_tab(id, group, before));
+        self.update_tabs(cx, |tabs| tabs.move_tab(id, pane, before));
         self.focus_tab(id, window, cx);
     }
 
-    pub(super) fn open_tab_in(
+    /// Moves a tab into a new pane at `edge` of `pane`.
+    pub(super) fn split_tab(
         &mut self,
         id: &str,
-        group: usize,
+        pane: PaneId,
+        edge: Edge,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.update_tabs(cx, |tabs| tabs.open_in(id, group));
+        self.update_tabs(cx, |tabs| tabs.split(id, pane, edge));
         self.focus_tab(id, window, cx);
     }
 
-    pub(super) fn transfer_tab(
-        &mut self,
-        group: usize,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.update_tabs(cx, |tabs| tabs.transfer(group));
+    /// Splits the active tab of the focused pane off to `edge`.
+    pub(super) fn split_active(&mut self, edge: Edge, window: &mut Window, cx: &mut Context<Self>) {
+        if self.settings.is_some() {
+            return;
+        }
+        self.update_tabs(cx, |tabs| tabs.split_active(edge));
         self.focus_active(window, cx);
     }
 
-    pub(super) fn toggle_split(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.update_tabs(cx, TabLayout::toggle_split);
+    pub(super) fn close_pane(&mut self, pane: PaneId, window: &mut Window, cx: &mut Context<Self>) {
+        self.update_tabs(cx, |tabs| tabs.close_pane(pane));
         self.focus_active(window, cx);
     }
 
-    pub(super) fn focus_group(&mut self, group: usize, cx: &mut Context<Self>) {
-        if prefs::current(cx).tabs.focused != group {
-            self.update_tabs(cx, |tabs| tabs.focus(group));
+    pub(super) fn focus_pane(&mut self, pane: PaneId, cx: &mut Context<Self>) {
+        if prefs::current(cx).tabs.focused != pane {
+            self.update_tabs(cx, |tabs| tabs.focus(pane));
         }
     }
 
-    /// Cycles the tabs of the focused group.
+    /// Moves the focus to the pane beyond `edge` of the focused one.
+    pub(super) fn focus_neighbor(
+        &mut self,
+        edge: Edge,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.settings.is_some() {
+            return;
+        }
+        let mut next = None;
+        self.update_tabs(cx, |tabs| next = tabs.focus_neighbor(edge));
+        if let Some(id) = next {
+            self.focus_tab(&id, window, cx);
+        }
+    }
+
+    /// Cycles the tabs of the focused pane.
     pub(super) fn step_tab(&mut self, offset: isize, window: &mut Window, cx: &mut Context<Self>) {
         if self.settings.is_some() {
             return;
@@ -179,26 +203,7 @@ impl Workspace {
         }
     }
 
-    pub(super) fn set_split(&mut self, split: Option<u16>, cx: &mut Context<Self>) {
-        match split {
-            Some(split) => {
-                self.split_drag = Some(split);
-                cx.notify();
-            }
-            None => {
-                if let Some(split) = self.split_drag.take() {
-                    self.update_tabs(cx, |tabs| tabs.set_split(split));
-                }
-            }
-        }
-    }
-
-    pub(super) fn reset_split(&mut self, cx: &mut Context<Self>) {
-        self.split_drag = None;
-        self.update_tabs(cx, TabLayout::reset_split);
-    }
-
-    /// Moves the keyboard to the active tab of the focused group.
+    /// Moves the keyboard to the active tab of the focused pane.
     fn focus_active(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let layout = self.tab_layout(cx);
         if let Some(id) = layout.active(layout.focused).map(str::to_string) {
