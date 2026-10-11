@@ -80,7 +80,7 @@ pub(super) struct Manifest {
     pub badge: Option<BadgeSurface>,
 }
 
-fn builtin() -> [Manifest; 10] {
+fn builtin() -> [Manifest; 9] {
     [
         selector(
             selectors::MODE,
@@ -92,16 +92,9 @@ fn builtin() -> [Manifest; 10] {
         selector(
             selectors::MODEL,
             "Модель",
-            "Выбор модели сессии.",
+            "Выбор модели сессии и глубины её рассуждений.",
             Lucide::Cpu,
             selectors::build_model,
-        ),
-        selector(
-            selectors::EFFORT,
-            "Рассуждения",
-            "Выбор глубины рассуждений модели.",
-            Lucide::Brain,
-            selectors::build_effort,
         ),
         Manifest {
             id: session_info::CONTEXT,

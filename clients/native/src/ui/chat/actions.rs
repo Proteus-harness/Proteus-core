@@ -111,15 +111,15 @@ impl Chat {
         );
     }
 
-    pub(super) fn set_mode(&mut self, mode: PermissionMode, cx: &mut Context<Self>) {
+    pub(in crate::ui) fn set_mode(&mut self, mode: PermissionMode, cx: &mut Context<Self>) {
         self.update_config(cx, move |api, dir| api.set_mode(dir, mode));
     }
 
-    pub(super) fn set_model(&mut self, model: String, cx: &mut Context<Self>) {
+    pub(in crate::ui) fn set_model(&mut self, model: String, cx: &mut Context<Self>) {
         self.update_config(cx, move |api, dir| api.set_model(dir, &model));
     }
 
-    pub(super) fn set_effort(&mut self, effort: Option<String>, cx: &mut Context<Self>) {
+    pub(in crate::ui) fn set_effort(&mut self, effort: Option<String>, cx: &mut Context<Self>) {
         self.update_config(cx, move |api, dir| api.set_effort(dir, effort));
     }
 

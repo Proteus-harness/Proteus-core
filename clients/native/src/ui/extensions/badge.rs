@@ -64,12 +64,28 @@ fn badge_box() -> Div {
         .text_xs()
 }
 
+/// What a click on an icon does instead of bringing its panel forward.
+pub(super) type Press = Rc<dyn Fn(&mut Window, &mut App)>;
+
 /// The shared shell of every icon: hover, tooltip, click, drag and menu.
 pub(super) fn badge_frame(
     id: &'static str,
     face: Face,
     details: Details,
     host: &Host,
+    cx: &App,
+) -> impl IntoElement + use<> {
+    pressable_badge(id, face, details, host, None, cx)
+}
+
+/// An icon whose click runs `press`; a drag still moves it, since a press
+/// only counts once the pointer is released without dragging.
+pub(super) fn pressable_badge(
+    id: &'static str,
+    face: Face,
+    details: Details,
+    host: &Host,
+    press: Option<Press>,
     cx: &App,
 ) -> impl IntoElement + use<> {
     let theme = cx.theme();
@@ -83,14 +99,19 @@ pub(super) fn badge_frame(
         id,
         face: face.clone(),
     };
+    let press = press.or_else(|| {
+        opens.then(|| Rc::new(move |window: &mut Window, cx: &mut App| {
+            click_host.activate(id, window, cx)
+        }) as Press)
+    });
     badge_box()
         .id(ElementId::Name(format!("badge-{id}").into()))
         .rounded(theme.radius)
         .text_color(theme.muted_foreground)
-        .when(opens, |badge| {
+        .when_some(press, |badge, press| {
             badge
                 .cursor_pointer()
-                .on_click(move |_, window, cx| click_host.activate(id, window, cx))
+                .on_click(move |_, window, cx| press(window, cx))
         })
         .hover(move |style| style.bg(hover).text_color(foreground))
         // Keeps the title bar from taking the press as a window move.
