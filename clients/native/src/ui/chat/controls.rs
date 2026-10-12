@@ -1,22 +1,22 @@
 //! What the session settings icons choose from: permission modes, models and
-//! reasoning efforts of a session config, with their Russian labels.
+//! reasoning efforts of a session config, under the server's names.
 
 use proteus_contracts::app_protocol::config::ConfigSummary;
 use proteus_contracts::domain::PermissionMode;
 
 pub(in crate::ui) const MODES: [(PermissionMode, &str); 3] = [
-    (PermissionMode::Normal, "По правилам"),
-    (PermissionMode::Auto, "Правки без вопросов"),
-    (PermissionMode::Plan, "Планирование"),
+    (PermissionMode::Normal, "normal"),
+    (PermissionMode::Auto, "auto"),
+    (PermissionMode::Plan, "plan"),
 ];
 
-/// Russian label of a persisted permission mode string.
+/// Name of a persisted permission mode string.
 pub(in crate::ui) fn mode_label(value: &str) -> &'static str {
     let mode = mode_from_value(value);
     MODES
         .iter()
         .find(|(candidate, _)| *candidate == mode)
-        .map_or("По правилам", |(_, label)| label)
+        .map_or("normal", |(_, label)| label)
 }
 
 pub(in crate::ui) fn mode_from_value(value: &str) -> PermissionMode {
@@ -34,22 +34,6 @@ pub(in crate::ui) fn current_effort(config: &ConfigSummary) -> Option<String> {
         .effort
         .clone()
         .or_else(|| (!config.reasoning.enabled).then(|| "none".to_owned()))
-}
-
-/// Russian name of an effort step, as the model chooser titles it.
-pub(in crate::ui) fn effort_title(effort: &str) -> String {
-    let title = match effort {
-        "none" => "Без рассуждений",
-        "minimal" => "Минимальное",
-        "low" => "Низкое",
-        "medium" => "Среднее",
-        "high" => "Высокое",
-        "xhigh" => "Очень высокое",
-        "max" => "Максимальное",
-        "ultra" => "Ультра",
-        other => other,
-    };
-    title.to_owned()
 }
 
 /// Efforts the session can switch between, weakest first as the server
@@ -73,22 +57,8 @@ pub(in crate::ui) fn model_label(config: &ConfigSummary) -> String {
     config
         .model
         .as_ref()
-        .map(|model| short_label(&model.provider, &model.name, &model.label).to_owned())
-        .unwrap_or_else(|| "модель".to_owned())
-}
-
-/// A model's label without its provider: profiles without a model catalog
-/// label models as `provider/name`, and the provider is shown once above the
-/// list instead.
-fn short_label<'a>(provider: &str, name: &'a str, label: &'a str) -> &'a str {
-    let qualified = label
-        .strip_prefix(provider)
-        .and_then(|rest| rest.strip_prefix('/'));
-    if label.is_empty() || qualified.is_some() {
-        qualified.filter(|rest| !rest.is_empty()).unwrap_or(name)
-    } else {
-        label
-    }
+        .map(|model| model.name.clone())
+        .unwrap_or_else(|| "model".to_owned())
 }
 
 /// Provider every offered model shares, for the heading of the model list.
@@ -102,8 +72,8 @@ pub(in crate::ui) fn models_provider(config: &ConfigSummary) -> Option<&str> {
 }
 
 /// Models offered to the session as `(name, label)`; hidden ones only when
-/// already chosen. Labels keep the provider only when models of several
-/// providers are offered.
+/// already chosen. Labels are the model names, with the provider only when
+/// models of several providers are offered.
 pub(in crate::ui) fn models(config: &ConfigSummary) -> Vec<(String, String)> {
     let current = config.model.as_ref().map(|model| &model.name);
     let shared = models_provider(config).is_some();
@@ -113,13 +83,11 @@ pub(in crate::ui) fn models(config: &ConfigSummary) -> Vec<(String, String)> {
         .filter(|option| !option.hidden || Some(&option.name) == current)
         .map(|option| {
             let label = if shared {
-                short_label(&option.provider, &option.name, &option.label)
-            } else if option.label.is_empty() {
-                &option.name
+                option.name.clone()
             } else {
-                &option.label
+                format!("{}/{}", option.provider, option.name)
             };
-            (option.name.clone(), label.to_owned())
+            (option.name.clone(), label)
         })
         .collect()
 }

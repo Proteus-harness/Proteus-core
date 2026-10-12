@@ -94,7 +94,7 @@ impl Chat {
                             .gap_x_2()
                             .gap_y_1()
                             .child(attach)
-                            .child(div().flex_1().min_w_0().children(start))
+                            .child(h_flex().flex_1().min_w_0().children(start))
                             .child(
                                 h_flex()
                                     .ml_auto()

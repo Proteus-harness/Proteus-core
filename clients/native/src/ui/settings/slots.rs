@@ -9,7 +9,7 @@ use super::SettingsView;
 use super::widgets::{Tone, card, chip, hashed_id, mono, note, radio_card, section};
 use crate::settings::catalog::{
     CONTEXT_PROVIDER_SLOT, MODEL_SLOT, POLICY_SLOT, PageId, exports, find_slot, model_module,
-    permission_text, selected_module,
+    permission_description, selected_module,
 };
 
 impl SettingsView {
@@ -80,12 +80,12 @@ impl SettingsView {
         };
         let view = cx.weak_entity();
         let cards = snapshot.permission_modes.iter().map(|mode| {
-            let (title, description) = permission_text(mode);
+            let description = permission_description(mode);
             let (view, value) = (view.clone(), mode.clone());
             radio_card(
                 hashed_id("mode", mode),
                 self.draft.mode == *mode,
-                title.to_string(),
+                mode.clone(),
                 Some(description.into()),
                 Vec::new(),
                 move |cx| {

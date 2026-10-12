@@ -116,7 +116,7 @@ pub(super) fn choice(
         .id(id.into())
         .px_2()
         .py_1()
-        .rounded(theme.radius_lg)
+        .rounded(theme.radius)
         .cursor_pointer()
         .truncate()
         .when(selected, |row| {

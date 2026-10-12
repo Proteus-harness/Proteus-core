@@ -12,9 +12,7 @@ use proteus_contracts::app_protocol::config::ConfigSummary;
 use super::popup::{choice, heading};
 use super::{SelectorBadge, effort_position};
 use crate::ui::chat::Chat;
-use crate::ui::chat::controls::{
-    current_effort, effort_title, efforts, model_label, models, models_provider,
-};
+use crate::ui::chat::controls::{current_effort, efforts, model_label, models, models_provider};
 use crate::ui::kit::Hint as _;
 use crate::ui::{kit, prefs};
 
@@ -59,10 +57,7 @@ impl SelectorBadge {
         let theme = cx.theme();
         let (muted, foreground, primary) =
             (theme.muted_foreground, theme.foreground, theme.primary);
-        let title = efforts(config)
-            .get(shown)
-            .map(|effort| effort_title(effort))
-            .unwrap_or_default();
+        let title = efforts(config).get(shown).cloned().unwrap_or_default();
         let model = h_flex()
             .id("selector-model")
             .max_w_full()

@@ -245,7 +245,7 @@ fn revision_restores_old_state_and_describes_it() {
     assert_eq!(
         describe_changes(&snapshot, &restored, &saved),
         [
-            "Режим прав: По правилам → Правки без вопросов",
+            "permission_mode: normal → auto",
             "Tools: + shell",
             "Context: simple → repo; параметры: limit",
         ]

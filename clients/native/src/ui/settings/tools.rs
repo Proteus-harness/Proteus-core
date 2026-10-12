@@ -10,7 +10,7 @@ use proteus_contracts::app_protocol::config_builder::ConfigBuilderTool;
 
 use super::SettingsView;
 use super::widgets::{Tone, card, changed_dot, chip, hashed_id, mono, note, section};
-use crate::settings::catalog::{PageId, missing_tools, safety_label, tool_matches};
+use crate::settings::catalog::{PageId, missing_tools, tool_matches};
 use crate::ui::kit::Hint as _;
 use crate::ui::prefs;
 use crate::ui::tip::Tip as _;
@@ -72,7 +72,7 @@ impl SettingsView {
         let changed = !tool.runtime_managed
             && self.draft.tools.contains(&tool.name) != self.baseline.tools.contains(&tool.name);
         let mut chips = vec![chip(
-            safety_label(&tool.safety).to_string(),
+            tool.safety.clone(),
             if tool.safety == "Dangerous" {
                 Tone::Danger
             } else {

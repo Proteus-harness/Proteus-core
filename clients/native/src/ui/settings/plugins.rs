@@ -15,7 +15,7 @@ use super::tools::pack_key;
 use super::widgets::{Tone, card, chip, disclosure, hashed_id, hint_text, mono, note, section};
 use crate::settings::catalog::{
     HOOK_SLOT, PackState, PageId, TOOL_SLOT, export_selected, find_tool, pack_summary, plural,
-    safety_label, slot_page, slot_title,
+    slot_page, slot_title,
 };
 use crate::ui::kit::Hint as _;
 use crate::ui::prefs;
@@ -248,11 +248,7 @@ impl SettingsView {
         let runtime = tool.is_some_and(|tool| tool.runtime_managed);
         let mut chips = Vec::new();
         if let Some(tool) = tool {
-            chips.push(chip(
-                safety_label(&tool.safety).to_string(),
-                Tone::Muted,
-                cx,
-            ));
+            chips.push(chip(tool.safety.clone(), Tone::Muted, cx));
         } else {
             chips.push(chip("нет в списке инструментов", Tone::Warning, cx));
         }

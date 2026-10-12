@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 use proteus_contracts::app_protocol::config_builder::ConfigBuilderSnapshot;
 use serde_json::Value;
 
-use super::catalog::{permission_text, slot_title};
+use super::catalog::slot_title;
 use super::draft::Draft;
 
 /// What changed from `before` to `after`, one line per profile area.
@@ -16,11 +16,7 @@ pub fn describe_changes(
 ) -> Vec<String> {
     let mut lines = Vec::new();
     if before.mode != after.mode {
-        lines.push(format!(
-            "Режим прав: {} → {}",
-            permission_text(&before.mode).0,
-            permission_text(&after.mode).0
-        ));
+        lines.push(format!("permission_mode: {} → {}", before.mode, after.mode));
     }
     if before.provider != after.provider {
         lines.push(format!(

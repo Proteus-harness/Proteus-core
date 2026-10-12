@@ -216,10 +216,10 @@ pub fn area_labels(snapshot: &ConfigBuilderSnapshot, areas: &[Area]) -> Vec<Stri
     for area in areas {
         let label = match area {
             Area::Provider => "Model".to_string(),
-            Area::Mode => "Режим прав".to_string(),
+            Area::Mode => "permission_mode".to_string(),
             Area::Tools => "Tools".to_string(),
             Area::Hooks => "Hooks".to_string(),
-            Area::Addons => "Дополнения агента".to_string(),
+            Area::Addons => "Plugins".to_string(),
             Area::Slot(slot) => slot_title(snapshot, slot),
         };
         if !labels.contains(&label) {
@@ -229,29 +229,15 @@ pub fn area_labels(snapshot: &ConfigBuilderSnapshot, areas: &[Area]) -> Vec<Stri
     labels
 }
 
-pub fn safety_label(safety: &str) -> &str {
-    match safety {
-        "ReadOnly" => "только чтение",
-        "WritesFiles" => "меняет файлы",
-        "RunsCommands" => "запускает команды",
-        "Network" => "сеть",
-        "Dangerous" => "опасный",
-        other => other,
-    }
-}
-
-pub fn permission_text(mode: &str) -> (&str, &'static str) {
+/// What a permission mode lets the agent do, for its card under the mode name.
+pub fn permission_description(mode: &str) -> &'static str {
     match mode {
-        "plan" => ("Только чтение", "Доступны только инструменты чтения."),
-        "normal" => (
-            "По правилам",
-            "Решения принимает политика подтверждений; спорные действия ждут вашего ответа.",
-        ),
-        "auto" => (
-            "Правки без вопросов",
-            "Чтение и изменение файлов без подтверждения; команды и сеть запрещены.",
-        ),
-        other => (other, ""),
+        "plan" => "Доступны только инструменты чтения.",
+        "normal" => {
+            "Решения принимает политика подтверждений; спорные действия ждут вашего ответа."
+        }
+        "auto" => "Чтение и изменение файлов без подтверждения; команды и сеть запрещены.",
+        _ => "",
     }
 }
 
