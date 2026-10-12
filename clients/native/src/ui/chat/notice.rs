@@ -52,6 +52,7 @@ impl Chat {
         let text = self.notice.text.clone()?;
         let theme = cx.theme();
         let note = h_flex()
+            .min_w_0()
             .max_w(prefs::chat_width(cx))
             .gap_1()
             .pl_3()
@@ -64,7 +65,7 @@ impl Chat {
             .shadow_sm()
             .text_xs()
             .text_color(theme.muted_foreground)
-            .child(div().min_w_0().child(text))
+            .child(div().flex_1().min_w_0().child(text))
             .child(
                 kit::button("notice-close")
                     .icon(IconName::Close)

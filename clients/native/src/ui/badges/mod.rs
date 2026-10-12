@@ -6,7 +6,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use super::extensions::{self, DraggedBadge, Host};
-use super::motion::{Slide, glide};
+use super::motion::{BASE, Slide, glide};
 use super::prefs;
 use super::workspace::Workspace;
 use crate::preferences::BadgePlace;
@@ -137,8 +137,8 @@ impl Workspace {
 }
 
 /// Room among the icons where the dragged one would land. The icon keeps
-/// its width and is clipped around its middle while the gap opens; a gap
-/// that shuts is empty.
+/// its width, clipped around its middle, and fades in while the gap opens;
+/// a gap that shuts is empty.
 #[derive(IntoElement)]
 struct Gap {
     id: ElementId,
@@ -149,13 +149,14 @@ struct Gap {
 
 impl RenderOnce for Gap {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let share = glide(self.id, self.open, window, cx);
+        let share = glide(self.id, self.open, BASE, window, cx);
         h_flex()
             .flex_none()
             .h_7()
             .w(self.width * share)
             .justify_center()
             .overflow_hidden()
+            .opacity(share * share)
             .children(self.icon)
     }
 }

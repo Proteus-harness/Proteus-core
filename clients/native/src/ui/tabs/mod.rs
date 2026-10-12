@@ -3,6 +3,7 @@
 //! turns user actions into layout changes and keeps the focus where the
 //! user is.
 
+mod arrange;
 mod bar;
 mod controls;
 mod drop;

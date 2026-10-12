@@ -43,17 +43,3 @@ pub(super) fn lifted(element: Div, cx: &App) -> Div {
         .shadow_lg()
         .opacity(0.95)
 }
-
-/// Thin line that marks where a dropped element will land. Lives inside a
-/// relative element that is the drop group `group`.
-pub(super) fn insertion_mark<T: 'static>(group: impl Into<SharedString>, cx: &App) -> Div {
-    let color = cx.theme().primary;
-    div()
-        .absolute()
-        .left_0()
-        .top_1()
-        .bottom_1()
-        .w(px(2.))
-        .rounded_full()
-        .group_drag_over::<T>(group, move |style| style.bg(color))
-}

@@ -1,7 +1,7 @@
 //! A horizontal reveal that eases itself open or shut, so a row can part
 //! smoothly where something is about to land.
 
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use gpui_kit::*;
 
@@ -37,14 +37,21 @@ impl Slide {
 
 impl RenderOnce for Slide {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let eased = glide(self.id.clone(), self.open, window, cx);
+        let eased = glide(self.id.clone(), self.open, FAST, window, cx);
         Collapse::new(self.id, eased, self.child)
     }
 }
 
 /// Eased share (0..=1) of an opening that glides toward `open` across
-/// frames; the first frame under `id` returns the requested state at once.
-pub(in crate::ui) fn glide(id: ElementId, open: bool, window: &mut Window, cx: &mut App) -> f32 {
+/// frames over `duration`; the first frame under `id` returns the requested
+/// state at once.
+pub(in crate::ui) fn glide(
+    id: ElementId,
+    open: bool,
+    duration: Duration,
+    window: &mut Window,
+    cx: &mut App,
+) -> f32 {
     let target = if open { 1. } else { 0. };
     let state = window.use_keyed_state(id, cx, |_, _| SlideState {
         progress: target,
@@ -63,7 +70,7 @@ pub(in crate::ui) fn glide(id: ElementId, open: bool, window: &mut Window, cx: &
             .at
             .map_or(0., |at| now.duration_since(at).as_secs_f32().min(0.05));
         state.at = Some(now);
-        let step = elapsed / FAST.as_secs_f32();
+        let step = elapsed / duration.as_secs_f32();
         state.progress = if target > state.progress {
             (state.progress + step).min(target)
         } else {

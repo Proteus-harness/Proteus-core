@@ -2,8 +2,9 @@
 //! splitting) and the «+» menu with a new session, a terminal and the
 //! panels.
 
-use gpui_kit::component::Side;
+use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
+use gpui_kit::component::{Icon, Side};
 use gpui_kit::*;
 
 use crate::tabs::{Edge, PaneId, TabLayout};
@@ -108,15 +109,15 @@ pub(super) fn new_tab_menu(
     let mut menu = menu
         .check_side(Side::Right)
         .item(
-            PopupMenuItem::new("Новая сессия").on_click(open(|this, pane, window, cx| {
-                this.new_session(Some(pane), window, cx)
-            })),
+            PopupMenuItem::new("Новая сессия")
+                .icon(Icon::new(Lucide::MessageSquarePlus))
+                .on_click(open(|this, pane, window, cx| {
+                    this.new_session(Some(pane), window, cx)
+                })),
         )
         .item(
             PopupMenuItem::new("Терминал")
-                .icon(gpui_kit::component::Icon::new(
-                    gpui_kit::assets::IconName::SquareTerminal,
-                ))
+                .icon(Icon::new(Lucide::SquareTerminal))
                 .on_click(open(|this, pane, window, cx| {
                     this.open_terminal(Some(pane), window, cx)
                 })),

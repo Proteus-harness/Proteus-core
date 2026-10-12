@@ -140,12 +140,7 @@ impl Workspace {
         };
         let tooltip = (label.tooltip.clone()).or_else(|| state.pinned.then(|| label.title.clone()));
         let menu = menu::TabMenu::new(pane, id, state.pinned, layout);
-        let (drop_id, click_id, close_id, middle_id) = (
-            id.to_string(),
-            id.to_string(),
-            id.to_string(),
-            id.to_string(),
-        );
+        let (click_id, close_id, middle_id) = (id.to_string(), id.to_string(), id.to_string());
         let workspace = cx.weak_entity();
         h_flex()
             .id(ElementId::Name(format!("tab-{id}").into()))
@@ -174,7 +169,6 @@ impl Workspace {
                 }
             })
             .when(lifted, |tab| tab.opacity(drag::SOURCE_OPACITY))
-            .child(drag::insertion_mark::<DraggedTab>(tab_group.clone(), cx))
             .child(icon)
             .when(!icon_only, |tab| {
                 tab.child(
@@ -242,10 +236,6 @@ impl Workspace {
                     cx.new(|_| dragged.clone())
                 }
             })
-            .on_drop(cx.listener(move |this, dragged: &DraggedTab, window, cx| {
-                this.tab_drag = false;
-                this.move_tab(&dragged.id, pane, Some(&drop_id), window, cx);
-            }))
             .context_menu(move |popup, _, _| menu.build(popup, &workspace))
     }
 }
