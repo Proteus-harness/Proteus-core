@@ -3,10 +3,11 @@
 //! their default width.
 
 use gpui_kit::component::*;
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use crate::tabs::{Axis, Size};
-use crate::ui::prefs;
+use crate::ui::{drag, prefs};
 use crate::ui::workspace::Workspace;
 
 /// Smallest pane while resizing.
@@ -15,6 +16,8 @@ const MIN_HEIGHT: f32 = 160.;
 /// The line between panes, and the strip around it that can be dragged.
 pub(super) const DIVIDER: f32 = 1.;
 const GRIP: f32 = 7.;
+/// The line over a hovered or dragged divider.
+const MARK: f32 = 3.;
 
 /// Payload of a divider while it is dragged: the split and the child the
 /// divider follows.
@@ -73,6 +76,7 @@ pub(super) fn track_resize<E: InteractiveElement>(
 /// The divider after child `index` of the split at `path`: a hairline in
 /// the layout, and a wider grip over both neighbours that takes the pointer.
 /// The grip is drawn after the panes, so the later pane does not cover it.
+/// A hovered or dragged divider is marked by a line over the hairline.
 pub(super) fn divider(
     path: Vec<usize>,
     index: usize,
@@ -80,14 +84,23 @@ pub(super) fn divider(
     cx: &Context<Workspace>,
 ) -> impl IntoElement {
     let theme = cx.theme();
-    let (line, hover) = (theme.border, theme.drag_border);
-    let id = ElementId::Name(format!("tab-divider-{path:?}-{index}").into());
+    let (line, accent) = (theme.border, theme.drag_border);
+    let name = SharedString::from(format!("tab-divider-{path:?}-{index}"));
+    let held = drag::is_source(&name, cx);
     let drag = SplitDrag {
         path: path.clone(),
         index,
     };
     let reach = px((GRIP - DIVIDER) / 2. * prefs::scale(cx));
-    let grip = div().id(id).absolute();
+    let grip = div()
+        .id(ElementId::Name(name.clone()))
+        .group(name.clone())
+        .absolute()
+        .flex()
+        .justify_center();
+    let mark = div()
+        .when(held, |mark| mark.bg(accent))
+        .group_hover(name.clone(), move |style| style.bg(accent));
     let (base, grip) = match axis {
         Axis::Row => (
             div().w(prefs::scaled(DIVIDER)).h_full(),
@@ -95,20 +108,25 @@ pub(super) fn divider(
                 .bottom_0()
                 .left(-reach)
                 .right(-reach)
-                .cursor(CursorStyle::ResizeLeftRight),
+                .cursor(CursorStyle::ResizeLeftRight)
+                .child(mark.w(prefs::scaled(MARK)).h_full()),
         ),
         Axis::Column => (
             div().h(prefs::scaled(DIVIDER)).w_full(),
-            grip.left_0()
+            grip.flex_col()
+                .left_0()
                 .right_0()
                 .top(-reach)
                 .bottom(-reach)
-                .cursor(CursorStyle::ResizeUpDown),
+                .cursor(CursorStyle::ResizeUpDown)
+                .child(mark.h(prefs::scaled(MARK)).w_full()),
         ),
     };
     let grip = grip
-        .hover(move |style| style.bg(hover.opacity(0.4)))
-        .on_drag(drag, |drag, _, _, cx| cx.new(|_| drag.clone()))
+        .on_drag(drag, move |drag, _, _, cx| {
+            drag::start(name.clone(), cx);
+            cx.new(|_| drag.clone())
+        })
         .on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
             if event.click_count() == 2 {
                 this.reset_split(&path, cx);
