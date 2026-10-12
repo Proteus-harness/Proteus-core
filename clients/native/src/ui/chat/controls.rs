@@ -44,6 +44,22 @@ fn effort_label(effort: Option<&str>) -> String {
     }
 }
 
+/// Russian name of an effort step, as the model chooser titles it.
+pub(in crate::ui) fn effort_title(effort: &str) -> String {
+    let title = match effort {
+        "none" => "Без рассуждений",
+        "minimal" => "Минимальное",
+        "low" => "Низкое",
+        "medium" => "Среднее",
+        "high" => "Высокое",
+        "xhigh" => "Очень высокое",
+        "max" => "Максимальное",
+        "ultra" => "Ультра",
+        other => other,
+    };
+    title.to_owned()
+}
+
 /// Current reasoning effort of a session, as its icon shows it.
 pub(in crate::ui) fn effort_of(config: &ConfigSummary) -> String {
     effort_label(current_effort(config).as_deref())

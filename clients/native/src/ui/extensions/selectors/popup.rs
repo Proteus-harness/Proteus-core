@@ -1,6 +1,6 @@
 //! The chooser a selector icon opens next to itself: permission modes, or
-//! models with the reasoning effort steps under them. The chosen option is
-//! marked by colour rather than a check.
+//! the model with its reasoning effort. The chosen option is marked by colour
+//! rather than a check.
 
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -9,7 +9,7 @@ use proteus_contracts::app_protocol::config::ConfigSummary;
 
 use super::{Control, SelectorBadge};
 use crate::ui::chat::Chat;
-use crate::ui::chat::controls::{MODES, efforts, mode_from_value, models, models_provider};
+use crate::ui::chat::controls::{MODES, mode_from_value};
 use crate::ui::prefs;
 
 /// Room between the icon and its chooser.
@@ -35,7 +35,7 @@ impl SelectorBadge {
         };
         let content = match self.control {
             Control::Mode => mode_choices(config, chat, cx),
-            Control::Model => self.model_choices(config, chat, cx),
+            Control::Model => self.model_chooser(config, chat, cx),
         };
         let this = cx.entity().downgrade();
         let trigger = self.bounds.clone();
@@ -69,51 +69,6 @@ impl SelectorBadge {
         .with_priority(1)
         .into_any_element()
     }
-
-    fn model_choices(
-        &self,
-        config: &ConfigSummary,
-        chat: WeakEntity<Chat>,
-        cx: &mut Context<Self>,
-    ) -> Vec<AnyElement> {
-        let current = config.model.as_ref().map(|model| model.name.clone());
-        let mut content = Vec::new();
-        let models = models(config);
-        if !models.is_empty() {
-            let title: SharedString = match models_provider(config) {
-                Some(provider) => format!("Модель · {provider}").into(),
-                None => "Модель".into(),
-            };
-            content.push(heading(title, cx).into_any_element());
-            let rows = models
-                .into_iter()
-                .enumerate()
-                .map(|(index, (name, label))| {
-                    let selected = current.as_ref() == Some(&name);
-                    let chat = chat.clone();
-                    let this = cx.entity().downgrade();
-                    choice(("model", index), label, selected, cx, move |cx| {
-                        let _ = chat.update(cx, |chat, cx| chat.set_model(name.clone(), cx));
-                        let _ = this.update(cx, |this, cx| this.set_open(false, cx));
-                    })
-                });
-            content.push(
-                v_flex()
-                    .id("selector-models")
-                    .max_h(prefs::scaled(320.))
-                    .overflow_y_scroll()
-                    .children(rows)
-                    .into_any_element(),
-            );
-        }
-        if efforts(config).len() > 1 {
-            if !content.is_empty() {
-                content.push(divider(cx).into_any_element());
-            }
-            content.push(self.effort_section(config, chat, cx).into_any_element());
-        }
-        content
-    }
 }
 
 fn mode_choices(
@@ -137,7 +92,7 @@ fn mode_choices(
         .collect()
 }
 
-fn heading(text: SharedString, cx: &App) -> Div {
+pub(super) fn heading(text: SharedString, cx: &App) -> Div {
     div()
         .px_2()
         .pt_1()
@@ -147,12 +102,8 @@ fn heading(text: SharedString, cx: &App) -> Div {
         .child(text)
 }
 
-fn divider(cx: &App) -> Div {
-    div().my_1().h_px().bg(cx.theme().border)
-}
-
 /// A row of the chooser; the chosen one is tinted with the accent colour.
-fn choice(
+pub(super) fn choice(
     id: impl Into<ElementId>,
     label: impl Into<SharedString>,
     selected: bool,

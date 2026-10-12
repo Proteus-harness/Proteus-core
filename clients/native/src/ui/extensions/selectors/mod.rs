@@ -3,6 +3,7 @@
 //! be dragged out of the composer like any other; a click opens their
 //! chooser next to the icon.
 
+mod model;
 mod popup;
 mod steps;
 
@@ -36,6 +37,8 @@ struct SelectorBadge {
     id: &'static str,
     control: Control,
     open: bool,
+    /// The model chooser shows the model list instead of the effort.
+    models_open: bool,
     bounds: Rc<Cell<Bounds<Pixels>>>,
     /// Effort step under the pointer while it is dragged along the steps.
     scrub: Option<usize>,
@@ -51,9 +54,17 @@ impl SelectorBadge {
     fn set_open(&mut self, open: bool, cx: &mut Context<Self>) {
         if self.open != open {
             self.open = open;
+            self.models_open = false;
             self.scrub = None;
             self.pending = None;
             self.thumb.set(None);
+            cx.notify();
+        }
+    }
+
+    fn show_models(&mut self, shown: bool, cx: &mut Context<Self>) {
+        if self.models_open != shown {
+            self.models_open = shown;
             cx.notify();
         }
     }
@@ -161,8 +172,11 @@ impl Render for SelectorBadge {
         let popup = self
             .open
             .then(|| self.render_popup(&config, chat.downgrade(), window, cx));
+        // The measuring layer goes first: an absolute child without offsets
+        // sits after the siblings before it.
         div()
             .relative()
+            .on_prepaint(move |rect, _, _| bounds.set(rect))
             .child(pressable_badge(
                 self.id,
                 face,
@@ -171,7 +185,6 @@ impl Render for SelectorBadge {
                 Some(press),
                 cx,
             ))
-            .on_prepaint(move |rect, _, _| bounds.set(rect))
             .children(popup)
             .into_any_element()
     }
@@ -192,6 +205,7 @@ fn build(host: Host, id: &'static str, control: Control, cx: &mut App) -> AnyVie
         id,
         control,
         open: false,
+        models_open: false,
         bounds: Rc::default(),
         scrub: None,
         pending: None,

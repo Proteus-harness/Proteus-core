@@ -8,15 +8,12 @@ use std::rc::Rc;
 
 use gpui_kit::component::*;
 use gpui_kit::*;
-use proteus_contracts::app_protocol::config::ConfigSummary;
 
-use super::{SelectorBadge, effort_position};
-use crate::ui::chat::Chat;
-use crate::ui::chat::controls::{current_effort, efforts};
+use super::SelectorBadge;
 use crate::ui::{motion, prefs};
 
 /// Height of the pill.
-const PILL: f32 = 24.;
+const PILL: f32 = 28.;
 /// Room between the thumb and the pill edge.
 const INSET: f32 = 3.;
 /// Diameter of a step dot.
@@ -25,50 +22,7 @@ const DOT: f32 = 6.;
 const EASE: f32 = 0.35;
 
 impl SelectorBadge {
-    pub(super) fn effort_section(
-        &self,
-        config: &ConfigSummary,
-        chat: WeakEntity<Chat>,
-        cx: &mut Context<Self>,
-    ) -> Div {
-        let theme = cx.theme();
-        let (muted, primary) = (theme.muted_foreground, theme.primary);
-        let inherited = current_effort(config).is_none() && self.scrub.is_none();
-        let names = efforts(config);
-        let shown = self
-            .scrub
-            .or(self.pending)
-            .unwrap_or_else(|| effort_position(config))
-            .min(names.len().saturating_sub(1));
-        let reset = div()
-            .id("effort-profile")
-            .text_xs()
-            .cursor_pointer()
-            .text_color(if inherited { primary } else { muted })
-            .hover(move |style| style.text_color(primary))
-            .child("по профилю")
-            .on_click(move |_, _, cx| {
-                let _ = chat.update(cx, |chat, cx| chat.set_effort(None, cx));
-            });
-        let name = names.get(shown).cloned().unwrap_or_default();
-        v_flex()
-            .px_2()
-            .pt_1()
-            .pb_1p5()
-            .gap_1p5()
-            .child(
-                h_flex()
-                    .gap_1()
-                    .text_xs()
-                    .child(div().text_color(muted).child("Рассуждения"))
-                    .child(div().text_color(primary).font_medium().child(name))
-                    .child(div().flex_1())
-                    .child(reset),
-            )
-            .child(self.pill(names.len(), shown, cx))
-    }
-
-    fn pill(&self, count: usize, shown: usize, cx: &mut Context<Self>) -> Stateful<Div> {
+    pub(super) fn pill(&self, count: usize, shown: usize, cx: &mut Context<Self>) -> Stateful<Div> {
         let theme = cx.theme();
         let colors = Colors {
             rest: theme.foreground.opacity(0.1),
