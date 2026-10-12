@@ -46,11 +46,11 @@ def install_file(source, target, executable=False):
         target.chmod(mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
 
-def assemble(profile):
+def assemble(agent_profile, client_profile):
     staging = BUILD / "Proteus.next"
     shutil.rmtree(staging, ignore_errors=True)
-    agent = ROOT / "target" / profile
-    client = NATIVE / "target" / profile
+    agent = ROOT / "target" / agent_profile
+    client = NATIVE / "target" / client_profile
     install_file(client / "proteus-native", staging / "bin/proteus-native", True)
     install_file(agent / "proteus", staging / "bin/proteus", True)
     install_file(
@@ -77,10 +77,17 @@ def archive():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
         "--debug",
         action="store_true",
         help="use debug builds (faster to build, slower to run)",
+    )
+    mode.add_argument(
+        "--fast",
+        action="store_true",
+        help="build the client without LTO, incrementally, and skip the archive "
+        "(for local rebuilds; runs nearly as fast as release)",
     )
     parser.add_argument(
         "--no-archive", action="store_true", help="skip the tar.gz archive"
@@ -92,10 +99,12 @@ def main():
         ["cargo", "build", "--locked", *flags, "-p", "proteus-core", "-p", "proteus-reference-module"],
         ROOT,
     )
-    run(["cargo", "build", "--locked", *flags], NATIVE)
-    assemble(profile)
+    client_profile = "fast" if args.fast else profile
+    client_flags = ["--profile", "fast"] if args.fast else flags
+    run(["cargo", "build", "--locked", *client_flags], NATIVE)
+    assemble(profile, client_profile)
     print(f"Portable: {PORTABLE}")
-    if not args.no_archive:
+    if not (args.no_archive or args.fast):
         print(f"Archive:  {archive()}")
 
 

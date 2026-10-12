@@ -44,6 +44,18 @@ lto = "thin"
 codegen-units = 1
 strip = true
 
+# Local portable rebuilds (`portable.py --fast`): optimized like release, but
+# without LTO and in incremental pieces, so a client change rebuilds in
+# seconds. The client itself is split finer, so a change recompiles little.
+[profile.fast]
+inherits = "release"
+lto = false
+codegen-units = 16
+incremental = true
+
+[profile.fast.package.proteus-native]
+codegen-units = 256
+
 # GPUI, text shaping and tree-sitter are unusably slow unoptimized; only the
 # client itself stays at opt-level 0 for quick rebuilds.
 [profile.dev.package."*"]

@@ -82,9 +82,16 @@ cargo build --release
 ## Portable
 
 ```bash
-python3 clients/native/scripts/portable.py           # release
-python3 clients/native/scripts/portable.py --debug   # быстрее собрать
+python3 clients/native/scripts/portable.py           # release с архивом
+python3 clients/native/scripts/portable.py --fast    # локальная пересборка
+python3 clients/native/scripts/portable.py --debug   # быстрее всего собрать
 ```
+
+`--fast` собирает клиент профилем `fast`: оптимизация как в release, но без
+LTO и инкрементально, поэтому правка клиента пересобирается за секунды, а не
+минуты; архив не пишется. Агент и модуль при этом берутся из release.
+`--debug` собирает код клиента без оптимизаций: интерфейс может
+подтормаживать, для оценки плавности он не подходит.
 
 Скрипт собирает `proteus`, `proteus-reference-module` и клиент, затем
 складывает `clients/native/build/Proteus/` и архив

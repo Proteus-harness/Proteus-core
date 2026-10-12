@@ -334,7 +334,9 @@ implementation. Сначала расширяйте существующий bou
 
 Когда правка приложения (клиент или backend) завершена и закоммичена, а также
 по запросу владельца, сразу пересобирайте portable через
-`python3 clients/native/scripts/portable.py`, чтобы
-`clients/native/build/Proteus/proteus-native` был актуален. Промежуточные
+`python3 clients/native/scripts/portable.py --fast`, чтобы
+`clients/native/build/Proteus/proteus-native` был актуален. Полную release
+сборку с архивом (без `--fast`) запускайте только для проверки упаковки,
+раздачи или по запросу владельца. Промежуточные
 правки внутри одной задачи отдельной пересборки не требуют. Не удаляйте
 `target` ради обычной проверки: сборка инкрементальная.
