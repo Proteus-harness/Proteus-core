@@ -37,6 +37,8 @@ pub(super) struct ChatScroller {
     /// Content changed since the last frame; the new size is known only after
     /// the next layout.
     dirty: bool,
+    /// Width of the viewport on the last layout.
+    width: Option<Pixels>,
 }
 
 impl ChatScroller {
@@ -56,6 +58,7 @@ impl ChatScroller {
             last_offset: None,
             last_frame: None,
             dirty: false,
+            width: None,
         }
     }
 
@@ -99,6 +102,19 @@ impl ChatScroller {
         self.following = true;
         self.dirty = true;
         cx.notify();
+    }
+
+    /// A new width re-measures every row and keeps the top one in place, so
+    /// the end would drop out of view; a following list stays at its end.
+    /// Called before the list lays out at `width`.
+    fn keep_end(&mut self, width: Pixels) {
+        let resized = self.width.replace(width).is_some_and(|last| last != width);
+        if resized && self.following {
+            self.list.scroll_to_end();
+            // Rows above are unmeasured now, so the offset reads lower
+            // without the user scrolling.
+            self.last_offset = None;
+        }
     }
 
     fn changed(&mut self, cx: &mut Context<Self>) {
@@ -215,6 +231,7 @@ impl RenderOnce for ChatList {
         .min_h_0()
         .py_2();
         let state = self.state.clone();
+        let resized = self.state.clone();
         div()
             .id(self.id.clone())
             .relative()
@@ -227,6 +244,10 @@ impl RenderOnce for ChatList {
                     .size_full()
                     .min_h_0()
                     .min_w_0()
+                    // Ahead of the rows, so it runs before the list lays out.
+                    .on_prepaint(move |bounds, _, cx| {
+                        resized.update(cx, |state, _| state.keep_end(bounds.size.width))
+                    })
                     .child(rows)
                     .vertical_scrollbar(&list_state),
             )
