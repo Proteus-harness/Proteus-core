@@ -19,9 +19,9 @@ struct Squeeze {
     basis: AbsoluteLength,
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy)]
 struct CollapseState {
-    width: Option<Pixels>,
+    width: Pixels,
 }
 
 impl Collapse {
@@ -78,21 +78,28 @@ impl Element for Collapse {
         window: &mut Window,
         cx: &mut App,
     ) -> (LayoutId, Self::RequestLayoutState) {
+        let child = &mut self.child;
         let width = window.with_element_state(
             global_id.expect("Collapse has an id"),
-            |state: Option<CollapseState>, _| {
-                let state = state.unwrap_or_default();
-                (state.width, state)
+            |state: Option<CollapseState>, window| {
+                // A child new under this id, such as a tab dropped into a
+                // strip or a row drawn afresh after a drag, is measured right
+                // away instead of taking no room for a frame.
+                let width = state.map_or_else(
+                    || {
+                        let space = size(AvailableSpace::MaxContent, AvailableSpace::MaxContent);
+                        child.layout_as_root(space, window, cx).width
+                    },
+                    |state| state.width,
+                );
+                (width, CollapseState { width })
             },
         );
         let mut style = Style::default();
         style.size.height = relative(1.).into();
         style.flex_shrink = 0.;
-        style.size.width = match width {
-            Some(width) => (width * self.progress).into(),
-            None => px(0.).into(),
-        };
-        if let (Some(squeeze), Some(width)) = (self.squeeze, width) {
+        style.size.width = (width * self.progress).into();
+        if let Some(squeeze) = self.squeeze {
             // Equal bases shrink by equal amounts, and the natural width as
             // the maximum keeps a short child whole until the others reach it.
             let rem = window.rem_size();
@@ -127,10 +134,9 @@ impl Element for Collapse {
         let changed = window.with_element_state(
             global_id.expect("Collapse has an id"),
             |state: Option<CollapseState>, _| {
-                let mut state = state.unwrap_or_default();
-                let changed = state.width != Some(measured.width);
-                state.width = Some(measured.width);
-                (changed, state)
+                let changed = state.is_none_or(|state| state.width != measured.width);
+                let width = measured.width;
+                (changed, CollapseState { width })
             },
         );
         if changed {
