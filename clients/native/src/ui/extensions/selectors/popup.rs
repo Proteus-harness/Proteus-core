@@ -10,6 +10,7 @@ use proteus_contracts::app_protocol::config::ConfigSummary;
 use super::{Control, SelectorBadge};
 use crate::ui::chat::Chat;
 use crate::ui::chat::controls::{MODES, mode_from_value};
+use crate::ui::fade::faded;
 use crate::ui::prefs;
 
 /// Room between the icon and its chooser.
@@ -118,13 +119,12 @@ pub(super) fn choice(
         .py_1()
         .rounded(theme.radius)
         .cursor_pointer()
-        .truncate()
         .when(selected, |row| {
             row.text_color(primary)
                 .font_medium()
                 .bg(primary.opacity(0.12))
         })
         .when(!selected, |row| row.hover(move |style| style.bg(hover)))
-        .child(label.into())
+        .child(faded(label.into()))
         .on_click(move |_, _, cx| on_choose(cx))
 }

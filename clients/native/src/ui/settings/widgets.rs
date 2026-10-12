@@ -10,6 +10,7 @@ use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
+use crate::ui::fade::faded;
 use crate::ui::kit;
 use crate::ui::prefs;
 
@@ -160,6 +161,14 @@ pub(super) fn mono(text: impl Into<SharedString>, cx: &App) -> Div {
     div()
         .font_family(cx.theme().mono_font_family.clone())
         .child(text.into())
+}
+
+/// Monospace label on one line that fades out where it runs out of room.
+pub(super) fn mono_line(text: impl Into<SharedString>, cx: &App) -> Div {
+    div()
+        .min_w_0()
+        .font_family(cx.theme().mono_font_family.clone())
+        .child(faded(text))
 }
 
 /// Selectable card of a radio group.

@@ -10,6 +10,7 @@ use super::widgets::changed_dot;
 use super::{LoadState, SettingsView};
 use crate::settings::catalog::{PageId, area_labels, page_description, page_title};
 use crate::ui::extensions;
+use crate::ui::fade::faded;
 use crate::ui::kit;
 use crate::ui::kit::Hint as _;
 use crate::ui::motion::Spinner;
@@ -238,18 +239,17 @@ impl SettingsView {
                             .text_sm()
                             .text_color(tone)
                             .when(dirty && !self.saving, |line| line.child(changed_dot(cx)))
-                            .child(div().truncate().child(status)),
+                            .child(div().child(faded(status))),
                     )
                     .child(
                         div()
                             .text_xs()
                             .text_color(theme.muted_foreground)
-                            .truncate()
-                            .child(if read_only {
+                            .child(faded(if read_only {
                                 format!("{target} · только чтение")
                             } else {
                                 target
-                            }),
+                            })),
                     ),
             )
             .when(!dirty, |bar| {

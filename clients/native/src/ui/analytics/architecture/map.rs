@@ -18,6 +18,7 @@ use crate::analytics::format::pretty;
 use crate::analytics::graph::{
     Graph, Kind, Layout, NODE_HEIGHT, NODE_WIDTH, Scope, edge_label, graph, layout,
 };
+use crate::ui::fade::faded;
 use crate::ui::kit;
 use crate::ui::prefs;
 
@@ -238,7 +239,7 @@ impl ArchitecturePage {
             let node = &graph.nodes[placed.node];
             let id = node.id.clone();
             let selected = self.map.selected.as_deref() == Some(node.id.as_str());
-            let faded = related
+            let dimmed = related
                 .as_ref()
                 .is_some_and(|related| !related.contains(&node.id));
             let hit = found.contains(&placed.node);
@@ -269,7 +270,7 @@ impl ArchitecturePage {
                 .bg(theme.background)
                 .cursor_pointer()
                 .when(!node.active, |node| node.opacity(0.65))
-                .when(faded, |node| node.opacity(0.25))
+                .when(dimmed, |node| node.opacity(0.25))
                 .child(div().w(px(4. * zoom)).h_full().flex_none().bg(accent))
                 .child(
                     v_flex()
@@ -281,15 +282,13 @@ impl ArchitecturePage {
                             div()
                                 .text_size(px(12. * zoom))
                                 .font_semibold()
-                                .truncate()
-                                .child(node.label.clone()),
+                                .child(faded(node.label.clone())),
                         )
                         .child(
                             div()
                                 .text_size(px(10. * zoom))
                                 .text_color(theme.muted_foreground)
-                                .truncate()
-                                .child(node.subtitle.clone()),
+                                .child(faded(node.subtitle.clone())),
                         ),
                 )
                 .on_click(cx.listener(move |this, _, _, cx| {

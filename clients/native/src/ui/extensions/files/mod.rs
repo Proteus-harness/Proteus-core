@@ -8,6 +8,7 @@ use gpui_kit::*;
 
 use super::{Host, SurfaceView};
 use crate::files::ChangeStatus;
+use crate::ui::fade::faded;
 
 pub(super) use tree::bind_keys;
 
@@ -66,10 +67,9 @@ fn path_label(path: &str, cx: &App) -> Div {
                 div()
                     .min_w_0()
                     .pl_2()
-                    .truncate()
                     .text_xs()
                     .text_color(cx.theme().muted_foreground)
-                    .child(dir.to_string()),
+                    .child(faded(dir.to_string())),
             )
         })
 }

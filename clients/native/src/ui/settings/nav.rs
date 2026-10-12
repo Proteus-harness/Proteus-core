@@ -14,6 +14,7 @@ use super::{SettingsEvent, SettingsView};
 use crate::settings::catalog::{CLIENT_PAGES, PageId, agent_pages, area_page, page_title};
 use crate::shortcuts::Command;
 use crate::ui::extensions;
+use crate::ui::fade::faded;
 use crate::ui::kit;
 use crate::ui::kit::Hint as _;
 use crate::ui::prefs;
@@ -122,7 +123,7 @@ impl SettingsView {
                 } else {
                     theme.muted_foreground
                 }))
-                .child(div().flex_1().min_w_0().truncate().child(title))
+                .child(div().flex_1().min_w_0().child(faded(title)))
                 .when(dot, |item| item.child(changed_dot(cx)))
                 .on_click(cx.listener(move |this, _, _, cx| this.select_page(target.clone(), cx)))
         };
@@ -208,8 +209,7 @@ impl SettingsView {
                     .child(
                         div()
                             .font_family(theme.mono_font_family.clone())
-                            .truncate()
-                            .child(name),
+                            .child(faded(name)),
                     )
                     .when(!writable, |footer| {
                         footer.child(div().text_color(theme.warning).child("Только чтение"))

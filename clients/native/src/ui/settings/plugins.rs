@@ -12,7 +12,9 @@ use proteus_contracts::app_protocol::config_builder::{
 
 use super::SettingsView;
 use super::tools::pack_key;
-use super::widgets::{Tone, card, chip, disclosure, hashed_id, hint_text, mono, note, section};
+use super::widgets::{
+    Tone, card, chip, disclosure, hashed_id, hint_text, mono, mono_line, note, section,
+};
 use crate::settings::catalog::{
     HOOK_SLOT, PackState, PageId, TOOL_SLOT, export_selected, find_tool, pack_summary, plural,
     slot_page, slot_title,
@@ -103,10 +105,9 @@ impl SettingsView {
                 cx,
             ))
             .child(
-                mono(plugin.command.clone(), cx)
+                mono_line(plugin.command.clone(), cx)
                     .text_xs()
-                    .text_color(theme.muted_foreground)
-                    .truncate(),
+                    .text_color(theme.muted_foreground),
             )
             .when(!counts.is_empty(), |header| {
                 header.child(
@@ -262,13 +263,7 @@ impl SettingsView {
             .py_1p5()
             .gap_2()
             .items_center()
-            .child(
-                mono(name.to_string(), cx)
-                    .text_sm()
-                    .flex_1()
-                    .min_w_0()
-                    .truncate(),
-            )
+            .child(mono_line(name.to_string(), cx).text_sm().flex_1())
             .children(chips)
             .child(
                 kit::switch(hashed_id("pack-tool", &name))
@@ -360,7 +355,7 @@ impl SettingsView {
                             .flex_1()
                             .min_w_0()
                             .gap_1()
-                            .child(mono(path, cx).text_sm().truncate())
+                            .child(mono_line(path, cx).text_sm())
                             .child(h_flex().child(chip("skills и MCP", Tone::Muted, cx))),
                     )
                     .child(

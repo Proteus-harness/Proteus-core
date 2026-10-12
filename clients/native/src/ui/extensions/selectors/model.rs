@@ -13,6 +13,7 @@ use super::popup::{choice, heading};
 use super::{SelectorBadge, effort_position};
 use crate::ui::chat::Chat;
 use crate::ui::chat::controls::{current_effort, efforts, model_label, models, models_provider};
+use crate::ui::fade::faded;
 use crate::ui::kit::Hint as _;
 use crate::ui::{kit, prefs};
 
@@ -63,7 +64,7 @@ impl SelectorBadge {
             .max_w_full()
             .gap_0p5()
             .text_color(muted)
-            .child(div().truncate().child(model_label(config)))
+            .child(div().child(faded(model_label(config))))
             .when(!models(config).is_empty(), |row| {
                 row.cursor_pointer()
                     .hover(move |style| style.text_color(foreground))

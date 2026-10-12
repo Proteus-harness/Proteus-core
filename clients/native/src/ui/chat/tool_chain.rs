@@ -11,6 +11,7 @@ use super::Chat;
 use super::tool_row::{is_running, status_icon, tool_args};
 use crate::tool_display;
 use crate::transcript::{affected_rows, tool_chain};
+use crate::ui::fade::faded;
 use crate::ui::motion::chevron;
 
 const LABELS: usize = 3;
@@ -83,7 +84,7 @@ pub(super) fn render_chain_header(
                 .flex_none()
                 .child(format!("Инструменты · {}", tools.len())),
         )
-        .child(div().min_w_0().truncate().text_color(muted).child(summary))
+        .child(div().min_w_0().text_color(muted).child(faded(summary)))
         .child(chevron(
             ElementId::NamedInteger("tool-chain-chevron".into(), head),
             open,

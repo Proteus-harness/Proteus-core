@@ -10,6 +10,7 @@ use gpui_kit::*;
 use super::{FilesPanel, Tab};
 use crate::files::{ChangeStatus, EntryKind};
 use crate::ui::extensions::files::{path_label, status_color};
+use crate::ui::fade::faded;
 use crate::ui::kit;
 use crate::ui::kit::Hint as _;
 use crate::ui::motion;
@@ -88,12 +89,11 @@ impl FilesPanel {
                 div()
                     .flex_1()
                     .min_w_0()
-                    .truncate()
                     .text_color(name_color)
                     .when(row.status == Some(ChangeStatus::Deleted), |name| {
                         name.line_through()
                     })
-                    .child(row.name.clone()),
+                    .child(faded(row.name.clone())),
             )
             .when(row.truncated, |line| {
                 line.child(

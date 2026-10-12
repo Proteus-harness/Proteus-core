@@ -9,6 +9,7 @@ use serde_json::Value;
 
 use super::Chat;
 use crate::tool_display::{self, DiffLine, PatchFile, PlanStep, StepStatus};
+use crate::ui::fade::faded;
 use crate::ui::format;
 use crate::ui::kit::Hint as _;
 use crate::ui::motion::{Spinner, chevron, reveal};
@@ -63,11 +64,10 @@ pub(super) fn tool_line(tool: &AppTranscriptTool, cx: &App) -> Div {
     let subject = headline.subject.map(|subject| {
         div()
             .min_w_0()
-            .truncate()
             .font_family(theme.mono_font_family.clone())
             .text_xs()
             .text_color(theme.muted_foreground)
-            .child(subject)
+            .child(faded(subject))
     });
     h_flex()
         .gap_2()
@@ -201,7 +201,7 @@ fn argument_details(key: u64, tool: &AppTranscriptTool, cx: &App) -> Vec<AnyElem
                         .text_color(theme.muted_foreground)
                         .child(format!("{name}:")),
                 )
-                .child(div().min_w_0().truncate().child(value))
+                .child(div().min_w_0().child(faded(value)))
                 .into_any_element()
         });
     let name = div()
@@ -232,9 +232,8 @@ fn patch_file(key: u64, ix: usize, file: &PatchFile, cx: &App) -> Div {
         .child(
             div()
                 .min_w_0()
-                .truncate()
                 .font_family(theme.mono_font_family.clone())
-                .child(file.path.clone()),
+                .child(faded(file.path.clone())),
         )
         .when(file.additions + file.deletions > 0, |header| {
             header.child(diff_stats((file.additions, file.deletions), cx))

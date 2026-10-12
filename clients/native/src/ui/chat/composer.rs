@@ -6,6 +6,7 @@ use gpui_kit::*;
 use proteus_contracts::app_protocol::AppQueuedUserMessage;
 
 use super::Chat;
+use crate::ui::fade::faded;
 use crate::ui::kit;
 use crate::ui::kit::Hint as _;
 use crate::ui::{format, prefs};
@@ -128,8 +129,7 @@ fn render_queued(message: &AppQueuedUserMessage, cx: &Context<Chat>) -> impl Int
             div()
                 .flex_1()
                 .min_w_0()
-                .truncate()
-                .child(format::clip(&message.text, 200)),
+                .child(faded(format::clip(&message.text, 200))),
         )
         .when_some(images, |row, images| {
             row.child(div().text_color(theme.muted_foreground).child(images))

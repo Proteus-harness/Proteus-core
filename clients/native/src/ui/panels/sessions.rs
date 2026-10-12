@@ -15,6 +15,7 @@ use proteus_contracts::app_protocol::AppSessionActivityStatus;
 use super::session_menu;
 use crate::sessions::Row;
 use crate::shortcuts::Command;
+use crate::ui::fade::faded;
 use crate::ui::kit;
 use crate::ui::kit::Hint as _;
 use crate::ui::motion::Spinner;
@@ -86,9 +87,8 @@ impl Workspace {
                             .min_w_0()
                             .text_xs()
                             .font_semibold()
-                            .truncate()
                             .text_color(theme.muted_foreground)
-                            .child(workspace_name),
+                            .child(faded(workspace_name)),
                     )
                     .child(
                         kit::button("new-session")
@@ -218,12 +218,11 @@ impl Workspace {
                     .flex_1()
                     .min_w_0()
                     .text_sm()
-                    .truncate()
-                    .child(
+                    .child(faded(
                         mark.title
                             .clone()
                             .unwrap_or_else(|| format::session_title(summary)),
-                    )
+                    ))
                     .into_any_element(),
             })
             .children(indicator)

@@ -11,6 +11,7 @@ use super::images::{SentImages, render_sent_images};
 use super::tool_chain::render_chain_header;
 use super::tool_row::{render_tool, tool_line};
 use crate::transcript::{Entry, Role};
+use crate::ui::fade::faded;
 use crate::ui::kit::{self, Hint as _};
 use crate::ui::motion::{self, chevron, fade_in_if, reveal};
 use crate::ui::{format, prefs};
@@ -273,9 +274,8 @@ fn render_subagent(
                     div()
                         .flex_1()
                         .min_w_0()
-                        .truncate()
                         .text_color(theme.muted_foreground)
-                        .child(agent.description.clone().unwrap_or_default()),
+                        .child(faded(agent.description.clone().unwrap_or_default())),
                 )
                 .child(
                     div()

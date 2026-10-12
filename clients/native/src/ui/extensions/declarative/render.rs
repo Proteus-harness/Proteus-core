@@ -8,6 +8,7 @@ use serde_json::Value;
 
 use super::view::DeclarativeView;
 use crate::declarative::widget::{Direction, Gap, Item, Node, TextSize, Tone, Variant};
+use crate::ui::fade::faded;
 use crate::ui::kit;
 use crate::ui::prefs;
 
@@ -156,9 +157,8 @@ impl DeclarativeView {
                                 div()
                                     .w(prefs::scaled(120.))
                                     .flex_none()
-                                    .truncate()
                                     .text_color(theme.muted_foreground)
-                                    .child(bar.label.clone()),
+                                    .child(faded(bar.label.clone())),
                             )
                             .child(
                                 div().flex_1().h_2().child(
@@ -327,7 +327,7 @@ fn table(columns: &[String], rows: &[Vec<String>], cx: &App) -> Div {
             .children(
                 cells
                     .iter()
-                    .map(|cell| div().flex_1().min_w_0().truncate().child(cell.clone())),
+                    .map(|cell| div().flex_1().min_w_0().child(faded(cell.clone()))),
             )
     };
     v_flex()

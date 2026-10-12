@@ -14,6 +14,7 @@ use super::chrome::{self, Projects, WorkspaceRequest};
 use super::prefs;
 use super::workspace::{Status, Workspace};
 use crate::launch::{LaunchOptions, Target};
+use crate::ui::fade::faded;
 use crate::ui::kit;
 
 pub struct Launcher {
@@ -157,50 +158,47 @@ impl Launcher {
             .iter()
             .map(Path::to_path_buf)
             .collect();
-        let rows = recent.into_iter().enumerate().map(|(index, path)| {
-            let exists = path.is_dir();
-            let name = path
-                .file_name()
-                .map(|name| name.to_string_lossy().into_owned())
-                .unwrap_or_else(|| path.display().to_string());
-            let shown = path.display().to_string();
-            h_flex()
-                .id(("recent-workspace", index))
-                .px_3()
-                .py_2()
-                .gap_3()
-                .items_center()
-                .rounded(theme.radius)
-                .when(exists, |row| {
-                    row.cursor_pointer()
-                        .hover(|row| row.bg(theme.list_hover))
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            this.open(path.clone(), window, cx)
-                        }))
-                })
-                .when(!exists, |row| row.opacity(0.5))
-                .child(
-                    Icon::new(Lucide::Folder)
-                        .small()
-                        .text_color(theme.muted_foreground),
-                )
-                .child(
-                    v_flex()
-                        .min_w_0()
-                        .child(div().text_sm().font_medium().truncate().child(name))
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(theme.muted_foreground)
-                                .truncate()
-                                .child(if exists {
+        let rows =
+            recent.into_iter().enumerate().map(|(index, path)| {
+                let exists = path.is_dir();
+                let name = path
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| path.display().to_string());
+                let shown = path.display().to_string();
+                h_flex()
+                    .id(("recent-workspace", index))
+                    .px_3()
+                    .py_2()
+                    .gap_3()
+                    .items_center()
+                    .rounded(theme.radius)
+                    .when(exists, |row| {
+                        row.cursor_pointer()
+                            .hover(|row| row.bg(theme.list_hover))
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.open(path.clone(), window, cx)
+                            }))
+                    })
+                    .when(!exists, |row| row.opacity(0.5))
+                    .child(
+                        Icon::new(Lucide::Folder)
+                            .small()
+                            .text_color(theme.muted_foreground),
+                    )
+                    .child(
+                        v_flex()
+                            .min_w_0()
+                            .child(div().text_sm().font_medium().child(faded(name)))
+                            .child(div().text_xs().text_color(theme.muted_foreground).child(
+                                faded(if exists {
                                     shown
                                 } else {
                                     format!("{shown} · папка не найдена")
                                 }),
-                        ),
-                )
-        });
+                            )),
+                    )
+            });
         let has_recent = prefs::current(cx).recent.iter().next().is_some();
         v_flex()
             .size_full()

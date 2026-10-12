@@ -23,6 +23,7 @@ use crate::analytics::analysis::{
 };
 use crate::analytics::format::{clock, pretty, short_id, tokens};
 use crate::api::Api;
+use crate::ui::fade::faded;
 use crate::ui::kit;
 use crate::ui::prefs;
 
@@ -331,7 +332,7 @@ impl AnalysisPage {
                     .when(selected, |row| row.bg(theme.accent))
                     .when(!selected, |row| row.hover(|row| row.bg(theme.list_hover)))
                     .child(note(format!("{} · #{}", step_kind(step), sequence), cx).text_xs())
-                    .child(div().text_sm().truncate().child(step_title(step)))
+                    .child(div().text_sm().child(faded(step_title(step))))
                     .child(
                         div()
                             .text_xs()

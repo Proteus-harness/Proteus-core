@@ -11,6 +11,7 @@ use gpui_kit::*;
 use super::menu;
 use crate::tabs::{self, PaneId, TabLayout};
 use crate::ui::chat::ChatState;
+use crate::ui::fade::faded;
 use crate::ui::kit;
 use crate::ui::kit::Hint as _;
 use crate::ui::motion::Spinner;
@@ -45,9 +46,8 @@ impl Render for DraggedTab {
                 .child(
                     div()
                         .min_w_0()
-                        .truncate()
                         .when(self.preview, |title| title.italic())
-                        .child(self.title.clone()),
+                        .child(faded(self.title.clone())),
                 ),
             cx,
         )
@@ -174,9 +174,8 @@ impl Workspace {
                 tab.child(
                     div()
                         .min_w_0()
-                        .truncate()
                         .when(state.preview, |title| title.italic())
-                        .child(label.title),
+                        .child(faded(label.title)),
                 )
             })
             .when(!state.pinned, |tab| {

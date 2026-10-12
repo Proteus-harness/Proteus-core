@@ -6,6 +6,7 @@ mod chats;
 mod chrome;
 mod drag;
 mod extensions;
+mod fade;
 mod format;
 mod keys;
 mod kit;
