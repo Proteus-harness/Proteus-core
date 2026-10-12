@@ -7,7 +7,6 @@
 //! Following stops when the user moves up (the offset drops while content
 //! remains below) and resumes once the view reaches the end again.
 
-use crate::ui::kit;
 use std::ops::Range;
 use std::time::Instant;
 
@@ -17,6 +16,7 @@ use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
+use crate::ui::kit;
 use crate::ui::kit::Hint as _;
 use crate::ui::motion;
 

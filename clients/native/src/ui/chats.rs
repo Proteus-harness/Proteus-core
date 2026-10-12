@@ -278,6 +278,13 @@ impl Workspace {
                 self.notice = None;
                 self.refresh_sessions(cx);
             }
+            // Chats draw from their own cache; the composer icons move to
+            // the new active one.
+            for id in [&self.active_chat, &active].into_iter().flatten() {
+                if let Some(chat) = self.chats.get(id) {
+                    chat.view.update(cx, |_, cx| cx.notify());
+                }
+            }
             self.active_chat = active;
             cx.emit(HostEvent::SessionOpened);
             cx.notify();

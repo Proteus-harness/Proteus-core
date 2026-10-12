@@ -1,6 +1,5 @@
 //! Pages of select-one slots: implementation choice and its parameters.
 
-use crate::ui::kit;
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::*;
 use gpui_kit::*;
@@ -11,6 +10,7 @@ use crate::settings::catalog::{
     CONTEXT_PROVIDER_SLOT, MODEL_SLOT, POLICY_SLOT, PageId, exports, find_slot, model_module,
     permission_description, selected_module,
 };
+use crate::ui::kit;
 
 impl SettingsView {
     pub(super) fn model_page(&self, cx: &Context<Self>) -> Vec<AnyElement> {

@@ -1,6 +1,5 @@
 //! «Сочетания клавиш»: window command shortcuts, recorded from the keyboard.
 
-use crate::ui::kit;
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::*;
@@ -9,6 +8,7 @@ use gpui_kit::*;
 use super::SettingsView;
 use super::widgets::{Tone, card, chip, hashed_id, note, row, section};
 use crate::shortcuts::{Command, label, normalize};
+use crate::ui::kit;
 use crate::ui::kit::Hint as _;
 use crate::ui::prefs;
 

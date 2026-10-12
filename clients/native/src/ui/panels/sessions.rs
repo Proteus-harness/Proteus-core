@@ -1,14 +1,12 @@
 //! The session list panel: sessions of the workspace and a new-session
 //! button.
 
-use crate::ui::kit;
 use std::time::Duration;
 
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::input::Input;
 use gpui_kit::component::menu::{ContextMenuExt as _, DropdownMenu as _};
-use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -17,7 +15,9 @@ use proteus_contracts::app_protocol::AppSessionActivityStatus;
 use super::session_menu;
 use crate::sessions::Row;
 use crate::shortcuts::Command;
+use crate::ui::kit;
 use crate::ui::kit::Hint as _;
+use crate::ui::motion::Spinner;
 use crate::ui::workspace::Workspace;
 use crate::ui::{format, motion, prefs};
 

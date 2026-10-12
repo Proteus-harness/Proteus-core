@@ -1,6 +1,6 @@
+use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::base::SelectableText;
 use gpui_kit::component::clipboard::Clipboard;
-use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -11,7 +11,7 @@ use super::Chat;
 use crate::tool_display::{self, DiffLine, PatchFile, PlanStep, StepStatus};
 use crate::ui::format;
 use crate::ui::kit::Hint as _;
-use crate::ui::motion::{chevron, reveal};
+use crate::ui::motion::{Spinner, chevron, reveal};
 
 const RESULT_LINES: usize = 40;
 const RESULT_CHARS: usize = 8_000;
@@ -43,8 +43,17 @@ pub(super) fn status_icon(status: &str, cx: &App) -> AnyElement {
             .xsmall()
             .text_color(theme.warning)
             .into_any_element(),
-        _ => Spinner::new().xsmall().into_any_element(),
+        status if is_running(status) => Spinner::new().xsmall().into_any_element(),
+        // Interrupted, canceled or unknown: nothing will finish it any more.
+        _ => Icon::new(Lucide::CircleStop)
+            .xsmall()
+            .text_color(theme.muted_foreground)
+            .into_any_element(),
     }
+}
+
+pub(super) fn is_running(status: &str) -> bool {
+    matches!(status, "running" | "approved")
 }
 
 /// One-line headline: status, action label, subject and patch stats.

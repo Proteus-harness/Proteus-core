@@ -1,6 +1,5 @@
 //! Client pages: preferences of this device, applied immediately.
 
-use crate::ui::kit;
 use gpui_kit::component::*;
 use gpui_kit::*;
 
@@ -10,6 +9,7 @@ use super::widgets::{MenuOption, card, row, section, select_menu};
 use crate::preferences::{
     Hints, MotionPreference, Notifications, Preferences, SendMode, ThemePreference,
 };
+use crate::ui::kit;
 use crate::ui::prefs::{self, ClientPreferences};
 use crate::ui::theme::{self, ThemeProblems};
 

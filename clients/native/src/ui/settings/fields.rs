@@ -1,6 +1,5 @@
 //! Rows for module `config_schema` fields.
 
-use crate::ui::kit;
 use std::rc::Rc;
 
 use gpui_kit::component::button::ButtonVariants as _;
@@ -15,6 +14,7 @@ use super::SettingsView;
 use super::editors::TextInput;
 use super::widgets::{MenuOption, Tone, changed_dot, chip, hashed_id, row, select_menu};
 use crate::settings::{FieldKind, FieldPath, choice_title, default_hint, field_kind};
+use crate::ui::kit;
 use crate::ui::kit::Hint as _;
 use crate::ui::prefs;
 use crate::ui::tip::Tip as _;

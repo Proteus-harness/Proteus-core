@@ -132,7 +132,11 @@ impl Workspace {
     pub fn new(options: LaunchOptions, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let subscriptions = vec![cx.on_app_quit(|this, _| {
             let backend = this.backend.take();
-            async move { drop(backend) }
+            async move {
+                if let Some(backend) = backend {
+                    backend.shutdown();
+                }
+            }
         })];
 
         let workspace_path = options.workspace.clone();
@@ -199,6 +203,19 @@ impl Workspace {
         match result {
             Ok(boot) => {
                 self.api = Some(boot.api);
+                if let Some(exited) = boot.backend.as_ref().map(|guard| guard.exited.clone()) {
+                    cx.spawn(async move |this, cx| {
+                        let Ok(report) = exited.recv().await else {
+                            return;
+                        };
+                        this.update(cx, |this, cx| {
+                            this.status = Status::Failed(report.into());
+                            cx.notify();
+                        })
+                        .ok();
+                    })
+                    .detach();
+                }
                 self.backend = boot.backend;
                 self.sessions = boot.sessions;
                 self.sessions_arrived = Some(Instant::now());
@@ -217,6 +234,14 @@ impl Workspace {
 
     pub(super) fn api(&self) -> Option<Api> {
         self.api.clone()
+    }
+
+    /// Chats whose agent run is still going; closing the server ends them.
+    pub(super) fn running_chats(&self, cx: &App) -> usize {
+        self.chats
+            .values()
+            .filter(|chat| chat.view.read(cx).session.running())
+            .count()
     }
 
     /// Runs a blocking server call off the UI thread.

@@ -1,6 +1,5 @@
 //! «Запросы и расход» tab: period totals, per-model split and the request list.
 
-use crate::ui::kit;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -14,6 +13,7 @@ use crate::analytics::usage::{
     Cost, Order, PRICE_DATE, PRICE_SOURCE, Period, StatusFilter, Summary, by_model, request_cost,
     scoped, select as select_requests, status_label, summarize, turn_ids,
 };
+use crate::ui::kit;
 use crate::ui::prefs;
 
 const PAGE: usize = 20;

@@ -2,7 +2,6 @@
 
 mod details;
 
-use crate::ui::kit;
 use std::collections::HashSet;
 
 use gpui_kit::component::input::{Input, InputEvent, InputState};
@@ -24,6 +23,7 @@ use crate::analytics::analysis::{
 };
 use crate::analytics::format::{clock, pretty, short_id, tokens};
 use crate::api::Api;
+use crate::ui::kit;
 use crate::ui::prefs;
 
 pub(super) struct AnalysisPage {

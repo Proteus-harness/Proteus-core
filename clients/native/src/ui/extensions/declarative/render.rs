@@ -1,6 +1,5 @@
 //! Native rendering of the widget tree an extension sends.
 
-use crate::ui::kit;
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -9,6 +8,7 @@ use serde_json::Value;
 
 use super::view::DeclarativeView;
 use crate::declarative::widget::{Direction, Gap, Item, Node, TextSize, Tone, Variant};
+use crate::ui::kit;
 use crate::ui::prefs;
 
 pub(super) fn tone_color(tone: Tone, cx: &App) -> Hsla {

@@ -9,6 +9,9 @@ impl Render for Chat {
     /// The conversation: thread, pending requests and composer.
     /// Files dropped anywhere on it attach to the draft.
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // The chat is cached apart from the window, so it drives its own
+        // disclosures.
+        motion::drive(window, cx);
         let renderer = cx.processor(|this, ix: usize, window, cx| this.render_row(ix, window, cx));
         v_flex()
             .id("chat")

@@ -5,7 +5,6 @@
 mod catalog;
 mod map;
 
-use crate::ui::kit;
 use std::path::PathBuf;
 
 use gpui_kit::component::button::ButtonVariants as _;
@@ -18,6 +17,7 @@ use super::widgets::{
     Fetch, Tone, badge, card, error_line, header, metric, note, refresh_button, segments,
 };
 use crate::api::Api;
+use crate::ui::kit;
 use crate::ui::kit::Hint as _;
 
 #[derive(Clone, Copy, PartialEq, Eq)]

@@ -1,7 +1,6 @@
 //! The bar above the tabs: the logo menu, the open folder and extension
 //! icons at both ends, drawn inside the window's own title bar.
 
-use crate::ui::kit;
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenu, PopupMenuItem};
@@ -14,6 +13,7 @@ use super::projects::{Projects, WorkspaceRequest, folder_name};
 use super::title::title_bar;
 use crate::preferences::BadgePlace;
 use crate::ui::chat::ChatState;
+use crate::ui::kit;
 use crate::ui::tip::Tip as _;
 use crate::ui::workspace::{Status, Workspace};
 

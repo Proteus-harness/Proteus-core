@@ -1,4 +1,3 @@
-use crate::ui::kit;
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::input::Input;
 use gpui_kit::component::*;
@@ -8,6 +7,7 @@ use proteus_contracts::app_protocol::AppApprovalRequest;
 use proteus_contracts::contracts::UserInputRequest;
 
 use super::Chat;
+use crate::ui::kit;
 use crate::ui::prefs;
 use crate::ui::{format, motion};
 

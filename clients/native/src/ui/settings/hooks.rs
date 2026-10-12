@@ -1,6 +1,5 @@
 //! Hooks page: the ordered hook chain and the hooks still available.
 
-use crate::ui::kit;
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::*;
 use gpui_kit::*;
@@ -8,6 +7,7 @@ use gpui_kit::*;
 use super::SettingsView;
 use super::widgets::{card, hashed_id, hint_text, mono, note, section};
 use crate::settings::catalog::{HOOK_SLOT, module_info};
+use crate::ui::kit;
 use crate::ui::kit::Hint as _;
 use crate::ui::prefs;
 

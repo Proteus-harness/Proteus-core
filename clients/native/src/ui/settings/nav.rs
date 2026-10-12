@@ -1,7 +1,6 @@
 //! Settings navigation: agent pages, client pages, then a page for every
 //! enabled extension.
 
-use crate::ui::kit;
 use std::collections::HashSet;
 
 use gpui_kit::assets::IconName as Lucide;
@@ -15,6 +14,7 @@ use super::{SettingsEvent, SettingsView};
 use crate::settings::catalog::{CLIENT_PAGES, PageId, agent_pages, area_page, page_title};
 use crate::shortcuts::Command;
 use crate::ui::extensions;
+use crate::ui::kit;
 use crate::ui::kit::Hint as _;
 use crate::ui::prefs;
 use crate::ui::tip::Tip as _;

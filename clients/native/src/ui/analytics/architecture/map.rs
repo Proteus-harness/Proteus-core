@@ -1,7 +1,6 @@
 //! Interactive graph map: pan by dragging, zoom with the wheel, select a
 //! node to dim unrelated ones and see its facts and connections.
 
-use crate::ui::kit;
 use std::cell::Cell;
 use std::rc::Rc;
 
@@ -19,6 +18,7 @@ use crate::analytics::format::pretty;
 use crate::analytics::graph::{
     Graph, Kind, Layout, NODE_HEIGHT, NODE_WIDTH, Scope, edge_label, graph, layout,
 };
+use crate::ui::kit;
 use crate::ui::prefs;
 
 const MIN_ZOOM: f32 = 0.12;

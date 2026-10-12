@@ -8,7 +8,7 @@ use gpui_kit::*;
 use proteus_contracts::app_protocol::AppTranscriptTool;
 
 use super::Chat;
-use super::tool_row::{status_icon, tool_args};
+use super::tool_row::{is_running, status_icon, tool_args};
 use crate::tool_display;
 use crate::transcript::{affected_rows, tool_chain};
 use crate::ui::motion::chevron;
@@ -93,25 +93,22 @@ pub(super) fn render_chain_header(
         .into_any_element()
 }
 
-/// Running wins over waiting, waiting over failure, failure over success.
+/// Running wins over waiting, waiting over failure, failure over an
+/// interrupted call, and that over success.
 fn chain_status(tools: &[&AppTranscriptTool]) -> &'static str {
     let has = |wanted: &[&str]| {
         tools
             .iter()
             .any(|tool| wanted.contains(&tool.status.as_str()))
     };
-    let running = tools.iter().any(|tool| {
-        !matches!(
-            tool.status.as_str(),
-            "done" | "failed" | "denied" | "waiting_approval"
-        )
-    });
-    if running {
+    if tools.iter().any(|tool| is_running(&tool.status)) {
         "running"
     } else if has(&["waiting_approval"]) {
         "waiting_approval"
     } else if has(&["failed", "denied"]) {
         "failed"
+    } else if tools.iter().any(|tool| tool.status != "done") {
+        "interrupted"
     } else {
         "done"
     }

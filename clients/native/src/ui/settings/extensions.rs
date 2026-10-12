@@ -4,7 +4,6 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::ui::kit;
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::*;
@@ -16,6 +15,7 @@ use super::{Feedback, SettingsView};
 use crate::preferences::ExtensionPreferences;
 use crate::settings::catalog::PageId;
 use crate::ui::extensions::{self, Manifest};
+use crate::ui::kit;
 use crate::ui::kit::Hint as _;
 use crate::ui::prefs;
 

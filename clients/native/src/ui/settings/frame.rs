@@ -1,9 +1,7 @@
 //! Page frame: title, description, scrolled body and the save bar.
 
-use crate::ui::kit;
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::scroll::ScrollableElement as _;
-use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -12,7 +10,9 @@ use super::widgets::changed_dot;
 use super::{LoadState, SettingsView};
 use crate::settings::catalog::{PageId, area_labels, page_description, page_title};
 use crate::ui::extensions;
+use crate::ui::kit;
 use crate::ui::kit::Hint as _;
+use crate::ui::motion::Spinner;
 use crate::ui::motion::rise_in;
 use crate::ui::prefs;
 

@@ -1,7 +1,7 @@
 //! Plugins page: process components with their tool packs, hooks and slot
 //! modules, plus Agent Plugins packages (skills and MCP).
 
-use crate::ui::kit;
+use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -17,9 +17,9 @@ use crate::settings::catalog::{
     HOOK_SLOT, PackState, PageId, TOOL_SLOT, export_selected, find_tool, pack_summary, plural,
     slot_page, slot_title,
 };
+use crate::ui::kit;
 use crate::ui::kit::Hint as _;
 use crate::ui::prefs;
-use gpui_kit::assets::IconName as Lucide;
 
 impl SettingsView {
     pub(super) fn plugins_page(&self, cx: &Context<Self>) -> Vec<AnyElement> {

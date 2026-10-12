@@ -1,6 +1,5 @@
 //! A surface of an installed extension: panel, document or icon.
 
-use crate::ui::kit;
 use std::collections::HashMap;
 
 use gpui_kit::component::*;
@@ -12,6 +11,7 @@ use super::render;
 use super::runtime::Runtime;
 use crate::declarative::protocol::{Outgoing, SurfaceKind};
 use crate::declarative::widget::Node;
+use crate::ui::kit;
 
 pub(super) struct DeclarativeView {
     runtime: Entity<Runtime>,

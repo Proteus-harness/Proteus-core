@@ -1,6 +1,6 @@
 use gpui_kit::base::SelectableText;
 use gpui_kit::component::clipboard::Clipboard;
-use gpui_kit::component::text::TextView;
+use gpui_kit::component::text::{TextView, TextViewState};
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -82,7 +82,10 @@ impl Chat {
         };
         let body = match (&entry.role, &entry.tool, &entry.subagent) {
             (Role::User, _, _) => render_user(entry, &self.sent_images, cx),
-            (Role::Assistant, _, _) => render_assistant(entry, cx),
+            (Role::Assistant, _, _) => {
+                let reply = self.replies.state(entry.key, &entry.text, cx);
+                render_assistant(entry, &reply, cx)
+            }
             (Role::System, Some(tool), _) => match &chain {
                 Some(chain) if ix == chain.start => {
                     let tools: Vec<_> = entries[chain.clone()]
@@ -179,7 +182,7 @@ fn render_user(entry: &Entry, images: &SentImages, cx: &App) -> AnyElement {
         .into_any_element()
 }
 
-fn render_assistant(entry: &Entry, cx: &App) -> AnyElement {
+fn render_assistant(entry: &Entry, reply: &Entity<TextViewState>, cx: &App) -> AnyElement {
     let text = SharedString::from(&entry.text);
     let actions = (!entry.streaming && !entry.text.trim().is_empty())
         .then(|| row_actions().child(copy_button("copy-assistant", entry.key, text.clone(), cx)));
@@ -189,7 +192,7 @@ fn render_assistant(entry: &Entry, cx: &App) -> AnyElement {
         .w_full()
         .text_size(prefs::chat_text(cx))
         .child(
-            TextView::markdown(row_id("assistant", entry.key), text)
+            TextView::new(reply)
                 .selectable(true)
                 .stream_fade(true)
                 .code_block_actions(move |block, _, _| {

@@ -1,6 +1,5 @@
 //! Tools page: which tools the profile allows.
 
-use crate::ui::kit;
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::input::Input;
 use gpui_kit::component::*;
@@ -11,6 +10,7 @@ use proteus_contracts::app_protocol::config_builder::ConfigBuilderTool;
 use super::SettingsView;
 use super::widgets::{Tone, card, changed_dot, chip, hashed_id, mono, note, section};
 use crate::settings::catalog::{PageId, missing_tools, tool_matches};
+use crate::ui::kit;
 use crate::ui::kit::Hint as _;
 use crate::ui::prefs;
 use crate::ui::tip::Tip as _;

@@ -2,15 +2,16 @@ use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Read};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::{Arc, Mutex, mpsc};
-use std::thread;
-use std::time::Duration;
+use std::thread::{self, JoinHandle};
+use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result, anyhow};
 use serde::Deserialize;
 
 const READY_TIMEOUT: Duration = Duration::from_secs(90);
+const SETTLE_TIMEOUT: Duration = Duration::from_secs(2);
 const LOG_LINES: usize = 60;
 
 #[derive(Deserialize)]
@@ -26,6 +27,8 @@ pub struct Backend {
     pub origin: String,
     pub token: String,
     log: Arc<Mutex<VecDeque<String>>>,
+    /// The stderr reader, done once the server's last words are logged.
+    stderr: JoinHandle<()>,
 }
 
 impl Backend {
@@ -77,13 +80,14 @@ impl Backend {
         let stdout = child.stdout.take().expect("piped stdout");
         let stderr = child.stderr.take().expect("piped stderr");
         spawn_reader(stdout, Arc::clone(&log), token.clone(), Some(ready_tx));
-        spawn_reader(stderr, Arc::clone(&log), token.clone(), None);
+        let stderr = spawn_reader(stderr, Arc::clone(&log), token.clone(), None);
 
         let mut backend = Self {
             child,
             origin: String::new(),
             token,
             log,
+            stderr,
         };
         match ready_rx.recv_timeout(READY_TIMEOUT) {
             Ok(origin) => {
@@ -91,16 +95,48 @@ impl Backend {
                     .map_err(|error| anyhow!("server reported invalid origin: {error}"))?;
                 Ok(backend)
             }
-            Err(_) => Err(anyhow!(
-                "server did not become ready\n{}",
+            Err(mpsc::RecvTimeoutError::Timeout) => Err(anyhow!(
+                "server did not become ready in {} s\n{}",
+                READY_TIMEOUT.as_secs(),
                 backend.diagnostics()
             )),
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                let ending = match backend.settle() {
+                    Some(status) => format!("server exited before it was ready ({status})"),
+                    None => "server closed its output before it was ready".to_owned(),
+                };
+                Err(anyhow!("{ending}\n{}", backend.diagnostics()))
+            }
         }
     }
 
     pub fn diagnostics(&self) -> String {
         let log = self.log.lock().expect("log lock");
         log.iter().cloned().collect::<Vec<_>>().join("\n")
+    }
+
+    /// Why the server ended, once it has exited on its own.
+    pub fn exit_report(&mut self) -> Option<String> {
+        self.child.try_wait().ok().flatten()?;
+        let status = self.settle()?;
+        Some(format!("server exited ({status})\n{}", self.diagnostics()))
+    }
+
+    /// Waits briefly for a server that closed its stdout to exit and for its
+    /// last stderr lines, which explain why, to reach the log.
+    fn settle(&mut self) -> Option<ExitStatus> {
+        let deadline = Instant::now() + SETTLE_TIMEOUT;
+        let mut status = None;
+        while Instant::now() < deadline {
+            if status.is_none() {
+                status = self.child.try_wait().ok().flatten();
+            }
+            if status.is_some() && self.stderr.is_finished() {
+                break;
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+        status
     }
 }
 
@@ -136,12 +172,22 @@ fn spawn_reader(
     log: Arc<Mutex<VecDeque<String>>>,
     token: String,
     mut ready: Option<mpsc::Sender<String>>,
-) {
+) -> JoinHandle<()> {
     thread::spawn(move || {
-        for line in BufReader::new(stream).lines() {
-            let Ok(line) = line else { break };
+        // A line that is not UTF-8 must not stop the reader: the pipe would
+        // fill up and block the server on its next log write.
+        let mut stream = BufReader::new(stream);
+        let mut bytes = Vec::new();
+        loop {
+            bytes.clear();
+            match stream.read_until(b'\n', &mut bytes) {
+                Ok(0) | Err(_) => break,
+                Ok(_) => {}
+            }
+            let line = String::from_utf8_lossy(&bytes);
+            let line = line.trim_end_matches(['\n', '\r']);
             if let Some(send) = ready.as_ref()
-                && let Ok(ReadyRecord::HttpReady { origin }) = serde_json::from_str(&line)
+                && let Ok(ReadyRecord::HttpReady { origin }) = serde_json::from_str(line)
             {
                 let _ = send.send(origin);
                 ready = None;
@@ -153,5 +199,5 @@ fn spawn_reader(
             }
             log.push_back(line.replace(&token, "<token>"));
         }
-    });
+    })
 }

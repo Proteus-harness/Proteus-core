@@ -4,7 +4,6 @@
 //! shell shortcuts (Ctrl+N, Tab, Ctrl+C) reach the shell before the app's
 //! bindings. Layout, pane and settings shortcuts stay with the app.
 
-use crate::ui::kit;
 use std::cell::Cell;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -17,6 +16,7 @@ use gpui_kit::*;
 
 use super::super::Host;
 use crate::terminal::{Base, Grid, Key, Run, Signal, Terminal, encode};
+use crate::ui::kit;
 
 const PADDING: f32 = 8.;
 const LINE_HEIGHT: f32 = 1.3;

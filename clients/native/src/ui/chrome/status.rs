@@ -2,13 +2,13 @@
 //! placed at either end.
 
 use gpui_kit::assets::IconName as Lucide;
-use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use crate::preferences::BadgePlace;
 use crate::ui::chat::ChatState;
+use crate::ui::motion::Spinner;
 use crate::ui::prefs;
 use crate::ui::workspace::Workspace;
 

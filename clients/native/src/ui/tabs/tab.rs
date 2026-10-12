@@ -1,11 +1,9 @@
 //! One tab of a strip: its look, clicks, drag and context menu. Pinned
 //! tabs are compact and have no close button; panels show only an icon.
 
-use crate::ui::kit;
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::menu::ContextMenuExt as _;
-use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -13,7 +11,9 @@ use gpui_kit::*;
 use super::menu;
 use crate::tabs::{self, PaneId, TabLayout};
 use crate::ui::chat::ChatState;
+use crate::ui::kit;
 use crate::ui::kit::Hint as _;
+use crate::ui::motion::Spinner;
 use crate::ui::prefs;
 use crate::ui::tip::Tip as _;
 use crate::ui::workspace::Workspace;

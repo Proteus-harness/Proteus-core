@@ -1,16 +1,17 @@
 //! Building blocks of settings pages: sections, cards, rows, chips, radio
 //! cards and select menus.
 
-use crate::ui::kit;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
-use crate::ui::prefs;
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenu, PopupMenuItem};
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+
+use crate::ui::kit;
+use crate::ui::prefs;
 
 pub(super) fn hashed_id(name: &'static str, key: &impl Hash) -> ElementId {
     let mut hasher = DefaultHasher::new();

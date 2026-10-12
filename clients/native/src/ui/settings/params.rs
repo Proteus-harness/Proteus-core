@@ -1,7 +1,6 @@
 //! Parameters of one module: a form generated from its `config_schema`
 //! or the raw JSON object.
 
-use crate::ui::kit;
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::input::Textarea;
 use gpui_kit::component::*;
@@ -13,6 +12,7 @@ use super::editors::module_key;
 use super::widgets::{card, disclosure, hashed_id, note, section};
 use crate::settings::FieldPath;
 use crate::settings::catalog::module_info;
+use crate::ui::kit;
 use crate::ui::kit::Hint as _;
 
 impl SettingsView {

@@ -1,10 +1,8 @@
-use crate::ui::kit;
 use std::ops::Range;
 use std::time::Duration;
 
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::Input;
-use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -12,8 +10,10 @@ use gpui_kit::*;
 use super::{FilesPanel, Tab};
 use crate::files::{ChangeStatus, EntryKind};
 use crate::ui::extensions::files::{path_label, status_color};
+use crate::ui::kit;
 use crate::ui::kit::Hint as _;
 use crate::ui::motion;
+use crate::ui::motion::Spinner;
 use crate::ui::prefs;
 use crate::ui::tip::Tip as _;
 

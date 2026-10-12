@@ -1,4 +1,3 @@
-use crate::ui::kit;
 use std::time::Instant;
 
 use gpui_kit::component::button::ButtonVariants as _;
@@ -9,6 +8,7 @@ use gpui_kit::*;
 use super::motion::Frame;
 use super::{drop, split};
 use crate::tabs::{self, Axis, Node, Pane, PaneId, Size, TabLayout};
+use crate::ui::kit;
 use crate::ui::workspace::Workspace;
 use crate::ui::{motion, prefs};
 
@@ -204,9 +204,14 @@ impl Workspace {
         let content = match pane.active.as_deref() {
             Some(tab) if tabs::is_panel(tab) => self.render_panel(tab, window, cx),
             Some(tab) if tabs::is_chat(tab) => match self.chats.get(tab) {
+                // A chat redraws only when it changes itself, not on every
+                // frame of the window's spinners and ripples.
                 Some(chat) => div()
                     .size_full()
-                    .child(chat.view.clone())
+                    .child(
+                        AnyView::from(chat.view.clone())
+                            .cached(StyleRefinement::default().size_full()),
+                    )
                     .into_any_element(),
                 None => div().into_any_element(),
             },

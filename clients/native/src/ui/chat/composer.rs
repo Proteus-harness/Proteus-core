@@ -1,4 +1,3 @@
-use crate::ui::kit;
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::input::Textarea;
 use gpui_kit::component::*;
@@ -7,6 +6,7 @@ use gpui_kit::*;
 use proteus_contracts::app_protocol::AppQueuedUserMessage;
 
 use super::Chat;
+use crate::ui::kit;
 use crate::ui::kit::Hint as _;
 use crate::ui::{format, prefs};
 

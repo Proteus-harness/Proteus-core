@@ -21,11 +21,13 @@ mod tip;
 mod wheel;
 mod workspace;
 
-use gpui_kit::component::spinner::Spinner;
+use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::*;
 use gpui_kit::*;
 
 use crate::tabs::Edge;
+use crate::ui::chrome::WorkspaceRequest;
+use crate::ui::motion::Spinner;
 pub use launcher::Launcher;
 use workspace::Status;
 use workspace::Workspace;
@@ -145,6 +147,16 @@ impl Render for Workspace {
                             .text_sm()
                             .text_color(cx.theme().muted_foreground)
                             .child(error.clone()),
+                    )
+                    .child(
+                        h_flex().pt_2().child(
+                            kit::button("workspace-restart")
+                                .icon(Lucide::RotateCcw)
+                                .label("Перезапустить")
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    cx.emit(WorkspaceRequest::Open(this.workspace_path.clone()))
+                                })),
+                        ),
                     ),
             )),
             Status::Ready if self.settings.is_some() => {

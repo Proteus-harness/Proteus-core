@@ -11,6 +11,7 @@ pub(super) mod controls;
 mod images;
 mod notice;
 mod pump;
+mod replies;
 mod requests;
 mod scroller;
 mod session;
@@ -37,6 +38,7 @@ use crate::preferences::{SendMode, ViewPreferences};
 use attachments::Attachments;
 use images::SentImages;
 use notice::Notice;
+use replies::Replies;
 use scroller::ChatScroller;
 use user_input::UserInputDrafts;
 
@@ -66,6 +68,7 @@ pub(super) struct Chat {
     composer: Entity<TextareaState>,
     attachments: Attachments,
     sent_images: SentImages,
+    replies: Replies,
     expanded: HashSet<u64>,
     /// Folded tool runs the user opened, by the key of their first row.
     open_chains: HashSet<u64>,
@@ -139,6 +142,7 @@ impl Chat {
             composer,
             attachments: Attachments::default(),
             sent_images: SentImages::default(),
+            replies: Replies::default(),
             expanded: HashSet::new(),
             open_chains: HashSet::new(),
             fresh_rows: Recent::default(),

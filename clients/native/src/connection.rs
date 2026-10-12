@@ -1,6 +1,6 @@
 use std::sync::mpsc;
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result, anyhow};
 use proteus_contracts::app_protocol::AppServerEvent;
@@ -10,6 +10,10 @@ use crate::backend::Backend;
 use crate::launch::{LaunchOptions, Target};
 
 const RECONNECT_DELAY: Duration = Duration::from_secs(2);
+const MAX_RECONNECT_DELAY: Duration = Duration::from_secs(30);
+const RECONNECT_STEP: Duration = Duration::from_millis(500);
+/// How often the backend thread checks that the server is still running.
+const WATCH_INTERVAL: Duration = Duration::from_millis(500);
 
 /// Owns the spawned app server on a dedicated thread.
 ///
@@ -18,14 +22,25 @@ const RECONNECT_DELAY: Duration = Duration::from_secs(2);
 pub struct BackendGuard {
     stop: Option<mpsc::Sender<()>>,
     thread: Option<JoinHandle<()>>,
+    /// Says why the server exited on its own; closes when it was stopped.
+    pub exited: async_channel::Receiver<String>,
 }
 
-impl Drop for BackendGuard {
-    fn drop(&mut self) {
+impl BackendGuard {
+    /// Stops the server and waits until it is gone, as the app quits.
+    pub fn shutdown(mut self) {
         drop(self.stop.take());
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }
+    }
+}
+
+impl Drop for BackendGuard {
+    /// Asks the server to stop; its thread terminates it in the background,
+    /// so replacing a workspace does not freeze the window.
+    fn drop(&mut self) {
+        drop(self.stop.take());
     }
 }
 
@@ -35,16 +50,24 @@ fn spawn_backend(
 ) -> Result<(Api, BackendGuard)> {
     let (ready_tx, ready_rx) = mpsc::channel();
     let (stop_tx, stop_rx) = mpsc::channel::<()>();
+    let (exited_tx, exited) = async_channel::bounded(1);
     let thread = std::thread::Builder::new()
         .name("proteus-backend".into())
         .spawn(
             move || match Backend::launch(profile.as_deref(), &workspace) {
-                Ok(backend) => {
+                Ok(mut backend) => {
                     let api = Api::new(&backend.origin, &backend.token);
-                    if ready_tx.send(Ok(api)).is_ok() {
-                        let _ = stop_rx.recv();
+                    if ready_tx.send(Ok(api)).is_err() {
+                        return;
                     }
-                    drop(backend);
+                    while let Err(mpsc::RecvTimeoutError::Timeout) =
+                        stop_rx.recv_timeout(WATCH_INTERVAL)
+                    {
+                        if let Some(report) = backend.exit_report() {
+                            let _ = exited_tx.try_send(report);
+                            break;
+                        }
+                    }
                 }
                 Err(error) => {
                     let _ = ready_tx.send(Err(error));
@@ -55,6 +78,7 @@ fn spawn_backend(
     let guard = BackendGuard {
         stop: Some(stop_tx),
         thread: Some(thread),
+        exited,
     };
     let api = ready_rx
         .recv()
@@ -91,12 +115,14 @@ pub fn spawn_pump(api: Api, session_dir: std::path::PathBuf) -> async_channel::R
     let spawned = std::thread::Builder::new()
         .name("proteus-events".into())
         .spawn(move || {
+            let mut delay = RECONNECT_DELAY;
             loop {
                 let error = match api.events(&session_dir) {
                     Ok(mut stream) => {
                         if tx.send_blocking(PumpItem::Connected).is_err() {
                             return;
                         }
+                        delay = RECONNECT_DELAY;
                         loop {
                             match stream.next() {
                                 Some(Ok(StreamItem::Event(event))) => {
@@ -121,10 +147,16 @@ pub fn spawn_pump(api: Api, session_dir: std::path::PathBuf) -> async_channel::R
                 if tx.send_blocking(PumpItem::Disconnected(error)).is_err() {
                     return;
                 }
-                std::thread::sleep(RECONNECT_DELAY);
-                if tx.is_closed() {
-                    return;
+                // Attempts that keep failing come less often; a dropped
+                // receiver is still noticed within a step.
+                let resume = Instant::now() + delay;
+                while Instant::now() < resume {
+                    std::thread::sleep(RECONNECT_STEP);
+                    if tx.is_closed() {
+                        return;
+                    }
                 }
+                delay = (delay * 2).min(MAX_RECONNECT_DELAY);
             }
         });
     if let Err(error) = spawned {

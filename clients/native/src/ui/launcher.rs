@@ -2,19 +2,19 @@
 //! the workspace of that folder. Opening another folder from the top bar
 //! replaces the workspace and its server.
 
-use crate::ui::kit;
 use std::path::{Path, PathBuf};
 
 use gpui_kit::assets::IconName as Lucide;
-use gpui_kit::component::button::ButtonVariants as _;
+use gpui_kit::component::button::{ButtonVariant, ButtonVariants as _};
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use super::chrome::{self, Projects, WorkspaceRequest};
 use super::prefs;
-use super::workspace::Workspace;
+use super::workspace::{Status, Workspace};
 use crate::launch::{LaunchOptions, Target};
+use crate::ui::kit;
 
 pub struct Launcher {
     stage: Stage,
@@ -65,11 +65,53 @@ impl Launcher {
                 return;
             }
         };
-        if let Stage::Ready(view) = &self.stage
-            && view.read(cx).workspace_path == workspace
-        {
-            return;
+        if let Stage::Ready(view) = &self.stage {
+            let current = view.read(cx);
+            // A workspace whose server is gone opens again: that restarts it.
+            let failed = matches!(current.status, Status::Failed(_));
+            if current.workspace_path == workspace && !failed {
+                return;
+            }
+            let running = if failed { 0 } else { current.running_chats(cx) };
+            if running > 0 {
+                self.confirm_switch(workspace, running, window, cx);
+                return;
+            }
         }
+        self.replace(workspace, window, cx);
+    }
+
+    /// Asks before a folder switch ends runs that are still going.
+    fn confirm_switch(
+        &mut self,
+        workspace: PathBuf,
+        running: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let launcher = cx.entity().downgrade();
+        window.open_alert_dialog(cx, move |alert, _, _| {
+            let (launcher, workspace) = (launcher.clone(), workspace.clone());
+            alert
+                .title("Открыть другую папку?")
+                .description(format!(
+                    "Агент ещё работает (чатов: {running}). Сервер этой папки закроется, \
+                     и работа прервётся."
+                ))
+                .ok_text("Открыть")
+                .ok_variant(ButtonVariant::Danger)
+                .show_cancel(true)
+                .cancel_text("Отмена")
+                .on_ok(move |_, window, cx| {
+                    launcher
+                        .update(cx, |this, cx| this.replace(workspace.clone(), window, cx))
+                        .ok();
+                    true
+                })
+        });
+    }
+
+    fn replace(&mut self, workspace: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
         prefs::update(cx, |prefs| prefs.recent.touch(&workspace));
         let options = LaunchOptions {
             workspace,

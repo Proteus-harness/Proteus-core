@@ -1,13 +1,11 @@
 //! One workspace file in a tab: read-only text with highlighting, or its
 //! diff against HEAD.
 
-use crate::ui::kit;
 use std::path::PathBuf;
 
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::clipboard::Clipboard;
 use gpui_kit::component::input::{Editor, EditorState};
-use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -16,7 +14,9 @@ use super::changes::{ChangesModel, changes_model};
 use super::{path_label, status_color};
 use crate::files::{DiffKind, FileContent, FileDiff, FileKind, language_for};
 use crate::ui::extensions::{Host, HostEvent};
+use crate::ui::kit;
 use crate::ui::kit::Hint as _;
+use crate::ui::motion::Spinner;
 use crate::ui::prefs;
 
 const MAX_PREVIEW: &str = "512 КБ";

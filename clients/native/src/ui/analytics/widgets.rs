@@ -1,7 +1,6 @@
 //! Shared pieces of the analytics pages: page header, cards, metrics,
 //! badges, select menus and the fetch state with visible-only polling.
 
-use crate::ui::kit;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
@@ -11,6 +10,7 @@ use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
+use crate::ui::kit;
 use crate::ui::prefs;
 
 /// One request kind's state: last good data survives a failed refresh.

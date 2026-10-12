@@ -2,8 +2,7 @@
 //! columns ripple.
 
 use std::f32::consts::TAU;
-use std::sync::OnceLock;
-use std::time::Instant;
+use std::time::Duration;
 
 use gpui_kit::*;
 
@@ -11,8 +10,8 @@ use crate::ui::{motion, prefs};
 
 const COLUMNS: f32 = 12.;
 const ROWS: f32 = 10.;
-/// Seconds for the ripple to cross the logo.
-const PERIOD: f32 = 1.4;
+/// Time for the ripple to cross the logo.
+const PERIOD: Duration = Duration::from_millis(1400);
 
 /// Runs of one color: column, row, width in cells.
 const CELLS: [(u8, u8, u8, u32); 33] = [
@@ -57,10 +56,10 @@ pub(super) fn logo(cell: f32, busy: bool) -> impl IntoElement {
     let lift = motion::moves();
     canvas(
         |_, _, _| {},
-        move |bounds, _, window, _| {
+        move |bounds, _, window, cx| {
             let unit = bounds.size.width / COLUMNS;
             let phase = if ripple {
-                started().elapsed().as_secs_f32() / PERIOD
+                motion::ticker::phase(PERIOD)
             } else {
                 0.
             };
@@ -90,16 +89,11 @@ pub(super) fn logo(cell: f32, busy: bool) -> impl IntoElement {
                 }
             }
             if ripple {
-                window.request_animation_frame();
+                motion::ticker::next_tick(window, cx);
             }
         },
     )
     .flex_none()
     .w(prefs::scaled(cell * COLUMNS))
     .h(prefs::scaled(cell * ROWS))
-}
-
-fn started() -> Instant {
-    static STARTED: OnceLock<Instant> = OnceLock::new();
-    *STARTED.get_or_init(Instant::now)
 }

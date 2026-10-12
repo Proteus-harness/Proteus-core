@@ -21,8 +21,10 @@ impl Workspace {
             .into_iter()
             .flat_map(|place| extensions::visible_badges(place, cx))
             .collect();
+        let before = self.badges.len();
         self.badges
             .retain(|id, _| visible.iter().any(|manifest| manifest.id == *id));
+        let mut changed = self.badges.len() != before;
         for manifest in visible {
             let Some(badge) = &manifest.badge else {
                 continue;
@@ -30,7 +32,12 @@ impl Workspace {
             if !self.badges.contains_key(manifest.id) {
                 let view = (badge.build)(Host::new(cx.weak_entity(), manifest.id), window, cx);
                 self.badges.insert(manifest.id, view);
+                changed = true;
             }
+        }
+        // The composer strip is drawn inside the chat's cached view.
+        if changed && let Some(chat) = self.active_chat_view() {
+            chat.update(cx, |_, cx| cx.notify());
         }
     }
 

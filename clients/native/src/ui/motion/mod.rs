@@ -4,7 +4,9 @@
 //! - `enter`: fades and rises of freshly shown blocks, staggered list rows;
 //! - `disclosure`: chevrons and blocks that open and close;
 //! - `collapse`: a measured horizontal reveal for strips of tabs;
-//! - `number`: counters that glide to new values.
+//! - `number`: counters that glide to new values;
+//! - `spinner`: the loading spinner;
+//! - `ticker`: the shared low-rate clock of looping animations.
 //!
 //! Animation state lives with the element id, so an id that changes (another
 //! page, a reopened section) plays the transition again.
@@ -18,12 +20,15 @@ mod disclosure;
 mod enter;
 mod number;
 mod slide;
+mod spinner;
+pub(super) mod ticker;
 
 pub(super) use collapse::Collapse;
 pub(super) use disclosure::{chevron, drive, reveal, toggled};
 pub(super) use enter::{fade_in_if, rise_in, rise_in_if, stagger_in};
 pub(super) use number::Number;
 pub(super) use slide::{Slide, glide};
+pub(super) use spinner::Spinner;
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU8, Ordering};

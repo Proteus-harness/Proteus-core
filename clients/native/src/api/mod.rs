@@ -397,6 +397,9 @@ impl EventStream {
 fn parse_output(data: &str) -> Result<Box<AppServerEvent>> {
     match serde_json::from_str::<StdioOutput>(data)? {
         StdioOutput::Event { event } => Ok(event),
-        _ => Err(anyhow!("unexpected response on the event stream")),
+        StdioOutput::Response {
+            error: Some(error), ..
+        } => Err(anyhow!("event stream failed: {error}")),
+        StdioOutput::Response { .. } => Err(anyhow!("unexpected response on the event stream")),
     }
 }

@@ -24,10 +24,15 @@ pub(super) fn start(api: Api, session_dir: PathBuf, cx: &mut Context<Chat>) -> T
                 batch.push(item);
             }
             let applied = this.update(cx, |this, cx| {
+                let mut shown = false;
                 for item in batch {
-                    this.apply(item, cx);
+                    shown |= this.apply(item, cx);
                 }
-                cx.notify();
+                // Copies of other sessions' activity and runtime events
+                // without a trace in the chat leave it as drawn.
+                if shown {
+                    cx.notify();
+                }
             });
             if applied.is_err() {
                 break;
@@ -37,7 +42,8 @@ pub(super) fn start(api: Api, session_dir: PathBuf, cx: &mut Context<Chat>) -> T
 }
 
 impl Chat {
-    fn apply(&mut self, item: PumpItem, cx: &mut Context<Self>) {
+    /// Folds one stream item in; true when the chat looks different.
+    fn apply(&mut self, item: PumpItem, cx: &mut Context<Self>) -> bool {
         let session = &mut self.session;
         match item {
             PumpItem::Connected => {
@@ -45,16 +51,18 @@ impl Chat {
                 session.pending_cursor.begin_connection();
                 session.connected = true;
                 session.link_error = None;
+                true
             }
             PumpItem::Disconnected(error) => {
                 session.connected = false;
                 session.link_error = Some(error.into());
+                true
             }
             PumpItem::Event(event) => self.apply_event(*event, cx),
         }
     }
 
-    fn apply_event(&mut self, event: AppServerEvent, cx: &mut Context<Self>) {
+    fn apply_event(&mut self, event: AppServerEvent, cx: &mut Context<Self>) -> bool {
         if let AppServerEvent::SessionActivityUpdated {
             session_dir,
             activity,
@@ -64,12 +72,13 @@ impl Chat {
                 session_dir,
                 activity,
             });
-            return;
+            return false;
         }
         let session = &mut self.session;
         if !session.cursor.accept(&event) {
-            return;
+            return false;
         }
+        let mut shown = true;
         let change = match event {
             AppServerEvent::SessionSnapshot { snapshot } => {
                 let snapshot = *snapshot;
@@ -93,6 +102,8 @@ impl Chat {
                         .is_none_or(|root| root == envelope.thread_id)
                 {
                     session.context = ContextUsage::from_event(usage);
+                } else {
+                    shown = false;
                 }
                 session
                     .transcript
@@ -133,10 +144,16 @@ impl Chat {
             }
             _ => Change::None,
         };
+        shown |= !matches!(change, Change::None);
         self.apply_change(change, cx);
+        shown
     }
 
     fn apply_change(&mut self, change: Change, cx: &mut Context<Self>) {
+        if matches!(change, Change::Spliced { .. }) {
+            let keys = self.session.transcript.entries().iter();
+            self.replies.retain(&keys.map(|entry| entry.key).collect());
+        }
         if matches!(change, Change::Pushed)
             && let Some(entry) = self.session.transcript.entries().last()
         {

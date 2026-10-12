@@ -1,7 +1,6 @@
 //! Page of one extension: what it adds, where its icon lives and where it
 //! comes from.
 
-use crate::ui::kit;
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::*;
 use gpui_kit::*;
@@ -11,6 +10,7 @@ use super::widgets::{MenuOption, card, mono, note, row, section, select_menu};
 use crate::preferences::BadgePlace;
 use crate::settings::catalog::PageId;
 use crate::ui::extensions::{self, Manifest};
+use crate::ui::kit;
 use crate::ui::prefs;
 
 const BADGE_PLACES: [(BadgePlace, &str); 7] = [

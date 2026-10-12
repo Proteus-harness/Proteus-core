@@ -1,7 +1,5 @@
 //! History page: replaced profile states and rollback into the draft.
 
-use crate::ui::kit;
-use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::*;
 use gpui_kit::*;
 
@@ -10,6 +8,8 @@ use super::{HistoryState, SettingsView};
 use crate::settings::Draft;
 use crate::settings::history::describe_changes;
 use crate::ui::format::local_time;
+use crate::ui::kit;
+use crate::ui::motion::Spinner;
 
 impl SettingsView {
     pub(super) fn history_page(&self, cx: &Context<Self>) -> Vec<AnyElement> {
