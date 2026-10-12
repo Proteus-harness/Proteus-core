@@ -37,6 +37,13 @@ impl Chat {
             .small()
             .disabled(!ready)
             .on_click(cx.listener(|this, _, window, cx| this.send(window, cx)));
+        let attach = kit::button("attach")
+            .icon(IconName::Plus)
+            .tooltip("Прикрепить изображения")
+            .ghost()
+            .small()
+            .on_click(cx.listener(|this, _, window, cx| this.choose_images(window, cx)));
+        let chat = cx.entity().downgrade();
         let stop = running.then(|| {
             kit::button("stop")
                 .icon(IconName::Square)
@@ -64,17 +71,23 @@ impl Chat {
                     // Raised off the conversation in either light or dark themes.
                     .bg(theme.background.blend(theme.foreground.opacity(0.04)))
                     .children(queued.iter().map(|message| render_queued(message, cx)))
+                    .children(self.render_attachments(cx))
                     .child(
                         Textarea::new(&self.composer)
                             .text_size(prefs::chat_text(cx))
                             .appearance(false)
-                            .bordered(false),
+                            .bordered(false)
+                            .on_paste(move |item, _, cx| {
+                                chat.update(cx, |this, cx| this.attach_clipboard(item, cx))
+                                    .unwrap_or(false)
+                            }),
                     )
                     .child(
                         h_flex()
                             .flex_wrap()
                             .gap_x_2()
                             .gap_y_1()
+                            .child(attach)
                             .child(div().flex_1().min_w_0().children(extras))
                             .child(h_flex().ml_auto().gap_2().children(stop).child(send)),
                     ),

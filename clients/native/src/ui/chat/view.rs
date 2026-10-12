@@ -8,10 +8,16 @@ use crate::ui::prefs;
 
 impl Render for Chat {
     /// The conversation: thread, pending requests, notice and composer.
+    /// Files dropped anywhere on it attach to the draft.
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let renderer = cx.processor(|this, ix: usize, window, cx| this.render_row(ix, window, cx));
         v_flex()
+            .id("chat")
             .size_full()
+            .drag_over::<ExternalPaths>(|chat, _, _, cx| chat.bg(cx.theme().drop_target))
+            .on_drop(cx.listener(|this, paths: &ExternalPaths, _, cx| {
+                this.attach_files(paths.paths(), cx)
+            }))
             .child(motion::fade_in_if(
                 div().flex_1().min_h_0().child(ChatList::new(
                     "thread",

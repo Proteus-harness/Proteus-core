@@ -99,7 +99,7 @@ impl Chat {
                     .apply_runtime(envelope.thread_id, &envelope.event)
             }
             AppServerEvent::UserMessageSubmitted { text, images } => {
-                session.transcript.push_user(None, &text, images.len())
+                session.transcript.push_user(None, &text, images)
             }
             AppServerEvent::PendingRequestsUpdated { snapshot } => {
                 if session.pending_cursor.accept_stream(

@@ -7,6 +7,7 @@ use gpui_kit::*;
 use proteus_contracts::app_protocol::AppTranscriptSubagent;
 
 use super::Chat;
+use super::images::{SentImages, render_sent_images};
 use super::tool_chain::render_chain_header;
 use super::tool_row::{render_tool, tool_line};
 use crate::transcript::{Entry, Role};
@@ -55,6 +56,7 @@ impl Chat {
         {
             return div().into_any_element();
         }
+        let missing = self.sent_images.missing(&entry.images);
         let expanded = self.expanded.contains(&entry.key);
         let fresh = self.fresh_rows.is_fresh(entry.key);
         let key = entry.key;
@@ -78,7 +80,7 @@ impl Chat {
             },
         };
         let body = match (&entry.role, &entry.tool, &entry.subagent) {
-            (Role::User, _, _) => render_user(entry, cx),
+            (Role::User, _, _) => render_user(entry, &self.sent_images, cx),
             (Role::Assistant, _, _) => render_assistant(entry, cx),
             (Role::System, Some(tool), _) => match &chain {
                 Some(chain) if ix == chain.start => {
@@ -100,6 +102,9 @@ impl Chat {
             (Role::System, None, Some(agent)) => render_subagent(entry.key, agent, expanded, cx),
             (Role::System, None, None) => render_note(entry, cx),
         };
+        if !missing.is_empty() {
+            self.fetch_images(missing, cx);
+        }
         h_flex()
             .w_full()
             .justify_center()
@@ -140,37 +145,36 @@ fn copy_button(name: &'static str, key: u64, text: SharedString) -> Clipboard {
         .xsmall()
 }
 
-fn render_user(entry: &Entry, cx: &App) -> AnyElement {
+fn render_user(entry: &Entry, images: &SentImages, cx: &App) -> AnyElement {
     let theme = cx.theme();
     let text = SharedString::from(&entry.text);
-    let images = (entry.images > 0).then(|| {
-        div()
-            .text_xs()
-            .text_color(theme.muted_foreground)
-            .child(format!("Изображений: {}", entry.images))
-    });
+    let has_text = !entry.text.trim().is_empty();
     v_flex()
         .group(ROW_GROUP)
         .w_full()
         .items_end()
         .gap_0p5()
-        .child(
-            v_flex()
-                .max_w(relative(0.85))
-                .px_3()
-                .py_2()
-                .gap_1()
-                .rounded(theme.radius * 2.)
-                .bg(theme.secondary)
-                .text_color(theme.secondary_foreground)
-                .child(
-                    div()
-                        .text_size(prefs::chat_text(cx))
-                        .child(SelectableText::new(row_id("user", entry.key), text.clone())),
-                )
-                .children(images),
-        )
-        .child(row_actions().child(copy_button("copy-user", entry.key, text)))
+        .children(render_sent_images(&entry.images, images, cx))
+        .when(has_text, |row| {
+            row.child(
+                v_flex()
+                    .max_w(relative(0.85))
+                    .px_3()
+                    .py_2()
+                    .gap_1()
+                    .rounded(theme.radius * 2.)
+                    .bg(theme.secondary)
+                    .text_color(theme.secondary_foreground)
+                    .child(
+                        div()
+                            .text_size(prefs::chat_text(cx))
+                            .child(SelectableText::new(row_id("user", entry.key), text.clone())),
+                    ),
+            )
+        })
+        .when(has_text, |row| {
+            row.child(row_actions().child(copy_button("copy-user", entry.key, text)))
+        })
         .into_any_element()
 }
 

@@ -64,7 +64,7 @@ mod tests {
                 Role::Assistant
             },
             text: Arc::from(""),
-            images: 0,
+            images: Vec::new(),
             tool,
             subagent: None,
             streaming: false,

@@ -218,6 +218,31 @@ impl Api {
         self.get_with("/workspace/diff", Some(session_dir), &[("path", path)])
     }
 
+    /// Bytes of an image the session stored, by its `ImageRef::id`.
+    pub fn image(&self, session_dir: &Path, id: &str) -> Result<Vec<u8>> {
+        let response = self
+            .agent
+            .get(format!("{}/image", self.origin))
+            .header("Authorization", format!("Bearer {}", self.token))
+            .query("session_dir", session_dir.to_string_lossy())
+            .query("path", id)
+            .call()?;
+        let status = response.status();
+        if !status.is_success() {
+            let body = response
+                .into_body()
+                .into_with_config()
+                .read_to_string()
+                .unwrap_or_default();
+            bail!("GET /image failed with {status}: {body}");
+        }
+        Ok(response
+            .into_body()
+            .into_with_config()
+            .limit(proteus_contracts::domain::MAX_IMAGE_BYTES as u64)
+            .read_to_vec()?)
+    }
+
     pub fn config_history(&self, session_dir: &Path) -> Result<ConfigHistory> {
         self.get("/config/history", Some(session_dir))
     }

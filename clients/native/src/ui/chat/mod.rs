@@ -4,9 +4,11 @@
 //! outside through [`ChatEvent`].
 
 mod actions;
+mod attachments;
 mod composer;
 pub(super) mod context_usage;
 pub(super) mod controls;
+mod images;
 mod pump;
 mod requests;
 mod scroller;
@@ -31,6 +33,8 @@ use super::motion::Recent;
 use super::prefs::{self, ClientPreferences};
 use crate::api::Api;
 use crate::preferences::{SendMode, ViewPreferences};
+use attachments::Attachments;
+use images::SentImages;
 use scroller::ChatScroller;
 use user_input::UserInputDrafts;
 
@@ -57,6 +61,8 @@ pub(super) struct Chat {
     pub session: Session,
     scroller: Entity<ChatScroller>,
     composer: Entity<TextareaState>,
+    attachments: Attachments,
+    sent_images: SentImages,
     expanded: HashSet<u64>,
     /// Folded tool runs the user opened, by the key of their first row.
     open_chains: HashSet<u64>,
@@ -128,6 +134,8 @@ impl Chat {
             session: Session::new(session_dir),
             scroller,
             composer,
+            attachments: Attachments::default(),
+            sent_images: SentImages::default(),
             expanded: HashSet::new(),
             open_chains: HashSet::new(),
             fresh_rows: Recent::default(),

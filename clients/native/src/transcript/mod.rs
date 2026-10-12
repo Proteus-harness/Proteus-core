@@ -8,7 +8,7 @@ use std::sync::Arc;
 use proteus_contracts::app_protocol::{
     AppTranscriptMessage, AppTranscriptSubagent, AppTranscriptTool,
 };
-use proteus_contracts::domain::{Event, MessageId, ThreadId, ToolResult};
+use proteus_contracts::domain::{Event, ImageRef, MessageId, ThreadId, ToolResult};
 use serde_json::Value;
 
 const MAX_SUBAGENT_TOOLS: usize = 64;
@@ -27,7 +27,7 @@ pub struct Entry {
     pub message_id: Option<MessageId>,
     pub role: Role,
     pub text: Arc<str>,
-    pub images: usize,
+    pub images: Vec<ImageRef>,
     pub tool: Option<AppTranscriptTool>,
     pub subagent: Option<AppTranscriptSubagent>,
     pub streaming: bool,
@@ -115,7 +115,7 @@ impl Transcript {
         &mut self,
         message_id: Option<MessageId>,
         text: &str,
-        images: usize,
+        images: Vec<ImageRef>,
     ) -> Change {
         self.stop_streaming();
         let key = self.allocate_key();
@@ -154,7 +154,7 @@ impl Transcript {
                 text,
                 images,
                 ..
-            } => self.push_user(Some(*message_id), text, images.len()),
+            } => self.push_user(Some(*message_id), text, images.clone()),
             Event::ToolCallRequested { call } => {
                 let tool = AppTranscriptTool {
                     call_id: call.id.clone(),
@@ -183,7 +183,7 @@ impl Transcript {
                     message_id: None,
                     role: Role::System,
                     text: "".into(),
-                    images: 0,
+                    images: Vec::new(),
                     tool: Some(tool),
                     subagent: None,
                     streaming: false,
@@ -214,7 +214,7 @@ impl Transcript {
                     message_id: None,
                     role: Role::System,
                     text: "".into(),
-                    images: 0,
+                    images: Vec::new(),
                     tool: None,
                     subagent: Some(AppTranscriptSubagent {
                         child_thread_id: child_thread_id.to_string(),
@@ -290,7 +290,7 @@ impl Transcript {
             message_id: Some(message_id),
             role: Role::Assistant,
             text: text.into(),
-            images: 0,
+            images: Vec::new(),
             tool: None,
             subagent: None,
             streaming: !completed,
@@ -352,7 +352,7 @@ impl Transcript {
             message_id: message.message_id,
             role,
             text: message.text.into(),
-            images: message.images.len(),
+            images: message.images,
             tool: message.tool,
             subagent: message.subagent,
             streaming: message.streaming,

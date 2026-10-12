@@ -35,16 +35,17 @@ impl Chat {
         );
     }
 
-    /// Sends the composer text; the server queues it while a run is active.
+    /// Sends the composer text and images; the server queues them while a
+    /// run is active.
     pub(super) fn send(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let text = self.composer.read(cx).value().trim().to_owned();
-        if text.is_empty() || !self.session.connected {
+        if (text.is_empty() && self.attachments.is_empty()) || !self.session.connected {
             return;
         }
         let request = SendRequest {
             id: Some(format!("run-{}", uuid::Uuid::new_v4().simple())),
             text,
-            images: Vec::new(),
+            images: self.attachments.take(),
             options: RunOptions::default(),
             session_dir: self.session.dir.clone(),
         };
