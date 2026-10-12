@@ -18,8 +18,8 @@ const BADGE_PLACES: [(BadgePlace, &str); 7] = [
     (BadgePlace::ComposerEnd, "Под полем ввода, справа"),
     (BadgePlace::HeaderStart, "В верхней полосе, слева"),
     (BadgePlace::HeaderEnd, "В верхней полосе, справа"),
-    (BadgePlace::StatusStart, "В строке состояния, слева"),
-    (BadgePlace::StatusEnd, "В строке состояния, справа"),
+    (BadgePlace::RailStart, "На боковой полосе, сверху"),
+    (BadgePlace::RailEnd, "На боковой полосе, снизу"),
     (BadgePlace::Hidden, "Скрыт"),
 ];
 
@@ -248,6 +248,7 @@ fn badge_select(manifest: &'static Manifest, cx: &App) -> AnyElement {
         .map_or("Скрыт", |(_, label)| label);
     let options = BADGE_PLACES
         .iter()
+        .filter(|(place, _)| extensions::fits(*place, manifest))
         .map(|(place, label)| MenuOption {
             label: (*label).into(),
             value: *place,

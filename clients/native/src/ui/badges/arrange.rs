@@ -13,12 +13,12 @@ use crate::ui::{drag, prefs};
 
 /// How far around a row the pointer still counts as over it, so a drop
 /// that misses the icons by a little still lands.
-pub(super) const REACH_X: Pixels = px(20.);
-pub(super) const REACH_Y: Pixels = px(14.);
+const REACH_ALONG: Pixels = px(20.);
+const REACH_ACROSS: Pixels = px(14.);
 /// How far the drawn drop zone of a row reaches past it; less than the
 /// reach, so the zone stays inside the bars.
-pub(super) const ZONE_X: Pixels = px(3.);
-pub(super) const ZONE_Y: Pixels = px(2.);
+const ZONE_ALONG: Pixels = px(3.);
+const ZONE_ACROSS: Pixels = px(2.);
 
 /// Where the dragged icon would land.
 #[derive(Clone, Copy, PartialEq)]
@@ -49,15 +49,15 @@ thread_local! {
 
 /// How one row is drawn this frame.
 pub(super) struct Frame {
-    /// The icon being dragged, if any icon is.
+    /// The icon being dragged, if any icon is and it fits this row.
     pub dragging: Option<&'static str>,
     /// Gap among the other icons of this row that stays open.
     pub open_gap: Option<usize>,
     /// The dragged icon would land in this row.
     pub hovered: bool,
     pub generation: u64,
-    /// Width of the dragged icon, the room a gap opens to.
-    pub gap_width: Pixels,
+    /// Length of the dragged icon along the row, the room a gap opens to.
+    pub gap_length: Pixels,
 }
 
 pub(super) fn frame(place: BadgePlace, ids: &[&'static str], cx: &App) -> Frame {
@@ -74,23 +74,53 @@ pub(super) fn frame(place: BadgePlace, ids: &[&'static str], cx: &App) -> Frame 
             state.generation += 1;
             state.target = Target::Home;
         }
+        let dragging = dragging.filter(|id| fits(place, id));
         let open_gap = match state.target {
             Target::At(at, index) if at == place => Some(index),
             Target::At(..) => None,
             Target::Home => dragging.and_then(|id| ids.iter().position(|known| *known == id)),
         };
         let hovered = matches!(state.target, Target::At(at, _) if at == place);
-        let gap_width = dragging
+        let gap_length = dragging
             .and_then(|id| state.bounds.get(id))
-            .map_or(px(28. * prefs::scale(cx)), |bounds| bounds.size.width);
+            .map_or(px(28. * prefs::scale(cx)), |bounds| {
+                if place.is_rail() {
+                    bounds.size.height
+                } else {
+                    bounds.size.width
+                }
+            });
         Frame {
             dragging,
             open_gap,
             hovered,
             generation: state.generation,
-            gap_width,
+            gap_length,
         }
     })
+}
+
+fn fits(place: BadgePlace, id: &str) -> bool {
+    extensions::find(id).is_some_and(|manifest| extensions::fits(place, manifest))
+}
+
+/// How far past a row, sideways and up or down, the pointer still counts as
+/// over it.
+pub(super) fn reach(place: BadgePlace) -> (Pixels, Pixels) {
+    if place.is_rail() {
+        (REACH_ACROSS, REACH_ALONG)
+    } else {
+        (REACH_ALONG, REACH_ACROSS)
+    }
+}
+
+/// How far past a row, sideways and up or down, its drop zone is drawn.
+pub(super) fn zone(place: BadgePlace) -> (Pixels, Pixels) {
+    if place.is_rail() {
+        (ZONE_ACROSS, ZONE_ALONG)
+    } else {
+        (ZONE_ALONG, ZONE_ACROSS)
+    }
 }
 
 pub(super) fn record(id: &'static str, bounds: Bounds<Pixels>) {
@@ -100,8 +130,8 @@ pub(super) fn record(id: &'static str, bounds: Bounds<Pixels>) {
 }
 
 /// Follows the pointer over a row: within reach of it the icon goes in front
-/// of the first other icon whose middle lies to the right; leaving the row
-/// sends it back to its place.
+/// of the first other icon whose middle lies past the pointer; leaving the
+/// row sends it back to its place. A row the icon does not fit ignores it.
 pub(super) fn hover(
     place: BadgePlace,
     others: &[&'static str],
@@ -109,21 +139,26 @@ pub(super) fn hover(
     position: Point<Pixels>,
     window: &mut Window,
 ) {
+    let (x, y) = reach(place);
     let reach = row.extend(Edges {
-        top: REACH_Y,
-        right: REACH_X,
-        bottom: REACH_Y,
-        left: REACH_X,
+        top: y,
+        right: x,
+        bottom: y,
+        left: x,
     });
+    let along = |point: Point<Pixels>| {
+        if place.is_rail() { point.y } else { point.x }
+    };
     STATE.with_borrow_mut(|state| {
-        let next = if reach.contains(&position) {
+        let welcome = state.dragging.is_some_and(|id| fits(place, id));
+        let next = if welcome && reach.contains(&position) {
             let index = others
                 .iter()
                 .filter(|id| {
                     state
                         .bounds
                         .get(*id)
-                        .is_some_and(|bounds| bounds.center().x < position.x)
+                        .is_some_and(|bounds| along(bounds.center()) < along(position))
                 })
                 .count();
             Target::At(place, index)

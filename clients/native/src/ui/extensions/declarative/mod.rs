@@ -97,6 +97,8 @@ fn entry(extension: Installed) -> Entry {
         badge: surfaces.badge.as_ref().map(|badge| BadgeSurface {
             build: badge::build,
             place: badge.place,
+            // The face carries text of any length.
+            narrow: false,
         }),
     }));
     Entry {

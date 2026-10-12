@@ -1,5 +1,5 @@
-//! Rows of extension icons at both ends of the composer row and the window
-//! bars.
+//! Rows of extension icons at both ends of the composer row and the top
+//! bar, and columns of them at both ends of the rail.
 
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -61,8 +61,9 @@ impl Workspace {
             .collect();
         let tag = slot_name(place);
         let generation = frame.generation;
+        let vertical = place.is_rail();
         // While an icon is dragged every gap among the others is there; the
-        // open one eases to the icon's width and holds the icon itself, so
+        // open one eases to the icon's length and holds the icon itself, so
         // the icons around it slide apart and its old place closes up.
         let dragged = frame.dragging.and_then(|id| self.badges.get(id).cloned());
         let gap = |index: usize| {
@@ -70,11 +71,12 @@ impl Workspace {
             Gap {
                 id: SharedString::from(format!("badge-gap-{tag}-{index}-{generation}")).into(),
                 open,
-                width: frame.gap_width,
+                length: frame.gap_length,
+                vertical,
                 icon: dragged
                     .clone()
                     .filter(|_| open)
-                    .map(|view| div().flex_none().px(px(1.)).child(view).into_any_element()),
+                    .map(|view| item_box(vertical).child(view).into_any_element()),
             }
         };
         let mut row = Vec::new();
@@ -88,8 +90,7 @@ impl Workspace {
             let item = if source {
                 div()
             } else {
-                div()
-                    .px(px(1.))
+                item_box(vertical)
                     .on_prepaint(move |bounds, _, _| arrange::record(id, bounds))
                     .child(self.badges[id].clone())
             };
@@ -99,6 +100,7 @@ impl Workspace {
                     !source,
                     item,
                 )
+                .vertical(vertical)
                 .into_any_element(),
             );
             if !source {
@@ -110,16 +112,24 @@ impl Workspace {
         }
         let hover_others = others.clone();
         let dragging = frame.dragging.is_some();
-        let zone = dragging.then(|| drop_zone(frame.hovered, cx));
-        h_flex()
+        let zone = dragging.then(|| drop_zone(place, frame.hovered, cx));
+        let strip = if vertical {
+            v_flex().min_w_7()
+        } else {
+            h_flex().h_7()
+        };
+        strip
             .id(SharedString::from(format!("badge-strip-{tag}")))
             .relative()
             .flex_none()
-            .h_7()
             .items_center()
             // An empty row offers room for exactly one icon.
             .when(dragging && others.is_empty(), |strip| {
-                strip.min_w(frame.gap_width)
+                if vertical {
+                    strip.min_h(frame.gap_length)
+                } else {
+                    strip.min_w(frame.gap_length)
+                }
             })
             .children(zone)
             .children(row)
@@ -136,24 +146,38 @@ impl Workspace {
     }
 }
 
+/// Holder of one icon, with a hairline of room along the row.
+fn item_box(vertical: bool) -> Div {
+    let item = div().flex_none();
+    if vertical {
+        item.py(px(1.))
+    } else {
+        item.px(px(1.))
+    }
+}
+
 /// Room among the icons where the dragged one would land. The icon keeps
-/// its width, clipped around its middle, and fades in while the gap opens;
+/// its size, clipped around its middle, and fades in while the gap opens;
 /// a gap that shuts is empty.
 #[derive(IntoElement)]
 struct Gap {
     id: ElementId,
     open: bool,
-    width: Pixels,
+    length: Pixels,
+    vertical: bool,
     icon: Option<AnyElement>,
 }
 
 impl RenderOnce for Gap {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let share = glide(self.id, self.open, BASE, window, cx);
-        h_flex()
-            .flex_none()
-            .h_7()
-            .w(self.width * share)
+        let gap = if self.vertical {
+            v_flex().min_w_7().h(self.length * share)
+        } else {
+            h_flex().h_7().w(self.length * share)
+        };
+        gap.flex_none()
+            .items_center()
             .justify_center()
             .overflow_hidden()
             .opacity(share * share)
@@ -163,7 +187,7 @@ impl RenderOnce for Gap {
 
 /// Outline of a row that takes the dragged icon, drawn under the icons
 /// while any icon is dragged; brighter on the row it would land in.
-fn drop_zone(hovered: bool, cx: &App) -> impl IntoElement {
+fn drop_zone(place: BadgePlace, hovered: bool, cx: &App) -> impl IntoElement {
     let theme = cx.theme();
     let (fill, border) = if hovered {
         (theme.drop_target.opacity(0.35), theme.drag_border)
@@ -173,12 +197,13 @@ fn drop_zone(hovered: bool, cx: &App) -> impl IntoElement {
             theme.drag_border.opacity(0.45),
         )
     };
+    let (x, y) = arrange::zone(place);
     div()
         .absolute()
-        .top(-arrange::ZONE_Y)
-        .bottom(-arrange::ZONE_Y)
-        .left(-arrange::ZONE_X)
-        .right(-arrange::ZONE_X)
+        .top(-y)
+        .bottom(-y)
+        .left(-x)
+        .right(-x)
         .rounded(theme.radius)
         .border_1()
         .border_color(border)
@@ -188,12 +213,13 @@ fn drop_zone(hovered: bool, cx: &App) -> impl IntoElement {
 /// Drop target reaching a little past the row on every side, laid over it
 /// while an icon is dragged.
 fn drop_catcher(place: BadgePlace, others: Vec<&'static str>) -> impl IntoElement {
+    let (x, y) = arrange::reach(place);
     div()
         .absolute()
-        .top(-arrange::REACH_Y)
-        .bottom(-arrange::REACH_Y)
-        .left(-arrange::REACH_X)
-        .right(-arrange::REACH_X)
+        .top(-y)
+        .bottom(-y)
+        .left(-x)
+        .right(-x)
         .on_drop(move |dragged: &DraggedBadge, _, cx| {
             let Some(index) = arrange::drop_index(place) else {
                 return;
@@ -218,8 +244,8 @@ fn slot_name(place: BadgePlace) -> &'static str {
         BadgePlace::ComposerEnd => "composer-end",
         BadgePlace::HeaderStart => "header-start",
         BadgePlace::HeaderEnd => "header-end",
-        BadgePlace::StatusStart => "status-start",
-        BadgePlace::StatusEnd => "status-end",
+        BadgePlace::RailStart => "rail-start",
+        BadgePlace::RailEnd => "rail-end",
         BadgePlace::Hidden => "hidden",
     }
 }

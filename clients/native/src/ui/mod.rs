@@ -170,13 +170,19 @@ impl Render for Workspace {
             Status::Ready => {
                 self.sync_window_title(window, cx);
                 self.sync_badges(window, cx);
-                let status = self.render_status_bar(cx);
+                let rail = self.render_rail(cx);
                 let tabs = self.render_tabs(window, cx);
-                root.child(motion::rise_in(
-                    h_flex().flex_1().min_h_0().w_full().child(tabs),
-                    "chat-screen",
-                ))
-                .child(status)
+                root.child(
+                    h_flex()
+                        .flex_1()
+                        .min_h_0()
+                        .w_full()
+                        .child(rail)
+                        .child(motion::rise_in(
+                            h_flex().flex_1().min_w_0().h_full().child(tabs),
+                            "chat-screen",
+                        )),
+                )
             }
         }
     }

@@ -1,4 +1,4 @@
-//! A horizontal reveal that eases itself open or shut, so a row can part
+//! A reveal that eases itself open or shut, so a row or a column can part
 //! smoothly where something is about to land.
 
 use std::time::{Duration, Instant};
@@ -7,13 +7,15 @@ use gpui_kit::*;
 
 use super::{Collapse, FAST};
 
-/// Shows its child at full width when `open`, gliding there from where the
-/// previous frames left it. The first frame shows the requested state at once.
+/// Shows its child at full width (or height, when vertical) when `open`,
+/// gliding there from where the previous frames left it. The first frame
+/// shows the requested state at once.
 #[derive(IntoElement)]
 pub(in crate::ui) struct Slide {
     id: ElementId,
     open: bool,
     child: AnyElement,
+    vertical: bool,
 }
 
 struct SlideState {
@@ -31,14 +33,20 @@ impl Slide {
             id: id.into(),
             open,
             child: child.into_any_element(),
+            vertical: false,
         }
+    }
+
+    pub(in crate::ui) fn vertical(mut self, vertical: bool) -> Self {
+        self.vertical = vertical;
+        self
     }
 }
 
 impl RenderOnce for Slide {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let eased = glide(self.id.clone(), self.open, FAST, window, cx);
-        Collapse::new(self.id, eased, self.child)
+        Collapse::new(self.id, eased, self.child).vertical(self.vertical)
     }
 }
 

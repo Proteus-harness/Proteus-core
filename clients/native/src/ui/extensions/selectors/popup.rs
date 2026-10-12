@@ -27,7 +27,7 @@ impl SelectorBadge {
     ) -> AnyElement {
         let icon = self.bounds.get();
         // Opens away from the nearer window edge: down from the top bar, up
-        // from the composer and the status bar.
+        // from the composer.
         let below = icon.center().y < window.viewport_size().height / 2.;
         let (anchor, position) = if below {
             (Anchor::TopLeft, icon.bottom_left() + point(px(0.), px(GAP)))

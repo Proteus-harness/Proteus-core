@@ -57,6 +57,8 @@ pub(super) struct DocumentSurface {
 pub(super) struct BadgeSurface {
     pub build: BuildView,
     pub place: BadgePlace,
+    /// No wider than a plain icon, so it fits the rail.
+    pub narrow: bool,
 }
 
 /// A built view and the focus it takes when shown, so its own keyboard
@@ -111,7 +113,8 @@ fn builtin() -> [Manifest; 12] {
             document: None,
             badge: Some(BadgeSurface {
                 build: session_badges::build_context,
-                place: BadgePlace::StatusEnd,
+                place: BadgePlace::RailEnd,
+                narrow: true,
             }),
         },
         Manifest {
@@ -125,6 +128,7 @@ fn builtin() -> [Manifest; 12] {
             badge: Some(BadgeSurface {
                 build: session_badges::build_plan,
                 place: BadgePlace::ComposerStart,
+                narrow: false,
             }),
         },
         Manifest {
@@ -138,6 +142,7 @@ fn builtin() -> [Manifest; 12] {
             badge: Some(BadgeSurface {
                 build: quota::build_badge,
                 place: BadgePlace::ComposerStart,
+                narrow: true,
             }),
         },
         Manifest {
@@ -157,6 +162,7 @@ fn builtin() -> [Manifest; 12] {
             badge: Some(BadgeSurface {
                 build: files::build_badge,
                 place: BadgePlace::HeaderEnd,
+                narrow: true,
             }),
         },
         Manifest {
@@ -169,7 +175,8 @@ fn builtin() -> [Manifest; 12] {
             document: None,
             badge: Some(BadgeSurface {
                 build: session_badges::build_session,
-                place: BadgePlace::StatusEnd,
+                place: BadgePlace::RailEnd,
+                narrow: true,
             }),
         },
         Manifest {
@@ -182,7 +189,8 @@ fn builtin() -> [Manifest; 12] {
             document: None,
             badge: Some(BadgeSurface {
                 build: session_badges::build_agent,
-                place: BadgePlace::StatusEnd,
+                place: BadgePlace::RailEnd,
+                narrow: true,
             }),
         },
         Manifest {
@@ -261,6 +269,7 @@ fn selector(
         badge: Some(BadgeSurface {
             build,
             place: BadgePlace::ComposerStart,
+            narrow: false,
         }),
     }
 }
@@ -359,6 +368,11 @@ pub(super) fn badge_place(manifest: &Manifest, cx: &App) -> BadgePlace {
     prefs::current(cx)
         .extensions
         .badge_place(manifest.id, default)
+}
+
+/// Whether the icon of `manifest` can be put into `place`.
+pub(super) fn fits(place: BadgePlace, manifest: &Manifest) -> bool {
+    !place.is_rail() || manifest.badge.as_ref().is_some_and(|badge| badge.narrow)
 }
 
 /// Enabled icons shown in `place`, in the user's order.

@@ -171,7 +171,8 @@ impl ViewPreferences {
 }
 
 /// Where the compact icon of an extension is shown: the left or the right
-/// end of the composer row, the top bar or the status bar.
+/// end of the composer row and the top bar, or the top or the bottom of the
+/// rail along the left edge.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BadgePlace {
@@ -179,8 +180,8 @@ pub enum BadgePlace {
     ComposerEnd,
     HeaderStart,
     HeaderEnd,
-    StatusStart,
-    StatusEnd,
+    RailStart,
+    RailEnd,
     Hidden,
 }
 
@@ -191,9 +192,14 @@ impl BadgePlace {
         BadgePlace::ComposerEnd,
         BadgePlace::HeaderStart,
         BadgePlace::HeaderEnd,
-        BadgePlace::StatusStart,
-        BadgePlace::StatusEnd,
+        BadgePlace::RailStart,
+        BadgePlace::RailEnd,
     ];
+
+    /// Icons here stand in a column, so only narrow ones fit.
+    pub fn is_rail(self) -> bool {
+        matches!(self, BadgePlace::RailStart | BadgePlace::RailEnd)
+    }
 }
 
 /// Which client extensions are on, and where their icons are.
