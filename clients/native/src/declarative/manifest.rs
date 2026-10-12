@@ -49,12 +49,12 @@ pub struct DocumentSurface {}
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct BadgeSurface {
-    #[serde(default = "composer")]
+    #[serde(default = "composer_start")]
     pub place: BadgePlace,
 }
 
-fn composer() -> BadgePlace {
-    BadgePlace::Composer
+fn composer_start() -> BadgePlace {
+    BadgePlace::ComposerStart
 }
 
 /// An extension found on disk.
@@ -191,7 +191,7 @@ mod tests {
         assert_eq!(todo.id, "todo");
         assert_eq!(
             todo.surfaces.badge.as_ref().unwrap().place,
-            BadgePlace::Composer
+            BadgePlace::ComposerStart
         );
         let broken: Vec<_> = problems
             .iter()

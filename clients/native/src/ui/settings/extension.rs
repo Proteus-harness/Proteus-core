@@ -13,10 +13,13 @@ use crate::settings::catalog::PageId;
 use crate::ui::extensions::{self, Manifest};
 use crate::ui::prefs;
 
-const BADGE_PLACES: [(BadgePlace, &str); 4] = [
-    (BadgePlace::Composer, "Под полем ввода"),
-    (BadgePlace::Header, "В верхней полосе"),
-    (BadgePlace::Status, "В строке состояния"),
+const BADGE_PLACES: [(BadgePlace, &str); 7] = [
+    (BadgePlace::ComposerStart, "Под полем ввода, слева"),
+    (BadgePlace::ComposerEnd, "Под полем ввода, справа"),
+    (BadgePlace::HeaderStart, "В верхней полосе, слева"),
+    (BadgePlace::HeaderEnd, "В верхней полосе, справа"),
+    (BadgePlace::StatusStart, "В строке состояния, слева"),
+    (BadgePlace::StatusEnd, "В строке состояния, справа"),
     (BadgePlace::Hidden, "Скрыт"),
 ];
 

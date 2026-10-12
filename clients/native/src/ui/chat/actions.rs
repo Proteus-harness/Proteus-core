@@ -17,7 +17,7 @@ impl Chat {
         self.call(
             cx,
             move |api| api.config(&dir),
-            |this, config, _| this.apply_config(config),
+            |this, config, cx| this.apply_config(config, cx),
         );
     }
 
@@ -51,7 +51,7 @@ impl Chat {
         };
         self.composer
             .update(cx, |state, cx| state.clean(window, cx));
-        self.notice = None;
+        self.clear_notice(cx);
         self.scroller
             .update(cx, |scroller, cx| scroller.scroll_to_end(cx));
         cx.emit(ChatEvent::Sent);
@@ -99,12 +99,11 @@ impl Chat {
             return;
         };
         let Some(response) = self.user_input.response(request, cx) else {
-            self.notice = Some("Ответьте на все вопросы перед отправкой.".into());
-            cx.notify();
+            self.show_notice("Ответьте на все вопросы перед отправкой.", cx);
             return;
         };
         let dir = self.session.dir.clone();
-        self.notice = None;
+        self.clear_notice(cx);
         self.call(
             cx,
             move |api| api.answer_user_input(&dir, &request_id, response),
@@ -133,13 +132,13 @@ impl Chat {
         self.call(
             cx,
             move |api| job(api, &dir),
-            |this, config, _| this.apply_config(config),
+            |this, config, cx| this.apply_config(config, cx),
         );
     }
 
-    fn apply_config(&mut self, config: ConfigSummary) {
+    fn apply_config(&mut self, config: ConfigSummary, cx: &mut Context<Self>) {
         if let Some(error) = &config.model_catalog_error {
-            self.notice = Some(format!("Не удалось загрузить каталог моделей: {error}").into());
+            self.show_notice(format!("Не удалось загрузить каталог моделей: {error}"), cx);
         }
         self.session.config = Some(config);
     }

@@ -12,7 +12,9 @@ use crate::ui::workspace::Workspace;
 /// Smallest pane while resizing.
 const MIN_WIDTH: f32 = 240.;
 const MIN_HEIGHT: f32 = 160.;
-pub(super) const DIVIDER: f32 = 5.;
+/// The line between panes, and the strip around it that can be dragged.
+pub(super) const DIVIDER: f32 = 1.;
+const GRIP: f32 = 7.;
 
 /// Payload of a divider while it is dragged: the split and the child the
 /// divider follows.
@@ -68,7 +70,9 @@ pub(super) fn track_resize<E: InteractiveElement>(
     ))
 }
 
-/// The divider after child `index` of the split at `path`.
+/// The divider after child `index` of the split at `path`: a hairline in
+/// the layout, and a wider grip over both neighbours that takes the pointer.
+/// The grip is drawn after the panes, so the later pane does not cover it.
 pub(super) fn divider(
     path: Vec<usize>,
     index: usize,
@@ -82,29 +86,35 @@ pub(super) fn divider(
         path: path.clone(),
         index,
     };
-    let base = match axis {
-        Axis::Row => h_flex()
-            .w(prefs::scaled(DIVIDER))
-            .h_full()
-            .justify_center()
-            .cursor(CursorStyle::ResizeLeftRight)
-            .child(div().w(px(1.)).h_full().bg(line)),
-        Axis::Column => v_flex()
-            .h(prefs::scaled(DIVIDER))
-            .w_full()
-            .justify_center()
-            .cursor(CursorStyle::ResizeUpDown)
-            .child(div().h(px(1.)).w_full().bg(line)),
+    let reach = px((GRIP - DIVIDER) / 2. * prefs::scale(cx));
+    let grip = div().id(id).absolute();
+    let (base, grip) = match axis {
+        Axis::Row => (
+            div().w(prefs::scaled(DIVIDER)).h_full(),
+            grip.top_0()
+                .bottom_0()
+                .left(-reach)
+                .right(-reach)
+                .cursor(CursorStyle::ResizeLeftRight),
+        ),
+        Axis::Column => (
+            div().h(prefs::scaled(DIVIDER)).w_full(),
+            grip.left_0()
+                .right_0()
+                .top(-reach)
+                .bottom(-reach)
+                .cursor(CursorStyle::ResizeUpDown),
+        ),
     };
-    base.id(id)
-        .flex_none()
+    let grip = grip
         .hover(move |style| style.bg(hover.opacity(0.4)))
         .on_drag(drag, |drag, _, _, cx| cx.new(|_| drag.clone()))
         .on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
             if event.click_count() == 2 {
                 this.reset_split(&path, cx);
             }
-        }))
+        }));
+    base.relative().flex_none().bg(line).child(deferred(grip))
 }
 
 impl Workspace {

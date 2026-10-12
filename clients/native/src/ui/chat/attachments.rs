@@ -143,7 +143,7 @@ impl Chat {
             })
             .collect();
         if !errors.is_empty() {
-            self.notice = Some(errors.join("\n").into());
+            self.show_notice(errors.join("\n"), cx);
         }
         cx.notify();
     }

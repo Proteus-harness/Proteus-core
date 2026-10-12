@@ -179,13 +179,15 @@ impl Workspace {
     /// Extension icons go under the composer of the active chat only.
     fn composer_extras(&self, cx: &Context<Self>) -> ComposerExtras {
         let workspace = cx.weak_entity();
-        Rc::new(move |chat, cx| {
+        Rc::new(move |chat, end, cx| {
             let workspace = workspace.upgrade()?.read(cx);
-            (workspace.active_chat_view()?.entity_id() == chat).then(|| {
-                workspace
-                    .render_badge_strip(BadgePlace::Composer, cx)
-                    .into_any_element()
-            })
+            let place = if end {
+                BadgePlace::ComposerEnd
+            } else {
+                BadgePlace::ComposerStart
+            };
+            (workspace.active_chat_view()?.entity_id() == chat)
+                .then(|| workspace.render_badge_strip(place, cx).into_any_element())
         })
     }
 

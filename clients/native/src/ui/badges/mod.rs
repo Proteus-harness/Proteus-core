@@ -1,4 +1,5 @@
-//! Rows of extension icons under the composer and in the window bars.
+//! Rows of extension icons at both ends of the composer row and the window
+//! bars.
 
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -16,7 +17,7 @@ impl Workspace {
     /// Builds icons that became visible and drops the hidden ones, so an
     /// icon keeps its state while it moves between the strips.
     pub(super) fn sync_badges(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let visible: Vec<_> = [BadgePlace::Composer, BadgePlace::Header, BadgePlace::Status]
+        let visible: Vec<_> = BadgePlace::SHOWN
             .into_iter()
             .flat_map(|place| extensions::visible_badges(place, cx))
             .collect();
@@ -171,9 +172,12 @@ fn drop_catcher(place: BadgePlace, others: Vec<&'static str>) -> impl IntoElemen
 
 fn slot_name(place: BadgePlace) -> &'static str {
     match place {
-        BadgePlace::Composer => "composer",
-        BadgePlace::Header => "header",
-        BadgePlace::Status => "status",
+        BadgePlace::ComposerStart => "composer-start",
+        BadgePlace::ComposerEnd => "composer-end",
+        BadgePlace::HeaderStart => "header-start",
+        BadgePlace::HeaderEnd => "header-end",
+        BadgePlace::StatusStart => "status-start",
+        BadgePlace::StatusEnd => "status-end",
         BadgePlace::Hidden => "hidden",
     }
 }

@@ -20,7 +20,8 @@ impl Chat {
             .as_ref()
             .map(|pending| pending.queued_user_messages.as_slice())
             .unwrap_or_default();
-        let extras = (self.extras)(cx.entity_id(), cx);
+        let start = (self.extras)(cx.entity_id(), false, cx);
+        let end = (self.extras)(cx.entity_id(), true, cx);
 
         let keys = match prefs::current(cx).send {
             crate::preferences::SendMode::Enter => "Enter",
@@ -88,8 +89,15 @@ impl Chat {
                             .gap_x_2()
                             .gap_y_1()
                             .child(attach)
-                            .child(div().flex_1().min_w_0().children(extras))
-                            .child(h_flex().ml_auto().gap_2().children(stop).child(send)),
+                            .child(div().flex_1().min_w_0().children(start))
+                            .child(
+                                h_flex()
+                                    .ml_auto()
+                                    .gap_2()
+                                    .children(end)
+                                    .children(stop)
+                                    .child(send),
+                            ),
                     ),
             )
     }

@@ -7,6 +7,6 @@
   "surfaces": {
     "panel": { "title": "Обзор" },
     "document": {},
-    "badge": { "place": "header" }
+    "badge": { "place": "header_end" }
   }
 }

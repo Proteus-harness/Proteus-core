@@ -1,5 +1,5 @@
 //! The bar above the tabs: the logo menu, the open folder and extension
-//! icons, drawn inside the window's own title bar.
+//! icons at both ends, drawn inside the window's own title bar.
 
 use crate::ui::kit;
 use gpui_kit::assets::IconName as Lucide;
@@ -74,9 +74,12 @@ impl Workspace {
                 busy,
                 logo_menu(projects, ready.then_some(workspace)),
             ))
-            .child(folder);
+            .child(folder)
+            .when(ready, |left| {
+                left.child(self.render_badge_strip(BadgePlace::HeaderStart, cx))
+            });
         let right = h_flex().gap_1().items_center().when(ready, |right| {
-            right.child(self.render_badge_strip(BadgePlace::Header, cx))
+            right.child(self.render_badge_strip(BadgePlace::HeaderEnd, cx))
         });
         title_bar(left, right, window, cx)
     }

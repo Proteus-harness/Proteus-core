@@ -112,7 +112,7 @@ impl Chat {
             .pt(px(spacing.top * 4.))
             .pb(px(spacing.bottom * 4.))
             .when(ix == 0, |row| row.pt_6())
-            .when(last, |row| row.pb_6())
+            .when(last, |row| row.pb_8())
             .child(fade_in_if(
                 div().w_full().max_w(prefs::chat_width(cx)).child(body),
                 row_id("enter", key),

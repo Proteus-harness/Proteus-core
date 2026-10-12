@@ -120,11 +120,11 @@ impl Chat {
                 Change::None
             }
             AppServerEvent::Error { message } => {
-                self.notice = Some(message.into());
+                self.show_notice(message, cx);
                 Change::None
             }
             AppServerEvent::ProfileReloadStatus { error: Some(error) } => {
-                self.notice = Some(format!("Не удалось перезагрузить профиль: {error}").into());
+                self.show_notice(format!("Не удалось перезагрузить профиль: {error}"), cx);
                 Change::None
             }
             AppServerEvent::Shutdown => {

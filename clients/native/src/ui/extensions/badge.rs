@@ -177,15 +177,18 @@ fn badge_menu(menu: PopupMenu, id: &'static str, host: &Host, cx: &App) -> Popup
     }
     let extensions = &prefs::current(cx).extensions;
     let pinned = extensions.is_pinned(id);
-    // Places change by dragging; the menu only hides the icon or pins it.
+    // Places change by dragging; the menu only hides the icon or pins it,
+    // and a pinned icon stays where it is until unpinned.
+    if !pinned {
+        menu = menu.item(
+            PopupMenuItem::new("Скрыть значок").on_click(move |_, _, cx| {
+                prefs::update(cx, |prefs| {
+                    prefs.extensions.set_badge_place(id, BadgePlace::Hidden)
+                })
+            }),
+        );
+    }
     menu.item(
-        PopupMenuItem::new("Скрыть значок").on_click(move |_, _, cx| {
-            prefs::update(cx, |prefs| {
-                prefs.extensions.set_badge_place(id, BadgePlace::Hidden)
-            })
-        }),
-    )
-    .item(
         PopupMenuItem::new("Закрепить на месте")
             .checked(pinned)
             .on_click(move |_, _, cx| {

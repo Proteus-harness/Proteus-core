@@ -1,5 +1,5 @@
 //! The bar under the tabs: what the agent is doing and the extension icons
-//! placed there.
+//! placed at either end.
 
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::spinner::Spinner;
@@ -27,9 +27,10 @@ impl Workspace {
             .border_color(theme.status_bar_border)
             .text_sm()
             .text_color(theme.muted_foreground)
+            .child(self.render_badge_strip(BadgePlace::StatusStart, cx))
             .child(self.render_agent_state(cx))
             .child(div().flex_1())
-            .child(self.render_badge_strip(BadgePlace::Status, cx))
+            .child(self.render_badge_strip(BadgePlace::StatusEnd, cx))
     }
 
     /// State of the active chat, and how many others are working.

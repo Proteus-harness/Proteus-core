@@ -9,6 +9,7 @@ mod composer;
 pub(super) mod context_usage;
 pub(super) mod controls;
 mod images;
+mod notice;
 mod pump;
 mod requests;
 mod scroller;
@@ -35,12 +36,14 @@ use crate::api::Api;
 use crate::preferences::{SendMode, ViewPreferences};
 use attachments::Attachments;
 use images::SentImages;
+use notice::Notice;
 use scroller::ChatScroller;
 use user_input::UserInputDrafts;
 
-/// Content the host adds to the composer row, e.g. extension icons. It gets
-/// the chat's entity id, so the host can show it in one chat only.
-pub(super) type ComposerExtras = Rc<dyn Fn(EntityId, &App) -> Option<AnyElement>>;
+/// Content the host adds to the composer row, e.g. extension icons: the
+/// left end (`false`) or the right one next to sending (`true`). It gets the
+/// chat's entity id, so the host can show it in one chat only.
+pub(super) type ComposerExtras = Rc<dyn Fn(EntityId, bool, &App) -> Option<AnyElement>>;
 
 pub(super) enum ChatEvent {
     /// A run of this session finished.
@@ -69,7 +72,7 @@ pub(super) struct Chat {
     /// Rows pushed by live events, for enter motion.
     fresh_rows: Recent,
     user_input: UserInputDrafts,
-    notice: Option<SharedString>,
+    notice: Notice,
     extras: ComposerExtras,
     /// Sizes the row heights were measured with.
     view: ViewPreferences,
@@ -140,7 +143,7 @@ impl Chat {
             open_chains: HashSet::new(),
             fresh_rows: Recent::default(),
             user_input: UserInputDrafts::default(),
-            notice: None,
+            notice: Notice::default(),
             extras,
             view: prefs::current(cx).view,
             _pump: pump,
@@ -154,11 +157,6 @@ impl Chat {
     pub fn focus(&self, window: &mut Window, cx: &mut App) {
         self.composer
             .update(cx, |state, cx| state.focus(window, cx));
-    }
-
-    pub fn show_notice(&mut self, notice: String, cx: &mut Context<Self>) {
-        self.notice = Some(notice.into());
-        cx.notify();
     }
 
     /// Runs a blocking server call off the UI thread; failures become the
@@ -178,7 +176,7 @@ impl Chat {
             this.update(cx, |this, cx| {
                 match result {
                     Ok(value) => done(this, value, cx),
-                    Err(error) => this.notice = Some(format!("{error:#}").into()),
+                    Err(error) => this.show_notice(format!("{error:#}"), cx),
                 }
                 cx.notify();
             })

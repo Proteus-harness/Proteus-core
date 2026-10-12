@@ -156,14 +156,30 @@ impl ViewPreferences {
     }
 }
 
-/// Where the compact icon of an extension is shown.
+/// Where the compact icon of an extension is shown: the left or the right
+/// end of the composer row, the top bar or the status bar.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BadgePlace {
-    Composer,
-    Header,
-    Status,
+    ComposerStart,
+    ComposerEnd,
+    HeaderStart,
+    HeaderEnd,
+    StatusStart,
+    StatusEnd,
     Hidden,
+}
+
+impl BadgePlace {
+    /// Every place where icons are drawn.
+    pub const SHOWN: [BadgePlace; 6] = [
+        BadgePlace::ComposerStart,
+        BadgePlace::ComposerEnd,
+        BadgePlace::HeaderStart,
+        BadgePlace::HeaderEnd,
+        BadgePlace::StatusStart,
+        BadgePlace::StatusEnd,
+    ];
 }
 
 /// Which client extensions are on, and where their icons are.
@@ -358,20 +374,20 @@ mod tests {
         let mut extensions = ExtensionPreferences::default();
         assert_eq!(extensions.badges_ordered(&KNOWN), KNOWN);
         assert_eq!(
-            extensions.badge_place("plan", BadgePlace::Composer),
-            BadgePlace::Composer
+            extensions.badge_place("plan", BadgePlace::ComposerStart),
+            BadgePlace::ComposerStart
         );
-        extensions.move_badge(&KNOWN, "files", BadgePlace::Header, Some("context"));
+        extensions.move_badge(&KNOWN, "files", BadgePlace::HeaderEnd, Some("context"));
         assert_eq!(
-            extensions.badge_place("files", BadgePlace::Composer),
-            BadgePlace::Header
+            extensions.badge_place("files", BadgePlace::ComposerStart),
+            BadgePlace::HeaderEnd
         );
         assert_eq!(
             extensions.badges_ordered(&KNOWN),
             ["files", "context", "plan"]
         );
         // Dropping an icon onto itself keeps the order.
-        extensions.move_badge(&KNOWN, "plan", BadgePlace::Composer, Some("plan"));
+        extensions.move_badge(&KNOWN, "plan", BadgePlace::ComposerStart, Some("plan"));
         assert_eq!(
             extensions.badges_ordered(&KNOWN),
             ["files", "context", "plan"]
@@ -389,7 +405,7 @@ mod tests {
         extensions.move_extension(&KNOWN, "files", Some("context"));
         assert_eq!(extensions.ordered(&KNOWN), ["files", "context", "plan"]);
         extensions.set_enabled("files", false);
-        extensions.move_badge(&KNOWN, "files", BadgePlace::Header, None);
+        extensions.move_badge(&KNOWN, "files", BadgePlace::HeaderEnd, None);
         extensions.set_pinned("files", true);
         extensions.forget("files");
         assert_eq!(extensions.ordered(&KNOWN), ["context", "plan", "files"]);

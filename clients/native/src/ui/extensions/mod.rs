@@ -111,7 +111,7 @@ fn builtin() -> [Manifest; 12] {
             document: None,
             badge: Some(BadgeSurface {
                 build: session_badges::build_context,
-                place: BadgePlace::Status,
+                place: BadgePlace::StatusEnd,
             }),
         },
         Manifest {
@@ -124,7 +124,7 @@ fn builtin() -> [Manifest; 12] {
             document: None,
             badge: Some(BadgeSurface {
                 build: session_badges::build_plan,
-                place: BadgePlace::Composer,
+                place: BadgePlace::ComposerStart,
             }),
         },
         Manifest {
@@ -137,7 +137,7 @@ fn builtin() -> [Manifest; 12] {
             document: None,
             badge: Some(BadgeSurface {
                 build: quota::build_badge,
-                place: BadgePlace::Composer,
+                place: BadgePlace::ComposerStart,
             }),
         },
         Manifest {
@@ -156,7 +156,7 @@ fn builtin() -> [Manifest; 12] {
             }),
             badge: Some(BadgeSurface {
                 build: files::build_badge,
-                place: BadgePlace::Header,
+                place: BadgePlace::HeaderEnd,
             }),
         },
         Manifest {
@@ -169,7 +169,7 @@ fn builtin() -> [Manifest; 12] {
             document: None,
             badge: Some(BadgeSurface {
                 build: session_badges::build_session,
-                place: BadgePlace::Status,
+                place: BadgePlace::StatusEnd,
             }),
         },
         Manifest {
@@ -182,7 +182,7 @@ fn builtin() -> [Manifest; 12] {
             document: None,
             badge: Some(BadgeSurface {
                 build: session_badges::build_agent,
-                place: BadgePlace::Status,
+                place: BadgePlace::StatusEnd,
             }),
         },
         Manifest {
@@ -260,7 +260,7 @@ fn selector(
         document: None,
         badge: Some(BadgeSurface {
             build,
-            place: BadgePlace::Composer,
+            place: BadgePlace::ComposerStart,
         }),
     }
 }
