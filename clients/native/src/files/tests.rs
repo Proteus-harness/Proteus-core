@@ -43,6 +43,11 @@ fn tree_lists_lazily_and_marks_changes() {
     let rows = tree.rows("");
     assert!(rows[0].expanded);
     assert_eq!(tree.missing_listings(&rows), ["src"]);
+    tree.begin_loading("src");
+    tree.fail("src");
+    assert!(tree.missing_listings(&rows).is_empty());
+    tree.retry_failed();
+    assert_eq!(tree.missing_listings(&rows), ["src"]);
     tree.insert(listing(
         "src",
         &[("ui", EntryKind::Directory), ("main.rs", EntryKind::File)],

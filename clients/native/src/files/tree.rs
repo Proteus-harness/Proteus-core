@@ -9,6 +9,7 @@ pub struct FileTree {
     listings: HashMap<String, Listing>,
     expanded: BTreeSet<String>,
     loading: HashSet<String>,
+    failed: HashSet<String>,
     statuses: HashMap<String, ChangeStatus>,
     changed_dirs: HashSet<String>,
 }
@@ -37,12 +38,20 @@ impl FileTree {
         self.loading.insert(dir.to_string())
     }
 
-    pub fn finish_loading(&mut self, dir: &str) {
+    /// A directory that could not be listed is not requested again until it
+    /// is expanded anew or the tree is reloaded.
+    pub fn fail(&mut self, dir: &str) {
         self.loading.remove(dir);
+        self.failed.insert(dir.to_string());
+    }
+
+    pub fn retry_failed(&mut self) {
+        self.failed.clear();
     }
 
     pub fn insert(&mut self, listing: Listing) {
         self.loading.remove(&listing.path);
+        self.failed.remove(&listing.path);
         self.listings.insert(listing.path.clone(), listing);
     }
 
@@ -68,12 +77,17 @@ impl FileTree {
             .map(|row| row.path.clone());
         std::iter::once(String::new())
             .chain(visible)
-            .filter(|dir| !self.listings.contains_key(dir) && !self.loading.contains(dir))
+            .filter(|dir| {
+                !self.listings.contains_key(dir)
+                    && !self.loading.contains(dir)
+                    && !self.failed.contains(dir)
+            })
             .collect()
     }
 
     pub fn toggle(&mut self, dir: &str) -> bool {
         if !self.expanded.remove(dir) {
+            self.failed.remove(dir);
             self.expanded.insert(dir.to_string());
             return true;
         }

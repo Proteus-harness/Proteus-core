@@ -143,6 +143,7 @@ impl FilesPanel {
             return;
         };
         self.schedule_search(cx);
+        self.tree.retry_failed();
         let listed = self.tree.listed();
         cx.spawn(async move |this, cx| {
             let job_dir = dir.clone();
@@ -258,7 +259,7 @@ impl FilesPanel {
                 self.tree.insert(listing);
             }
             Err(error) => {
-                self.tree.finish_loading(path);
+                self.tree.fail(path);
                 self.error = Some(format!("Не удалось прочитать «{path}»: {error:#}").into());
             }
         }

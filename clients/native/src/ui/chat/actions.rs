@@ -36,16 +36,17 @@ impl Chat {
     }
 
     /// Sends the composer text and images; the server queues them while a
-    /// run is active.
+    /// run is active. A refused message returns to an empty composer.
     pub(super) fn send(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let text = self.composer.read(cx).value().trim().to_owned();
         if (text.is_empty() && self.attachments.is_empty()) || !self.session.connected {
             return;
         }
+        let draft = std::mem::take(&mut self.attachments);
         let request = SendRequest {
             id: Some(format!("run-{}", uuid::Uuid::new_v4().simple())),
-            text,
-            images: self.attachments.take(),
+            text: text.clone(),
+            images: draft.images(),
             options: RunOptions::default(),
             session_dir: self.session.dir.clone(),
         };
@@ -55,7 +56,29 @@ impl Chat {
         self.scroller
             .update(cx, |scroller, cx| scroller.scroll_to_end(cx));
         cx.emit(ChatEvent::Sent);
-        self.call(cx, move |api| api.send(&request), |_, _, _| {});
+        let api = self.api.clone();
+        cx.spawn_in(window, async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { api.send(&request) })
+                .await;
+            let Err(error) = result else {
+                return;
+            };
+            this.update_in(cx, |this, window, cx| {
+                if this.composer.read(cx).value().is_empty() {
+                    this.composer
+                        .update(cx, |state, cx| state.set_value(text, window, cx));
+                }
+                if this.attachments.is_empty() {
+                    this.attachments = draft;
+                }
+                this.show_notice(format!("Не отправлено: {error:#}"), cx);
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 
     pub(super) fn stop(&mut self, cx: &mut Context<Self>) {

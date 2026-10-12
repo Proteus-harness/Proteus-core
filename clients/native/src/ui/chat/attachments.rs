@@ -33,8 +33,8 @@ impl Attachments {
         self.items.is_empty()
     }
 
-    pub fn take(&mut self) -> Vec<ImageAttachment> {
-        self.items.drain(..).map(|item| item.image).collect()
+    pub fn images(&self) -> Vec<ImageAttachment> {
+        self.items.iter().map(|item| item.image.clone()).collect()
     }
 
     fn remove(&mut self, index: usize) {
@@ -235,9 +235,8 @@ mod tests {
             .add("fits.png".into(), png(MAX_IMAGE_BYTES - 48))
             .unwrap();
 
-        let images = draft.take();
+        let images = draft.images();
         assert_eq!(images.len(), MAX_INPUT_IMAGES);
         assert_eq!(images[0].mime_type, "image/png");
-        assert!(draft.is_empty());
     }
 }

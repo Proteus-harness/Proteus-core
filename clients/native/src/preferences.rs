@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::ops::RangeInclusive;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result, anyhow};
 use serde::{Deserialize, Serialize};
@@ -326,41 +326,59 @@ fn path() -> Option<PathBuf> {
     Some(config_dir()?.join("preferences.json"))
 }
 
-/// Saved preferences; a missing file means defaults.
+/// Saved preferences; a missing file means defaults. A file that cannot be
+/// used is moved aside, so the next save does not overwrite it.
 pub fn load() -> Result<Preferences> {
     let Some(path) = path() else {
         return Ok(Preferences::default());
     };
     match fs::read_to_string(&path) {
-        Ok(text) => {
-            let preferences: Preferences = serde_json::from_str(&text)
-                .with_context(|| format!("invalid preferences in {}", path.display()))?;
-            preferences
-                .tabs
-                .validate()
-                .map_err(|error| anyhow!("invalid tab layout in {}: {error}", path.display()))?;
-            preferences
-                .view
-                .validate()
-                .with_context(|| format!("invalid view sizes in {}", path.display()))?;
-            preferences
-                .shortcuts
-                .validate()
-                .with_context(|| format!("invalid shortcuts in {}", path.display()))?;
-            Ok(preferences)
-        }
+        Ok(text) => parse(&text, &path).map_err(|error| match set_aside(&path) {
+            Ok(kept) => error.context(format!("the file was moved to {}", kept.display())),
+            Err(_) => error,
+        }),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Preferences::default()),
         Err(error) => Err(error).with_context(|| format!("failed to read {}", path.display())),
     }
 }
 
+fn parse(text: &str, path: &Path) -> Result<Preferences> {
+    let preferences: Preferences = serde_json::from_str(text)
+        .with_context(|| format!("invalid preferences in {}", path.display()))?;
+    preferences
+        .tabs
+        .validate()
+        .map_err(|error| anyhow!("invalid tab layout in {}: {error}", path.display()))?;
+    preferences
+        .view
+        .validate()
+        .with_context(|| format!("invalid view sizes in {}", path.display()))?;
+    preferences
+        .shortcuts
+        .validate()
+        .with_context(|| format!("invalid shortcuts in {}", path.display()))?;
+    Ok(preferences)
+}
+
+fn set_aside(path: &Path) -> std::io::Result<PathBuf> {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_secs());
+    let kept = path.with_extension(format!("json.broken-{stamp}"));
+    fs::rename(path, &kept)?;
+    Ok(kept)
+}
+
+/// Writes a sibling file first, so a crash never leaves half a file.
 pub fn save(preferences: &Preferences) -> Result<()> {
     let path = path().context("no HOME or XDG_CONFIG_HOME for preferences")?;
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir).with_context(|| format!("failed to create {}", dir.display()))?;
     }
     let text = serde_json::to_string_pretty(preferences)?;
-    fs::write(&path, text).with_context(|| format!("failed to write {}", path.display()))
+    let draft = path.with_extension("json.tmp");
+    fs::write(&draft, text).with_context(|| format!("failed to write {}", draft.display()))?;
+    fs::rename(&draft, &path).with_context(|| format!("failed to write {}", path.display()))
 }
 
 #[cfg(test)]

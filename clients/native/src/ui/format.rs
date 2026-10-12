@@ -51,7 +51,18 @@ pub fn clip_block(text: &str, max_lines: usize, max_chars: usize) -> String {
     let mut lines = 0;
     for line in text.lines() {
         if lines == max_lines || out.len() + line.len() > max_chars {
+            // A single overlong first line is cut rather than hidden.
+            if lines == 0 {
+                let cut = line.floor_char_boundary(max_chars);
+                out.push_str(&line[..cut]);
+                out.push_str("…\n");
+                lines = 1;
+            }
             let rest = text.lines().count() - lines;
+            if rest == 0 {
+                out.truncate(out.trim_end().len());
+                return out;
+            }
             out.push_str(&format!("… ещё строк: {rest}"));
             return out;
         }
@@ -110,5 +121,7 @@ mod tests {
     fn clip_block_counts_hidden_lines() {
         assert_eq!(clip_block("a\nb\nc", 2, 100), "a\nb\n… ещё строк: 1");
         assert_eq!(clip_block("a\nb\n", 5, 100), "a\nb");
+        assert_eq!(clip_block("abcdef", 5, 3), "abc…");
+        assert_eq!(clip_block("abcdef\nz", 5, 3), "abc…\n… ещё строк: 1");
     }
 }
