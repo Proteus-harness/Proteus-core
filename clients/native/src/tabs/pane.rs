@@ -2,7 +2,6 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::is_panel;
 use super::tree::PaneId;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -45,12 +44,6 @@ impl Pane {
 
     pub fn is_pinned(&self, id: &str) -> bool {
         self.position(id).is_some_and(|ix| ix < self.pinned)
-    }
-
-    /// Whether the pane has tabs and all of them are panels; such a pane
-    /// does not take chats and documents unless they are put there.
-    pub fn holds_panels(&self) -> bool {
-        !self.tabs.is_empty() && self.tabs.iter().all(|tab| is_panel(tab))
     }
 
     pub fn show(&mut self, id: &str) {

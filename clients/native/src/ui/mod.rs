@@ -26,6 +26,7 @@ use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::*;
 use gpui_kit::*;
 
+use crate::preferences::SESSIONS_PANEL;
 use crate::tabs::Edge;
 use crate::ui::chrome::WorkspaceRequest;
 use crate::ui::motion::Spinner;
@@ -85,15 +86,14 @@ impl Render for Workspace {
                 }))
                 .on_action(cx.listener(|this, _: &ToggleFiles, window, cx| {
                     if this.settings.is_none()
-                        && let Some(tab) = panels::first_extension_panel(cx)
+                        && let Some(name) = panels::first_extension_panel(cx)
                     {
-                        this.toggle_panel(&tab, window, cx);
+                        this.toggle_panel(name, window, cx);
                     }
                 }))
                 .on_action(cx.listener(|this, _: &ToggleSessions, window, cx| {
                     if this.settings.is_none() {
-                        let tab = crate::tabs::panel(crate::tabs::SESSIONS);
-                        this.toggle_panel(&tab, window, cx);
+                        this.toggle_panel(SESSIONS_PANEL, window, cx);
                     }
                 }))
                 .on_action(cx.listener(|this, _: &NewSession, window, cx| {
@@ -129,7 +129,10 @@ impl Render for Workspace {
                 .on_action(|_: &ZoomIn, _, cx| prefs::update(cx, |prefs| prefs.view.zoom(1)))
                 .on_action(|_: &ZoomOut, _, cx| prefs::update(cx, |prefs| prefs.view.zoom(-1)))
                 .on_action(|_: &ZoomReset, _, cx| prefs::update(cx, |prefs| prefs.view.zoom(0)))
-                .on_drop(cx.listener(|this, _: &tabs::SplitDrag, _, cx| this.finish_resize(cx)));
+                .on_drop(cx.listener(|this, _: &tabs::SplitDrag, _, cx| this.finish_resize(cx)))
+                .on_drop(cx.listener(|this, _: &panels::SidebarDrag, _, cx| {
+                    this.finish_sidebar_resize(cx)
+                }));
         let root = root.child(self.render_top_bar(window, cx));
         match &self.status {
             Status::Starting => root.child(centered(
@@ -160,29 +163,32 @@ impl Render for Workspace {
                         ),
                     ),
             )),
-            Status::Ready if self.settings.is_some() => {
-                let settings = self.settings.clone().expect("settings are open");
-                root.child(motion::rise_in(
-                    div().flex_1().min_h_0().w_full().child(settings),
-                    "settings-screen",
-                ))
-            }
             Status::Ready => {
                 self.sync_window_title(window, cx);
                 self.sync_badges(window, cx);
                 let rail = self.render_rail(cx);
-                let tabs = self.render_tabs(window, cx);
-                root.child(
-                    h_flex()
-                        .flex_1()
-                        .min_h_0()
-                        .w_full()
-                        .child(rail)
-                        .child(motion::rise_in(
-                            h_flex().flex_1().min_w_0().h_full().child(tabs),
+                let main = match self.settings.clone() {
+                    Some(settings) => motion::rise_in(
+                        div().flex_1().min_w_0().h_full().child(settings),
+                        "settings-screen",
+                    )
+                    .into_any_element(),
+                    None => {
+                        let sidebar = self.render_sidebar(window, cx);
+                        let tabs = self.render_tabs(window, cx);
+                        motion::rise_in(
+                            h_flex()
+                                .flex_1()
+                                .min_w_0()
+                                .h_full()
+                                .children(sidebar)
+                                .child(tabs),
                             "chat-screen",
-                        )),
-                )
+                        )
+                        .into_any_element()
+                    }
+                };
+                root.child(h_flex().flex_1().min_h_0().w_full().child(rail).child(main))
             }
         }
     }

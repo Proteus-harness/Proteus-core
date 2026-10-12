@@ -160,19 +160,11 @@ impl HostView<'_> {
             .as_ref()
     }
 
-    /// Argument of the document tab active in the focused area, when the
-    /// tab belongs to `extension`. With a pane of panels focused, the first
-    /// such document in view counts.
+    /// Argument of the document tab active in the focused pane, when the
+    /// tab belongs to `extension`.
     pub(in crate::ui) fn active_document(&self, extension: &str, cx: &App) -> Option<String> {
         let layout = self.workspace.tab_layout(cx);
-        let owned = |id: &str| {
-            let (owner, argument) = crate::tabs::split_document(id)?;
-            (owner == extension).then(|| argument.to_string())
-        };
-        let focused = layout.pane(layout.focused)?;
-        if focused.holds_panels() {
-            return layout.visible().find_map(owned);
-        }
-        owned(focused.active.as_deref()?)
+        let (owner, argument) = crate::tabs::split_document(layout.active(layout.focused)?)?;
+        (owner == extension).then(|| argument.to_string())
     }
 }

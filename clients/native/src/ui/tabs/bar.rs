@@ -114,7 +114,7 @@ impl Workspace {
             };
             let element = self.render_tab(pane.id, &leaving.id, state, layout, cx);
             let ix = leaving.index.min(tabs.len());
-            let min = min_width(&leaving.id, leaving.pinned);
+            let min = min_width(leaving.pinned);
             tabs.insert(
                 ix,
                 reveal(&leaving.id, shown, min, element.into_any_element()),
@@ -185,7 +185,7 @@ impl Workspace {
             .h_full()
             .on_prepaint(move |bounds, _, _| arrange::record(&id, bounds))
             .child(element);
-        let min = min_width(tab, state.pinned);
+        let min = min_width(state.pinned);
         reveal(tab, shown, min, measured.into_any_element())
     }
 }
@@ -210,7 +210,7 @@ fn dragged_state(dragging: &str, layout: &TabLayout) -> Option<TabState> {
 /// A tab clipped to `shown` of its width and as transparent; the same id
 /// before and after it closes keeps its measured width. A crowded strip
 /// narrows its widest tabs first, down to `min`, before it scrolls.
-fn reveal(id: &str, shown: f32, min: Option<Rems>, tab: AnyElement) -> AnyElement {
+fn reveal(id: &str, shown: f32, min: Rems, tab: AnyElement) -> AnyElement {
     let id = ElementId::Name(format!("tab-reveal-{id}").into());
     let collapse = if shown >= 1. {
         Collapse::new(id, 1., tab)
@@ -218,12 +218,9 @@ fn reveal(id: &str, shown: f32, min: Option<Rems>, tab: AnyElement) -> AnyElemen
         let faded = div().w_full().h_full().opacity(shown).child(tab);
         Collapse::new(id, shown, faded.into_any_element())
     };
-    match min {
-        Some(min) => collapse
-            .squeeze(min, prefs::scaled(MAX_WIDTH))
-            .into_any_element(),
-        None => collapse.into_any_element(),
-    }
+    collapse
+        .squeeze(min, prefs::scaled(MAX_WIDTH))
+        .into_any_element()
 }
 
 /// Room among the tabs where the dragged one would land. The tab keeps its

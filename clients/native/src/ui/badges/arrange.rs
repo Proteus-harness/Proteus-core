@@ -81,15 +81,16 @@ pub(super) fn frame(place: BadgePlace, ids: &[&'static str], cx: &App) -> Frame 
             Target::Home => dragging.and_then(|id| ids.iter().position(|known| *known == id)),
         };
         let hovered = matches!(state.target, Target::At(at, _) if at == place);
-        let gap_length = dragging
-            .and_then(|id| state.bounds.get(id))
-            .map_or(px(28. * prefs::scale(cx)), |bounds| {
+        let gap_length = dragging.and_then(|id| state.bounds.get(id)).map_or(
+            px(28. * prefs::scale(cx)),
+            |bounds| {
                 if place.is_rail() {
                     bounds.size.height
                 } else {
                     bounds.size.width
                 }
-            });
+            },
+        );
         Frame {
             dragging,
             open_gap,

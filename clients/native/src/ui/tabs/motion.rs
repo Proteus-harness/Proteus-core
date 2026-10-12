@@ -27,16 +27,25 @@ pub(in crate::ui) struct TabMotion {
 }
 
 impl TabMotion {
-    /// Notes the tabs that `new` opened or closed compared with `old`.
+    /// Notes the tabs that `new` opened or closed compared with `old`. A
+    /// tab that took the place of a closed one, as the next preview does,
+    /// is swapped in place without either moving.
     pub(super) fn record(&mut self, old: &TabLayout, new: &TabLayout) {
         if !motion::plays() {
             return;
         }
+        let swapped = |pane: PaneId, index: usize| {
+            let was = old.pane(pane).and_then(|pane| pane.tabs.get(index));
+            let is = new.pane(pane).and_then(|pane| pane.tabs.get(index));
+            matches!((was, is), (Some(was), Some(is)) if !new.contains(was) && !old.contains(is))
+        };
         for pane in new.panes() {
-            for tab in &pane.tabs {
+            for (index, tab) in pane.tabs.iter().enumerate() {
                 if !old.contains(tab) {
                     self.leaving.retain(|leaving| leaving.id != *tab);
-                    self.entering.insert(tab.clone(), Tween::start(FAST));
+                    if !swapped(pane.id, index) {
+                        self.entering.insert(tab.clone(), Tween::start(FAST));
+                    }
                 }
             }
         }
@@ -45,7 +54,7 @@ impl TabMotion {
                 continue;
             }
             for (index, tab) in pane.tabs.iter().enumerate() {
-                if !new.contains(tab) {
+                if !new.contains(tab) && !swapped(pane.id, index) {
                     self.entering.remove(tab);
                     self.leaving.push(Leaving {
                         pane: pane.id,
@@ -264,6 +273,26 @@ mod tests {
             target: rect,
             opacity: 1.,
         }
+    }
+
+    #[test]
+    fn a_replaced_preview_swaps_in_place() {
+        let mut old = TabLayout::default();
+        old.open_preview("files:a.rs", |_| false);
+        let mut new = old.clone();
+        new.open_preview("files:b.rs", |_| false);
+        let mut motion = TabMotion::default();
+        motion.record(&old, &new);
+        let now = Instant::now();
+        assert_eq!(motion.entering("files:b.rs", now), None);
+        assert!(motion.leaving(PaneId(0), now).is_empty());
+
+        // A tab opened beside the kept one still grows in.
+        let mut next = new.clone();
+        next.keep("files:b.rs");
+        next.open_preview("files:c.rs", |_| false);
+        motion.record(&new, &next);
+        assert!(motion.entering("files:c.rs", Instant::now()).is_some());
     }
 
     #[test]

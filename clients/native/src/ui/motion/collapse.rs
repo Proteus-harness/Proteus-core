@@ -143,9 +143,9 @@ impl Element for Collapse {
         } else {
             AvailableSpace::Definite(bounds.size.height)
         };
-        let measured = self
-            .child
-            .layout_as_root(size(AvailableSpace::MaxContent, height), window, cx);
+        let measured =
+            self.child
+                .layout_as_root(size(AvailableSpace::MaxContent, height), window, cx);
         let vertical = self.vertical;
         let changed = window.with_element_state(
             global_id.expect("Collapse has an id"),

@@ -1,5 +1,5 @@
-//! Tabs of the window: chats, panels and extension documents (files) in a
-//! tree of panes. The layout lives in the client preferences; this module
+//! Tabs of the window: chats and extension documents (files) in a tree of
+//! panes. The layout lives in the client preferences; this module
 //! turns user actions into layout changes and keeps the focus where the
 //! user is.
 
@@ -15,13 +15,13 @@ mod view;
 
 pub(super) use drop::TabDrop;
 pub(super) use motion::TabMotion;
-pub(super) use split::{SplitDrag, SplitResize};
+pub(super) use split::{SplitDrag, SplitResize, divider_grip, divider_line};
 
 use gpui_kit::*;
 
 use super::extensions::{self, Host, OpenDocument, SurfaceView};
+use super::prefs;
 use super::workspace::Workspace;
-use super::{panels, prefs};
 use crate::tabs::{self, Edge, PaneId, TabLayout};
 
 /// Width a pane needs before a new tab may split it.
@@ -274,7 +274,7 @@ impl Workspace {
     }
 
     /// Moves the keyboard to the active tab of the focused pane.
-    fn focus_active(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(in crate::ui) fn focus_active(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let layout = self.tab_layout(cx);
         if let Some(id) = layout.active(layout.focused).map(str::to_string) {
             self.focus_tab(&id, window, cx);
@@ -286,8 +286,6 @@ impl Workspace {
             if let Some(chat) = self.chats.get(id) {
                 chat.view.update(cx, |chat, cx| chat.focus(window, cx));
             }
-        } else if tabs::is_panel(id) {
-            self.focus_panel(id, window, cx);
         } else if let Some(view) = self.ensure_document(id, window, cx) {
             view.focus.focus(window, cx);
         }
@@ -297,5 +295,5 @@ impl Workspace {
 /// Whether a tab id stands for something that can be shown. Chats whose
 /// sessions are gone are closed when the workspace starts.
 pub(super) fn tab_available(id: &str, cx: &App) -> bool {
-    tabs::is_chat(id) || panels::info(id, cx).is_some() || extensions::document(id, cx).is_some()
+    tabs::is_chat(id) || extensions::document(id, cx).is_some()
 }

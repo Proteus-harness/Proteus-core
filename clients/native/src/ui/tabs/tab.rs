@@ -1,5 +1,5 @@
 //! One tab of a strip: its look, clicks, drag and context menu. Pinned
-//! tabs are compact and have no close button; panels show only an icon.
+//! tabs are compact and have no close button.
 
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::ButtonVariants as _;
@@ -18,21 +18,18 @@ use crate::ui::motion::Spinner;
 use crate::ui::prefs;
 use crate::ui::tip::Tip as _;
 use crate::ui::workspace::Workspace;
-use crate::ui::{drag, extensions, panels};
+use crate::ui::{drag, extensions};
 
 pub(super) const BAR_HEIGHT: f32 = 38.;
 /// Widest a tab gets, in px at 100% scale.
 pub(super) const MAX_WIDTH: f32 = 240.;
 
-/// How narrow a tab gets in a crowded strip before the strip scrolls;
-/// panel icons keep their size.
-pub(super) fn min_width(id: &str, pinned: bool) -> Option<Rems> {
-    if pinned && tabs::is_panel(id) {
-        None
-    } else if pinned {
-        Some(prefs::scaled(56.))
+/// How narrow a tab gets in a crowded strip before the strip scrolls.
+pub(super) fn min_width(pinned: bool) -> Rems {
+    if pinned {
+        prefs::scaled(56.)
     } else {
-        Some(prefs::scaled(88.))
+        prefs::scaled(88.)
     }
 }
 
@@ -100,13 +97,6 @@ impl Workspace {
                 tooltip,
             };
         }
-        if let Some(panel) = panels::info(id, cx) {
-            return TabLabel {
-                icon: panel.icon,
-                title: panel.title.into(),
-                tooltip: Some(panel.title.into()),
-            };
-        }
         match extensions::document(id, cx) {
             Some((manifest, argument)) => TabLabel {
                 icon: Icon::new(IconName::File),
@@ -137,7 +127,6 @@ impl Workspace {
         let tab_group = SharedString::from(format!("tab-{id}"));
         let (hover, primary, foreground) = (theme.list_hover, theme.primary, theme.foreground);
         let lifted = drag::is_source(&format!("tab:{id}"), cx);
-        let icon_only = state.pinned && tabs::is_panel(id);
         let icon = match self.chat_state(id, cx) {
             Some(ChatState::Busy(_)) => Spinner::new().xsmall().into_any_element(),
             Some(ChatState::Trouble(_)) => Icon::new(IconName::TriangleAlert)
@@ -162,10 +151,9 @@ impl Workspace {
             .relative()
             .h_full()
             .flex_none()
-            .map(|tab| match (icon_only, state.pinned) {
-                (true, _) => tab.px_3(),
-                (false, true) => tab.max_w(prefs::scaled(140.)).px_3().gap_2(),
-                (false, false) => tab
+            .map(|tab| match state.pinned {
+                true => tab.max_w(prefs::scaled(140.)).px_3().gap_2(),
+                false => tab
                     .max_w(prefs::scaled(MAX_WIDTH))
                     .pl_3()
                     .pr(prefs::scaled(4.))
@@ -184,14 +172,12 @@ impl Workspace {
             })
             .when(lifted, |tab| tab.opacity(drag::SOURCE_OPACITY))
             .child(icon)
-            .when(!icon_only, |tab| {
-                tab.child(
-                    div()
-                        .min_w_0()
-                        .when(state.preview, |title| title.italic())
-                        .child(faded(label.title)),
-                )
-            })
+            .child(
+                div()
+                    .min_w_0()
+                    .when(state.preview, |title| title.italic())
+                    .child(faded(label.title)),
+            )
             .when(!state.pinned, |tab| {
                 tab.child(
                     div()

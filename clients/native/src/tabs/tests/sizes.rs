@@ -4,11 +4,31 @@ use super::shape;
 use super::tree::{assert_close, weights};
 
 const A: &str = "chat:/s/a";
+const B: &str = "chat:/s/b";
 
-/// `row(264px 1[panels] | 0[a*])`.
-fn with_chat() -> TabLayout {
+/// `row(264px 0[a*] | 1[b*])`: a chat locked at 264 px beside another.
+fn with_fixed() -> TabLayout {
     let mut layout = TabLayout::default();
     layout.open(A, |_| true);
+    layout.open(B, |_| true);
+    layout.split(B, PaneId(0), Edge::Right);
+    layout.resize(&[], 0, 264., 1264., 240.);
+    layout.lock_pane(PaneId(0), true, 1264., 800., 0.);
+    layout
+}
+
+/// `row(0[a*] | 1[b*])` with sizes `sizes`, none of them locked.
+fn sized(sizes: [Size; 2]) -> TabLayout {
+    let mut layout = TabLayout::default();
+    layout.open(A, |_| true);
+    layout.open(B, |_| true);
+    layout.split(B, PaneId(0), Edge::Right);
+    let Node::Split(split) = &mut layout.root else {
+        unreachable!()
+    };
+    for (child, size) in split.children.iter_mut().zip(sizes) {
+        child.size = size;
+    }
     layout
 }
 
@@ -23,7 +43,7 @@ fn widths(layout: &TabLayout, width: f32) -> Vec<f32> {
 
 #[test]
 fn fixed_panes_keep_their_pixels() {
-    let layout = with_chat();
+    let layout = with_fixed();
     assert_close(&widths(&layout, 1264.), &[264., 1000.]);
     assert_close(&widths(&layout, 2264.), &[264., 2000.]);
     // Too narrow a window shrinks the fixed pane last of all.
@@ -32,7 +52,7 @@ fn fixed_panes_keep_their_pixels() {
 
 #[test]
 fn spaced_places_leave_room_for_dividers() {
-    let layout = with_chat();
+    let layout = with_fixed();
     let rects: Vec<Rect> = layout
         .rects_spaced(1269., 800., 5.)
         .into_iter()
@@ -44,7 +64,7 @@ fn spaced_places_leave_room_for_dividers() {
 
 #[test]
 fn dividers_resize_fixed_panes_in_pixels() {
-    let mut layout = with_chat();
+    let mut layout = with_fixed();
     layout.resize(&[], 0, 300., 1264., 240.);
     assert_eq!(
         layout.sizes(&[]),
@@ -52,18 +72,18 @@ fn dividers_resize_fixed_panes_in_pixels() {
     );
     layout.resize(&[], 0, 100., 1264., 240.);
     assert_eq!(layout.sizes(&[]).unwrap()[0], Size::Fixed(240.));
+    // Sharing evenly leaves the fixed pane as it is.
     layout.reset(&[]);
     assert_eq!(
         layout.sizes(&[]),
-        Some(vec![Size::Fixed(264.), Size::Weight(1.)])
+        Some(vec![Size::Fixed(240.), Size::Weight(1.)])
     );
 
     // Between weighted panes, a fixed one stays as it is.
+    let mut layout = with_fixed();
     layout.open("files:x", |_| true);
-    assert_eq!(
-        shape(&layout),
-        "row(264px 1[@sessions^*, @files^] | 0[a*] | 2[files:x*])"
-    );
+    layout.split("files:x", PaneId(1), Edge::Right);
+    assert_eq!(shape(&layout), "row(264px 0[a*] | 1[b*] | 2[files:x*])");
     layout.resize(&[], 1, 264. + 250., 1264., 240.);
     assert_eq!(layout.sizes(&[]).unwrap()[0], Size::Fixed(264.));
     assert_close(&weights(&layout, &[])[1..], &[0.5, 1.5]);
@@ -72,56 +92,53 @@ fn dividers_resize_fixed_panes_in_pixels() {
 
 #[test]
 fn splitting_beside_a_fixed_pane() {
-    let mut layout = with_chat();
+    let mut layout = with_fixed();
     layout.open("files:x", |_| false);
-    layout.split("files:x", PaneId(1), Edge::Right);
-    assert_eq!(
-        shape(&layout),
-        "row(264px 1[@sessions^*, @files^] | 2[files:x*] | 0[a*])"
-    );
+    layout.split("files:x", PaneId(1), Edge::Left);
+    assert_eq!(shape(&layout), "row(264px 0[a*] | 2[files:x*] | 1[b*])");
     assert_close(&weights(&layout, &[])[1..], &[1., 1.]);
-
-    // Stacked inside the fixed pane, the column keeps the pixels.
-    let mut layout = with_chat();
-    layout.split("panel:files", PaneId(1), Edge::Bottom);
-    assert_eq!(
-        shape(&layout),
-        "row(264px col(1[@sessions^*] / 2[@files^*]) | 0[a*])"
-    );
 }
 
 #[test]
 fn normalizing_keeps_splits_resizable() {
     // Without weighted children, fixed ones share by their pixels.
-    let mut layout = with_chat();
-    layout.split("panel:files", PaneId(0), Edge::Right);
+    let mut layout = sized([Size::Fixed(264.), Size::Weight(1.)]);
+    layout.open("files:x", |_| true);
+    layout.split("files:x", PaneId(1), Edge::Right);
     let Node::Split(split) = &mut layout.root else {
         unreachable!()
     };
     split.children[2].size = Size::Fixed(300.);
     assert_eq!(
         shape(&layout),
-        "row(264px 1[@sessions^*] | 0[a*] | 300px 2[@files^*])"
+        "row(264px 0[a*] | 1[b*] | 300px 2[files:x*])"
     );
-    layout.move_tab(A, PaneId(1), None);
+    layout.move_tab(B, PaneId(0), None);
     assert_close(&weights(&layout, &[]), &[264. / 282., 300. / 282.]);
 
     // A split merged into a fixed child of its parent turns fixed too.
-    let mut layout = with_chat();
-    layout.split("panel:files", PaneId(1), Edge::Bottom);
-    layout.open_panel("panel:notes", Some(PaneId(2)));
-    layout.split("panel:notes", PaneId(2), Edge::Right);
-    layout.close("panel:sessions");
+    let mut layout = sized([Size::Weight(1.), Size::Weight(1.)]);
+    let (c, d) = ("chat:/s/c", "chat:/s/d");
+    layout.open(c, |_| false);
+    layout.split(c, PaneId(0), Edge::Bottom);
+    layout.open(d, |_| false);
+    layout.split(d, PaneId(2), Edge::Right);
+    let Node::Split(split) = &mut layout.root else {
+        unreachable!()
+    };
+    split.children[0].size = Size::Fixed(264.);
     assert_eq!(
         shape(&layout),
-        "row(132px 2[@files^*] | 132px 3[@notes^*] | 0[a*])"
+        "row(264px col(0[a*] / row(2[c*] | 3[d*])) | 1[b*])"
     );
+    layout.close(A);
+    assert_eq!(shape(&layout), "row(132px 2[c*] | 132px 3[d*] | 1[b*])");
 }
 
 #[test]
 fn validation_checks_sizes() {
     let broken = |size: [Size; 2]| {
-        let mut layout = with_chat();
+        let mut layout = with_fixed();
         let Node::Split(split) = &mut layout.root else {
             unreachable!()
         };
@@ -138,7 +155,7 @@ fn validation_checks_sizes() {
 
 #[test]
 fn fresh_layouts_round_trip() {
-    let layout = with_chat();
+    let layout = with_fixed();
     let text = serde_json::to_string(&layout).unwrap();
     assert!(text.contains(r#""size":{"fixed":264.0}"#), "{text}");
     let back: TabLayout = serde_json::from_str(&text).unwrap();
@@ -153,8 +170,8 @@ fn fresh_layouts_round_trip() {
 
 #[test]
 fn a_closed_pane_widens_its_neighbour_only() {
-    let mut layout = TabLayout::with_panels(&[]);
-    let (b, c) = ("chat:/s/b", "chat:/s/c");
+    let mut layout = TabLayout::default();
+    let (b, c) = (B, "chat:/s/c");
     layout.open(A, |_| false);
     layout.open(b, |_| false);
     layout.split(b, layout.pane_of(b).unwrap(), Edge::Right);
@@ -170,8 +187,8 @@ fn a_closed_pane_widens_its_neighbour_only() {
 
 #[test]
 fn a_locked_pane_keeps_its_pixels_until_unlocked() {
-    let mut layout = TabLayout::with_panels(&[]);
-    let b = "chat:/s/b";
+    let mut layout = TabLayout::default();
+    let b = B;
     layout.open(A, |_| false);
     layout.open(b, |_| false);
     layout.split(b, layout.pane_of(b).unwrap(), Edge::Right);
@@ -215,13 +232,11 @@ fn a_locked_pane_keeps_its_pixels_until_unlocked() {
 
 #[test]
 fn moving_the_last_tab_into_a_locked_pane_leaves_room() {
-    let mut layout = with_chat();
-    let chat = layout.pane_of(A).unwrap();
-    let panels = layout.panes()[0].id;
-    layout.lock_pane(panels, true, 1264., 800., 0.);
-    layout.move_tab(A, panels, None);
+    let mut layout = with_fixed();
+    let (locked, other) = (PaneId(0), PaneId(1));
+    layout.move_tab(B, locked, None);
     assert_eq!(layout.pane_count(), 2);
-    assert!(layout.holds_room(chat));
+    assert!(layout.holds_room(other));
     assert!(layout.validate().is_ok());
     assert_close(&widths(&layout, 1600.), &[264., 1336.]);
     // The layout survives saving, empty pane and all.
@@ -230,42 +245,36 @@ fn moving_the_last_tab_into_a_locked_pane_leaves_room() {
     assert!(restored.validate().is_ok());
 
     // An empty pane takes the next chat; closing it brings the room back.
-    let b = "chat:/s/b";
-    layout.open(b, |_| true);
-    assert_eq!(layout.pane_of(b), Some(chat));
-    layout.close(b);
-    assert!(layout.holds_room(chat));
+    let c = "chat:/s/c";
+    layout.open(c, |_| true);
+    assert_eq!(layout.pane_of(c), Some(other));
+    layout.close(c);
+    assert!(layout.holds_room(other));
     // Unlocked, the neighbour takes the room itself.
-    layout.lock_pane(panels, false, 1264., 800., 0.);
+    layout.lock_pane(locked, false, 1264., 800., 0.);
     assert_eq!(layout.pane_count(), 1);
-    assert_eq!(layout.pane_locked(panels), None);
+    assert_eq!(layout.pane_locked(locked), None);
 }
 
 #[test]
-fn locking_beside_the_panels_hands_them_the_rest() {
-    let mut layout = with_chat();
-    let chat = layout.pane_of(A).unwrap();
-    let panels = layout
-        .panes()
-        .into_iter()
-        .map(|pane| pane.id)
-        .find(|&id| id != chat)
-        .unwrap();
+fn locking_beside_a_fixed_pane_hands_it_the_rest() {
+    let mut layout = sized([Size::Fixed(264.), Size::Weight(1.)]);
+    let (fixed, chat) = (PaneId(0), PaneId(1));
     assert_eq!(layout.pane_locked(chat), Some(false));
     layout.lock_pane(chat, true, 1200., 800., 0.);
     assert_close(&widths(&layout, 1600.), &[664., 936.]);
 
-    // Locking the panels takes the lock over.
-    layout.lock_pane(panels, true, 1600., 800., 0.);
+    // Locking the other one takes the lock over.
+    layout.lock_pane(fixed, true, 1600., 800., 0.);
     assert_eq!(layout.pane_locked(chat), Some(false));
-    assert_eq!(layout.pane_locked(panels), Some(true));
+    assert_eq!(layout.pane_locked(fixed), Some(true));
     assert_close(&widths(&layout, 1200.), &[664., 536.]);
 }
 
 #[test]
 fn unlocking_a_pane_lets_it_keep_its_share() {
-    let mut layout = TabLayout::with_panels(&[]);
-    let b = "chat:/s/b";
+    let mut layout = TabLayout::default();
+    let b = B;
     layout.open(A, |_| false);
     layout.open(b, |_| false);
     layout.split(b, layout.pane_of(b).unwrap(), Edge::Right);

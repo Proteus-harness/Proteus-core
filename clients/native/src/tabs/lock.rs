@@ -48,7 +48,7 @@ impl TabLayout {
         if locked {
             split.children[ix].size = Size::Fixed(lengths[ix].max(1.));
             // Someone has to take the rest: when no neighbour shares it, the
-            // panels and locked panes beside it give up their pixels.
+            // fixed panes beside it give up their pixels.
             let shares = |(at, child): (usize, &Child)| at != ix && !child.size.is_fixed();
             if !split.children.iter().enumerate().any(shares) {
                 for (at, (child, len)) in split.children.iter_mut().zip(&lengths).enumerate() {

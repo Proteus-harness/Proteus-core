@@ -202,7 +202,6 @@ impl Workspace {
     ) -> Div {
         let id = pane.id;
         let content = match pane.active.as_deref() {
-            Some(tab) if tabs::is_panel(tab) => self.render_panel(tab, window, cx),
             Some(tab) if tabs::is_chat(tab) => match self.chats.get(tab) {
                 // A chat redraws only when it changes itself, not on every
                 // frame of the window's spinners and ripples.

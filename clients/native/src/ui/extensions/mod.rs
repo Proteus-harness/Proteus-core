@@ -40,7 +40,7 @@ pub(super) type BuildFocused = fn(Host, &mut Window, &mut App) -> SurfaceView;
 /// Builds the view of one document, e.g. a file; same rules as [`BuildView`].
 pub(super) type BuildDocument = fn(Host, &str, &mut Window, &mut App) -> SurfaceView;
 
-/// Panel opened as a pinned tab `panel:<extension>`, like the session list.
+/// Panel shown in the side panel beside the rail, like the session list.
 pub(super) struct PanelSurface {
     pub title: &'static str,
     pub build: BuildFocused,
@@ -395,10 +395,9 @@ pub(super) fn visible_panels(cx: &App) -> Vec<&'static Manifest> {
         .collect()
 }
 
-/// Panel surface of an enabled extension for a tab id.
-pub(super) fn panel(tab: &str, cx: &App) -> Option<&'static Manifest> {
-    let name = crate::tabs::panel_name(tab)?;
-    find(name).filter(|manifest| manifest.panel.is_some() && is_enabled(manifest.id, cx))
+/// Panel surface of an enabled extension.
+pub(super) fn panel(id: &str, cx: &App) -> Option<&'static Manifest> {
+    find(id).filter(|manifest| manifest.panel.is_some() && is_enabled(manifest.id, cx))
 }
 
 /// Document surface of an enabled extension for a tab id.
@@ -411,24 +410,15 @@ pub(super) fn document(tab: &str, cx: &App) -> Option<(&'static Manifest, String
 
 #[cfg(test)]
 mod tests {
+    use crate::preferences::SESSIONS_PANEL;
     use crate::tabs;
 
     #[test]
-    fn documents_never_look_like_chats_or_panels() {
+    fn documents_never_look_like_chats_and_panels_not_like_sessions() {
         for manifest in super::catalog() {
             let id = tabs::document(manifest.id, "x");
             assert!(!tabs::is_chat(&id), "extension `{}`", manifest.id);
-            assert!(!tabs::is_panel(&id), "extension `{}`", manifest.id);
-            assert_ne!(manifest.id, tabs::SESSIONS);
-        }
-    }
-
-    #[test]
-    fn default_panels_exist() {
-        for name in tabs::DEFAULT_PANELS {
-            let known = name == tabs::SESSIONS
-                || super::find(name).is_some_and(|manifest| manifest.panel.is_some());
-            assert!(known, "panel `{name}`");
+            assert_ne!(manifest.id, SESSIONS_PANEL);
         }
     }
 }

@@ -1,14 +1,12 @@
 //! Menus of the tab strip: the context menu of a tab (pinning, closing,
-//! splitting) and the «+» menu with a new session, a terminal and the
-//! panels.
+//! splitting) and the «+» menu with a new session and a terminal.
 
 use gpui_kit::assets::IconName as Lucide;
+use gpui_kit::component::Icon;
 use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
-use gpui_kit::component::{Icon, Side};
 use gpui_kit::*;
 
 use crate::tabs::{Edge, PaneId, TabLayout};
-use crate::ui::panels;
 use crate::ui::workspace::Workspace;
 
 /// What the context menu of one tab offers, read from the layout when the
@@ -83,13 +81,11 @@ impl TabMenu {
     }
 }
 
-/// The «+» menu of the strip of `pane`: everything opens in this pane,
-/// except an open panel, which comes forward where it is.
+/// The «+» menu of the strip of `pane`: everything opens in this pane.
 pub(super) fn new_tab_menu(
     menu: PopupMenu,
     pane: PaneId,
     workspace: &WeakEntity<Workspace>,
-    cx: &App,
 ) -> PopupMenu {
     let open = {
         let workspace = workspace.clone();
@@ -102,46 +98,20 @@ pub(super) fn new_tab_menu(
             }
         }
     };
-    let layout = workspace
-        .upgrade()
-        .map(|workspace| workspace.read(cx).tab_layout(cx));
-    // Items have icons, so the mark of an open panel goes on the right.
-    let mut menu = menu
-        .check_side(Side::Right)
-        .item(
-            PopupMenuItem::new("Новая сессия")
-                .icon(Icon::new(Lucide::MessageSquarePlus))
-                .on_click(open(|this, pane, window, cx| {
-                    this.new_session(Some(pane), window, cx)
-                })),
-        )
-        .item(
-            PopupMenuItem::new("Терминал")
-                .icon(Icon::new(Lucide::SquareTerminal))
-                .on_click(open(|this, pane, window, cx| {
-                    this.open_terminal(Some(pane), window, cx)
-                })),
-        )
-        .separator();
-    for panel in panels::available(cx) {
-        let opened = layout
-            .as_ref()
-            .is_some_and(|layout| layout.contains(&panel.id));
-        let workspace = workspace.clone();
-        menu = menu.item(
-            PopupMenuItem::new(panel.title)
-                .icon(panel.icon)
-                .checked(opened)
-                .on_click(move |_, window, cx| {
-                    workspace
-                        .update(cx, |this, cx| {
-                            this.open_panel(&panel.id, Some(pane), window, cx)
-                        })
-                        .ok();
-                }),
-        );
-    }
-    menu
+    menu.item(
+        PopupMenuItem::new("Новая сессия")
+            .icon(Icon::new(Lucide::MessageSquarePlus))
+            .on_click(open(|this, pane, window, cx| {
+                this.new_session(Some(pane), window, cx)
+            })),
+    )
+    .item(
+        PopupMenuItem::new("Терминал")
+            .icon(Icon::new(Lucide::SquareTerminal))
+            .on_click(open(|this, pane, window, cx| {
+                this.open_terminal(Some(pane), window, cx)
+            })),
+    )
 }
 
 impl Workspace {

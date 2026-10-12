@@ -37,7 +37,7 @@ impl Workspace {
             .hint("Новая вкладка", cx)
             .dropdown_menu_with_anchor(Anchor::TopRight, {
                 let workspace = workspace.clone();
-                move |popup, _, cx| menu::new_tab_menu(popup, id, &workspace, cx)
+                move |popup, _, _| menu::new_tab_menu(popup, id, &workspace)
             });
         h_flex()
             .id(("pane-controls", key))

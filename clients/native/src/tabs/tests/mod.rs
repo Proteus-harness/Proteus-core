@@ -1,8 +1,7 @@
 use std::path::Path;
 
-use super::{Node, PaneId, Size, TabLayout, chat, chat_dir, panel, panel_name, split_document};
+use super::{Node, PaneId, Size, TabLayout, chat, chat_dir, split_document};
 
-mod panels;
 mod pins;
 mod sizes;
 mod tree;
@@ -11,7 +10,7 @@ const A: &str = "chat:/s/a";
 const B: &str = "chat:/s/b";
 
 /// Compact picture of the tree: `0[a, b*]` is pane 0 showing `b`, `^`
-/// marks pinned tabs and `@` panels; `row(…)` and `col(…)` are splits,
+/// marks pinned tabs; `row(…)` and `col(…)` are splits,
 /// `264px ` marks a fixed child.
 fn shape(layout: &TabLayout) -> String {
     fn node(tree: &Node) -> String {
@@ -28,10 +27,7 @@ fn shape(layout: &TabLayout) -> String {
                         } else {
                             ""
                         };
-                        let name = match panel_name(tab) {
-                            Some(name) => format!("@{name}"),
-                            None => tab.strip_prefix("chat:/s/").unwrap_or(tab).to_string(),
-                        };
+                        let name = tab.strip_prefix("chat:/s/").unwrap_or(tab);
                         format!("{name}{pin}{mark}")
                     })
                     .collect();
@@ -58,9 +54,9 @@ fn shape(layout: &TabLayout) -> String {
     node(&layout.root)
 }
 
-/// One empty pane, no panels.
+/// One empty pane.
 fn blank() -> TabLayout {
-    TabLayout::with_panels(&[])
+    TabLayout::default()
 }
 
 fn with_chat() -> TabLayout {
@@ -75,11 +71,6 @@ fn ids_tell_chats_from_documents() {
     assert_eq!(chat_dir(A), Some(Path::new("/s/a")));
     assert_eq!(chat_dir("files:src/a.rs"), None);
     assert_eq!(split_document(A), None);
-    assert_eq!(panel("files"), "panel:files");
-    assert_eq!(panel_name("panel:files"), Some("files"));
-    assert_eq!(panel_name(A), None);
-    assert_eq!(chat_dir("panel:files"), None);
-    assert_eq!(split_document("panel:files"), None);
     assert_eq!(
         split_document("files:src/a:b.rs"),
         Some(("files", "src/a:b.rs"))

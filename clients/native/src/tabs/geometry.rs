@@ -2,7 +2,6 @@
 //! out unless the caller gives their thickness: they are thin next to the
 //! panes.
 
-use super::PANEL_WIDTH;
 use super::layout::TabLayout;
 use super::size::{Size, extents, set_extents};
 use super::tree::{Axis, Edge, Node, PaneId};
@@ -181,15 +180,14 @@ impl TabLayout {
         set_extents(&mut split.children, &lengths, &[index, index + 1]);
     }
 
-    /// Gives every weighted child of the split at `path` the same share and
-    /// fixed ones the width of a panel pane.
+    /// Gives every weighted child of the split at `path` the same share;
+    /// fixed ones keep their pixels.
     pub fn reset(&mut self, path: &[usize]) {
         if let Some(split) = self.root.split_at_mut(path) {
             for child in &mut split.children {
-                child.size = match child.size {
-                    Size::Weight(_) => Size::Weight(1.),
-                    Size::Fixed(_) => Size::Fixed(PANEL_WIDTH),
-                };
+                if !child.size.is_fixed() {
+                    child.size = Size::Weight(1.);
+                }
             }
         }
     }

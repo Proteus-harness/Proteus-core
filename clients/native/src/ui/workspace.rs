@@ -106,12 +106,14 @@ pub struct Workspace {
     pub(super) settings: Option<Entity<SettingsView>>,
     pub(super) settings_subscription: Option<Subscription>,
     /// Extension panels, document tabs and icons built so far; the tab
-    /// layout itself is a client preference.
+    /// layout and the side panel themselves are client preferences.
     pub(super) panels: HashMap<&'static str, SurfaceView>,
     pub(super) documents: HashMap<String, SurfaceView>,
     pub(super) badges: HashMap<&'static str, AnyView>,
     /// Size of the split whose divider is being dragged.
     pub(super) split_drag: Option<SplitResize>,
+    /// Width of the side panel while its edge is dragged.
+    pub(super) sidebar_drag: Option<f32>,
     /// A tab is being dragged, so panes show where it can go.
     pub(super) tab_drag: bool,
     /// Where the dragged tab would land when dropped onto a pane.
@@ -182,6 +184,7 @@ impl Workspace {
             documents: HashMap::new(),
             badges: HashMap::new(),
             split_drag: None,
+            sidebar_drag: None,
             tab_drag: false,
             tab_drop: None,
             tab_strips: HashMap::new(),

@@ -64,9 +64,8 @@ impl TabLayout {
         }
     }
 
-    /// Closes a pane; its tabs join the nearest pane of the same kind
-    /// (holding only panels or not), else the pane before it, or after it.
-    /// Its room goes to a neighbour even when they all are fixed.
+    /// Closes a pane; its tabs join the pane before it, else the one after
+    /// it. Its room goes to a neighbour even when they all are fixed.
     pub fn close_pane(&mut self, pane: PaneId) {
         if !self.can_close(pane) {
             return;
@@ -76,20 +75,8 @@ impl TabLayout {
             return;
         };
         self.hand_room(pane);
-        let panels = |id: PaneId| self.pane(id).is_some_and(Pane::holds_panels);
-        let kind = panels(pane);
-        let nearest: Vec<PaneId> = ids[..ix]
-            .iter()
-            .rev()
-            .copied()
-            .chain(ids[ix + 1..].iter().copied())
-            .collect();
-        let Some(target) = nearest
-            .iter()
-            .copied()
-            .find(|id| panels(*id) == kind)
-            .or_else(|| nearest.first().copied())
-        else {
+        let before = ix.checked_sub(1).map(|at| ids[at]);
+        let Some(target) = before.or_else(|| ids.get(ix + 1).copied()) else {
             return;
         };
         let closed = self.root.pane_mut(pane).expect("pane exists");
@@ -167,7 +154,7 @@ impl TabLayout {
     /// any: a weighted one, so fixed ones keep their pixels, then the
     /// focused one, else the first.
     fn placeholder(&self) -> Option<PaneId> {
-        if self.content_panes().any(|pane| !pane.tabs.is_empty()) {
+        if self.panes().iter().any(|pane| !pane.tabs.is_empty()) {
             return None;
         }
         let fixed = |pane: PaneId| {

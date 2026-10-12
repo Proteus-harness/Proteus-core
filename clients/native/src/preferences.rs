@@ -92,6 +92,7 @@ pub struct Preferences {
     pub notifications: Notifications,
     pub view: ViewPreferences,
     pub extensions: ExtensionPreferences,
+    pub sidebar: SidebarPreferences,
     pub tabs: TabLayout,
     pub sessions: SessionMarks,
     pub recent: RecentWorkspaces,
@@ -165,6 +166,39 @@ impl ViewPreferences {
                 "chat_width {} is outside {CHAT_WIDTH:?}",
                 self.chat_width
             ));
+        }
+        Ok(())
+    }
+}
+
+/// Panel of the session list; other panels are named by their extension.
+pub const SESSIONS_PANEL: &str = "sessions";
+/// Width of the side panel, px at 100%.
+pub const SIDEBAR_WIDTH: RangeInclusive<f32> = 180.0..=640.0;
+
+/// The side panel between the rail and the tabs.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct SidebarPreferences {
+    /// Panel shown: [`SESSIONS_PANEL`] or an extension id; none while the
+    /// side panel is closed.
+    pub panel: Option<String>,
+    pub width: f32,
+}
+
+impl Default for SidebarPreferences {
+    fn default() -> Self {
+        Self {
+            panel: Some(SESSIONS_PANEL.to_owned()),
+            width: 264.,
+        }
+    }
+}
+
+impl SidebarPreferences {
+    fn validate(&self) -> Result<()> {
+        if !SIDEBAR_WIDTH.contains(&self.width) {
+            return Err(anyhow!("width {} is outside {SIDEBAR_WIDTH:?}", self.width));
         }
         Ok(())
     }
@@ -359,6 +393,10 @@ fn parse(text: &str, path: &Path) -> Result<Preferences> {
         .view
         .validate()
         .with_context(|| format!("invalid view sizes in {}", path.display()))?;
+    preferences
+        .sidebar
+        .validate()
+        .with_context(|| format!("invalid side panel in {}", path.display()))?;
     preferences
         .shortcuts
         .validate()

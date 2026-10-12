@@ -202,38 +202,6 @@ impl Node {
         true
     }
 
-    /// Places `pane` at the start or the end of a row spanning the whole
-    /// tree, sized `size`; when the tree is not a row yet, the rest of it
-    /// becomes the other child of a new row, sized `rest`.
-    pub(super) fn attach(&mut self, pane: Pane, leading: bool, size: Size, rest: Size) {
-        if let Node::Split(split) = self
-            && split.axis == Axis::Row
-        {
-            let at = if leading { 0 } else { split.children.len() };
-            let node = Node::Pane(pane);
-            split.children.insert(at, Child { size, node });
-            return;
-        }
-        let old = std::mem::replace(self, Node::Pane(Pane::new(pane.id)));
-        let mut children = vec![
-            Child {
-                size,
-                node: Node::Pane(pane),
-            },
-            Child {
-                size: rest,
-                node: old,
-            },
-        ];
-        if !leading {
-            children.reverse();
-        }
-        *self = Node::Split(Split {
-            axis: Axis::Row,
-            children,
-        });
-    }
-
     /// Drops empty panes besides `keep`, collapses splits with one child and
     /// merges a split into its parent of the same axis; sizes of each split
     /// are balanced. A weighted child that empties beside only fixed

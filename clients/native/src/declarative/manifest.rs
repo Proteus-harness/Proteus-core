@@ -140,7 +140,11 @@ pub fn parse(text: &str) -> Result<Manifest> {
     if surfaces.panel.is_none() && surfaces.document.is_none() && surfaces.badge.is_none() {
         bail!("no surfaces");
     }
-    if surfaces.badge.as_ref().is_some_and(|badge| badge.place.is_rail()) {
+    if surfaces
+        .badge
+        .as_ref()
+        .is_some_and(|badge| badge.place.is_rail())
+    {
         bail!("a badge with text does not fit the rail");
     }
     Ok(manifest)

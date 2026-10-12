@@ -1,35 +1,25 @@
-//! Opening tabs: where a new chat, document or panel goes, and the preview
-//! tab that browsing replaces.
+//! Opening tabs: where a new chat or document goes, and the preview tab
+//! that browsing replaces.
 
+use super::is_chat;
 use super::layout::TabLayout;
-use super::size::Size;
 use super::tree::{Edge, PaneId};
-use super::{PANEL_WIDTH, is_chat, is_panel};
 
 /// Where [`TabLayout::open`] puts a new chat or document.
 enum Target {
     Pane(PaneId),
     /// A new pane to the right of this one.
     Split(PaneId),
-    /// A new pane at the right of the whole tree: there is no pane for
-    /// chats and documents.
-    Attach,
 }
 
 impl TabLayout {
-    /// Shows `id` where it is open, or opens it. A panel goes to the panels
-    /// (see [`Self::open_panel`]). An empty pane takes a chat or document
-    /// first. A chat joins the chat in view; a document
-    /// avoids covering a chat: it goes to another pane, or splits the pane
-    /// when `can_split` says it is wide enough. Neither goes to a pane that
-    /// holds only panels.
+    /// Shows `id` where it is open, or opens it. An empty pane takes it
+    /// first. A chat joins the chat in view; a document avoids covering a
+    /// chat: it goes to another pane, or splits the pane when `can_split`
+    /// says it is wide enough.
     pub fn open(&mut self, id: &str, can_split: impl Fn(PaneId) -> bool) {
         if let Some(pane) = self.pane_of(id) {
             self.activate(pane, id);
-            return;
-        }
-        if is_panel(id) {
-            self.open_panel(id, None);
             return;
         }
         match self.open_target(id, can_split) {
@@ -37,11 +27,6 @@ impl TabLayout {
             Target::Split(pane) => {
                 let new = self.new_pane(id, false);
                 self.root.insert_beside(pane, Edge::Right, new);
-            }
-            Target::Attach => {
-                let new = self.new_pane(id, false);
-                self.root
-                    .attach(new, false, Size::Weight(1.), Size::Fixed(PANEL_WIDTH));
             }
         }
     }
@@ -61,13 +46,11 @@ impl TabLayout {
     fn open_target(&self, id: &str, can_split: impl Fn(PaneId) -> bool) -> Target {
         let shows_chat = |pane: PaneId| self.active(pane).is_some_and(is_chat);
         // The focused pane first, then the others in reading order.
-        let mut panes: Vec<PaneId> = self.content_panes().map(|pane| pane.id).collect();
+        let mut panes = self.pane_ids();
         if let Some(ix) = panes.iter().position(|pane| *pane == self.focused) {
             panes[..=ix].rotate_right(1);
         }
-        let Some(&base) = panes.first() else {
-            return Target::Attach;
-        };
+        let base = panes[0];
         let empty = |pane: &PaneId| self.pane(*pane).is_some_and(|pane| pane.tabs.is_empty());
         if let Some(pane) = panes.iter().copied().find(empty) {
             return Target::Pane(pane);
@@ -90,42 +73,12 @@ impl TabLayout {
         }
     }
 
-    /// Shows the panel `id` where it is open, or opens it pinned in `pane`;
-    /// by default in the focused or first pane holding only panels, else
-    /// in a new fixed pane on the left.
-    pub fn open_panel(&mut self, id: &str, pane: Option<PaneId>) {
-        if let Some(open) = self.pane_of(id) {
-            self.activate(open, id);
-            return;
-        }
-        let holds_panels = |pane: PaneId| self.pane(pane).is_some_and(|pane| pane.holds_panels());
-        let target = pane.filter(|pane| self.pane(*pane).is_some()).or_else(|| {
-            let panels = self.panes().into_iter().filter(|pane| pane.holds_panels());
-            let first = panels.map(|pane| pane.id).next();
-            Some(self.focused)
-                .filter(|pane| holds_panels(*pane))
-                .or(first)
-        });
-        match target {
-            Some(pane) => self.put(id, pane, None, true),
-            None => {
-                let new = self.new_pane(id, true);
-                self.root
-                    .attach(new, true, Size::Fixed(PANEL_WIDTH), Size::Weight(1.));
-            }
-        }
-    }
-
     /// Opens `id` in place of the preview tab, or like [`Self::open`] when
     /// there is none; `id` becomes the preview. An open tab just comes
-    /// forward and keeps its kind; a panel is never a preview.
+    /// forward and keeps its kind.
     pub fn open_preview(&mut self, id: &str, can_split: impl Fn(PaneId) -> bool) {
         if let Some(pane) = self.pane_of(id) {
             self.activate(pane, id);
-            return;
-        }
-        if is_panel(id) {
-            self.open_panel(id, None);
             return;
         }
         let replaced = self
