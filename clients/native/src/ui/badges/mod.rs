@@ -59,21 +59,22 @@ impl Workspace {
             .copied()
             .filter(|id| Some(*id) != frame.dragging)
             .collect();
-        let holds_source = others.len() != ids.len();
         let tag = slot_name(place);
         let generation = frame.generation;
-        // Every gap is there while an icon is dragged; the open one eases to
-        // the dragged icon's width, so the icons around it slide apart.
+        // While an icon is dragged every gap among the others is there; the
+        // open one eases to the icon's width and holds the icon itself, so
+        // the icons around it slide apart and its old place closes up.
+        let dragged = frame.dragging.and_then(|id| self.badges.get(id).cloned());
         let gap = |index: usize| {
-            let room = match &frame.ghost {
-                Some(ghost) => div().flex_none().px(px(1.)).child(ghost.ghost(cx)),
-                None => div().flex_none().w(frame.gap_width).h_7(),
-            };
+            let open = frame.open_gap == Some(index);
             Gap {
                 id: SharedString::from(format!("badge-gap-{tag}-{index}-{generation}")).into(),
-                open: frame.open_gap == Some(index),
+                open,
                 width: frame.gap_width,
-                room: room.into_any_element(),
+                icon: dragged
+                    .clone()
+                    .filter(|_| open)
+                    .map(|view| div().flex_none().px(px(1.)).child(view).into_any_element()),
             }
         };
         let mut row = Vec::new();
@@ -83,15 +84,20 @@ impl Workspace {
             if !source && frame.dragging.is_some() {
                 row.push(gap(index).into_any_element());
             }
-            let view = self.badges[id].clone();
+            // The dragged icon is drawn in its gap; its own place is empty.
+            let item = if source {
+                div()
+            } else {
+                div()
+                    .px(px(1.))
+                    .on_prepaint(move |bounds, _, _| arrange::record(id, bounds))
+                    .child(self.badges[id].clone())
+            };
             row.push(
                 Slide::new(
                     SharedString::from(format!("badge-item-{id}-{generation}")),
                     !source,
-                    div()
-                        .px(px(1.))
-                        .on_prepaint(move |bounds, _, _| arrange::record(id, bounds))
-                        .child(view),
+                    item,
                 )
                 .into_any_element(),
             );
@@ -111,17 +117,16 @@ impl Workspace {
             .flex_none()
             .h_7()
             .items_center()
+            // An empty row offers room for exactly one icon.
             .when(dragging && others.is_empty(), |strip| {
-                strip.min_w(prefs::scaled(56.))
+                strip.min_w(frame.gap_width)
             })
             .children(zone)
             .children(row)
-            .on_drag_move::<DraggedBadge>(move |event, window, cx| {
+            .on_drag_move::<DraggedBadge>(move |event, window, _| {
                 arrange::hover(
                     place,
                     &hover_others,
-                    holds_source,
-                    event.drag(cx),
                     event.bounds,
                     event.event.position,
                     window,
@@ -131,14 +136,15 @@ impl Workspace {
     }
 }
 
-/// Room among the icons where the dragged one would land. The room keeps
-/// its width and is clipped around its middle while the gap opens or shuts.
+/// Room among the icons where the dragged one would land. The icon keeps
+/// its width and is clipped around its middle while the gap opens; a gap
+/// that shuts is empty.
 #[derive(IntoElement)]
 struct Gap {
     id: ElementId,
     open: bool,
     width: Pixels,
-    room: AnyElement,
+    icon: Option<AnyElement>,
 }
 
 impl RenderOnce for Gap {
@@ -150,7 +156,7 @@ impl RenderOnce for Gap {
             .w(self.width * share)
             .justify_center()
             .overflow_hidden()
-            .child(self.room)
+            .children(self.icon)
     }
 }
 

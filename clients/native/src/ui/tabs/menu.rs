@@ -2,6 +2,7 @@
 //! splitting) and the «+» menu with a new session, a terminal and the
 //! panels.
 
+use gpui_kit::component::Side;
 use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
 use gpui_kit::*;
 
@@ -103,7 +104,9 @@ pub(super) fn new_tab_menu(
     let layout = workspace
         .upgrade()
         .map(|workspace| workspace.read(cx).tab_layout(cx));
+    // Items have icons, so the mark of an open panel goes on the right.
     let mut menu = menu
+        .check_side(Side::Right)
         .item(
             PopupMenuItem::new("Новая сессия").on_click(open(|this, pane, window, cx| {
                 this.new_session(Some(pane), window, cx)

@@ -241,7 +241,7 @@ impl Workspace {
             .child(drop::accept_tabs(body, id, cx).children(self.drop_highlight(id, cx)))
     }
 
-    /// The only pane, without tabs, explains how to fill it.
+    /// An empty pane explains how to fill it.
     fn render_empty_pane(&self, pane: PaneId, cx: &Context<Self>) -> Div {
         let theme = cx.theme();
         v_flex()
@@ -255,7 +255,10 @@ impl Workspace {
                     .text_sm()
                     .text_center()
                     .text_color(theme.muted_foreground)
-                    .child("Откройте сессию или файл на панелях «Сессии» и «Файлы»."),
+                    .child(
+                        "Перетащите сюда вкладку или откройте сессию или файл на панелях \
+                         «Сессии» и «Файлы».",
+                    ),
             )
             .children(self.notice.clone().map(|notice| {
                 div()

@@ -73,6 +73,9 @@ impl TabLayout {
         if let Some(target) = self.root.pane_mut(pane) {
             target.locked = locked;
         }
+        // An empty pane that held the room of a pane now unlocked goes.
+        let ids = self.pane_ids();
+        self.settle(&ids);
     }
 
     /// Forgets locks that stopped meaning anything after a change, e.g. of
@@ -92,8 +95,53 @@ impl TabLayout {
         }
     }
 
+    /// Whether `pane` is empty and holds the room of fixed neighbours, some
+    /// of them locked, which would grow without it.
+    pub fn holds_room(&self, pane: PaneId) -> bool {
+        let Some((children, ix)) = self.siblings(pane) else {
+            return false;
+        };
+        let others = || {
+            let others = children.iter().enumerate().filter(move |(at, _)| *at != ix);
+            others.map(|(_, child)| child)
+        };
+        let locked = |child: &Child| matches!(&child.node, Node::Pane(pane) if pane.locked);
+        self.pane(pane).is_some_and(|pane| pane.tabs.is_empty())
+            && others().all(|child| child.size.is_fixed())
+            && others().any(locked)
+    }
+
+    /// Before `pane` closes, makes sure a neighbour takes its room: when all
+    /// of them are fixed, the nearest unlocked one shares the rest from now
+    /// on, else the nearest locked one, which loses its lock.
+    pub(super) fn hand_room(&mut self, pane: PaneId) {
+        let Some(path) = self.root.path_to(pane) else {
+            return;
+        };
+        let Some((&ix, parent)) = path.split_last() else {
+            return;
+        };
+        let Some(split) = self.root.split_at_mut(parent) else {
+            return;
+        };
+        let others = || (0..split.children.len()).filter(move |&at| at != ix);
+        if others().any(|at| !split.children[at].size.is_fixed()) {
+            return;
+        }
+        let locked = |child: &Child| matches!(&child.node, Node::Pane(pane) if pane.locked);
+        let Some(heir) = others().min_by_key(|&at| (locked(&split.children[at]), at.abs_diff(ix)))
+        else {
+            return;
+        };
+        let child = &mut split.children[heir];
+        child.size = Size::Weight(1.);
+        if let Node::Pane(neighbour) = &mut child.node {
+            neighbour.locked = false;
+        }
+    }
+
     /// The children of the split holding `pane`, and its index among them.
-    fn siblings(&self, pane: PaneId) -> Option<(&[Child], usize)> {
+    pub(super) fn siblings(&self, pane: PaneId) -> Option<(&[Child], usize)> {
         let path = self.root.path_to(pane)?;
         let (&ix, parent) = path.split_last()?;
         Some((&self.root.split_at(parent)?.children, ix))

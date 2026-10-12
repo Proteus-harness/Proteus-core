@@ -1,6 +1,7 @@
 //! Changes of the layout. Each one leaves a normalized tree: no empty panes
-//! besides one kept for chats and documents while there are none, no
-//! single-child or nested same-axis splits.
+//! besides one kept for chats and documents while there are none and ones
+//! holding the room of locked neighbours, no single-child or nested
+//! same-axis splits.
 
 use super::layout::TabLayout;
 use super::pane::Pane;
@@ -65,11 +66,16 @@ impl TabLayout {
 
     /// Closes a pane; its tabs join the nearest pane of the same kind
     /// (holding only panels or not), else the pane before it, or after it.
+    /// Its room goes to a neighbour even when they all are fixed.
     pub fn close_pane(&mut self, pane: PaneId) {
+        if !self.can_close(pane) {
+            return;
+        }
         let ids = self.pane_ids();
         let Some(ix) = ids.iter().position(|id| *id == pane) else {
             return;
         };
+        self.hand_room(pane);
         let panels = |id: PaneId| self.pane(id).is_some_and(Pane::holds_panels);
         let kind = panels(pane);
         let nearest: Vec<PaneId> = ids[..ix]
@@ -150,15 +156,27 @@ impl TabLayout {
         self.settle(&ids);
     }
 
+    /// Whether closing `pane` changes anything: not for the last pane or
+    /// the empty one kept for chats and documents.
+    pub fn can_close(&self, pane: PaneId) -> bool {
+        let has_tabs = self.pane(pane).is_some_and(|pane| !pane.tabs.is_empty());
+        self.pane_count() > 1 && (has_tabs || self.placeholder() != Some(pane))
+    }
+
     /// The empty pane that stays for chats and documents when no pane has
-    /// any: the focused one, else the first.
+    /// any: a weighted one, so fixed ones keep their pixels, then the
+    /// focused one, else the first.
     fn placeholder(&self) -> Option<PaneId> {
         if self.content_panes().any(|pane| !pane.tabs.is_empty()) {
             return None;
         }
+        let fixed = |pane: PaneId| {
+            self.siblings(pane)
+                .is_some_and(|(children, ix)| children[ix].size.is_fixed())
+        };
         let empty = self.panes().into_iter().filter(|pane| pane.tabs.is_empty());
         empty
-            .min_by_key(|pane| pane.id != self.focused)
+            .min_by_key(|pane| (fixed(pane.id), pane.id != self.focused))
             .map(|pane| pane.id)
     }
 

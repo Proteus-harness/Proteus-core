@@ -23,9 +23,12 @@ impl Workspace {
     ) -> impl IntoElement + use<> {
         let id = pane.id;
         let key = id.0 as usize;
-        // The only pane for chats stays while empty, so closing it does nothing.
-        let closable = layout.pane_count() > 1 && !pane.tabs.is_empty();
-        let locked = layout.pane_locked(id);
+        // The empty pane kept for chats stays, so closing it does nothing; an
+        // empty pane has no size worth locking.
+        let closable = layout.can_close(id);
+        let locked = layout
+            .pane_locked(id)
+            .filter(|locked| *locked || !pane.tabs.is_empty());
         let workspace = cx.weak_entity();
         let add = kit::button(("pane-add", key))
             .ghost()
@@ -55,6 +58,17 @@ fn pane_menu(
 ) -> PopupMenu {
     let close = workspace.clone();
     let lock = workspace.clone();
+    // A locked pane is kept on purpose: it offers only to unlock.
+    if locked == Some(true) {
+        return menu.item(
+            PopupMenuItem::new("Открепить размер")
+                .icon(Icon::new(Lucide::PinOff))
+                .on_click(move |_, _, cx| {
+                    lock.update(cx, |this, cx| this.lock_pane(pane, false, cx))
+                        .ok();
+                }),
+        );
+    }
     menu.item(
         PopupMenuItem::new("Закрыть область")
             .icon(Icon::new(Lucide::SquareX))
@@ -68,11 +82,9 @@ fn pane_menu(
     .item(
         PopupMenuItem::new("Закрепить размер")
             .icon(Icon::new(Lucide::Pin))
-            .checked(locked == Some(true))
             .disabled(locked.is_none())
             .on_click(move |_, _, cx| {
-                let locked = locked != Some(true);
-                lock.update(cx, |this, cx| this.lock_pane(pane, locked, cx))
+                lock.update(cx, |this, cx| this.lock_pane(pane, true, cx))
                     .ok();
             }),
     )

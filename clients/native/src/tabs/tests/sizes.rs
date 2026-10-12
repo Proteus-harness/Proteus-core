@@ -192,11 +192,53 @@ fn a_locked_pane_keeps_its_pixels_until_unlocked() {
     layout.split(c, pane, Edge::Bottom);
     assert_eq!(layout.pane_count(), 2);
 
-    // Alone in the tree the lock means nothing and is forgotten.
+    // Closing the last tab beside it leaves an empty pane holding the room,
+    // so the locked one keeps its pixels.
     layout.close(A);
+    assert_eq!(layout.pane_of(A), None);
+    assert_eq!(layout.pane_count(), 2);
+    assert_eq!(layout.pane_locked(pane), Some(true));
+    let room = layout.panes()[0].id;
+    assert!(layout.holds_room(room));
+    assert!(layout.validate().is_ok());
+    assert_close(&widths(&layout, 1600.), &[1000., 600.]);
+
+    // Closing that pane hands its room over; alone in the tree the lock
+    // means nothing and is forgotten.
+    assert!(layout.can_close(room));
+    layout.close_pane(room);
+    assert_eq!(layout.pane_count(), 1);
     assert_eq!(layout.pane_locked(pane), None);
     assert!(!layout.panes()[0].locked);
     assert!(layout.can_split(c, pane));
+}
+
+#[test]
+fn moving_the_last_tab_into_a_locked_pane_leaves_room() {
+    let mut layout = with_chat();
+    let chat = layout.pane_of(A).unwrap();
+    let panels = layout.panes()[0].id;
+    layout.lock_pane(panels, true, 1264., 800., 0.);
+    layout.move_tab(A, panels, None);
+    assert_eq!(layout.pane_count(), 2);
+    assert!(layout.holds_room(chat));
+    assert!(layout.validate().is_ok());
+    assert_close(&widths(&layout, 1600.), &[264., 1336.]);
+    // The layout survives saving, empty pane and all.
+    let text = serde_json::to_string(&layout).unwrap();
+    let restored: TabLayout = serde_json::from_str(&text).unwrap();
+    assert!(restored.validate().is_ok());
+
+    // An empty pane takes the next chat; closing it brings the room back.
+    let b = "chat:/s/b";
+    layout.open(b, |_| true);
+    assert_eq!(layout.pane_of(b), Some(chat));
+    layout.close(b);
+    assert!(layout.holds_room(chat));
+    // Unlocked, the neighbour takes the room itself.
+    layout.lock_pane(panels, false, 1264., 800., 0.);
+    assert_eq!(layout.pane_count(), 1);
+    assert_eq!(layout.pane_locked(panels), None);
 }
 
 #[test]

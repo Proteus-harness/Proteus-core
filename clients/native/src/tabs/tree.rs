@@ -236,7 +236,10 @@ impl Node {
 
     /// Drops empty panes besides `keep`, collapses splits with one child and
     /// merges a split into its parent of the same axis; sizes of each split
-    /// are balanced. A tree left without panes keeps its first one, empty.
+    /// are balanced. A weighted child that empties beside only fixed
+    /// siblings, some of them locked, leaves an empty pane holding its room,
+    /// so that they keep their pixels. A tree left without panes keeps its
+    /// first one, empty.
     pub(super) fn normalize(&mut self, keep: Option<PaneId>) {
         let first = self.panes()[0].id;
         let tree = std::mem::replace(self, Node::Pane(Pane::new(first)));
@@ -254,14 +257,23 @@ impl Node {
             Node::Split(split) => split,
         };
         let axis = split.axis;
-        let mut entries: Vec<(Size, Option<Node>)> = split
-            .children
-            .into_iter()
-            .map(|child| (child.size, child.node.normalized(keep)))
-            .collect();
+        let mut vacated = None;
+        let mut entries: Vec<(Size, Option<Node>)> = Vec::with_capacity(split.children.len());
+        for (ix, child) in split.children.into_iter().enumerate() {
+            let first = child.node.panes()[0].id;
+            let node = child.node.normalized(keep);
+            if node.is_none() && !child.size.is_fixed() && vacated.is_none() {
+                vacated = Some((ix, child.size, first));
+            }
+            entries.push((child.size, node));
+        }
         size::hand_over(&mut entries);
         let mut children = Vec::with_capacity(entries.len());
-        for (size, node) in entries {
+        let mut slot = 0;
+        for (ix, (size, node)) in entries.into_iter().enumerate() {
+            if vacated.is_some_and(|(at, ..)| at == ix) {
+                slot = children.len();
+            }
             match node {
                 None => {}
                 Some(Node::Split(inner)) if inner.axis == axis => {
@@ -269,6 +281,14 @@ impl Node {
                 }
                 Some(node) => children.push(Child { size, node }),
             }
+        }
+        let locked = |child: &Child| matches!(&child.node, Node::Pane(pane) if pane.locked);
+        if let Some((_, size, id)) = vacated
+            && children.iter().all(|child| child.size.is_fixed())
+            && children.iter().any(locked)
+        {
+            let node = Node::Pane(Pane::new(id));
+            children.insert(slot, Child { size, node });
         }
         match children.len() {
             0 => None,

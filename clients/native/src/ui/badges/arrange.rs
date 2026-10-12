@@ -1,5 +1,6 @@
-//! Live rearranging while an icon is dragged: the row it hovers parts where
-//! the icon would land, and its old row closes up behind it.
+//! Live rearranging while an icon is dragged: the icon moves into the row
+//! it hovers, where it would land, and its old place closes up behind it.
+//! Away from every row it goes back to its place.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -7,7 +8,7 @@ use std::collections::HashMap;
 use gpui_kit::*;
 
 use crate::preferences::BadgePlace;
-use crate::ui::extensions::{self, DraggedBadge};
+use crate::ui::extensions;
 use crate::ui::{drag, prefs};
 
 /// How far around a row the pointer still counts as over it, so a drop
@@ -16,15 +17,14 @@ pub(super) const REACH_X: Pixels = px(20.);
 pub(super) const REACH_Y: Pixels = px(14.);
 /// How far the drawn drop zone of a row reaches past it; less than the
 /// reach, so the zone stays inside the bars.
-pub(super) const ZONE_X: Pixels = px(6.);
+pub(super) const ZONE_X: Pixels = px(3.);
 pub(super) const ZONE_Y: Pixels = px(2.);
 
 /// Where the dragged icon would land.
 #[derive(Clone, Copy, PartialEq)]
 enum Target {
-    /// The drag just started: the icon still holds its own place.
-    Start,
-    Outside,
+    /// Away from every row the icon holds its own place.
+    Home,
     At(BadgePlace, usize),
 }
 
@@ -34,8 +34,6 @@ struct Arrange {
     /// instead of gliding between the dragged and the settled layout.
     generation: u64,
     target: Target,
-    /// The dragged icon, drawn faintly where it would land.
-    dragged: Option<DraggedBadge>,
     /// Last drawn bounds of every icon, for hit testing and the gap width.
     bounds: HashMap<&'static str, Bounds<Pixels>>,
 }
@@ -44,8 +42,7 @@ thread_local! {
     static STATE: RefCell<Arrange> = RefCell::new(Arrange {
         dragging: None,
         generation: 0,
-        target: Target::Outside,
-        dragged: None,
+        target: Target::Home,
         bounds: HashMap::new(),
     });
 }
@@ -61,8 +58,6 @@ pub(super) struct Frame {
     pub generation: u64,
     /// Width of the dragged icon, the room a gap opens to.
     pub gap_width: Pixels,
-    /// Faint copy of the dragged icon for the open gap.
-    pub ghost: Option<DraggedBadge>,
 }
 
 pub(super) fn frame(place: BadgePlace, ids: &[&'static str], cx: &App) -> Frame {
@@ -77,13 +72,12 @@ pub(super) fn frame(place: BadgePlace, ids: &[&'static str], cx: &App) -> Frame 
         if state.dragging != dragging {
             state.dragging = dragging;
             state.generation += 1;
-            state.target = Target::Start;
-            state.dragged = None;
+            state.target = Target::Home;
         }
         let open_gap = match state.target {
             Target::At(at, index) if at == place => Some(index),
-            Target::Start => dragging.and_then(|id| ids.iter().position(|known| *known == id)),
-            _ => None,
+            Target::At(..) => None,
+            Target::Home => dragging.and_then(|id| ids.iter().position(|known| *known == id)),
         };
         let hovered = matches!(state.target, Target::At(at, _) if at == place);
         let gap_width = dragging
@@ -95,7 +89,6 @@ pub(super) fn frame(place: BadgePlace, ids: &[&'static str], cx: &App) -> Frame 
             hovered,
             generation: state.generation,
             gap_width,
-            ghost: state.dragged.clone(),
         }
     })
 }
@@ -106,13 +99,12 @@ pub(super) fn record(id: &'static str, bounds: Bounds<Pixels>) {
     });
 }
 
-/// Follows the pointer over a row: within reach of it the gap goes in front of the
-/// first icon whose middle lies to the right; leaving it closes the gap.
+/// Follows the pointer over a row: within reach of it the icon goes in front
+/// of the first other icon whose middle lies to the right; leaving the row
+/// sends it back to its place.
 pub(super) fn hover(
     place: BadgePlace,
     others: &[&'static str],
-    holds_source: bool,
-    dragged: &DraggedBadge,
     row: Bounds<Pixels>,
     position: Point<Pixels>,
     window: &mut Window,
@@ -124,13 +116,6 @@ pub(super) fn hover(
         left: REACH_X,
     });
     STATE.with_borrow_mut(|state| {
-        if state
-            .dragged
-            .as_ref()
-            .is_none_or(|known| known.id != dragged.id)
-        {
-            state.dragged = Some(dragged.clone());
-        }
         let next = if reach.contains(&position) {
             let index = others
                 .iter()
@@ -144,8 +129,7 @@ pub(super) fn hover(
             Target::At(place, index)
         } else {
             match state.target {
-                Target::At(at, _) if at == place => Target::Outside,
-                Target::Start if holds_source => Target::Outside,
+                Target::At(at, _) if at == place => Target::Home,
                 _ => return,
             }
         };

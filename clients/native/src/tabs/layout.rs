@@ -100,11 +100,14 @@ impl TabLayout {
                 _ => {}
             }
         }
-        let empty = panes.iter().filter(|pane| pane.tabs.is_empty()).count();
-        if empty > 1 {
+        let loose = panes
+            .iter()
+            .filter(|pane| pane.tabs.is_empty() && !self.holds_room(pane.id))
+            .count();
+        if loose > 1 {
             return Err("more than one pane is empty".into());
         }
-        if empty == 1 && self.content_panes().any(|pane| !pane.tabs.is_empty()) {
+        if loose == 1 && self.content_panes().any(|pane| !pane.tabs.is_empty()) {
             return Err("an empty pane is next to chats or documents".into());
         }
         if !ids.contains(&self.focused) {

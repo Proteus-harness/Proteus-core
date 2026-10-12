@@ -18,7 +18,8 @@ enum Target {
 
 impl TabLayout {
     /// Shows `id` where it is open, or opens it. A panel goes to the panels
-    /// (see [`Self::open_panel`]). A chat joins the chat in view; a document
+    /// (see [`Self::open_panel`]). An empty pane takes a chat or document
+    /// first. A chat joins the chat in view; a document
     /// avoids covering a chat: it goes to another pane, or splits the pane
     /// when `can_split` says it is wide enough. Neither goes to a pane that
     /// holds only panels.
@@ -67,6 +68,10 @@ impl TabLayout {
         let Some(&base) = panes.first() else {
             return Target::Attach;
         };
+        let empty = |pane: &PaneId| self.pane(*pane).is_some_and(|pane| pane.tabs.is_empty());
+        if let Some(pane) = panes.iter().copied().find(empty) {
+            return Target::Pane(pane);
+        }
         if is_chat(id) {
             let pane = panes.iter().copied().find(|pane| shows_chat(*pane));
             return Target::Pane(pane.unwrap_or(base));
