@@ -1,5 +1,6 @@
 //! A horizontal reveal: the child keeps its natural width and is clipped to
-//! a share of it, so strips (tabs) open and close smoothly.
+//! a share of it, so strips (tabs) open and close smoothly. A squeezable
+//! reveal also gives way when its row runs out of room.
 
 use gpui_kit::*;
 
@@ -8,6 +9,14 @@ pub(in crate::ui) struct Collapse {
     id: ElementId,
     progress: f32,
     child: AnyElement,
+    squeeze: Option<Squeeze>,
+}
+
+/// How far a crowded row may narrow the child.
+#[derive(Clone, Copy)]
+struct Squeeze {
+    min: AbsoluteLength,
+    basis: AbsoluteLength,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -21,7 +30,24 @@ impl Collapse {
             id: id.into(),
             progress: progress.clamp(0., 1.),
             child,
+            squeeze: None,
         }
+    }
+
+    /// Lets a crowded row squeeze the child down to `min`; the child is then
+    /// laid out at the narrower width, so it should fill the width it gets.
+    /// Siblings with the same `basis`, at least their natural width, give up
+    /// room evenly from the widest down, so short ones stay whole longest.
+    pub(in crate::ui) fn squeeze(
+        mut self,
+        min: impl Into<AbsoluteLength>,
+        basis: impl Into<AbsoluteLength>,
+    ) -> Self {
+        self.squeeze = Some(Squeeze {
+            min: min.into(),
+            basis: basis.into(),
+        });
+        self
     }
 }
 
@@ -66,6 +92,18 @@ impl Element for Collapse {
             Some(width) => (width * self.progress).into(),
             None => px(0.).into(),
         };
+        if let (Some(squeeze), Some(width)) = (self.squeeze, width) {
+            // Equal bases shrink by equal amounts, and the natural width as
+            // the maximum keeps a short child whole until the others reach it.
+            let rem = window.rem_size();
+            let basis = squeeze.basis.to_pixels(rem).max(width);
+            let min = squeeze.min.to_pixels(rem).min(width);
+            style.flex_shrink = 1.;
+            style.flex_basis = (basis * self.progress).into();
+            style.size.width = Length::Auto;
+            style.max_size.width = (width * self.progress).into();
+            style.min_size.width = (min * self.progress).into();
+        }
         (window.request_layout(style, None, cx), ())
     }
 
@@ -97,6 +135,19 @@ impl Element for Collapse {
         );
         if changed {
             window.request_animation_frame();
+        }
+        if self.squeeze.is_some() && self.progress > 0. {
+            let room = bounds.size.width / self.progress;
+            if room < measured.width - px(0.5) {
+                self.child.layout_as_root(
+                    size(
+                        AvailableSpace::Definite(room),
+                        AvailableSpace::Definite(bounds.size.height),
+                    ),
+                    window,
+                    cx,
+                );
+            }
         }
         window.with_content_mask(Some(ContentMask { bounds }), |window| {
             self.child.prepaint_at(bounds.origin, window, cx);

@@ -9,7 +9,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use super::arrange::{self, Frame};
-use super::tab::{BAR_HEIGHT, DraggedTab, TabState};
+use super::tab::{BAR_HEIGHT, DraggedTab, MAX_WIDTH, TabState, min_width};
 use crate::tabs::{Pane, TabLayout};
 use crate::ui::motion::{BASE, Collapse, glide};
 use crate::ui::prefs;
@@ -114,7 +114,11 @@ impl Workspace {
             };
             let element = self.render_tab(pane.id, &leaving.id, state, layout, cx);
             let ix = leaving.index.min(tabs.len());
-            tabs.insert(ix, reveal(&leaving.id, shown, element.into_any_element()));
+            let min = min_width(&leaving.id, leaving.pinned);
+            tabs.insert(
+                ix,
+                reveal(&leaving.id, shown, min, element.into_any_element()),
+            );
         }
         tabs
     }
@@ -177,11 +181,12 @@ impl Workspace {
         let element = self.render_tab(pane.id, tab, state, layout, cx);
         let id = tab.to_string();
         let measured = div()
-            .flex_none()
+            .w_full()
             .h_full()
             .on_prepaint(move |bounds, _, _| arrange::record(&id, bounds))
             .child(element);
-        reveal(tab, shown, measured.into_any_element())
+        let min = min_width(tab, state.pinned);
+        reveal(tab, shown, min, measured.into_any_element())
     }
 }
 
@@ -203,18 +208,22 @@ fn dragged_state(dragging: &str, layout: &TabLayout) -> Option<TabState> {
 }
 
 /// A tab clipped to `shown` of its width and as transparent; the same id
-/// before and after it closes keeps its measured width.
-fn reveal(id: &str, shown: f32, tab: AnyElement) -> AnyElement {
+/// before and after it closes keeps its measured width. A crowded strip
+/// narrows its widest tabs first, down to `min`, before it scrolls.
+fn reveal(id: &str, shown: f32, min: Option<Rems>, tab: AnyElement) -> AnyElement {
     let id = ElementId::Name(format!("tab-reveal-{id}").into());
-    if shown >= 1. {
-        return Collapse::new(id, 1., tab).into_any_element();
+    let collapse = if shown >= 1. {
+        Collapse::new(id, 1., tab)
+    } else {
+        let faded = div().w_full().h_full().opacity(shown).child(tab);
+        Collapse::new(id, shown, faded.into_any_element())
+    };
+    match min {
+        Some(min) => collapse
+            .squeeze(min, prefs::scaled(MAX_WIDTH))
+            .into_any_element(),
+        None => collapse.into_any_element(),
     }
-    Collapse::new(
-        id,
-        shown,
-        div().h_full().opacity(shown).child(tab).into_any_element(),
-    )
-    .into_any_element()
 }
 
 /// Room among the tabs where the dragged one would land. The tab keeps its

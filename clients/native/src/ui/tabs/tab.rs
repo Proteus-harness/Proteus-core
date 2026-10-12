@@ -21,6 +21,20 @@ use crate::ui::workspace::Workspace;
 use crate::ui::{drag, extensions, panels};
 
 pub(super) const BAR_HEIGHT: f32 = 38.;
+/// Widest a tab gets, in px at 100% scale.
+pub(super) const MAX_WIDTH: f32 = 240.;
+
+/// How narrow a tab gets in a crowded strip before the strip scrolls;
+/// panel icons keep their size.
+pub(super) fn min_width(id: &str, pinned: bool) -> Option<Rems> {
+    if pinned && tabs::is_panel(id) {
+        None
+    } else if pinned {
+        Some(prefs::scaled(56.))
+    } else {
+        Some(prefs::scaled(88.))
+    }
+}
 
 /// Payload of a tab being dragged; the preview is a lifted copy of the tab.
 #[derive(Clone)]
@@ -37,7 +51,7 @@ impl Render for DraggedTab {
         drag::lifted(
             h_flex()
                 .h(prefs::scaled(BAR_HEIGHT - 4.))
-                .max_w(prefs::scaled(240.))
+                .max_w(prefs::scaled(MAX_WIDTH))
                 .px_3()
                 .gap_2()
                 .text_sm()
@@ -152,7 +166,7 @@ impl Workspace {
                 (true, _) => tab.px_3(),
                 (false, true) => tab.max_w(prefs::scaled(140.)).px_3().gap_2(),
                 (false, false) => tab
-                    .max_w(prefs::scaled(240.))
+                    .max_w(prefs::scaled(MAX_WIDTH))
                     .pl_3()
                     .pr(prefs::scaled(4.))
                     .gap_2(),
