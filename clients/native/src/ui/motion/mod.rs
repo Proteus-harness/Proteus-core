@@ -23,7 +23,7 @@ pub(super) use collapse::Collapse;
 pub(super) use disclosure::{chevron, drive, reveal, toggled};
 pub(super) use enter::{fade_in_if, rise_in, rise_in_if, stagger_in};
 pub(super) use number::Number;
-pub(super) use slide::Slide;
+pub(super) use slide::{Slide, glide};
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU8, Ordering};

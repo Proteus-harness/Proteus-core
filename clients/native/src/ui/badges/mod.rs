@@ -6,7 +6,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use super::extensions::{self, DraggedBadge, Host};
-use super::motion::Slide;
+use super::motion::{Slide, glide};
 use super::prefs;
 use super::workspace::Workspace;
 use crate::preferences::BadgePlace;
@@ -55,14 +55,19 @@ impl Workspace {
         let holds_source = others.len() != ids.len();
         let tag = slot_name(place);
         let generation = frame.generation;
-        // The landing spot appears at once instead of sliding open, so the
-        // ghost never shows squeezed.
+        // Every gap is there while an icon is dragged; the open one eases to
+        // the dragged icon's width, so the icons around it slide apart.
         let gap = |index: usize| {
             let room = match &frame.ghost {
-                Some(ghost) => div().px(px(1.)).child(ghost.ghost(cx)),
-                None => div().w(frame.gap_width).h_7(),
+                Some(ghost) => div().flex_none().px(px(1.)).child(ghost.ghost(cx)),
+                None => div().flex_none().w(frame.gap_width).h_7(),
             };
-            div().when(frame.open_gap == Some(index), |gap| gap.child(room))
+            Gap {
+                id: SharedString::from(format!("badge-gap-{tag}-{index}-{generation}")).into(),
+                open: frame.open_gap == Some(index),
+                width: frame.gap_width,
+                room: room.into_any_element(),
+            }
         };
         let mut row = Vec::new();
         let mut index = 0;
@@ -116,6 +121,29 @@ impl Workspace {
                 )
             })
             .when(dragging, |strip| strip.child(drop_catcher(place, others)))
+    }
+}
+
+/// Room among the icons where the dragged one would land. The room keeps
+/// its width and is clipped around its middle while the gap opens or shuts.
+#[derive(IntoElement)]
+struct Gap {
+    id: ElementId,
+    open: bool,
+    width: Pixels,
+    room: AnyElement,
+}
+
+impl RenderOnce for Gap {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let share = glide(self.id, self.open, window, cx);
+        h_flex()
+            .flex_none()
+            .h_7()
+            .w(self.width * share)
+            .justify_center()
+            .overflow_hidden()
+            .child(self.room)
     }
 }
 

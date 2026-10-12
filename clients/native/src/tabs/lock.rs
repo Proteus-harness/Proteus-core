@@ -9,15 +9,10 @@ use super::tree::{Axis, Child, Node, PaneId};
 
 impl TabLayout {
     /// Whether `pane` is locked, or `None` when locking means nothing: it
-    /// fills the tree alone, or nothing beside it would take the rest.
+    /// fills the tree alone.
     pub fn pane_locked(&self, pane: PaneId) -> Option<bool> {
         let (children, ix) = self.siblings(pane)?;
-        let locked = self.pane(pane)?.locked && children[ix].size.is_fixed();
-        let shared = children
-            .iter()
-            .enumerate()
-            .any(|(at, child)| at != ix && !child.size.is_fixed());
-        (locked || shared).then_some(locked)
+        Some(self.pane(pane)?.locked && children[ix].size.is_fixed())
     }
 
     /// Whether `pane` is locked, so nothing splits it.
@@ -52,6 +47,20 @@ impl TabLayout {
         let lengths = extents(&split.children, total);
         if locked {
             split.children[ix].size = Size::Fixed(lengths[ix].max(1.));
+            // Someone has to take the rest: when no neighbour shares it, the
+            // panels and locked panes beside it give up their pixels.
+            let shares = |(at, child): (usize, &Child)| at != ix && !child.size.is_fixed();
+            if !split.children.iter().enumerate().any(shares) {
+                for (at, (child, len)) in split.children.iter_mut().zip(&lengths).enumerate() {
+                    if at == ix {
+                        continue;
+                    }
+                    child.size = Size::Weight(len.max(1.));
+                    if let Node::Pane(neighbour) = &mut child.node {
+                        neighbour.locked = false;
+                    }
+                }
+            }
         } else {
             // Weights equal to the current lengths keep everything in place.
             for (at, (child, len)) in split.children.iter_mut().zip(&lengths).enumerate() {

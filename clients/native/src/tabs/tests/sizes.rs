@@ -180,8 +180,8 @@ fn a_locked_pane_keeps_its_pixels_until_unlocked() {
 
     layout.lock_pane(pane, true, 1200., 800., 0.);
     assert_eq!(layout.pane_locked(pane), Some(true));
-    // The other pane is the only one left to take the rest.
-    assert_eq!(layout.pane_locked(layout.pane_of(A).unwrap()), None);
+    // The other pane can take the lock over.
+    assert_eq!(layout.pane_locked(layout.pane_of(A).unwrap()), Some(false));
     assert_close(&widths(&layout, 1600.), &[1000., 600.]);
 
     // Nothing splits a locked pane.
@@ -197,6 +197,27 @@ fn a_locked_pane_keeps_its_pixels_until_unlocked() {
     assert_eq!(layout.pane_locked(pane), None);
     assert!(!layout.panes()[0].locked);
     assert!(layout.can_split(c, pane));
+}
+
+#[test]
+fn locking_beside_the_panels_hands_them_the_rest() {
+    let mut layout = with_chat();
+    let chat = layout.pane_of(A).unwrap();
+    let panels = layout
+        .panes()
+        .into_iter()
+        .map(|pane| pane.id)
+        .find(|&id| id != chat)
+        .unwrap();
+    assert_eq!(layout.pane_locked(chat), Some(false));
+    layout.lock_pane(chat, true, 1200., 800., 0.);
+    assert_close(&widths(&layout, 1600.), &[664., 936.]);
+
+    // Locking the panels takes the lock over.
+    layout.lock_pane(panels, true, 1600., 800., 0.);
+    assert_eq!(layout.pane_locked(chat), Some(false));
+    assert_eq!(layout.pane_locked(panels), Some(true));
+    assert_close(&widths(&layout, 1200.), &[664., 536.]);
 }
 
 #[test]
