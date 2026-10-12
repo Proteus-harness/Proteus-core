@@ -37,18 +37,20 @@ fn spawn_backend(
     let (stop_tx, stop_rx) = mpsc::channel::<()>();
     let thread = std::thread::Builder::new()
         .name("proteus-backend".into())
-        .spawn(move || match Backend::launch(profile.as_deref(), &workspace) {
-            Ok(backend) => {
-                let api = Api::new(&backend.origin, &backend.token);
-                if ready_tx.send(Ok(api)).is_ok() {
-                    let _ = stop_rx.recv();
+        .spawn(
+            move || match Backend::launch(profile.as_deref(), &workspace) {
+                Ok(backend) => {
+                    let api = Api::new(&backend.origin, &backend.token);
+                    if ready_tx.send(Ok(api)).is_ok() {
+                        let _ = stop_rx.recv();
+                    }
+                    drop(backend);
                 }
-                drop(backend);
-            }
-            Err(error) => {
-                let _ = ready_tx.send(Err(error));
-            }
-        })
+                Err(error) => {
+                    let _ = ready_tx.send(Err(error));
+                }
+            },
+        )
         .context("spawn backend thread")?;
     let guard = BackendGuard {
         stop: Some(stop_tx),

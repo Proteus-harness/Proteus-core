@@ -221,14 +221,6 @@ impl Workspace {
             },
             None => self.render_empty_pane(id, cx).into_any_element(),
         };
-        let theme = cx.theme();
-        let ring = (layout.pane_count() > 1 && layout.focused == id).then(|| {
-            div()
-                .absolute()
-                .inset_0()
-                .border_1()
-                .border_color(theme.primary.opacity(0.35))
-        });
         let body = div().relative().flex_1().min_h_0().child(content);
         v_flex()
             .relative()
@@ -242,7 +234,6 @@ impl Workspace {
             )
             .child(self.render_tab_bar(pane, layout, cx))
             .child(drop::accept_tabs(body, id, cx).children(self.drop_highlight(id, cx)))
-            .children(ring)
     }
 
     /// The only pane, without tabs, explains how to fill it.

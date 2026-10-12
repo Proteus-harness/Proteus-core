@@ -5,8 +5,13 @@ use anyhow::{Context as _, Result, bail};
 #[derive(Clone)]
 pub enum Target {
     /// Without a profile the server loads its default config.
-    Spawn { profile: Option<String> },
-    Attach { origin: String, token: String },
+    Spawn {
+        profile: Option<String>,
+    },
+    Attach {
+        origin: String,
+        token: String,
+    },
 }
 
 pub struct LaunchOptions {
