@@ -1,6 +1,6 @@
 # Proteus
 
-<img src="clients/app/common/assets/proteus-logo.svg" width="112" height="112" alt="Логотип Proteus">
+<img src="clients/native/assets/proteus-logo.svg" width="112" height="112" alt="Логотип Proteus">
 
 Proteus — конструктор ИИ-агентов на Rust. Агент собирается из модулей,
 подключённых к слотам: можно выбрать алгоритм выполнения задач, модель,
@@ -45,7 +45,8 @@ Core отвечает за сборку, выполнение запросов, 
 - **Сотрудничество агентов:** делегирование задач другим локальным экземплярам
   Proteus, сообщения и адресная отмена.
 - **Основное приложение:** чат, проекты, настройки и диагностика в одном окне.
-- **Расширения интерфейса:** подключаемые вкладки, виджеты и разделы настроек.
+- **Расширения клиента:** значки, панели, вкладки документов и страницы
+  настроек, в том числе внешние программы без пересборки приложения.
 - **CLI и редакторы:** выполнение задач из терминала и подключение
   по Agent Client Protocol (ACP).
 - **Задачи без модели:** отдельные алгоритмы, например проверка проекта,
@@ -55,23 +56,21 @@ Core отвечает за сборку, выполнение запросов, 
 
 ### Приложение
 
-Приложение на Tauri и Leptos поддерживает Fedora x86_64. Для сборки из исходников
-нужны Rust, Node.js/npm, Trunk и системные библиотеки;
-[подготовка окружения](docs/guides/desktop.md#сборка-и-разработка).
+Нативное приложение на GPUI работает под Linux. Для сборки из исходников нужны
+Rust и Git; версия Rust задаётся `clients/native/rust-toolchain.toml`.
 
 Из корня репозитория:
 
 ```bash
-./scripts/desktop.sh build
-./clients/app/build/Proteus/proteus-desktop
+python3 clients/native/scripts/portable.py
+./clients/native/build/Proteus/proteus-native /path/to/project
 ```
 
-Полученную папку `clients/app/build/Proteus` можно перенести целиком.
-При первом запуске приложение предлагает выбрать проект и профиль, запускает
-сервер и сохраняет выбранные настройки.
-
-Для разработки интерфейса используется `./scripts/desktop.sh dev`.
-Подробности — в [руководстве по приложению](docs/guides/desktop.md).
+Полученную папку `clients/native/build/Proteus` можно перенести целиком;
+`install-shortcut` из неё добавляет ярлык в меню приложений. Приложение само
+запускает сервер для выбранного проекта; профиль задаётся `--config`
+(по умолчанию — `config`).
+Подробности — в [описании приложения](clients/native/README.md).
 
 ### Команды Для Терминала
 
@@ -98,7 +97,7 @@ proteus --config codex "Расскажи о структуре этого про
 ```
 
 `proteus` без запроса открывает интерактивный CLI. Приложение запускается
-файлом `proteus-desktop` из собранной папки.
+файлом `proteus-native` из собранной папки.
 
 Профили из `configs/` устанавливаются вместе с программой. Основной
 `config.toml` использует подписку ChatGPT и DCP; `--config codex` выбирает
@@ -202,7 +201,8 @@ PATH="$PWD/target/debug:$PATH" ./target/debug/proteus --config examples/configs/
 | `crates/` | Core, контракты модулей, протокол обмена и управление процессами |
 | `modules/reference/` | Поставляемые реализации и `proteus-reference-module` |
 | `modules/research/` | Экспериментальные реализации |
-| `clients/app/` | Основное приложение: интерфейс, диагностика и Tauri-оболочка |
+| `clients/native/` | Основное приложение на GPUI |
+| `clients/common/` | Общие правила подключения и сессий клиента |
 | `configs/` | Профили, их общие фрагменты и инструкции |
 | `examples/` | Примеры конфигурации, внешних модулей и сервера MCP |
 | `docs/` | Руководства, архитектура и описание проекта |
@@ -212,8 +212,7 @@ PATH="$PWD/target/debug:$PATH" ./target/debug/proteus --config examples/configs/
 - [Замысел проекта](docs/product/spec.md), [текущее состояние](docs/product/scope.md)
   и [план развития](docs/product/roadmap.md).
 - [Настройка моделей и профилей](docs/guides/configuration.md).
-- [Приложение](docs/guides/desktop.md) и
-  [расширения интерфейса](docs/guides/ui-extensions.md).
+- [Приложение и расширения клиента](clients/native/README.md).
 - [Слоты и модули](docs/architecture/modules.md),
   [архитектура](docs/architecture/architecture.md) и
   [протокол модулей](docs/architecture/process-module-architecture.md).

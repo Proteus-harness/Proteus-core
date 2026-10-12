@@ -10,9 +10,10 @@
 `docs/archive/` и `examples/research/` исключайте из обычного поиска
 контекста; они нужны только по явному запросу истории конкретного решения.
 
-Основной пользовательский клиент — приложение в `clients/app`. Диагностические
-экраны входят в него; дальнейший перенос их функций идёт через расширения
-интерфейса. Браузерные стенды используются для разработки и проверок.
+Основной пользовательский клиент — нативное приложение на GPUI в
+`clients/native`. Диагностика (расход, анализ ходов, архитектура сборки)
+входит в него встроенными расширениями клиента. Прежнее веб-приложение на
+Tauri/Leptos удалено; его исходники сохранены в git-теге `archive/web-app`.
 
 Текущий сценарий — локальная работа владельца с собственными доверенными
 модулями. Sandbox и hardening для недоверенных сторонних модулей не являются
@@ -127,10 +128,10 @@ rendering, UI state, tests и provider/module-specific детали.
   `proteus-core` — runtime, wiring, process adapters и app-server;
   `proteus-module-protocol` — component-v3 broker и conformance;
   `proteus-process-host` — lifecycle stdio процессных модулей.
-- `clients/app` — приложение: Tauri-оболочка, `ui` — основной интерфейс,
-  `diagnostics` — встроенные диагностические экраны, `common` — общие правила
-  подключения и сессий. Пользовательские дополнения называются расширениями
-  интерфейса; модули агента реализуют слоты и запускаются во внешних процессах.
+- `clients/native` — приложение на GPUI: окно, чаты, настройки и расширения
+  клиента; `clients/common` — общие правила подключения и сессий клиента.
+  Пользовательские дополнения окна называются расширениями клиента; модули
+  агента реализуют слоты и запускаются во внешних процессах.
 - `modules/reference` — reference implementations; каталог slots и exports
   описан в `docs/architecture/modules.md`. `modules/research` — эксперименты
   вне production path.
@@ -326,19 +327,14 @@ implementation. Сначала расширяйте существующий bou
 
 Для архитектурных правок проверьте, что `tests/module_swap.rs` продолжает подтверждать заменяемость slots и canonical model contract.
 
-Пакеты интерфейса и диагностики (`clients/app/ui`, `clients/app/diagnostics`)
-исключены из root workspace и собираются через Trunk: валидируйте их
-`trunk build` (не `cargo check` — он может врать из-за lock). Приложение
-для разработки запускается через `scripts/desktop.sh dev` на порту 1430.
+Клиент (`clients/native`) и `clients/common` исключены из root workspace;
+клиент собирается своим toolchain из `rust-toolchain.toml`. Валидируйте их
+`cargo test --manifest-path clients/native/Cargo.toml` (при правке общих
+правил — ещё `clients/common/Cargo.toml`).
 
-При частых правках интерфейса используйте этот dev-процесс: CSS/JS/картинки
-обновляются без Rust/WASM. Когда правка приложения (интерфейс, диагностика,
-desktop-оболочка или backend) завершена и закоммичена, а также по запросу
-владельца, сразу пересобирайте portable через `scripts/desktop.sh build`, чтобы
-`clients/app/build/Proteus/proteus-desktop` был актуален. Промежуточные правки
-внутри одной задачи отдельной пересборки не требуют.
-`scripts/desktop.sh build` сам проверяет кеш отдельных этапов; не удаляйте
-`target`, `.build-cache`, `node_modules` или готовые ресурсы ради обычной проверки.
-Для изменений build-скриптов используйте Node-сценарий из
-`docs/development/testing.md`; полный Rust gate нужен при изменении его границ,
-а не при правке orchestration или assets.
+Когда правка приложения (клиент или backend) завершена и закоммичена, а также
+по запросу владельца, сразу пересобирайте portable через
+`python3 clients/native/scripts/portable.py`, чтобы
+`clients/native/build/Proteus/proteus-native` был актуален. Промежуточные
+правки внутри одной задачи отдельной пересборки не требуют. Не удаляйте
+`target` ради обычной проверки: сборка инкрементальная.

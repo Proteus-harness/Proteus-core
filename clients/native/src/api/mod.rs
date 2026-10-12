@@ -312,7 +312,7 @@ impl Api {
         let status = response.status();
         let text = response.into_body().into_with_config().read_to_string()?;
         match serde_json::from_str::<StdioOutput>(&text) {
-            Ok(output) => proteus_app_common::response::command_output(output)
+            Ok(output) => proteus_client_common::response::command_output(output)
                 .map_err(|error| anyhow!("{path}: {error}")),
             Err(_) => Err(anyhow!("POST {path} failed with {status}: {text}")),
         }

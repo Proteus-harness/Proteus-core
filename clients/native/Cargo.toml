@@ -24,7 +24,7 @@ gpui-kit = { version = "0.7.1", features = [
     "tree-sitter-typescript",
     "tree-sitter-yaml",
 ] }
-proteus-app-common = { path = "../app/common" }
+proteus-client-common = { path = "../common" }
 proteus-contracts = { path = "../../crates/proteus-contracts" }
 anyhow = "1"
 async-channel = "2"

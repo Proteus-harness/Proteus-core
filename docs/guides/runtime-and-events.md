@@ -93,9 +93,11 @@ token отклоняется до запуска runtime и bind.
 после сборки runtime и фактического bind сервер печатает и flush-ит одну JSON
 строку `{"type":"http_ready","origin":"http://127.0.0.1:<port>"}`. Остальные
 строки stdout остаются диагностикой; credential в readiness не входит.
-Supervisor передаёт `--token` и нужные `--allow-origin` явно, проверяет `/bootstrap`
-и завершает сервер через authenticated `POST /shutdown`. Эту границу использует
-[desktop-клиент](desktop.md).
+Supervisor передаёт `--token` и нужные `--allow-origin` явно; для проверки
+и завершения есть `/bootstrap` и authenticated `POST /shutdown`.
+[Приложение](../../clients/native/README.md) запускает сервер с собственным
+token и завершает его сигналом группе процессов; при аварийном выходе клиента
+сервер получает `SIGTERM` через `PR_SET_PDEATHSIG`.
 
 ## ACP Для Редакторов
 
@@ -650,7 +652,7 @@ sessions не выдаются за запросы текущего журнал
 Чтение cold session заново валидирует журнал, не захватывает write ownership,
 не исправляет хвост и не меняет файлы. Проекция не содержит prompts, ответов и
 аргументов tools. Цены и суммирование по выбранному периоду принадлежат клиенту:
-[расширение «Расход» и отчёт на странице «Контекст»](ui-extensions.md) используют
+[страница «Расход и контекст»](../../clients/native/README.md) клиента использует
 один публичный snapshot. Тарифы не входят в Core или model contract.
 
 `GET /context?session_dir=<path>` возвращает diagnostic context map для
@@ -680,11 +682,8 @@ system-строку в transcript.
 
 `crates/proteus-core/src/app_server.rs` отделяет UI-клиенты от `AgentRuntime`. Клиент работает с `AppServerHandle`, подписывается на `AppServerEvent` и отправляет команды через transport. Сейчас реализованы локальный `stdio` transport в `crates/proteus-core/src/app_server/stdio.rs` и HTTP/SSE transport в `crates/proteus-core/src/app_server/http.rs`; DTO лежат в `proteus-contracts::app_protocol` и re-export'ятся через `crates/proteus-core/src/app_server.rs`. Будущие socket/ACP-клиенты должны использовать ту же app-server границу.
 
-Выпадающие списки основного интерфейса и диагностики используют общий popup с цветами
-текущей темы. Локальные переходы интерфейса занимают 160 мс; ширина областей и
-чат не анимируются, `prefers-reduced-motion: reduce` отключает движение.
-Размещение виджетов и независимых колонок расширений с сохранением доступа
-к чату и списку чатов описано в [контракте UI](ui-extensions.md#контракт-ui-api-v1).
+Устройство окна клиента — вкладки, панели и расширения — описано в
+[руководстве приложения](../../clients/native/README.md).
 
 События app-server:
 
@@ -991,7 +990,7 @@ edit, delete, delivery, follow-up и очистку при отмене. `/pendi
 уже применённого. Каждый SSE open меняет локальное поколение чтений: ответы
 от предыдущего подключения отбрасываются даже при совпадающем session path.
 Ответ `/pending` не может самостоятельно сменить stream. Алгоритм находится
-в `proteus-app-common::pending::PendingCursor` и не зависит от Leptos/DOM.
+в `proteus-client-common::pending::PendingCursor` и не зависит от UI-фреймворка.
 
 `ApprovalRequested`/`Resolved`, `UserInputRequested`/`Resolved` и `Steering*`
 сохраняют значение уведомлений о произошедших действиях. Интерфейс приложения использует их для

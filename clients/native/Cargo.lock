@@ -5360,15 +5360,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "proteus-app-common"
+name = "proteus-client-common"
 version = "0.0.0-dev"
 dependencies = [
- "js-sys",
  "proteus-contracts",
  "serde",
  "serde_json",
  "url",
- "wasm-bindgen",
 ]
 
 [[package]]
@@ -5398,7 +5396,7 @@ dependencies = [
  "chrono",
  "gpui-kit",
  "libc",
- "proteus-app-common",
+ "proteus-client-common",
  "proteus-contracts",
  "serde",
  "serde_json",

@@ -44,7 +44,7 @@ CI отключён; проверки выполняются локально. M
 | Изменение | Достаточная проверка |
 |---|---|
 | Документация, комментарии | Содержание, локальные ссылки, `git diff --check` |
-| Скрипты сборки приложения | `node --test clients/app/scripts/build.test.mjs`, затронутый реальный build; повторный запуск проверяет пропуск этапов |
+| Скрипт portable-сборки | Реальный `python3 clients/native/scripts/portable.py --debug`; launcher и `install-shortcut` из собранной папки |
 | Prompt/config без schema change | Загрузка профиля; при подключении готового модуля — один целевой invocation; init/install только при изменении упаковки |
 | Чистка tests | Изменённые test targets и сохранённые behavior checks |
 | Локальный helper | Затронутый test target |
@@ -57,9 +57,9 @@ CI отключён; проверки выполняются локально. M
 | Agent control | Real process peers, адресная доставка/отмена и независимые child configs |
 | HTTP/session | Затронутые handlers; reconnect/cold history/auth/SSE при изменении этих границ |
 | MCP/ACP | Реальный stdio peer; prompt/tools/approval/cancel и cold history по изменению |
-| Интерфейс приложения и диагностика | Затронутые Rust/Node tests и `trunk build`; browser smoke при UX change |
-| UI extensions | Contract/lifecycle tests; реальный browser/agent API при изменении интеграции |
-| Desktop launch/package | Backend lifecycle, portable build и native smoke; при изменении графического запуска — Linux/NVIDIA default и явный override переменных окружения до GTK, native Wayland с аппаратным ускорением |
+| Клиент | `cargo test --manifest-path clients/native/Cargo.toml`; при UX change — ручной запуск окна |
+| Расширения клиента | Tests `declarative`/`extensions`; пример `clients/native/examples/extensions` в живом окне при изменении протокола |
+| Запуск приложения и portable | Запуск backend, завершение вместе с окном, portable build и запуск собранной папки |
 
 Для небольшой правки профиля используйте уже собранный актуальный executable.
 Подключение существующего модуля не является изменением runtime wiring:
@@ -206,7 +206,7 @@ unsupported capability или намеренный divergence. Snapshot не о�
 | MCP discovery/result mapping/cancel/restart | `proteus-core --test mcp_client` |
 | ACP prompt/approval/cancel, model/mode selectors | `proteus-core --test acp_server`, `--lib app_server::acp` |
 | HTTP адресация, очереди, SSE и cold reads | `proteus-core --lib app_server::http` |
-| Live projections и client revisions | `app_server::events`, `app_server::turn_progress`, `proteus-app-common` |
+| Live projections и client revisions | `app_server::events`, `app_server::turn_progress`, `proteus-client-common` |
 | OAuth/Responses/Anthropic mapping и retries | `model-pack`; module targets `auth_commands`, `model_exports` |
 | Terminal processes | `shell-tool`; модуль `codex_model_resume terminal::` |
 
@@ -229,35 +229,22 @@ Core на reference crates. Shell fixtures разбирают JSON-RPC id JSON-�
 
 ### Клиенты И Установка
 
-Интерфейс приложения и встроенная диагностика исключены из root workspace.
-Их пакеты собираются через Trunk:
+Клиент и `clients/common` исключены из root workspace; клиент собирается
+своим toolchain из `clients/native/rust-toolchain.toml`:
 
 ```bash
-node clients/app/scripts/dependencies.mjs
-(cd clients/app/ui && env -u NO_COLOR trunk build --locked)
-(cd clients/app/diagnostics && env -u NO_COLOR trunk build --locked)
+cargo test --manifest-path clients/native/Cargo.toml
+cargo test --manifest-path clients/common/Cargo.toml
 ```
 
-`cargo check` внутри клиента не заменяет Trunk из-за различий target/features.
-При изменении shared client DTO проверяются оба consumer-а. При локальной
-правке одного клиента второй собирать не требуется.
+Второй target нужен только при правке общих правил. При изменении shared
+client DTO в `proteus-contracts` клиент проверяется вместе с producers.
 
-CSS/JS/картинки проверяйте на уже работающем `./scripts/desktop.sh dev`:
-обновление ресурсов не требует Rust/WASM или release-сборки. Новая переносимая
-сборка нужна при проверке упаковки, native startup или по запросу владельца.
-Не запускайте её после каждой правки интерфейса. Общие Rust gates выбирайте
-по затронутой границе, а не по факту запуска приложения.
+Новая переносимая сборка (`python3 clients/native/scripts/portable.py`) нужна
+при проверке упаковки, запуска или по запросу владельца. Не запускайте её
+после каждой правки окна. Общие Rust gates выбирайте по затронутой границе,
+а не по факту запуска приложения.
 
-Скрипты сборки проверяются отдельным Node-сценарием с временным репозиторием
-и подменёнными компиляторами: выбор этапов, повторный запуск, изменение CSS,
-embedded config, восстановление WASM и permissions, ошибка этапа. Этот сценарий
-не заменяет реальную сборку при изменении compiler flags или упаковки assets.
-
-- Browser/Node commands и покрытие UI extensions:
-  [ui-extensions.md](../guides/ui-extensions.md#проверка).
-- Desktop Rust/build/native smoke:
-  [desktop.md](../guides/desktop.md#проверка).
-- Изображения в реальном UI и WebKitGTK: `python3 clients/app/ui/tests/extensions_browser.py --images-only` после Trunk и сборки backend/reference module. Используется локальный provider fixture; проверка не подтверждает качество живой vision-модели.
 - Изолированная проверка installer: `./scripts/install-smoke.sh`.
   Она сама собирает и устанавливает оба executable во временные каталоги,
   проверяет fake turn, внешний Python component и process peers. Отдельная
@@ -303,15 +290,6 @@ cancel и cold journal без Turn/model call. `hook_runtime` проверяет
 и replay без повторного изменения package state; `npm test` — оригинальные
 stats/context/decompress handlers и восстановление view после restart.
 User-only tool не попадает в model catalog и отклоняется model-request validation.
-
-После Trunk и свежей debug-сборки backend/reference module:
-
-```bash
-python3 clients/app/ui/tests/extensions_browser.py --commands-only
-```
-
-Сценарий проверяет общий backend catalog, keyboard completion, служебные и DCP
-команды без LLM, сохранение ошибочного черновика, обычный prompt Turn и `//`.
 
 ## Typed Hook Boundary
 

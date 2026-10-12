@@ -72,7 +72,6 @@ repo_tree_skip_entries = [
   "build",
   "examples/source",
   "examples/research",
-  "clients/app/ui/target",
   "docs/research",
   "docs/product/spec.md",
 ]

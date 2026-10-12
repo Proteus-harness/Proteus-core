@@ -6,7 +6,7 @@ use std::time::Instant;
 
 use anyhow::Result;
 use gpui_kit::*;
-use proteus_app_common::session_selection::select_startup_session;
+use proteus_client_common::session_selection::select_startup_session;
 use proteus_contracts::app_protocol::AppSessionSummary;
 
 use super::chats::OpenChat;

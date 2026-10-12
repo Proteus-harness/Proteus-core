@@ -104,13 +104,11 @@ loopback-порту с отдельным случайным токеном; к�
 и не зависит от ручного списка routes. Для SSE допустим query token, потому что
 browser `EventSource` не выставляет произвольные headers; для обычных `fetch`
 requests используется `Authorization: Bearer <token>`. Raw token не печатать в обычные logs и не
-класть в `localStorage`; текущие clients используют in-memory state или
-`sessionStorage`. Приложение получает адрес и токен сервера из нативной
-оболочки, а встроенные диагностические экраны наследуют это подключение.
-Проверочные браузерные стенды принимают только локальный HTTP(S) origin
-(`localhost` или loopback IP) без path/query, userinfo и fragment.
-Credential хранится с точным нормализованным адресом app-server; смена
-`server` без нового `token` удаляет прежний credential.
+класть в `localStorage`. Приложение держит token в памяти: обычно оно само
+запускает сервер со случайным token, а при подключении через `--origin`
+принимает только локальный HTTP(S) origin (`localhost` или loopback IP) без
+path/query, userinfo и fragment. Внешние расширения клиента получают адрес и
+token сервера в сообщении `hello`.
 
 Direct CLI и HTTP server boundary fail-closed связывают non-loopback bind с
 обязательным token: например, `--host 0.0.0.0` или `--host ::` без `--token`

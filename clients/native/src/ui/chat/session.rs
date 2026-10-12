@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
 use gpui_kit::SharedString;
-use proteus_app_common::pending::PendingCursor;
-use proteus_app_common::sync::SessionCursor;
+use proteus_client_common::pending::PendingCursor;
+use proteus_client_common::sync::SessionCursor;
 use proteus_contracts::app_protocol::config::ConfigSummary;
 use proteus_contracts::app_protocol::{AppExecutionState, AppPendingRequests, AppRunStatus};
 use proteus_contracts::domain::ThreadId;

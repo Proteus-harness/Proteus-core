@@ -1,11 +1,19 @@
 # proteus-native
 
-Экспериментальный нативный клиент на GPUI (`gpui-kit`). Работает с тем же
-HTTP/SSE app-server, что и `clients/app`, через DTO из
-`proteus-contracts::app_protocol`; основной клиент остаётся в `clients/app`.
+Основной клиент Proteus — нативное приложение на GPUI (`gpui-kit`). Работает
+с HTTP/SSE app-server через DTO из `proteus-contracts::app_protocol`; общие
+правила подключения и сессий — в `clients/common`.
 
 Пакет исключён из root workspace и собирается на Rust 1.95
-(`rust-toolchain.toml`). В debug-сборке зависимости (GPUI, shaping,
+(`rust-toolchain.toml`). Для линковки на Linux нужны dev-пакеты xcb,
+xkbcommon (с x11), fontconfig и freetype; в Fedora:
+
+```bash
+sudo dnf install libxcb-devel libxkbcommon-devel libxkbcommon-x11-devel \
+  fontconfig-devel freetype-devel
+```
+
+В debug-сборке зависимости (GPUI, shaping,
 tree-sitter) оптимизируются (`opt-level = 2`), сам клиент — нет, чтобы
 окно не тормозило, а пересборка оставалась быстрой:
 
@@ -18,8 +26,8 @@ cargo build --release
 
 Без `--origin` клиент сам запускает `proteus server http` для workspace
 (по умолчанию — текущий каталог). Бинарь сервера берётся из `PROTEUS_BIN`,
-затем рядом с клиентом, затем из `PATH`; профиль по умолчанию — из
-настроек desktop-приложения. Сервер получает `PR_SET_PDEATHSIG` и
+затем рядом с клиентом, затем из `PATH`; без `--config` запускается
+профиль `config`. Сервер получает `PR_SET_PDEATHSIG` и
 завершается вместе с клиентом.
 
 С флагом `--choose-workspace` клиент вместо workspace показывает выбор
@@ -66,7 +74,7 @@ python3 clients/native/scripts/portable.py --debug   # быстрее собра
 - `proteus-native` — запуск: ставит профили из `share/configs` в
   `${PROTEUS_CONFIG_HOME:-~/.config/Proteus-agent}/configs` (именованные
   профили копируются только если их нет, каталоги `fragments`, `prompts` и
-  т. п. обновляются — то же правило, что у desktop-приложения), задаёт
+  т. п. обновляются), задаёт
   `PROTEUS_BIN` и `PATH` на свои `bin/` и запускает клиент с аргументами;
 - `install-shortcut` — ярлык в меню приложений текущего пользователя
   (`~/.local/share/applications/proteus-native.desktop` и значок); ярлык

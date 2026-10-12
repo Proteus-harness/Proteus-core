@@ -86,7 +86,7 @@ impl Backend {
         };
         match ready_rx.recv_timeout(READY_TIMEOUT) {
             Ok(origin) => {
-                backend.origin = proteus_app_common::normalize_local_origin(&origin)
+                backend.origin = proteus_client_common::normalize_local_origin(&origin)
                     .map_err(|error| anyhow!("server reported invalid origin: {error}"))?;
                 Ok(backend)
             }

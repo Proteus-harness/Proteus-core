@@ -1,7 +1,6 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result, bail};
-use serde::Deserialize;
 
 const DEFAULT_PROFILE: &str = "config";
 
@@ -73,7 +72,6 @@ impl Launch {
             (None, None) => Target::Spawn {
                 profile: profile
                     .map(anchor_profile)
-                    .or_else(saved_profile)
                     .unwrap_or_else(|| DEFAULT_PROFILE.to_owned()),
             },
             _ => bail!("--origin and --token must be given together"),
@@ -94,21 +92,4 @@ fn anchor_profile(profile: String) -> String {
         return path.display().to_string();
     }
     profile
-}
-
-#[derive(Deserialize)]
-struct DesktopPreferences {
-    config: Option<String>,
-}
-
-/// Reuses the profile last chosen in the Tauri app.
-fn saved_profile() -> Option<String> {
-    let home = std::env::var_os("HOME")?;
-    let base = std::env::var_os("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| Path::new(&home).join(".config"));
-    let raw = std::fs::read(base.join("dev.proteus.agent/preferences.json")).ok()?;
-    serde_json::from_slice::<DesktopPreferences>(&raw)
-        .ok()?
-        .config
 }

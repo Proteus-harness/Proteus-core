@@ -20,7 +20,7 @@ ROOT = NATIVE.parent.parent
 BUILD = NATIVE / "build"
 PORTABLE = BUILD / "Proteus"
 ASSETS = Path(__file__).resolve().parent / "portable"
-ICON = ROOT / "clients/app/src-tauri/icons/icon.png"
+ICON = NATIVE / "assets/icon.png"
 
 
 def run(command, cwd):

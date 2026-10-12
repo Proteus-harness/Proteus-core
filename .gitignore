@@ -1,16 +1,5 @@
 target/
-/clients/app/ui/dist/
-/clients/app/diagnostics/dist/
-/clients/app/dist/
-/clients/app/dist.next/
-/clients/app/dist.previous/
-/clients/app/build/
 /clients/native/build/
-/clients/app/scripts/__pycache__/
-/clients/app/node_modules/
-/clients/app/src-tauri/resources/
-/clients/app/src-tauri/target/
-/clients/app/src-tauri/gen/
 /.proteus/
 /.playwright-mcp/
 /.agent/
@@ -22,6 +11,3 @@ target/
 .env
 secrets.json
 config.local.json
-/clients/app/ui/rendering/node_modules/
-/clients/app/ui/vendor/
-/clients/app/.build-cache/

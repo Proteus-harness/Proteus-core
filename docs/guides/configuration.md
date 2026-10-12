@@ -78,7 +78,7 @@ PROTEUS_CONFIG_HOME="$PWD/.local" proteus --config codex
 Копирование выполняется один раз в отсутствующий `.local/configs/`; затем
 редактируются рабочие копии. `PROTEUS_CONFIG_HOME` сохраняет named resolution
 и для child profiles. Для постоянного использования того же каталога из CLI
-и desktop можно направить `~/.config/Proteus-agent/configs` на абсолютный путь
+и приложения можно направить `~/.config/Proteus-agent/configs` на абсолютный путь
 к `.local/configs/`. Прямая ссылка на tracked `configs/` превращает личные
 правки в изменения исходников.
 
@@ -830,8 +830,8 @@ Context provider `skills` передаёт модели только имя, о�
 Поставляемый skill [interactive-response](../../configs/skills/interactive-response/SKILL.md)
 описывает визуальные ответы `json-render`: карточки, таблицы, графики и вкладки.
 Он загружается по обычному skill contract; инструкции рендерера не добавляются
-в каждый системный prompt. Установка и ограничения — в
-[руководстве desktop](desktop.md#интерактивные-ответы).
+в каждый системный prompt. Рендерер таких ответов был в удалённом
+веб-приложении; текущий клиент показывает их как обычный текст.
 
 ## Tools
 

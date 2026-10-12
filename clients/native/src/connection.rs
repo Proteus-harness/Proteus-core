@@ -60,7 +60,7 @@ fn spawn_backend(profile: String, workspace: std::path::PathBuf) -> Result<(Api,
 pub fn connect(options: &LaunchOptions) -> Result<(Api, Option<BackendGuard>)> {
     match &options.target {
         Target::Attach { origin, token } => {
-            let origin = proteus_app_common::normalize_local_origin(origin)
+            let origin = proteus_client_common::normalize_local_origin(origin)
                 .map_err(|error| anyhow!(error))?;
             Ok((Api::new(&origin, token), None))
         }
