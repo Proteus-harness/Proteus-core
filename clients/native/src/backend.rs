@@ -29,21 +29,22 @@ pub struct Backend {
 }
 
 impl Backend {
-    pub fn launch(profile: &str, workspace: &Path) -> Result<Self> {
+    pub fn launch(profile: Option<&str>, workspace: &Path) -> Result<Self> {
         let token = uuid::Uuid::new_v4().simple().to_string();
         let binary = proteus_binary();
         let mut command = Command::new(&binary);
         // Modules are resolved next to the server binary first, as in the
-        // desktop bundle.
+        // portable bundle.
         if let Some(dir) = binary.parent().filter(|dir| !dir.as_os_str().is_empty()) {
             let inherited = std::env::var_os("PATH").unwrap_or_default();
             let paths = std::iter::once(dir.to_path_buf()).chain(std::env::split_paths(&inherited));
             command.env("PATH", std::env::join_paths(paths)?);
         }
+        if let Some(profile) = profile {
+            command.arg("--config").arg(profile);
+        }
         command
             .current_dir(workspace)
-            .arg("--config")
-            .arg(profile)
             .arg("--cwd")
             .arg(workspace)
             .args([

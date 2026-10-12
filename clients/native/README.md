@@ -26,8 +26,8 @@ cargo build --release
 
 Без `--origin` клиент сам запускает `proteus server http` для workspace
 (по умолчанию — текущий каталог). Бинарь сервера берётся из `PROTEUS_BIN`,
-затем рядом с клиентом, затем из `PATH`; без `--config` запускается
-профиль `config`. Сервер получает `PR_SET_PDEATHSIG` и
+затем рядом с клиентом, затем из `PATH`; без `--config` сервер загружает
+основной `config.toml`. Сервер получает `PR_SET_PDEATHSIG` и
 завершается вместе с клиентом.
 
 С флагом `--choose-workspace` клиент вместо workspace показывает выбор

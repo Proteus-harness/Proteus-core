@@ -29,12 +29,15 @@ impl Drop for BackendGuard {
     }
 }
 
-fn spawn_backend(profile: String, workspace: std::path::PathBuf) -> Result<(Api, BackendGuard)> {
+fn spawn_backend(
+    profile: Option<String>,
+    workspace: std::path::PathBuf,
+) -> Result<(Api, BackendGuard)> {
     let (ready_tx, ready_rx) = mpsc::channel();
     let (stop_tx, stop_rx) = mpsc::channel::<()>();
     let thread = std::thread::Builder::new()
         .name("proteus-backend".into())
-        .spawn(move || match Backend::launch(&profile, &workspace) {
+        .spawn(move || match Backend::launch(profile.as_deref(), &workspace) {
             Ok(backend) => {
                 let api = Api::new(&backend.origin, &backend.token);
                 if ready_tx.send(Ok(api)).is_ok() {

@@ -2,11 +2,10 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result, bail};
 
-const DEFAULT_PROFILE: &str = "config";
-
 #[derive(Clone)]
 pub enum Target {
-    Spawn { profile: String },
+    /// Without a profile the server loads its default config.
+    Spawn { profile: Option<String> },
     Attach { origin: String, token: String },
 }
 
@@ -70,9 +69,7 @@ impl Launch {
                 Target::Attach { origin, token }
             }
             (None, None) => Target::Spawn {
-                profile: profile
-                    .map(anchor_profile)
-                    .unwrap_or_else(|| DEFAULT_PROFILE.to_owned()),
+                profile: profile.map(anchor_profile),
             },
             _ => bail!("--origin and --token must be given together"),
         };

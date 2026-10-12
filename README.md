@@ -69,7 +69,7 @@ python3 clients/native/scripts/portable.py
 Полученную папку `clients/native/build/Proteus` можно перенести целиком;
 `install-shortcut` из неё добавляет ярлык в меню приложений. Приложение само
 запускает сервер для выбранного проекта; профиль задаётся `--config`
-(по умолчанию — `config`).
+(по умолчанию — основной `config.toml`).
 Подробности — в [описании приложения](clients/native/README.md).
 
 ### Команды Для Терминала
