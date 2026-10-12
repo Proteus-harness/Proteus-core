@@ -15,6 +15,7 @@ use crate::ui::chat::Chat;
 use crate::ui::chat::controls::{
     current_effort, effort_title, efforts, model_label, models, models_provider,
 };
+use crate::ui::kit::Hint as _;
 use crate::ui::{kit, prefs};
 
 impl SelectorBadge {
@@ -81,7 +82,7 @@ impl SelectorBadge {
             .ghost()
             .xsmall()
             .disabled(!overridden)
-            .tooltip("Как в профиле")
+            .hint("Как в профиле", cx)
             .on_click(move |_, _, cx| {
                 let _ = this.update(cx, |this, cx| {
                     this.scrub = None;
@@ -130,7 +131,7 @@ impl SelectorBadge {
                         .icon(Lucide::ChevronLeft)
                         .ghost()
                         .xsmall()
-                        .tooltip("К рассуждениям")
+                        .hint("К рассуждениям", cx)
                         .on_click(cx.listener(|this, _, _, cx| this.show_models(false, cx))),
                 )
                 .child(heading(title, cx).px_0().pt_0().pb_0())

@@ -31,7 +31,6 @@ impl SettingsView {
         Some(
             kit::switch("extension-page-enabled")
                 .checked(extensions::is_enabled(id, cx))
-                .tooltip(format!("Включить: {}", manifest.title))
                 .on_click(move |checked: &bool, _, cx| {
                     let checked = *checked;
                     prefs::update(cx, |prefs| prefs.extensions.set_enabled(id, checked));

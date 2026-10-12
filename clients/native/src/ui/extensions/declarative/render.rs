@@ -162,7 +162,11 @@ impl DeclarativeView {
                             )
                             .child(
                                 div().flex_1().h_2().child(
-                                    div().h_full().rounded_sm().bg(color).w(relative(fraction)),
+                                    div()
+                                        .h_full()
+                                        .rounded(theme.radius / 2.)
+                                        .bg(color)
+                                        .w(relative(fraction)),
                                 ),
                             )
                             .child(
@@ -246,7 +250,7 @@ impl DeclarativeView {
                 let color = tone_color(*tone, cx);
                 div()
                     .px_1p5()
-                    .rounded_sm()
+                    .rounded(cx.theme().radius / 2.)
                     .border_1()
                     .border_color(color.opacity(0.4))
                     .text_xs()

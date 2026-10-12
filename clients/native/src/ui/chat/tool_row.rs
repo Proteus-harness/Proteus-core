@@ -10,6 +10,7 @@ use serde_json::Value;
 use super::Chat;
 use crate::tool_display::{self, DiffLine, PatchFile, PlanStep, StepStatus};
 use crate::ui::format;
+use crate::ui::kit::Hint as _;
 use crate::ui::motion::{chevron, reveal};
 
 const RESULT_LINES: usize = 40;
@@ -237,7 +238,7 @@ fn patch_file(key: u64, ix: usize, file: &PatchFile, cx: &App) -> Div {
                     key,
                 ))
                 .value(body.clone())
-                .tooltip("Копировать")
+                .hint("Копировать", cx)
                 .xsmall(),
             )
         });

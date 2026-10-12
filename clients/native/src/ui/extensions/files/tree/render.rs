@@ -12,6 +12,7 @@ use gpui_kit::*;
 use super::{FilesPanel, Tab};
 use crate::files::{ChangeStatus, EntryKind};
 use crate::ui::extensions::files::{path_label, status_color};
+use crate::ui::kit::Hint as _;
 use crate::ui::motion;
 use crate::ui::prefs;
 use crate::ui::tip::Tip as _;
@@ -237,7 +238,7 @@ impl Render for FilesPanel {
                     .ghost()
                     .xsmall()
                     .loading(refreshing)
-                    .tooltip("Обновить")
+                    .hint("Обновить", cx)
                     .on_click(cx.listener(|this, _, _, cx| this.reload(cx))),
             );
         let focused = self.focus_handle.contains_focused(window, cx);

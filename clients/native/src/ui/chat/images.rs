@@ -85,7 +85,7 @@ pub(super) fn render_sent_images(
             .id(ElementId::Name(image.id.clone().into()))
             .size(prefs::scaled(THUMB))
             .flex_none()
-            .rounded(theme.radius * 1.5)
+            .rounded(theme.radius)
             .bg(theme.muted);
         match store.by_id.get(&image.id) {
             Some(Stored::Ready(bytes)) => frame
@@ -93,7 +93,7 @@ pub(super) fn render_sent_images(
                 .child(
                     img(bytes.clone())
                         .size_full()
-                        .rounded(theme.radius * 1.5)
+                        .rounded(theme.radius)
                         .object_fit(ObjectFit::Cover),
                 )
                 .into_any_element(),

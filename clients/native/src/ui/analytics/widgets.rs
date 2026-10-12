@@ -219,7 +219,7 @@ pub(super) fn badge(text: impl Into<SharedString>, tone: Tone, cx: &App) -> Div 
         .flex_none()
         .px_1p5()
         .py(px(1.))
-        .rounded(px(4.))
+        .rounded(cx.theme().radius / 2.)
         .text_xs()
         .text_color(color)
         .bg(color.opacity(0.12))

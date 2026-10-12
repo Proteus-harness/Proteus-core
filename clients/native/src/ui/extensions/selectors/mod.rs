@@ -20,7 +20,7 @@ use super::badge::{Details, Face, Press, pressable_badge};
 use super::host::Host;
 use crate::ui::chat::Chat;
 use crate::ui::chat::controls::{
-    current_effort, default_effort, effort_of, efforts, mode_label, model_label, models,
+    current_effort, default_effort, efforts, mode_label, model_label, models,
 };
 
 pub(super) const MODE: &str = "mode";
@@ -130,22 +130,14 @@ impl Render for SelectorBadge {
         let (label, details) = match self.control {
             Control::Mode => (
                 mode_label(&config.permission_mode).to_owned(),
-                Details::new("Режим разрешений")
-                    .line(format!("Сейчас: {}", mode_label(&config.permission_mode)))
-                    .line("Что агент делает без подтверждения."),
+                Details::new("Режим разрешений").line("Что агент делает без подтверждения."),
             ),
             Control::Model => (
                 model_face(&config),
-                Details::new("Модель и рассуждения")
-                    .line(match &config.model {
-                        Some(model) => format!("Профиль {} · {}", config.profile, model.provider),
-                        None => format!("Профиль {}", config.profile),
-                    })
-                    .line(format!(
-                        "Сейчас: {}, {}",
-                        model_label(&config),
-                        effort_of(&config)
-                    )),
+                Details::new("Модель и рассуждения").line(match &config.model {
+                    Some(model) => format!("Профиль {} · {}", config.profile, model.provider),
+                    None => format!("Профиль {}", config.profile),
+                }),
             ),
         };
         let open = self.open;

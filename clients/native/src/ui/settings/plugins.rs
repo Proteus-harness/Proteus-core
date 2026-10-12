@@ -17,6 +17,7 @@ use crate::settings::catalog::{
     HOOK_SLOT, PackState, PageId, TOOL_SLOT, export_selected, find_tool, pack_summary, plural,
     safety_label, slot_page, slot_title,
 };
+use crate::ui::kit::Hint as _;
 use crate::ui::prefs;
 use gpui_kit::assets::IconName as Lucide;
 
@@ -186,11 +187,14 @@ impl SettingsView {
         let switch = kit::switch(hashed_id("pack-switch", &key))
             .checked(summary.state != PackState::Off)
             .disabled(switchable.is_empty())
-            .tooltip(match summary.state {
-                PackState::On => "Выключить все инструменты пакета",
-                PackState::Off => "Включить все инструменты пакета",
-                PackState::Mixed => "Включены не все · включить все",
-            })
+            .hint(
+                match summary.state {
+                    PackState::On => "Выключить пакет",
+                    PackState::Off => "Включить пакет",
+                    PackState::Mixed => "Включить все",
+                },
+                cx,
+            )
             .on_click(cx.listener(move |this, _: &bool, _, cx| {
                 cx.stop_propagation();
                 let names = switchable.clone();

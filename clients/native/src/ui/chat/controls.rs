@@ -36,14 +36,6 @@ pub(in crate::ui) fn current_effort(config: &ConfigSummary) -> Option<String> {
         .or_else(|| (!config.reasoning.enabled).then(|| "none".to_owned()))
 }
 
-fn effort_label(effort: Option<&str>) -> String {
-    match effort {
-        None => "рассуждения: профиль".to_owned(),
-        Some("none") => "без рассуждений".to_owned(),
-        Some(value) => format!("рассуждения: {value}"),
-    }
-}
-
 /// Russian name of an effort step, as the model chooser titles it.
 pub(in crate::ui) fn effort_title(effort: &str) -> String {
     let title = match effort {
@@ -58,11 +50,6 @@ pub(in crate::ui) fn effort_title(effort: &str) -> String {
         other => other,
     };
     title.to_owned()
-}
-
-/// Current reasoning effort of a session, as its icon shows it.
-pub(in crate::ui) fn effort_of(config: &ConfigSummary) -> String {
-    effort_label(current_effort(config).as_deref())
 }
 
 /// Efforts the session can switch between, weakest first as the server

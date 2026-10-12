@@ -15,6 +15,7 @@ use super::SettingsView;
 use super::editors::TextInput;
 use super::widgets::{MenuOption, Tone, changed_dot, chip, hashed_id, row, select_menu};
 use crate::settings::{FieldKind, FieldPath, choice_title, default_hint, field_kind};
+use crate::ui::kit::Hint as _;
 use crate::ui::prefs;
 use crate::ui::tip::Tip as _;
 
@@ -110,7 +111,7 @@ impl SettingsView {
             .ghost()
             .xsmall()
             .disabled(spec.value.is_none())
-            .tooltip(format!("Сбросить «{}»", field.title))
+            .hint("Сбросить", cx)
             .on_click(move |_, _, cx| handler.reset(cx));
         let error = text
             .and_then(|text| text.error.clone())

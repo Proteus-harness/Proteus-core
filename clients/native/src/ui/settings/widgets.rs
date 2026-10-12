@@ -66,7 +66,7 @@ pub(super) fn section(
 pub(super) fn card(rows: impl IntoIterator<Item = AnyElement>, cx: &App) -> Div {
     let theme = cx.theme();
     v_flex()
-        .rounded_lg()
+        .rounded(theme.radius_lg)
         .border_1()
         .border_color(theme.border)
         .bg(theme.group_box)
@@ -148,7 +148,7 @@ pub(super) fn chip(text: impl Into<SharedString>, tone: Tone, cx: &App) -> Div {
         .flex_none()
         .px_1p5()
         .py(px(1.))
-        .rounded(px(4.))
+        .rounded(theme.radius / 2.)
         .text_xs()
         .text_color(color)
         .bg(color.opacity(0.1))
@@ -195,7 +195,7 @@ pub(super) fn radio_card(
         .items_start()
         .px_4()
         .py_3()
-        .rounded_lg()
+        .rounded(theme.radius_lg)
         .border_1()
         .cursor_pointer()
         .map(|card| {

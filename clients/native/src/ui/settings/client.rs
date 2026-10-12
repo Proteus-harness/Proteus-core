@@ -7,7 +7,9 @@ use gpui_kit::*;
 use super::SettingsView;
 use super::sizes::slider;
 use super::widgets::{MenuOption, card, row, section, select_menu};
-use crate::preferences::{MotionPreference, Notifications, Preferences, SendMode, ThemePreference};
+use crate::preferences::{
+    Hints, MotionPreference, Notifications, Preferences, SendMode, ThemePreference,
+};
 use crate::ui::prefs::{self, ClientPreferences};
 use crate::ui::theme::{self, ThemeProblems};
 
@@ -21,6 +23,13 @@ const MOTIONS: [(MotionPreference, &str); 3] = [
     (MotionPreference::Full, "Полные"),
     (MotionPreference::Reduced, "Уменьшенные"),
     (MotionPreference::Off, "Выключены"),
+];
+
+const HINTS: [(Hints, &str); 4] = [
+    (Hints::Full, "Описание и клавиши"),
+    (Hints::Description, "Только описание"),
+    (Hints::Keys, "Только клавиши"),
+    (Hints::Off, "Не показывать"),
 ];
 
 const SCALES: [(u16, &str); 9] = [
@@ -100,6 +109,16 @@ impl SettingsView {
                 ),
                 choice("pref-motion", &MOTIONS, current.motion, |prefs, value| {
                     prefs.motion = value
+                }),
+                false,
+                cx,
+            )
+            .into_any_element(),
+            row(
+                "Подсказки к кнопкам",
+                Some("Сведения значков и полные названия видны всегда.".into()),
+                choice("pref-hints", &HINTS, current.hints, |prefs, value| {
+                    prefs.hints = value
                 }),
                 false,
                 cx,

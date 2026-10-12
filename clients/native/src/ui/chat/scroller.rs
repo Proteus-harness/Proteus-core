@@ -17,6 +17,7 @@ use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
+use crate::ui::kit::Hint as _;
 use crate::ui::motion;
 
 const OVERDRAW: Pixels = px(400.);
@@ -242,7 +243,7 @@ impl RenderOnce for ChatList {
                             kit::button((self.id.clone(), "jump"))
                                 .secondary()
                                 .icon(IconName::ArrowDown)
-                                .tooltip("К последним сообщениям")
+                                .hint("К последним сообщениям", cx)
                                 .rounded(cx.theme().radius_full())
                                 .border_1()
                                 .border_color(cx.theme().border)

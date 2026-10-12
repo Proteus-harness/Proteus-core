@@ -8,6 +8,10 @@ use crate::preferences::{self, MotionPreference, Preferences, ThemePreference};
 
 const BASE_FONT: f32 = 16.;
 const BASE_MONO_FONT: f32 = 13.;
+/// Corners of controls, rows, menus, code and tables; large chat surfaces
+/// (composer, own messages, cards) take twice that as `radius_lg`, small
+/// marks half of it.
+const RADIUS: f32 = 6.;
 
 /// Interface scale: 1.0 at 100%.
 pub fn scale(cx: &App) -> f32 {
@@ -80,11 +84,15 @@ fn apply(value: &Preferences, previous: Option<&Preferences>, cx: &mut App) {
     }
     // The root sets the window's rem from the theme font size, so this
     // scales every rem-based size of the interface.
+    // Corners follow the same scale.
     let scale = value.view.scale_factor();
-    if Theme::global(cx).font_size != px(BASE_FONT * scale) {
+    let theme = Theme::global(cx);
+    if theme.font_size != px(BASE_FONT * scale) || theme.radius != px(RADIUS * scale) {
         Theme::update(cx, |theme| {
             theme.font_size = px(BASE_FONT * scale);
             theme.mono_font_size = px(BASE_MONO_FONT * scale);
+            theme.radius = px(RADIUS * scale);
+            theme.radius_lg = px(RADIUS * 2. * scale);
         });
     }
     if previous.is_none_or(|previous| previous.shortcuts != value.shortcuts) {

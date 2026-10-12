@@ -138,7 +138,7 @@ fn render_map(segments: &[Segment], cx: &App) -> Div {
     let rows = cells.chunks(MAP_COLUMNS).map(|row| {
         h_flex().gap(px(3.)).children(
             row.iter()
-                .map(|color| div().size(size).rounded(px(2.)).bg(*color)),
+                .map(|color| div().size(size).rounded(cx.theme().radius / 2.).bg(*color)),
         )
     });
     h_flex()

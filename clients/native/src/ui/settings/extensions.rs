@@ -16,6 +16,7 @@ use super::{Feedback, SettingsView};
 use crate::preferences::ExtensionPreferences;
 use crate::settings::catalog::PageId;
 use crate::ui::extensions::{self, Manifest};
+use crate::ui::kit::Hint as _;
 use crate::ui::prefs;
 
 const ZIP_KEY: &str = "extensions-zip";
@@ -157,7 +158,7 @@ impl SettingsView {
                 .items_start()
                 .px_4()
                 .py_3()
-                .rounded_lg()
+                .rounded(theme.radius_lg)
                 .border_1()
                 .border_color(color.opacity(0.4))
                 .bg(color.opacity(0.08))
@@ -272,7 +273,6 @@ impl SettingsView {
                         .child(
                             kit::switch(ElementId::Name(format!("extension-enabled-{id}").into()))
                                 .checked(enabled)
-                                .tooltip(format!("Включить: {}", manifest.title))
                                 .on_click(move |checked: &bool, _, cx| {
                                     let checked = *checked;
                                     prefs::update(cx, |prefs| {
@@ -288,7 +288,7 @@ impl SettingsView {
                                 .icon(Lucide::Trash)
                                 .ghost()
                                 .small()
-                                .tooltip(format!("Удалить: {}", manifest.title))
+                                .hint("Удалить", cx)
                                 .on_click(cx.listener(
                                     move |this, _, _, cx| {
                                         this.removing = Some(id.to_string());
@@ -356,7 +356,7 @@ impl SettingsView {
                         .gap_2()
                         .px_4()
                         .py_5()
-                        .rounded_lg()
+                        .rounded(theme.radius_lg)
                         .border_1()
                         .border_dashed()
                         .border_color(theme.border)

@@ -11,6 +11,7 @@ use gpui_kit::*;
 use super::menu;
 use crate::tabs::{Pane, PaneId, TabLayout};
 use crate::ui::kit;
+use crate::ui::kit::Hint as _;
 use crate::ui::workspace::Workspace;
 
 impl Workspace {
@@ -30,7 +31,7 @@ impl Workspace {
             .ghost()
             .xsmall()
             .icon(IconName::Plus)
-            .tooltip("Новая вкладка; правый клик — действия с областью")
+            .hint("Новая вкладка", cx)
             .dropdown_menu_with_anchor(Anchor::TopRight, {
                 let workspace = workspace.clone();
                 move |popup, _, cx| menu::new_tab_menu(popup, id, &workspace, cx)

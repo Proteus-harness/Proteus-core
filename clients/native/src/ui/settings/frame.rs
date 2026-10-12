@@ -12,6 +12,7 @@ use super::widgets::changed_dot;
 use super::{LoadState, SettingsView};
 use crate::settings::catalog::{PageId, area_labels, page_description, page_title};
 use crate::ui::extensions;
+use crate::ui::kit::Hint as _;
 use crate::ui::motion::rise_in;
 use crate::ui::prefs;
 
@@ -164,7 +165,7 @@ impl SettingsView {
                 .gap_1p5()
                 .px_4()
                 .py_3()
-                .rounded_lg()
+                .rounded(theme.radius_lg)
                 .border_1()
                 .border_color(theme.warning.opacity(0.4))
                 .bg(theme.warning.opacity(0.08))
@@ -258,7 +259,7 @@ impl SettingsView {
                         .ghost()
                         .small()
                         .disabled(self.saving)
-                        .tooltip("Перечитать профиль с диска")
+                        .hint("Перечитать профиль", cx)
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.load(cx);
                             cx.notify();

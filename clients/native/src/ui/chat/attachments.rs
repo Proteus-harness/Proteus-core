@@ -11,6 +11,7 @@ use proteus_contracts::domain::{
 };
 
 use super::Chat;
+use crate::ui::kit::Hint as _;
 use crate::ui::tip::Tip as _;
 use crate::ui::{kit, prefs};
 
@@ -164,14 +165,14 @@ impl Chat {
                     .group("attachment")
                     .relative()
                     .size(prefs::scaled(THUMB))
-                    .rounded(theme.radius * 1.5)
+                    .rounded(theme.radius)
                     .border_1()
                     .border_color(theme.border)
                     .tip_text(item.image.name.clone())
                     .child(
                         img(item.preview.clone())
                             .size_full()
-                            .rounded(theme.radius * 1.5)
+                            .rounded(theme.radius)
                             .object_fit(ObjectFit::Cover),
                     )
                     .child(
@@ -184,7 +185,7 @@ impl Chat {
                             .child(
                                 kit::button(("attachment-remove", index))
                                     .icon(IconName::Close)
-                                    .tooltip("Убрать")
+                                    .hint("Убрать", cx)
                                     .xsmall()
                                     .on_click(cx.listener(move |this, _, _, cx| {
                                         this.attachments.remove(index);

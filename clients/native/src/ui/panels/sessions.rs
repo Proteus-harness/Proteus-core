@@ -16,6 +16,8 @@ use proteus_contracts::app_protocol::AppSessionActivityStatus;
 
 use super::session_menu;
 use crate::sessions::Row;
+use crate::shortcuts::Command;
+use crate::ui::kit::Hint as _;
 use crate::ui::workspace::Workspace;
 use crate::ui::{format, motion, prefs};
 
@@ -93,7 +95,11 @@ impl Workspace {
                             .icon(IconName::Plus)
                             .ghost()
                             .small()
-                            .tooltip("Новая сессия (Ctrl+N)")
+                            .hint_keys(
+                                "Новая сессия",
+                                kit::command_keys(Command::NewSession, cx).as_deref(),
+                                cx,
+                            )
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.new_session(None, window, cx)
                             })),

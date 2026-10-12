@@ -7,6 +7,7 @@ use gpui_kit::*;
 use proteus_contracts::app_protocol::AppQueuedUserMessage;
 
 use super::Chat;
+use crate::ui::kit::Hint as _;
 use crate::ui::{format, prefs};
 
 impl Chat {
@@ -29,18 +30,22 @@ impl Chat {
         };
         let send = kit::button("send")
             .icon(IconName::ArrowUp)
-            .tooltip(if running {
-                format!("В очередь ({keys})")
-            } else {
-                format!("Отправить ({keys})")
-            })
+            .hint_keys(
+                if running {
+                    "В очередь"
+                } else {
+                    "Отправить"
+                },
+                Some(keys),
+                cx,
+            )
             .primary()
             .small()
             .disabled(!ready)
             .on_click(cx.listener(|this, _, window, cx| this.send(window, cx)));
         let attach = kit::button("attach")
             .icon(IconName::Plus)
-            .tooltip("Прикрепить изображения")
+            .hint("Прикрепить изображения", cx)
             .ghost()
             .small()
             .on_click(cx.listener(|this, _, window, cx| this.choose_images(window, cx)));
@@ -48,7 +53,7 @@ impl Chat {
         let stop = running.then(|| {
             kit::button("stop")
                 .icon(IconName::Square)
-                .tooltip("Остановить")
+                .hint("Остановить", cx)
                 .danger()
                 .small()
                 .on_click(cx.listener(|this, _, _, cx| this.stop(cx)))
@@ -66,7 +71,7 @@ impl Chat {
                     .max_w(prefs::chat_width(cx))
                     .gap_1()
                     .p_2()
-                    .rounded(theme.radius * 3.)
+                    .rounded(theme.radius_lg)
                     .border_1()
                     .border_color(theme.input)
                     // Raised off the conversation in either light or dark themes.
@@ -132,7 +137,7 @@ fn render_queued(message: &AppQueuedUserMessage, cx: &Context<Chat>) -> impl Int
         .child(
             kit::button(SharedString::from(format!("unqueue-{message_id}")))
                 .icon(IconName::Close)
-                .tooltip("Убрать из очереди")
+                .hint("Убрать из очереди", cx)
                 .ghost()
                 .xsmall()
                 .on_click(cx.listener(move |this, _, _, cx| this.delete_queued(message_id, cx))),

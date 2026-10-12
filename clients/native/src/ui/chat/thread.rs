@@ -11,6 +11,7 @@ use super::images::{SentImages, render_sent_images};
 use super::tool_chain::render_chain_header;
 use super::tool_row::{render_tool, tool_line};
 use crate::transcript::{Entry, Role};
+use crate::ui::kit::{self, Hint as _};
 use crate::ui::motion::{self, chevron, fade_in_if, reveal};
 use crate::ui::{format, prefs};
 
@@ -138,10 +139,10 @@ pub(super) fn reveal_key(chat: EntityId, key: u64) -> SharedString {
     format!("thread-row-{chat}-{key}").into()
 }
 
-fn copy_button(name: &'static str, key: u64, text: SharedString) -> Clipboard {
+fn copy_button(name: &'static str, key: u64, text: SharedString, cx: &App) -> Clipboard {
     Clipboard::new(row_id(name, key))
         .value(text)
-        .tooltip("Копировать")
+        .hint("Копировать", cx)
         .xsmall()
 }
 
@@ -162,7 +163,7 @@ fn render_user(entry: &Entry, images: &SentImages, cx: &App) -> AnyElement {
                     .px_3()
                     .py_2()
                     .gap_1()
-                    .rounded(theme.radius * 2.)
+                    .rounded(theme.radius_lg)
                     .bg(theme.secondary)
                     .text_color(theme.secondary_foreground)
                     .child(
@@ -173,7 +174,7 @@ fn render_user(entry: &Entry, images: &SentImages, cx: &App) -> AnyElement {
             )
         })
         .when(has_text, |row| {
-            row.child(row_actions().child(copy_button("copy-user", entry.key, text)))
+            row.child(row_actions().child(copy_button("copy-user", entry.key, text, cx)))
         })
         .into_any_element()
 }
@@ -181,7 +182,8 @@ fn render_user(entry: &Entry, images: &SentImages, cx: &App) -> AnyElement {
 fn render_assistant(entry: &Entry, cx: &App) -> AnyElement {
     let text = SharedString::from(&entry.text);
     let actions = (!entry.streaming && !entry.text.trim().is_empty())
-        .then(|| row_actions().child(copy_button("copy-assistant", entry.key, text.clone())));
+        .then(|| row_actions().child(copy_button("copy-assistant", entry.key, text.clone(), cx)));
+    let copy_hint = kit::hint_text("Копировать код", None, cx);
     v_flex()
         .group(ROW_GROUP)
         .w_full()
@@ -190,12 +192,14 @@ fn render_assistant(entry: &Entry, cx: &App) -> AnyElement {
             TextView::markdown(row_id("assistant", entry.key), text)
                 .selectable(true)
                 .stream_fade(true)
-                .code_block_actions(|block, _, _| {
+                .code_block_actions(move |block, _, _| {
                     let code = block.code();
-                    Clipboard::new(row_id("copy-code", hash_code(&code)))
-                        .value(code)
-                        .tooltip("Копировать код")
-                        .xsmall()
+                    let copy = Clipboard::new(row_id("copy-code", hash_code(&code))).value(code);
+                    match &copy_hint {
+                        Some(hint) => copy.tooltip(hint.clone()),
+                        None => copy,
+                    }
+                    .xsmall()
                 }),
         )
         .children(actions)
@@ -251,7 +255,7 @@ fn render_subagent(
         .px_3()
         .py_2()
         .gap_2()
-        .rounded(theme.radius * 2.)
+        .rounded(theme.radius_lg)
         .border_1()
         .border_color(theme.border)
         .child(

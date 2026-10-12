@@ -13,7 +13,9 @@ use gpui_kit::*;
 use super::widgets::changed_dot;
 use super::{SettingsEvent, SettingsView};
 use crate::settings::catalog::{CLIENT_PAGES, PageId, agent_pages, area_page, page_title};
+use crate::shortcuts::Command;
 use crate::ui::extensions;
+use crate::ui::kit::Hint as _;
 use crate::ui::prefs;
 use crate::ui::tip::Tip as _;
 
@@ -154,7 +156,11 @@ impl SettingsView {
                         .label("Чат")
                         .ghost()
                         .small()
-                        .tooltip("Вернуться к разговору (Ctrl+,)")
+                        .hint_keys(
+                            "К разговору",
+                            kit::command_keys(Command::ToggleSettings, cx).as_deref(),
+                            cx,
+                        )
                         .on_click(cx.listener(|_, _, _, cx| cx.emit(SettingsEvent::Close))),
                 ),
             )

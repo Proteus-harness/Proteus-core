@@ -13,6 +13,7 @@ use super::editors::module_key;
 use super::widgets::{card, disclosure, hashed_id, note, section};
 use crate::settings::FieldPath;
 use crate::settings::catalog::module_info;
+use crate::ui::kit::Hint as _;
 
 impl SettingsView {
     /// Parameters as a titled section of a page.
@@ -59,11 +60,14 @@ impl SettingsView {
                 .ghost()
                 .xsmall()
                 .disabled(json && self.json_error(&slot, &module))
-                .tooltip(if json {
-                    "Вернуться к форме"
-                } else {
-                    "Редактировать параметры как JSON-объект"
-                })
+                .hint(
+                    if json {
+                        "Вернуться к форме"
+                    } else {
+                        "Править как JSON"
+                    },
+                    cx,
+                )
                 .on_click(cx.listener(move |this, _, _, cx| this.toggle_json(&slot, &module, cx)))
                 .into_any_element(),
         )

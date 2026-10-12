@@ -8,6 +8,7 @@ use gpui_kit::*;
 use super::SettingsView;
 use super::widgets::{card, hashed_id, hint_text, mono, note, section};
 use crate::settings::catalog::{HOOK_SLOT, module_info};
+use crate::ui::kit::Hint as _;
 use crate::ui::prefs;
 
 impl SettingsView {
@@ -57,7 +58,7 @@ impl SettingsView {
                                     .icon(IconName::ArrowUp)
                                     .ghost()
                                     .xsmall()
-                                    .tooltip("Выше")
+                                    .hint("Выше", cx)
                                     .disabled(ix == 0)
                                     .on_click(cx.listener(move |this, _, _, cx| {
                                         this.update_draft(cx, |draft| draft.move_hook(&up, -1))
@@ -68,7 +69,7 @@ impl SettingsView {
                                     .icon(IconName::ArrowDown)
                                     .ghost()
                                     .xsmall()
-                                    .tooltip("Ниже")
+                                    .hint("Ниже", cx)
                                     .disabled(ix + 1 == count)
                                     .on_click(cx.listener(move |this, _, _, cx| {
                                         this.update_draft(cx, |draft| draft.move_hook(&down, 1))

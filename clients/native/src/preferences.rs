@@ -51,6 +51,19 @@ pub enum MotionPreference {
     Off,
 }
 
+/// What the hover tooltip of a control says.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Hints {
+    /// What the control does and its shortcut.
+    #[default]
+    Full,
+    Description,
+    /// The shortcut alone; a control without one has no tooltip.
+    Keys,
+    Off,
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SendMode {
@@ -74,6 +87,7 @@ pub struct Preferences {
     pub theme: ThemePreference,
     pub themes: ThemeNames,
     pub motion: MotionPreference,
+    pub hints: Hints,
     pub send: SendMode,
     pub notifications: Notifications,
     pub view: ViewPreferences,

@@ -16,6 +16,7 @@ use super::changes::{ChangesModel, changes_model};
 use super::{path_label, status_color};
 use crate::files::{DiffKind, FileContent, FileDiff, FileKind, language_for};
 use crate::ui::extensions::{Host, HostEvent};
+use crate::ui::kit::Hint as _;
 use crate::ui::prefs;
 
 const MAX_PREVIEW: &str = "512 КБ";
@@ -194,7 +195,7 @@ impl Render for FileDocument {
             .child(
                 Clipboard::new("file-copy-path")
                     .value(SharedString::from(self.path.clone()))
-                    .tooltip("Копировать путь")
+                    .hint("Копировать путь", cx)
                     .xsmall(),
             );
         let body = match &self.preview {

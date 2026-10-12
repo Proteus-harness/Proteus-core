@@ -18,6 +18,7 @@ use super::widgets::{
     Fetch, Tone, badge, card, error_line, header, metric, note, refresh_button, segments,
 };
 use crate::api::Api;
+use crate::ui::kit::Hint as _;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Tab {
@@ -117,7 +118,7 @@ impl Render for ArchitecturePage {
             .label("Mermaid")
             .ghost()
             .small()
-            .tooltip("Скопировать схему в формате Mermaid")
+            .hint("Копировать как Mermaid", cx)
             .on_click(cx.listener(|this, _, _, cx| this.copy_mermaid(cx)))
             .into_any_element();
         let mut page = v_flex().size_full().gap_3().child(header(

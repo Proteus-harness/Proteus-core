@@ -257,7 +257,7 @@ impl ArchitecturePage {
                 .w(px(NODE_WIDTH * zoom))
                 .h(px(NODE_HEIGHT * zoom))
                 .overflow_hidden()
-                .rounded(px(8. * zoom))
+                .rounded(px(6. * zoom))
                 .border(px(if selected || hit { 2. } else { 1. }))
                 .border_color(if node.missing {
                     theme.danger

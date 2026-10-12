@@ -9,6 +9,7 @@ use gpui_kit::*;
 use super::SettingsView;
 use super::widgets::{Tone, card, chip, hashed_id, note, row, section};
 use crate::shortcuts::{Command, label, normalize};
+use crate::ui::kit::Hint as _;
 use crate::ui::prefs;
 
 impl SettingsView {
@@ -42,7 +43,7 @@ impl SettingsView {
                         .icon(IconName::Plus)
                         .ghost()
                         .xsmall()
-                        .tooltip("Добавить сочетание")
+                        .hint("Добавить сочетание", cx)
                         .on_click(
                             cx.listener(move |this, _, _, cx| this.start_recording(command, cx)),
                         ),
@@ -54,7 +55,7 @@ impl SettingsView {
                         .icon(Lucide::RotateCcw)
                         .ghost()
                         .xsmall()
-                        .tooltip("Как по умолчанию")
+                        .hint("Как по умолчанию", cx)
                         .on_click(move |_, _, cx| {
                             prefs::update(cx, |prefs| prefs.shortcuts.reset(command))
                         }),
@@ -97,7 +98,7 @@ impl SettingsView {
         h_flex()
             .gap_0p5()
             .pl_2()
-            .rounded(px(4.))
+            .rounded(theme.radius)
             .border_1()
             .border_color(theme.border)
             .bg(theme.secondary)
@@ -109,7 +110,7 @@ impl SettingsView {
                     .icon(IconName::Close)
                     .ghost()
                     .xsmall()
-                    .tooltip("Убрать")
+                    .hint("Убрать", cx)
                     .on_click(move |_, _, cx| {
                         prefs::update(cx, |prefs| prefs.shortcuts.remove(command, &chord))
                     }),

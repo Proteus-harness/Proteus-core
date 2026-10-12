@@ -13,6 +13,7 @@ use gpui_kit::*;
 use super::menu;
 use crate::tabs::{self, PaneId, TabLayout};
 use crate::ui::chat::ChatState;
+use crate::ui::kit::Hint as _;
 use crate::ui::prefs;
 use crate::ui::tip::Tip as _;
 use crate::ui::workspace::Workspace;
@@ -197,7 +198,7 @@ impl Workspace {
                                 .ghost()
                                 .xsmall()
                                 .icon(IconName::Close)
-                                .tooltip("Закрыть вкладку")
+                                .hint("Закрыть", cx)
                                 .on_click(cx.listener(move |this, _, window, cx| {
                                     cx.stop_propagation();
                                     this.close_tab(&close_id, window, cx);

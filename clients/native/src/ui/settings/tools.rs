@@ -11,6 +11,7 @@ use proteus_contracts::app_protocol::config_builder::ConfigBuilderTool;
 use super::SettingsView;
 use super::widgets::{Tone, card, changed_dot, chip, hashed_id, mono, note, section};
 use crate::settings::catalog::{PageId, missing_tools, safety_label, tool_matches};
+use crate::ui::kit::Hint as _;
 use crate::ui::prefs;
 use crate::ui::tip::Tip as _;
 
@@ -92,7 +93,7 @@ impl SettingsView {
                 .label(format!("{} · {}", owner.component_id, owner.module_id))
                 .ghost()
                 .xsmall()
-                .tooltip("Открыть пакет в Plugins")
+                .hint("Открыть пакет", cx)
                 .on_click(move |_, _, cx| {
                     let key = key.clone();
                     let _ = view.update(cx, |this, cx| {
@@ -193,7 +194,7 @@ impl SettingsView {
             .child(
                 kit::switch(hashed_id("missing-tool", &name))
                     .checked(true)
-                    .tooltip("Убрать из списка разрешённых")
+                    .hint("Убрать из разрешённых", cx)
                     .on_click(cx.listener(move |this, checked: &bool, _, cx| {
                         let checked = *checked;
                         this.update_draft(cx, |draft| draft.set_tool(&target, checked));
