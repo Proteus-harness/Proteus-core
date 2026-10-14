@@ -59,8 +59,12 @@ fn main() {
                     title: Some("Proteus".into()),
                     ..titlebar
                 }),
-                window_decorations: Some(WindowDecorations::Client),
+                window_decorations: Some(window_decorations()),
                 window_bounds: Some(WindowBounds::centered(size(px(1180.), px(820.)), cx)),
+                // Scrolling does not focus the window on every compositor, and
+                // the default ~30 fps cap for inactive windows makes glides
+                // and animations under the pointer stutter.
+                inactive_frame_interval: None,
                 ..base
             };
             gpui_kit::open_window(window_options, cx, |window, cx| {
@@ -69,4 +73,21 @@ fn main() {
             .expect("open window");
             cx.activate(true);
         });
+}
+
+/// niri draws no window frame and sends no tiled state to a client-decorated
+/// window, so the client frame there would only add a margin and a
+/// full-window shadow that costs integrated graphics as much as the rest of
+/// the interface on every frame.
+fn window_decorations() -> WindowDecorations {
+    let niri = std::env::var("XDG_CURRENT_DESKTOP").is_ok_and(|desktop| {
+        desktop
+            .split(':')
+            .any(|name| name.eq_ignore_ascii_case("niri"))
+    });
+    if niri {
+        WindowDecorations::Server
+    } else {
+        WindowDecorations::Client
+    }
 }

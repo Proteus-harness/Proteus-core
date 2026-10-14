@@ -80,7 +80,7 @@ impl Render for Workspace {
             v_flex()
                 .size_full()
                 .track_focus(&self.focus_handle)
-                .bg(theme.background)
+                // The window root already paints the background.
                 .text_color(theme.foreground)
                 .on_action(cx.listener(|this, _: &ToggleSettings, window, cx| {
                     this.toggle_settings(window, cx)
