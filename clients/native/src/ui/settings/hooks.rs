@@ -5,7 +5,7 @@ use gpui_kit::component::*;
 use gpui_kit::*;
 
 use super::SettingsView;
-use super::widgets::{card, hashed_id, hint_text, mono, note, section};
+use super::widgets::{card, hashed_id, item_row, named, note, section};
 use crate::settings::catalog::{HOOK_SLOT, module_info};
 use crate::ui::kit;
 use crate::ui::kit::Hint as _;
@@ -30,61 +30,57 @@ impl SettingsView {
                 let key = format!("params:{HOOK_SLOT}:{id}");
                 let open = self.is_open(&key);
                 let (up, down, off) = (id.clone(), id.clone(), id.clone());
-                let header = h_flex()
-                    .px_4()
-                    .py_3()
+                let title = h_flex()
+                    .min_w_0()
                     .gap_3()
-                    .items_start()
+                    .items_center()
                     .child(
                         div()
                             .w(prefs::scaled(20.))
-                            .text_sm()
+                            .flex_none()
                             .text_color(theme.muted_foreground)
                             .child(format!("{}.", ix + 1)),
                     )
-                    .child(
-                        v_flex()
-                            .flex_1()
-                            .min_w_0()
-                            .gap_0p5()
-                            .child(mono(id.clone(), cx).text_sm())
-                            .children(hint_text(description, cx)),
-                    )
-                    .child(
-                        h_flex()
-                            .gap_1()
-                            .child(
-                                kit::button(hashed_id("hook-up", id))
-                                    .icon(IconName::ArrowUp)
-                                    .ghost()
-                                    .xsmall()
-                                    .hint("Выше", cx)
-                                    .disabled(ix == 0)
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.update_draft(cx, |draft| draft.move_hook(&up, -1))
-                                    })),
-                            )
-                            .child(
-                                kit::button(hashed_id("hook-down", id))
-                                    .icon(IconName::ArrowDown)
-                                    .ghost()
-                                    .xsmall()
-                                    .hint("Ниже", cx)
-                                    .disabled(ix + 1 == count)
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.update_draft(cx, |draft| draft.move_hook(&down, 1))
-                                    })),
-                            )
-                            .child(
-                                kit::button(hashed_id("hook-off", id))
-                                    .label("Отключить")
-                                    .ghost()
-                                    .xsmall()
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.update_draft(cx, |draft| draft.set_hook(&off, false))
-                                    })),
-                            ),
-                    );
+                    .child(named(
+                        hashed_id("hook-name", id),
+                        id.clone(),
+                        Some(description.into()),
+                        None,
+                        cx,
+                    ));
+                let header = item_row(
+                    title,
+                    [
+                        kit::button(hashed_id("hook-up", id))
+                            .icon(IconName::ArrowUp)
+                            .ghost()
+                            .xsmall()
+                            .hint("Выше", cx)
+                            .disabled(ix == 0)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.update_draft(cx, |draft| draft.move_hook(&up, -1))
+                            }))
+                            .into_any_element(),
+                        kit::button(hashed_id("hook-down", id))
+                            .icon(IconName::ArrowDown)
+                            .ghost()
+                            .xsmall()
+                            .hint("Ниже", cx)
+                            .disabled(ix + 1 == count)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.update_draft(cx, |draft| draft.move_hook(&down, 1))
+                            }))
+                            .into_any_element(),
+                        kit::button(hashed_id("hook-off", id))
+                            .label("Отключить")
+                            .ghost()
+                            .xsmall()
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.update_draft(cx, |draft| draft.set_hook(&off, false))
+                            }))
+                            .into_any_element(),
+                    ],
+                );
                 v_flex()
                     .child(header)
                     .child(self.params_disclosure(HOOK_SLOT, id, &key, open, cx))
@@ -106,32 +102,24 @@ impl SettingsView {
             .filter(|module| !self.draft.hooks.contains(&module.id))
             .map(|module| {
                 let id = module.id.clone();
-                h_flex()
-                    .px_4()
-                    .py_3()
-                    .gap_3()
-                    .items_center()
-                    .child(
-                        v_flex()
-                            .flex_1()
-                            .min_w_0()
-                            .gap_0p5()
-                            .child(mono(module.id.clone(), cx).text_sm())
-                            .children(hint_text(
-                                module.description.clone().unwrap_or_default(),
-                                cx,
-                            )),
-                    )
-                    .child(
-                        kit::button(hashed_id("hook-on", &module.id))
-                            .label("Включить")
-                            .outline()
-                            .xsmall()
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.update_draft(cx, |draft| draft.set_hook(&id, true))
-                            })),
-                    )
-                    .into_any_element()
+                item_row(
+                    named(
+                        hashed_id("hook-name", &module.id),
+                        module.id.clone(),
+                        module.description.clone().map(Into::into),
+                        None,
+                        cx,
+                    ),
+                    [kit::button(hashed_id("hook-on", &module.id))
+                        .label("Включить")
+                        .outline()
+                        .xsmall()
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.update_draft(cx, |draft| draft.set_hook(&id, true))
+                        }))
+                        .into_any_element()],
+                )
+                .into_any_element()
             })
             .collect();
         let available = if available.is_empty() {

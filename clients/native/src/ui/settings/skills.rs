@@ -9,10 +9,9 @@ use gpui_kit::*;
 use proteus_contracts::domain::SkillDescriptor;
 
 use super::SettingsView;
-use super::widgets::{Tone, card, changed_dot, chip, hashed_id, mono, note, section};
+use super::widgets::{Tone, card, changed_dot, chip, hashed_id, item_row, named, note, section};
 use crate::settings::addons::{missing_skills, package_of, skills};
 use crate::ui::kit;
-use crate::ui::tip::Tip as _;
 
 impl SettingsView {
     pub(super) fn skills_page(&self, cx: &Context<Self>) -> Vec<AnyElement> {
@@ -81,7 +80,6 @@ impl SettingsView {
         provider: Option<&str>,
         cx: &Context<Self>,
     ) -> AnyElement {
-        let theme = cx.theme();
         let on = self.draft.skill_enabled(&skill.id);
         let changed = on != self.baseline.skill_enabled(&skill.id);
         let mut chips = vec![chip(skill.source.clone(), Tone::Muted, cx)];
@@ -100,74 +98,54 @@ impl SettingsView {
             ));
         }
         let id = skill.id.clone();
-        h_flex()
-            .px_4()
-            .py_3()
-            .gap_4()
-            .items_start()
-            .child(
-                v_flex()
-                    .flex_1()
-                    .min_w_0()
-                    .gap_1()
-                    .child(
-                        h_flex()
-                            .id(hashed_id("skill-name", &skill.id))
-                            .gap_2()
-                            .items_center()
-                            .child(mono(skill.id.clone(), cx).text_sm())
-                            .when(changed, |line| line.child(changed_dot(cx)))
-                            .tip_text(skill.path.display().to_string()),
-                    )
-                    .when(!skill.description.trim().is_empty(), |text| {
-                        text.child(
-                            div()
-                                .text_xs()
-                                .text_color(theme.muted_foreground)
-                                .child(skill.description.trim().to_string()),
-                        )
-                    })
-                    .child(h_flex().flex_wrap().gap_1().children(chips)),
-            )
-            .child(
-                div().pt_0p5().child(
-                    kit::switch(hashed_id("skill", &skill.id))
-                        .checked(on)
-                        .on_click(cx.listener(move |this, checked: &bool, _, cx| {
-                            let checked = *checked;
-                            this.update_draft(cx, |draft| draft.set_skill(&id, checked));
-                        })),
-                ),
-            )
-            .into_any_element()
+        let title = h_flex()
+            .min_w_0()
+            .gap_2()
+            .items_center()
+            .child(named(
+                hashed_id("skill-name", &skill.id),
+                skill.id.clone(),
+                Some(skill.description.clone().into()),
+                Some(skill.path.display().to_string().into()),
+                cx,
+            ))
+            .when(changed, |line| line.child(changed_dot(cx)));
+        let switch = kit::switch(hashed_id("skill", &skill.id))
+            .checked(on)
+            .on_click(cx.listener(move |this, checked: &bool, _, cx| {
+                let checked = *checked;
+                this.update_draft(cx, |draft| draft.set_skill(&id, checked));
+            }));
+        let trailing = chips
+            .into_iter()
+            .map(IntoElement::into_any_element)
+            .chain([switch.into_any_element()]);
+        item_row(title, trailing).into_any_element()
     }
 
     /// Disabled entry that no catalog lists any more; switching it on only
     /// removes the stale entry.
     fn missing_skill_row(&self, id: &str, cx: &Context<Self>) -> AnyElement {
         let target = id.to_string();
-        h_flex()
-            .px_4()
-            .py_3()
-            .gap_4()
-            .items_center()
-            .child(
-                h_flex()
-                    .flex_1()
-                    .min_w_0()
-                    .gap_2()
-                    .items_center()
-                    .child(mono(id.to_string(), cx).text_sm())
-                    .child(chip("нет в каталоге", Tone::Warning, cx)),
-            )
-            .child(
-                kit::switch(hashed_id("missing-skill", &id))
-                    .checked(false)
-                    .on_click(cx.listener(move |this, _: &bool, _, cx| {
-                        this.update_draft(cx, |draft| draft.set_skill(&target, true));
-                    })),
-            )
-            .into_any_element()
+        let switch = kit::switch(hashed_id("missing-skill", &id))
+            .checked(false)
+            .on_click(cx.listener(move |this, _: &bool, _, cx| {
+                this.update_draft(cx, |draft| draft.set_skill(&target, true));
+            }));
+        item_row(
+            named(
+                hashed_id("missing-skill-name", &id),
+                id.to_string(),
+                None,
+                None,
+                cx,
+            ),
+            [
+                chip("нет в каталоге", Tone::Warning, cx).into_any_element(),
+                switch.into_any_element(),
+            ],
+        )
+        .into_any_element()
     }
 }
 

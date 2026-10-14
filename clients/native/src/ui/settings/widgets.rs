@@ -30,6 +30,9 @@ pub(super) const SHORT_INPUT_WIDTH: f32 = 112.;
 const BELOW_MAX_WIDTH: f32 = 560.;
 /// Tooltips with descriptions wrap at this width.
 const ABOUT_WIDTH: f32 = 320.;
+/// Tooltip text is cut here: tool descriptions written for the model run to
+/// pages.
+const ABOUT_CHARS: usize = 600;
 
 pub(super) fn hashed_id(name: &'static str, key: &impl Hash) -> ElementId {
     let mut hasher = DefaultHasher::new();
@@ -186,7 +189,10 @@ pub(super) fn described(
     key: Option<SharedString>,
     cx: &App,
 ) -> AnyElement {
-    let about = about.filter(|about| !about.trim().is_empty());
+    let about = about
+        .map(|about| about.trim().to_string())
+        .filter(|about| !about.is_empty())
+        .map(|about| clip(&about));
     let label = div().min_w_0().child(faded(title.clone()));
     if about.is_none() && key.is_none() {
         return label.into_any_element();
@@ -221,6 +227,46 @@ pub(super) fn described(
                 }))
         })
         .into_any_element()
+}
+
+fn clip(text: &str) -> SharedString {
+    if text.chars().count() <= ABOUT_CHARS {
+        return text.to_string().into();
+    }
+    let cut: String = text.chars().take(ABOUT_CHARS).collect();
+    format!("{}…", cut.trim_end()).into()
+}
+
+/// `described` for identifiers: tool, module and skill names.
+pub(super) fn named(
+    id: ElementId,
+    name: impl Into<SharedString>,
+    about: Option<SharedString>,
+    key: Option<SharedString>,
+    cx: &App,
+) -> Div {
+    div()
+        .min_w_0()
+        .font_family(cx.theme().mono_font_family.clone())
+        .child(described(id, name.into(), about, key, cx))
+}
+
+/// Row of a listed item: its name on the left, chips and controls on the
+/// right; a narrow window moves them under the name.
+pub(super) fn item_row(
+    title: impl IntoElement,
+    trailing: impl IntoIterator<Item = AnyElement>,
+) -> Div {
+    field_row(
+        title,
+        h_flex()
+            .flex_wrap()
+            .gap_2()
+            .items_center()
+            .justify_end()
+            .children(trailing),
+        Fit::Fixed,
+    )
 }
 
 /// Undo mark beside a title, for values set in the profile.

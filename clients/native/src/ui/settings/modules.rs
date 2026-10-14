@@ -12,7 +12,9 @@ use proteus_contracts::app_protocol::config_builder::{
 
 use super::SettingsView;
 use super::tools::pack_key;
-use super::widgets::{Tone, card, chip, disclosure, hashed_id, hint_text, mono, mono_line, note};
+use super::widgets::{
+    Tone, card, chip, described, disclosure, hashed_id, hint_text, item_row, named, note,
+};
 use crate::settings::catalog::{
     HOOK_SLOT, PackState, PageId, TOOL_SLOT, export_selected, find_tool, pack_summary, page_title,
     plural, slot_page, slot_title,
@@ -80,38 +82,33 @@ impl SettingsView {
                 "реализаций слотов",
             ));
         }
-        let header = v_flex()
+        let header = h_flex()
+            .flex_wrap()
             .px_4()
             .py_3()
-            .gap_1()
+            .gap_x_3()
+            .gap_y_1()
+            .items_center()
             .child(
                 h_flex()
+                    .min_w_0()
                     .gap_2()
                     .items_center()
                     .child(
                         Icon::new(Lucide::Boxes)
                             .small()
+                            .flex_none()
                             .text_color(theme.muted_foreground),
                     )
-                    .child(div().text_base().font_semibold().child(plugin.id.clone())),
+                    .child(div().min_w_0().text_base().font_semibold().child(described(
+                        hashed_id("component", &plugin.id),
+                        plugin.id.clone().into(),
+                        plugin.description.clone().map(Into::into),
+                        Some(plugin.command.clone().into()),
+                        cx,
+                    ))),
             )
-            .children(hint_text(
-                plugin.description.clone().unwrap_or_default(),
-                cx,
-            ))
-            .child(
-                mono_line(plugin.command.clone(), cx)
-                    .text_xs()
-                    .text_color(theme.muted_foreground),
-            )
-            .when(!counts.is_empty(), |header| {
-                header.child(
-                    h_flex()
-                        .flex_wrap()
-                        .gap_1()
-                        .children(counts.into_iter().map(|text| chip(text, Tone::Muted, cx))),
-                )
-            });
+            .children(counts.into_iter().map(|text| chip(text, Tone::Muted, cx)));
 
         let mut rows = vec![header.into_any_element()];
         if plugin.exports.is_empty() && plugin.tool_packs.is_empty() {
@@ -258,7 +255,17 @@ impl SettingsView {
             .py_1p5()
             .gap_2()
             .items_center()
-            .child(mono_line(name.to_string(), cx).text_sm().flex_1())
+            .child(
+                named(
+                    hashed_id("pack-tool-name", &name),
+                    name.to_string(),
+                    tool.map(|tool| tool.description.clone().into()),
+                    None,
+                    cx,
+                )
+                .text_sm()
+                .flex_1(),
+            )
             .children(chips)
             .child(
                 kit::switch(hashed_id("pack-tool", &name))
@@ -282,27 +289,30 @@ impl SettingsView {
         let key = format!("params:{HOOK_SLOT}:{}", export.id);
         let open = self.is_open(&key);
         let (id, on) = (export.id.clone(), position.is_none());
-        let mut chips = vec![chip("Hooks", Tone::Muted, cx)];
-        chips.push(match position {
+        let chips = [match position {
             Some(ix) => chip(format!("№ {} в цепочке", ix + 1), Tone::Success, cx),
             None => chip("выключен", Tone::Muted, cx),
-        });
+        }];
         let order = position.is_some().then(|| {
             kit::button(hashed_id("hook-order", &export.id))
                 .label("Порядок")
                 .ghost()
                 .xsmall()
                 .on_click(cx.listener(|this, _, _, cx| this.select_page(PageId::Hooks, cx)))
+                .into_any_element()
         });
-        let header = export_header(export, chips, cx).children(order).child(
-            kit::switch(hashed_id("hook-switch", &export.id))
-                .checked(position.is_some())
-                .on_click(cx.listener(move |this, _: &bool, _, cx| {
-                    this.update_draft(cx, |draft| draft.set_hook(&id, on))
-                })),
-        );
+        let switch = kit::switch(hashed_id("hook-switch", &export.id))
+            .checked(position.is_some())
+            .on_click(cx.listener(move |this, _: &bool, _, cx| {
+                this.update_draft(cx, |draft| draft.set_hook(&id, on))
+            }));
+        let trailing = chips
+            .into_iter()
+            .map(IntoElement::into_any_element)
+            .chain(order)
+            .chain([switch.into_any_element()]);
         v_flex()
-            .child(header)
+            .child(export_row(export, trailing, cx))
             .child(self.params_disclosure(HOOK_SLOT, &export.id, &key, open, cx))
             .into_any_element()
     }
@@ -314,19 +324,20 @@ impl SettingsView {
     ) -> AnyElement {
         let snapshot = self.snapshot().expect("modules page needs a snapshot");
         let title = slot_title(snapshot, &export.slot);
-        let mut chips = vec![chip(title.clone(), Tone::Muted, cx)];
+        let mut trailing = vec![chip(title.clone(), Tone::Muted, cx).into_any_element()];
         if export_selected(snapshot, &self.draft, export) {
-            chips.push(chip("выбран", Tone::Success, cx));
+            trailing.push(chip("выбран", Tone::Success, cx).into_any_element());
         }
         let page = slot_page(&export.slot);
-        let open = kit::button(hashed_id("open-slot", &(&export.slot, &export.id)))
-            .label(format!("Открыть {}", page_title(Some(snapshot), &page)))
-            .ghost()
-            .xsmall()
-            .on_click(cx.listener(move |this, _, _, cx| this.select_page(page.clone(), cx)));
-        export_header(export, chips, cx)
-            .child(open)
-            .into_any_element()
+        trailing.push(
+            kit::button(hashed_id("open-slot", &(&export.slot, &export.id)))
+                .label(format!("Открыть {}", page_title(Some(snapshot), &page)))
+                .ghost()
+                .xsmall()
+                .on_click(cx.listener(move |this, _, _, cx| this.select_page(page.clone(), cx)))
+                .into_any_element(),
+        );
+        export_row(export, trailing, cx).into_any_element()
     }
 }
 
@@ -342,17 +353,19 @@ fn group_label(text: &'static str, cx: &App) -> AnyElement {
         .into_any_element()
 }
 
-fn export_header(export: &ConfigBuilderPluginExport, chips: Vec<Div>, cx: &App) -> Div {
-    h_flex().px_4().py_2p5().gap_3().items_center().child(
-        v_flex()
-            .flex_1()
-            .min_w_0()
-            .gap_1()
-            .child(mono(export.id.clone(), cx).text_sm())
-            .children(hint_text(
-                export.description.clone().unwrap_or_default(),
-                cx,
-            ))
-            .child(h_flex().flex_wrap().gap_1().children(chips)),
+fn export_row(
+    export: &ConfigBuilderPluginExport,
+    trailing: impl IntoIterator<Item = AnyElement>,
+    cx: &App,
+) -> Div {
+    item_row(
+        named(
+            hashed_id("export", &(&export.slot, &export.id)),
+            export.id.clone(),
+            export.description.clone().map(Into::into),
+            Some(format!("{}/{}", export.slot, export.id).into()),
+            cx,
+        ),
+        trailing,
     )
 }
