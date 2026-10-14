@@ -15,6 +15,9 @@ pub enum TextFormat {
     /// Array of single-line strings, one per line.
     Lines,
     Json,
+    /// JSON on one line for short values like `100000` or `80%`; text that
+    /// is not JSON is taken as a string.
+    Value,
 }
 
 impl TextFormat {
@@ -33,7 +36,23 @@ pub enum FieldKind<'a> {
     Group(&'a [ConfigField]),
 }
 
-pub fn field_kind(schema: &ConfigValueSchema) -> FieldKind<'_> {
+/// JSON fields with a number or text default take the one-line `Value`
+/// format: such values are short.
+pub fn field_kind(field: &ConfigField) -> FieldKind<'_> {
+    match schema_kind(&field.value) {
+        FieldKind::Text(TextFormat::Json)
+            if field
+                .default
+                .as_ref()
+                .is_some_and(|default| default.is_number() || default.is_string()) =>
+        {
+            FieldKind::Text(TextFormat::Value)
+        }
+        kind => kind,
+    }
+}
+
+fn schema_kind(schema: &ConfigValueSchema) -> FieldKind<'_> {
     match schema {
         ConfigValueSchema::Boolean {} => FieldKind::Switch,
         ConfigValueSchema::Enum { options } => FieldKind::Choice(options),
@@ -62,11 +81,6 @@ pub fn field_kind(schema: &ConfigValueSchema) -> FieldKind<'_> {
     }
 }
 
-/// Stable identity of a choice value for comparisons and menu keys.
-fn choice_key(value: &Value) -> String {
-    serde_json::to_string(value).unwrap_or_default()
-}
-
 pub fn choice_title<'a>(options: &'a [ConfigChoice], value: &Value) -> Option<&'a str> {
     options
         .iter()
@@ -76,7 +90,14 @@ pub fn choice_title<'a>(options: &'a [ConfigChoice], value: &Value) -> Option<&'
 
 pub fn format_value(format: TextFormat, value: &Value) -> String {
     match (format, value) {
-        (_, Value::String(text)) if format != TextFormat::Json => text.clone(),
+        (TextFormat::Value, Value::String(text))
+            if serde_json::from_str::<Value>(text).is_err() =>
+        {
+            text.clone()
+        }
+        (_, Value::String(text)) if !matches!(format, TextFormat::Json | TextFormat::Value) => {
+            text.clone()
+        }
         (TextFormat::Lines, Value::Array(items)) if items.iter().all(Value::is_string) => items
             .iter()
             .filter_map(Value::as_str)
@@ -133,40 +154,10 @@ pub fn parse_text(format: TextFormat, text: &str) -> Result<Option<Value>, Strin
             Ok(value) => Ok(Some(value)),
             Err(error) => Err(format!("Неверный JSON: {error}")),
         },
+        TextFormat::Value => match serde_json::from_str::<Value>(trimmed) {
+            Ok(Value::Null) => Ok(None),
+            Ok(value) => Ok(Some(value)),
+            Err(_) => Ok(Some(Value::String(trimmed.to_string()))),
+        },
     }
-}
-
-/// Human-readable module default, shown when the value is not set.
-pub fn default_hint(field: &ConfigField) -> Option<String> {
-    let default = field.default.as_ref()?;
-    let text = match field_kind(&field.value) {
-        FieldKind::Switch => match default.as_bool() {
-            Some(true) => "включено".to_string(),
-            Some(false) => "выключено".to_string(),
-            None => choice_key(default),
-        },
-        FieldKind::Choice(options) => choice_title(options, default)
-            .map(str::to_string)
-            .unwrap_or_else(|| choice_key(default)),
-        FieldKind::MultiChoice(options) => match default.as_array() {
-            Some(values) if values.is_empty() => "ничего".to_string(),
-            Some(values) => values
-                .iter()
-                .map(|value| {
-                    choice_title(options, value)
-                        .map(str::to_string)
-                        .unwrap_or_else(|| choice_key(value))
-                })
-                .collect::<Vec<_>>()
-                .join(", "),
-            None => choice_key(default),
-        },
-        FieldKind::Text(TextFormat::Lines) => match default.as_array() {
-            Some(values) if values.is_empty() => "пусто".to_string(),
-            _ => format_value(TextFormat::Lines, default).replace('\n', ", "),
-        },
-        FieldKind::Text(format) => format_value(format, default),
-        FieldKind::Group(_) => choice_key(default),
-    };
-    Some(text)
 }

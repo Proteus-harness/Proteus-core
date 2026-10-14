@@ -11,6 +11,7 @@ use super::{LoadState, SettingsView};
 use crate::settings::catalog::{PageId, area_labels, page_description, page_title};
 use crate::ui::extensions;
 use crate::ui::fade::faded;
+use crate::ui::floor::floor;
 use crate::ui::kit;
 use crate::ui::kit::Hint as _;
 use crate::ui::motion::Spinner;
@@ -105,6 +106,7 @@ impl SettingsView {
         let column = v_flex()
             .w_full()
             .max_w(prefs::scaled(COLUMN_WIDTH))
+            .pb_10()
             .gap_6()
             .child(
                 h_flex()
@@ -136,10 +138,14 @@ impl SettingsView {
             .items_center()
             .px_8()
             .pt_8()
-            .pb_10()
-            .child(switch_in(
-                column,
-                ElementId::Name(format!("settings-page-{key}").into()),
+            // The bottom padding is part of the page, so the floor that
+            // keeps the scroll position counts it.
+            .child(floor(
+                ElementId::Name(format!("settings-floor-{key}").into()),
+                switch_in(
+                    column,
+                    ElementId::Name(format!("settings-page-{key}").into()),
+                ),
             ))
             .overflow_y_scrollbar()
             .id(ElementId::Name(format!("settings-scroll-{key}").into()));

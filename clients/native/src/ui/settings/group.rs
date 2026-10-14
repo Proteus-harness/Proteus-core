@@ -1,7 +1,6 @@
 //! Parameter rows of one object level, and an object field shown as a
 //! foldable group of such rows.
 
-use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -9,10 +8,8 @@ use proteus_contracts::domain::ConfigField;
 use serde_json::Value;
 
 use super::SettingsView;
-use super::widgets::{Tone, changed_dot, chip, disclosure, hashed_id, note};
+use super::widgets::{changed_dot, described, disclosure, hashed_id, note, reset_mark};
 use crate::settings::FieldPath;
-use crate::ui::kit;
-use crate::ui::kit::Hint as _;
 use crate::ui::prefs;
 
 impl SettingsView {
@@ -106,26 +103,26 @@ impl SettingsView {
         let open = self.is_open(&key);
         let value = self.draft.value(path);
         let changed = value != self.baseline.value(path);
-        let reset_path = path.clone();
-        let reset = kit::button(hashed_id("group-reset", path))
-            .icon(IconName::Undo2)
-            .ghost()
-            .xsmall()
-            .disabled(value.is_none())
-            .hint("Сбросить группу", cx)
-            .on_click(cx.listener(move |this, _, _, cx| {
-                cx.stop_propagation();
-                this.reset_field(&reset_path, cx);
-            }));
-        let description = field.description.trim();
+        let reset = value.is_some().then(|| {
+            let (view, path) = (cx.weak_entity(), path.clone());
+            reset_mark(
+                hashed_id("group-reset", &path),
+                "Своя группа · сбросить",
+                move |_, cx| {
+                    let _ = view.update(cx, |this, cx| this.reset_field(&path, cx));
+                },
+                cx,
+            )
+        });
         let view = cx.weak_entity();
         let toggle_key = key.clone();
         let header = h_flex()
             .id(hashed_id("group", path))
             .px_4()
-            .py_3()
-            .gap_3()
+            .py_2p5()
+            .gap_2()
             .items_center()
+            .text_sm()
             .cursor_pointer()
             .hover(|row| row.bg(theme.list_hover))
             .child(crate::ui::motion::chevron(
@@ -133,32 +130,15 @@ impl SettingsView {
                 open,
                 theme.muted_foreground,
             ))
-            .child(
-                v_flex()
-                    .flex_1()
-                    .min_w_0()
-                    .gap_0p5()
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .items_center()
-                            .text_sm()
-                            .child(field.title.clone())
-                            .when(value.is_some(), |title| {
-                                title.child(chip("Своё значение", Tone::Accent, cx))
-                            })
-                            .when(changed, |title| title.child(changed_dot(cx))),
-                    )
-                    .when(!description.is_empty(), |text| {
-                        text.child(
-                            div()
-                                .text_xs()
-                                .text_color(theme.muted_foreground)
-                                .child(description.to_string()),
-                        )
-                    }),
-            )
-            .child(reset)
+            .child(described(
+                hashed_id("group-title", path),
+                field.title.clone().into(),
+                Some(field.description.clone().into()),
+                Some(path.dotted().into()),
+                cx,
+            ))
+            .children(reset)
+            .when(changed, |title| title.child(changed_dot(cx)))
             .on_click(move |_, _, cx| {
                 let _ = view.update(cx, |this, cx| this.toggle_open(&toggle_key, cx));
             });

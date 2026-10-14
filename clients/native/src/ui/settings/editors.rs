@@ -14,9 +14,7 @@ use crate::settings::catalog::{
     self, CONTEXT_PROVIDER_SLOT, CONTEXT_SLOT, HOOK_SLOT, MODEL_SLOT, PageId, TOOL_SLOT,
     module_info,
 };
-use crate::settings::{
-    FieldKind, FieldPath, TextFormat, default_hint, field_kind, format_value, parse_text,
-};
+use crate::settings::{FieldKind, FieldPath, TextFormat, field_kind, format_value, parse_text};
 
 #[derive(Clone)]
 pub(super) enum TextInput {
@@ -124,25 +122,25 @@ impl SettingsView {
                     &mut leaves,
                 );
             }
-            for (path, format, placeholder) in leaves {
-                if !self.editors.fields.contains_key(&path) {
-                    self.create_field(path, format, placeholder, window, cx);
+            for leaf in leaves {
+                if !self.editors.fields.contains_key(&leaf.path) {
+                    self.create_field(leaf, window, cx);
                 }
             }
         }
     }
 
-    fn create_field(
-        &mut self,
-        path: FieldPath,
-        format: TextFormat,
-        placeholder: String,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn create_field(&mut self, leaf: TextLeaf, window: &mut Window, cx: &mut Context<Self>) {
+        let TextLeaf {
+            path,
+            format,
+            default,
+            placeholder,
+        } = leaf;
         let text = self
             .draft
             .value(&path)
+            .or(default.as_ref())
             .map(|value| format_value(format, value))
             .unwrap_or_default();
         let key = path.clone();
@@ -156,7 +154,7 @@ impl SettingsView {
             let subscription = cx.subscribe_in(&state, window, move |this, state, event, _, cx| {
                 if matches!(event, InputEvent::Change) {
                     let text = state.read(cx).value();
-                    this.text_changed(&key, format, &text, cx);
+                    this.text_changed(&key, format, default.as_ref(), &text, cx);
                 }
             });
             (TextInput::Area(state), subscription)
@@ -170,7 +168,7 @@ impl SettingsView {
             let subscription = cx.subscribe_in(&state, window, move |this, state, event, _, cx| {
                 if matches!(event, InputEvent::Change) {
                     let text = state.read(cx).value();
-                    this.text_changed(&key, format, &text, cx);
+                    this.text_changed(&key, format, default.as_ref(), &text, cx);
                 }
             });
             (TextInput::Line(state), subscription)
@@ -185,10 +183,13 @@ impl SettingsView {
         );
     }
 
+    /// Text equal to the default drops the key, like picking the default in
+    /// any other control.
     fn text_changed(
         &mut self,
         path: &FieldPath,
         format: TextFormat,
+        default: Option<&Value>,
         text: &str,
         cx: &mut Context<Self>,
     ) {
@@ -197,7 +198,10 @@ impl SettingsView {
             field.error = parsed.as_ref().err().map(|error| error.clone().into());
         }
         match parsed {
-            Ok(value) => self.update_draft(cx, |draft| draft.set_value(path, value)),
+            Ok(value) => {
+                let value = value.filter(|value| Some(value) != default);
+                self.update_draft(cx, |draft| draft.set_value(path, value))
+            }
             Err(_) => cx.notify(),
         }
     }
@@ -292,17 +296,23 @@ impl SettingsView {
 }
 
 /// Text controls a field needs: its own, or those of its nested fields.
-fn text_leaves(
-    path: FieldPath,
-    field: &ConfigField,
-    out: &mut Vec<(FieldPath, TextFormat, String)>,
-) {
-    match field_kind(&field.value) {
+/// Each starts with the module default, so the input reads like the value
+/// in effect; the placeholder shows it again once the text is cleared.
+fn text_leaves(path: FieldPath, field: &ConfigField, out: &mut Vec<TextLeaf>) {
+    match field_kind(field) {
         FieldKind::Text(format) => {
-            let placeholder = default_hint(field)
-                .map(|hint| format!("По умолчанию: {hint}"))
+            let default = field.default.clone().filter(|default| !default.is_null());
+            let placeholder = default
+                .as_ref()
+                .map(|default| format_value(format, default))
+                .filter(|text| !text.is_empty())
                 .unwrap_or_else(|| "Не задано".to_string());
-            out.push((path, format, placeholder));
+            out.push(TextLeaf {
+                path,
+                format,
+                default,
+                placeholder,
+            });
         }
         FieldKind::Group(fields) => {
             for child in fields {
@@ -311,4 +321,11 @@ fn text_leaves(
         }
         FieldKind::Switch | FieldKind::Choice(_) | FieldKind::MultiChoice(_) => {}
     }
+}
+
+struct TextLeaf {
+    path: FieldPath,
+    format: TextFormat,
+    default: Option<Value>,
+    placeholder: String,
 }

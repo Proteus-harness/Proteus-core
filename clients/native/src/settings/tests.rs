@@ -391,20 +391,43 @@ fn addons_snapshot_links_servers_tools_skills_and_packages() {
 
 #[test]
 fn nested_values_create_and_prune_their_objects() {
-    let object = ConfigValueSchema::Object {
-        fields: vec![ConfigField::new(
-            "mode",
-            "Режим",
-            "",
-            ConfigValueSchema::text(),
-        )],
-    };
+    let object = ConfigField::new(
+        "compress",
+        "Сжатие",
+        "",
+        ConfigValueSchema::Object {
+            fields: vec![ConfigField::new(
+                "mode",
+                "Режим",
+                "",
+                ConfigValueSchema::text(),
+            )],
+        },
+    );
     assert!(matches!(field_kind(&object), FieldKind::Group(fields) if fields.len() == 1));
-    let empty = ConfigValueSchema::Object { fields: Vec::new() };
+    let empty = ConfigField::new(
+        "meta",
+        "Метаданные",
+        "",
+        ConfigValueSchema::Object { fields: Vec::new() },
+    );
     assert!(matches!(
         field_kind(&empty),
         FieldKind::Text(TextFormat::Json)
     ));
+    let limit =
+        ConfigField::new("limit", "Предел", "", ConfigValueSchema::Json {}).with_default(100000);
+    assert!(matches!(
+        field_kind(&limit),
+        FieldKind::Text(TextFormat::Value)
+    ));
+    assert_eq!(parse_text(TextFormat::Value, "80%"), Ok(Some(json!("80%"))));
+    assert_eq!(
+        parse_text(TextFormat::Value, "100000"),
+        Ok(Some(json!(100000)))
+    );
+    assert_eq!(format_value(TextFormat::Value, &json!("80%")), "80%");
+    assert_eq!(format_value(TextFormat::Value, &json!("5")), "\"5\"");
 
     let mut draft = Draft::default();
     let group = FieldPath::new("hook", "dcp", "compress");

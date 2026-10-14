@@ -5,6 +5,8 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
+use gpui_kit::assets::IconName as Lucide;
+use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenu, PopupMenuItem};
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -12,7 +14,22 @@ use gpui_kit::*;
 
 use crate::ui::fade::faded;
 use crate::ui::kit;
+use crate::ui::kit::Hint as _;
 use crate::ui::prefs;
+use crate::ui::tip::Tip as _;
+
+/// A row title narrower than this gives the line to the control instead;
+/// down to it a long title fades out at its end.
+const TITLE_MIN_WIDTH: f32 = 160.;
+/// Text inputs on a row's line narrow down to this before moving below.
+const INPUT_MIN_WIDTH: f32 = 140.;
+const INPUT_MAX_WIDTH: f32 = 220.;
+/// Inputs for numbers and other short values.
+pub(super) const SHORT_INPUT_WIDTH: f32 = 112.;
+/// Controls under the title stop growing here, so lists stay readable.
+const BELOW_MAX_WIDTH: f32 = 560.;
+/// Tooltips with descriptions wrap at this width.
+const ABOUT_WIDTH: f32 = 320.;
 
 pub(super) fn hashed_id(name: &'static str, key: &impl Hash) -> ElementId {
     let mut hasher = DefaultHasher::new();
@@ -90,42 +107,139 @@ pub(super) fn note(text: impl Into<SharedString>, cx: &App) -> Div {
         .child(text.into())
 }
 
-/// Title and description on the left, the control on the right; wide
-/// controls go under the text instead.
+/// Title on the left, the control on the right; wide controls go under the
+/// title, and a narrow window moves the control to its own line instead of
+/// squeezing the title into a column of letters. The description lives in
+/// a tooltip on the title, so rows stay one line high.
 pub(super) fn row(
-    title: impl IntoElement,
+    title: impl Into<SharedString>,
     description: Option<SharedString>,
     control: impl IntoElement,
     vertical: bool,
     cx: &App,
 ) -> Div {
-    let theme = cx.theme();
-    let text = v_flex()
-        .gap_0p5()
+    let title: SharedString = title.into();
+    let id = hashed_id("row-title", &title);
+    let title = described(id, title, description, None, cx);
+    field_row(
+        title,
+        control,
+        if vertical { Fit::Below } else { Fit::Fixed },
+    )
+}
+
+/// How a row places its control.
+#[derive(Clone, Copy)]
+pub(super) enum Fit {
+    /// At its own width on the right.
+    Fixed,
+    /// On the right, sharing the line with the title: it narrows down to a
+    /// minimum before taking a line of its own.
+    Shrink,
+    /// Under the title at full width.
+    Below,
+}
+
+/// `row` with a title line built by the caller.
+pub(super) fn field_row(title: impl IntoElement, control: impl IntoElement, fit: Fit) -> Div {
+    let title = h_flex()
         .min_w_0()
-        .child(h_flex().gap_2().items_center().text_sm().child(title))
-        .children(description.map(|text| {
+        .gap_x_2()
+        .items_center()
+        .text_sm()
+        .child(title);
+    if let Fit::Below = fit {
+        return v_flex().px_4().py_2p5().gap_2().child(title).child(
             div()
-                .text_xs()
-                .text_color(theme.muted_foreground)
-                .child(text)
-        }));
-    if vertical {
-        v_flex()
-            .px_4()
-            .py_3()
-            .gap_2()
-            .child(text)
-            .child(div().w_full().child(control))
-    } else {
-        h_flex()
-            .px_4()
-            .py_3()
-            .gap_6()
-            .items_center()
-            .child(text.flex_1())
-            .child(div().flex_none().child(control))
+                .w_full()
+                .max_w(prefs::scaled(BELOW_MAX_WIDTH))
+                .child(control),
+        );
     }
+    // Both share the line alike, so a wide line gives the control its full
+    // width and the rest to the title.
+    let cell = match fit {
+        Fit::Shrink => div()
+            .flex_1()
+            .min_w(prefs::scaled(INPUT_MIN_WIDTH))
+            .max_w(prefs::scaled(INPUT_MAX_WIDTH)),
+        _ => div().flex_none(),
+    };
+    h_flex()
+        .flex_wrap()
+        .px_4()
+        .py_2p5()
+        .gap_x_6()
+        .gap_y_2()
+        .items_center()
+        .child(title.flex_1().min_w(prefs::scaled(TITLE_MIN_WIDTH)))
+        .child(cell.ml_auto().child(control))
+}
+
+/// The title on one line, fading out where it runs out of room, with an
+/// info mark; hovering either shows the whole title, `about` and the config
+/// `key`. Without both it is the bare title.
+pub(super) fn described(
+    id: ElementId,
+    title: SharedString,
+    about: Option<SharedString>,
+    key: Option<SharedString>,
+    cx: &App,
+) -> AnyElement {
+    let about = about.filter(|about| !about.trim().is_empty());
+    let label = div().min_w_0().child(faded(title.clone()));
+    if about.is_none() && key.is_none() {
+        return label.into_any_element();
+    }
+    let muted = cx.theme().muted_foreground;
+    h_flex()
+        .id(id)
+        .min_w_0()
+        .gap_1()
+        .items_center()
+        .child(label)
+        .child(
+            Icon::new(Lucide::Info)
+                .xsmall()
+                .flex_none()
+                .text_color(muted.opacity(0.7)),
+        )
+        .tip_element(move |_, cx| {
+            let mono = cx.theme().mono_font_family.clone();
+            v_flex()
+                .max_w(px(ABOUT_WIDTH))
+                .gap_1()
+                .py_1()
+                .child(div().font_medium().child(title.clone()))
+                .children(about.clone())
+                .children(key.clone().map(|key| {
+                    div()
+                        .text_xs()
+                        .text_color(muted)
+                        .font_family(mono)
+                        .child(key)
+                }))
+        })
+        .into_any_element()
+}
+
+/// Undo mark beside a title, for values set in the profile.
+pub(super) fn reset_mark(
+    id: ElementId,
+    hint: &str,
+    reset: impl Fn(&mut Window, &mut App) + 'static,
+    cx: &App,
+) -> AnyElement {
+    kit::button(id)
+        .icon(IconName::Undo2)
+        .ghost()
+        .xsmall()
+        .hint(hint, cx)
+        .on_click(move |_, window, cx| {
+            cx.stop_propagation();
+            reset(window, cx);
+        })
+        .into_any_element()
 }
 
 #[derive(Clone, Copy)]

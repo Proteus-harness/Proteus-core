@@ -4,10 +4,10 @@ use std::collections::HashMap;
 use std::f32::consts::FRAC_PI_2;
 use std::time::Instant;
 
-use gpui_kit::base::MotionReveal;
 use gpui_kit::component::*;
 use gpui_kit::*;
 
+use super::reveal::Reveal;
 use super::{SLOW, Tween, ease_enter, moves};
 
 const SPRING: SpringConfig = SpringConfig::new(420., 34., 1.);
@@ -84,23 +84,18 @@ pub(in crate::ui) fn reveal(
 ) -> Option<AnyElement> {
     let key = key.into();
     let now = Instant::now();
-    let running = cx
+    let progress = cx
         .try_global::<Toggles>()
         .and_then(|toggles| toggles.0.get(&key).copied())
-        .filter(|toggle| toggle.open == open && toggle.tween.running(now));
-    match running {
-        // The reveal lays its child out on its own; without a full width the
-        // child shrinks to its content and widens only once the reveal ends.
-        Some(toggle) => Some(
-            MotionReveal::new(
-                ElementId::Name(key),
-                toggle.progress(now),
-                div().w_full().child(content()).into_any_element(),
-            )
-            .into_any_element(),
-        ),
-        None => open.then(content),
+        .filter(|toggle| toggle.open == open && toggle.tween.running(now))
+        .map(|toggle| toggle.progress(now));
+    if !open && progress.is_none() {
+        return None;
     }
+    // Moving, the reveal lays its child out on its own; without a full width
+    // the child would shrink to its content and widen only once it rests.
+    let child = div().w_full().child(content()).into_any_element();
+    Some(Reveal::new(ElementId::Name(key), progress, child).into_any_element())
 }
 
 /// Keeps a view redrawing while any disclosure animates; call from `render`.

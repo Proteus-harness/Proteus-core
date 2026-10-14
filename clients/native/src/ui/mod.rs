@@ -7,6 +7,7 @@ mod chrome;
 mod drag;
 mod extensions;
 mod fade;
+mod floor;
 mod format;
 mod keys;
 mod kit;

@@ -19,6 +19,7 @@ mod collapse;
 mod disclosure;
 mod enter;
 mod number;
+mod reveal;
 mod slide;
 mod spinner;
 pub(super) mod ticker;
