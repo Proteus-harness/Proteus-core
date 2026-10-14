@@ -10,7 +10,8 @@ use serde_json::Value;
 
 use super::SettingsView;
 use crate::settings::catalog::{
-    self, CONTEXT_PROVIDER_SLOT, HOOK_SLOT, MODEL_SLOT, PageId, TOOL_SLOT, module_info,
+    self, CONTEXT_PROVIDER_SLOT, CONTEXT_SLOT, HOOK_SLOT, MODEL_SLOT, PageId, TOOL_SLOT,
+    module_info,
 };
 use crate::settings::{
     FieldKind, FieldPath, TextFormat, default_hint, field_kind, format_value, parse_text,
@@ -69,10 +70,13 @@ impl SettingsView {
                 .map(|module| vec![module_key(MODEL_SLOT, &module)])
                 .unwrap_or_default(),
             PageId::Slot(slot) => catalog::selected_module(snapshot, &self.draft, slot)
-                .map(|module| vec![module_key(slot, module)])
-                .unwrap_or_default(),
-            PageId::ContextProviders => catalog::exports(snapshot, CONTEXT_PROVIDER_SLOT)
-                .map(|(_, export)| module_key(&export.slot, &export.id))
+                .map(|module| module_key(slot, module))
+                .into_iter()
+                .chain(
+                    catalog::exports(snapshot, CONTEXT_PROVIDER_SLOT)
+                        .filter(|_| slot == CONTEXT_SLOT)
+                        .map(|(_, export)| module_key(&export.slot, &export.id)),
+                )
                 .collect(),
             PageId::Hooks => self
                 .draft
@@ -80,13 +84,11 @@ impl SettingsView {
                 .iter()
                 .map(|hook| module_key(HOOK_SLOT, hook))
                 .collect(),
-            PageId::Plugins => snapshot
+            PageId::Modules => snapshot
                 .plugins
                 .iter()
                 .flat_map(|plugin| &plugin.exports)
-                .filter(|export| {
-                    [TOOL_SLOT, HOOK_SLOT, CONTEXT_PROVIDER_SLOT].contains(&export.slot.as_str())
-                })
+                .filter(|export| [TOOL_SLOT, HOOK_SLOT].contains(&export.slot.as_str()))
                 .map(|export| module_key(&export.slot, &export.id))
                 .collect(),
             _ => Vec::new(),

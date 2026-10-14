@@ -11,7 +11,9 @@ use gpui_kit::*;
 
 use super::widgets::changed_dot;
 use super::{SettingsEvent, SettingsView};
-use crate::settings::catalog::{CLIENT_PAGES, PageId, agent_pages, area_page, page_title};
+use crate::settings::catalog::{
+    CLIENT_PAGES, CONNECTION_PAGES, PageId, agent_pages, area_page, page_title,
+};
 use crate::shortcuts::Command;
 use crate::ui::extensions;
 use crate::ui::fade::faded;
@@ -31,10 +33,12 @@ fn page_icon(page: &PageId) -> Icon {
             "policy" => Icon::new(Lucide::Shield),
             _ => Icon::new(Lucide::Puzzle),
         },
-        PageId::ContextProviders => Icon::new(IconName::BookOpen),
         PageId::Tools => Icon::new(Lucide::Wrench),
         PageId::Hooks => Icon::new(Lucide::Webhook),
-        PageId::Plugins => Icon::new(Lucide::Package),
+        PageId::Modules => Icon::new(Lucide::Boxes),
+        PageId::Mcp => Icon::new(Lucide::Server),
+        PageId::Skills => Icon::new(Lucide::Sparkles),
+        PageId::Packages => Icon::new(Lucide::Package),
         PageId::History => Icon::new(Lucide::Clock),
         PageId::Appearance => Icon::new(IconName::Palette),
         PageId::Chat => Icon::new(Lucide::MessageSquare),
@@ -69,6 +73,7 @@ impl SettingsView {
     /// Moves the selection through the navigation list, wrapping around.
     pub(super) fn step_page(&mut self, offset: isize, cx: &mut Context<Self>) {
         let mut pages = self.agent_page_list();
+        pages.extend(CONNECTION_PAGES.iter().cloned());
         pages.extend(CLIENT_PAGES.iter().cloned());
         pages.extend(self.extension_page_list(cx));
         let current = pages
@@ -185,6 +190,8 @@ impl SettingsView {
                     .gap_0p5()
                     .child(heading("Агент"))
                     .children(agent.into_iter().map(|page| item(page, cx)))
+                    .child(heading("Подключения"))
+                    .children(CONNECTION_PAGES.iter().cloned().map(|page| item(page, cx)))
                     .child(heading("Клиент"))
                     .children(CLIENT_PAGES.iter().cloned().map(|page| item(page, cx)))
                     .when(!installed.is_empty(), |list| {

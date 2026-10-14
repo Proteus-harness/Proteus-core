@@ -2,6 +2,7 @@
 
 use std::collections::BTreeSet;
 
+use proteus_contracts::app_protocol::addons::AppAddonsUpdate;
 use proteus_contracts::app_protocol::config_builder::ConfigBuilderSnapshot;
 use serde_json::Value;
 
@@ -78,10 +79,89 @@ pub fn describe_changes(
             ));
         }
     }
-    if before.addons != after.addons {
-        lines.push("Дополнения агента: skills, MCP или пакеты дополнений".to_string());
+    lines.extend(addon_changes(&before.addons, &after.addons));
+    lines
+}
+
+fn addon_changes(before: &AppAddonsUpdate, after: &AppAddonsUpdate) -> Vec<String> {
+    let mut lines = Vec::new();
+    let skills = switched(
+        &before.addons.disabled_skills,
+        &after.addons.disabled_skills,
+    );
+    if !skills.is_empty() {
+        lines.push(format!("Skills: {}", skills.join(", ")));
+    }
+    let mut servers = switched(
+        &before.addons.disabled_mcp_servers,
+        &after.addons.disabled_mcp_servers,
+    );
+    servers.extend(entry_changes(
+        &before.mcp_servers,
+        &after.mcp_servers,
+        |server| server.name.clone(),
+        |server| server.enabled,
+    ));
+    if !servers.is_empty() {
+        lines.push(format!("MCP: {}", servers.join(", ")));
+    }
+    let packages = entry_changes(
+        &before.addons.plugins,
+        &after.addons.plugins,
+        |plugin| plugin.path.display().to_string(),
+        |plugin| plugin.enabled,
+    );
+    if !packages.is_empty() {
+        lines.push(format!("Packages: {}", packages.join(", ")));
     }
     lines
+}
+
+/// Entries leaving a disabled list are switched on (`+`), new ones off (`−`).
+fn switched(before: &[String], after: &[String]) -> Vec<String> {
+    before
+        .iter()
+        .filter(|item| !after.contains(item))
+        .map(|item| format!("+ {item}"))
+        .chain(
+            after
+                .iter()
+                .filter(|item| !before.contains(item))
+                .map(|item| format!("− {item}")),
+        )
+        .collect()
+}
+
+/// Added, removed, switched and otherwise edited entries matched by key.
+fn entry_changes<'a, T: PartialEq>(
+    before: &'a [T],
+    after: &'a [T],
+    key: impl Fn(&T) -> String,
+    enabled: impl Fn(&T) -> bool,
+) -> Vec<String> {
+    let find = |list: &'a [T], name: &str| list.iter().find(|entry| key(entry) == name);
+    let mut changes: Vec<String> = after
+        .iter()
+        .filter_map(|entry| {
+            let name = key(entry);
+            match find(before, &name) {
+                None => Some(format!("добавлен {name}")),
+                Some(old) if enabled(old) != enabled(entry) => {
+                    Some(format!("{} {name}", if enabled(entry) { "+" } else { "−" }))
+                }
+                Some(old) if old != entry => Some(format!("изменён {name}")),
+                Some(_) => None,
+            }
+        })
+        .collect();
+    changes.extend(
+        before
+            .iter()
+            .map(&key)
+            .filter(|name| find(after, name).is_none())
+            .map(|name| format!("удалён {name}")),
+    );
+    changes
 }
 
 fn list(items: &[String]) -> String {

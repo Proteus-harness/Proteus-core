@@ -1,5 +1,5 @@
-//! Plugins page: process components with their tool packs, hooks and slot
-//! modules, plus Agent Plugins packages (skills and MCP).
+//! Modules page: process components of the profile with their tool packs,
+//! hooks and slot implementations.
 
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::ButtonVariants as _;
@@ -12,43 +12,38 @@ use proteus_contracts::app_protocol::config_builder::{
 
 use super::SettingsView;
 use super::tools::pack_key;
-use super::widgets::{
-    Tone, card, chip, disclosure, hashed_id, hint_text, mono, mono_line, note, section,
-};
+use super::widgets::{Tone, card, chip, disclosure, hashed_id, hint_text, mono, mono_line, note};
 use crate::settings::catalog::{
-    HOOK_SLOT, PackState, PageId, TOOL_SLOT, export_selected, find_tool, pack_summary, plural,
-    slot_page, slot_title,
+    HOOK_SLOT, PackState, PageId, TOOL_SLOT, export_selected, find_tool, pack_summary, page_title,
+    plural, slot_page, slot_title,
 };
 use crate::ui::kit;
 use crate::ui::kit::Hint as _;
 use crate::ui::prefs;
 
 impl SettingsView {
-    pub(super) fn plugins_page(&self, cx: &Context<Self>) -> Vec<AnyElement> {
+    pub(super) fn modules_page(&self, cx: &Context<Self>) -> Vec<AnyElement> {
         let Some(snapshot) = self.snapshot() else {
             return Vec::new();
         };
         let mut parts: Vec<AnyElement> = snapshot
             .plugins
             .iter()
-            .map(|plugin| self.plugin_card(plugin, cx))
+            .map(|component| self.component_card(component, cx))
             .collect();
         if parts.is_empty() {
             parts.push(
                 card(
-                    [note("В профиле нет процессных плагинов.", cx).into_any_element()],
+                    [note("В профиле нет процессных модулей.", cx).into_any_element()],
                     cx,
                 )
                 .into_any_element(),
             );
         }
-        if !self.draft.addons.addons.plugins.is_empty() {
-            parts.push(self.agent_plugins(cx));
-        }
         parts
     }
 
-    fn plugin_card(&self, plugin: &ConfigBuilderPlugin, cx: &Context<Self>) -> AnyElement {
+    fn component_card(&self, plugin: &ConfigBuilderPlugin, cx: &Context<Self>) -> AnyElement {
         let theme = cx.theme();
         let hooks: Vec<_> = plugin
             .exports
@@ -80,9 +75,9 @@ impl SettingsView {
         if !modules.is_empty() {
             counts.push(plural(
                 modules.len(),
-                "модуль слота",
-                "модуля слотов",
-                "модулей слотов",
+                "реализация слота",
+                "реализации слотов",
+                "реализаций слотов",
             ));
         }
         let header = v_flex()
@@ -94,7 +89,7 @@ impl SettingsView {
                     .gap_2()
                     .items_center()
                     .child(
-                        Icon::new(Lucide::Package)
+                        Icon::new(Lucide::Boxes)
                             .small()
                             .text_color(theme.muted_foreground),
                     )
@@ -120,7 +115,7 @@ impl SettingsView {
 
         let mut rows = vec![header.into_any_element()];
         if plugin.exports.is_empty() && plugin.tool_packs.is_empty() {
-            rows.push(note("Плагин не объявил exports.", cx).into_any_element());
+            rows.push(note("Модуль не объявил exports.", cx).into_any_element());
         }
         if !plugin.tool_packs.is_empty() {
             rows.push(group_label("Пакеты инструментов", cx));
@@ -140,7 +135,7 @@ impl SettingsView {
             );
         }
         if !modules.is_empty() {
-            rows.push(group_label("Модули слотов", cx));
+            rows.push(group_label("Реализации слотов", cx));
             rows.extend(
                 modules
                     .into_iter()
@@ -156,7 +151,7 @@ impl SettingsView {
         pack: &ConfigBuilderToolPack,
         cx: &Context<Self>,
     ) -> AnyElement {
-        let snapshot = self.snapshot().expect("plugins page needs a snapshot");
+        let snapshot = self.snapshot().expect("modules page needs a snapshot");
         let summary = pack_summary(snapshot, &self.draft, pack);
         let key = pack_key(&plugin.id, &pack.id);
         let open = self.is_open(&key);
@@ -244,7 +239,7 @@ impl SettingsView {
     }
 
     fn pack_tool_row(&self, name: &str, cx: &Context<Self>) -> AnyElement {
-        let snapshot = self.snapshot().expect("plugins page needs a snapshot");
+        let snapshot = self.snapshot().expect("modules page needs a snapshot");
         let tool = find_tool(snapshot, name);
         let runtime = tool.is_some_and(|tool| tool.runtime_managed);
         let mut chips = Vec::new();
@@ -317,7 +312,7 @@ impl SettingsView {
         export: &ConfigBuilderPluginExport,
         cx: &Context<Self>,
     ) -> AnyElement {
-        let snapshot = self.snapshot().expect("plugins page needs a snapshot");
+        let snapshot = self.snapshot().expect("modules page needs a snapshot");
         let title = slot_title(snapshot, &export.slot);
         let mut chips = vec![chip(title.clone(), Tone::Muted, cx)];
         if export_selected(snapshot, &self.draft, export) {
@@ -325,65 +320,13 @@ impl SettingsView {
         }
         let page = slot_page(&export.slot);
         let open = kit::button(hashed_id("open-slot", &(&export.slot, &export.id)))
-            .label(format!("Открыть {title}"))
+            .label(format!("Открыть {}", page_title(Some(snapshot), &page)))
             .ghost()
             .xsmall()
             .on_click(cx.listener(move |this, _, _, cx| this.select_page(page.clone(), cx)));
         export_header(export, chips, cx)
             .child(open)
             .into_any_element()
-    }
-
-    fn agent_plugins(&self, cx: &Context<Self>) -> AnyElement {
-        let theme = cx.theme();
-        let rows = self
-            .draft
-            .addons
-            .addons
-            .plugins
-            .iter()
-            .enumerate()
-            .map(|(ix, plugin)| {
-                let path = plugin.path.display().to_string();
-                h_flex()
-                    .px_4()
-                    .py_3()
-                    .gap_3()
-                    .items_center()
-                    .child(
-                        v_flex()
-                            .flex_1()
-                            .min_w_0()
-                            .gap_1()
-                            .child(mono_line(path, cx).text_sm())
-                            .child(h_flex().child(chip("skills и MCP", Tone::Muted, cx))),
-                    )
-                    .child(
-                        kit::switch(("agent-plugin", ix))
-                            .checked(plugin.enabled)
-                            .on_click(cx.listener(move |this, checked: &bool, _, cx| {
-                                let checked = *checked;
-                                this.update_draft(cx, |draft| {
-                                    if let Some(plugin) = draft.addons.addons.plugins.get_mut(ix) {
-                                        plugin.enabled = checked;
-                                    }
-                                });
-                            })),
-                    )
-                    .into_any_element()
-            });
-        section(
-            "Пакеты Agent Plugins",
-            Some(
-                "Пакеты навыков и MCP-серверов. Это не процессные плагины: они не дают tools exports и обработчиков."
-                    .into(),
-            ),
-            None,
-            card(rows, cx),
-            cx,
-        )
-        .text_color(theme.foreground)
-        .into_any_element()
     }
 }
 

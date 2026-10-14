@@ -1,16 +1,14 @@
 //! Pages of select-one slots: implementation choice and its parameters.
 
-use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::*;
 use gpui_kit::*;
 
 use super::SettingsView;
 use super::widgets::{Tone, card, chip, hashed_id, mono, note, radio_card, section};
 use crate::settings::catalog::{
-    CONTEXT_PROVIDER_SLOT, MODEL_SLOT, POLICY_SLOT, PageId, exports, find_slot, model_module,
+    CONTEXT_PROVIDER_SLOT, CONTEXT_SLOT, MODEL_SLOT, POLICY_SLOT, exports, find_slot, model_module,
     permission_description, selected_module,
 };
-use crate::ui::kit;
 
 impl SettingsView {
     pub(super) fn model_page(&self, cx: &Context<Self>) -> Vec<AnyElement> {
@@ -71,6 +69,9 @@ impl SettingsView {
             parts.push(self.mode_section(cx));
         }
         parts.extend(self.implementation(slot, cx));
+        if slot == CONTEXT_SLOT {
+            parts.extend(self.providers_section(cx));
+        }
         parts
     }
 
@@ -186,10 +187,10 @@ impl SettingsView {
         parts
     }
 
-    pub(super) fn context_providers_page(&self, cx: &Context<Self>) -> Vec<AnyElement> {
-        let Some(snapshot) = self.snapshot() else {
-            return Vec::new();
-        };
+    /// Context providers of the profile, under the context module that reads
+    /// them.
+    fn providers_section(&self, cx: &Context<Self>) -> Option<AnyElement> {
+        let snapshot = self.snapshot()?;
         let theme = cx.theme();
         let rows: Vec<AnyElement> = exports(snapshot, CONTEXT_PROVIDER_SLOT)
             .map(|(plugin, export)| {
@@ -238,29 +239,19 @@ impl SettingsView {
         } else {
             card(rows, cx)
         };
-        let view = cx.weak_entity();
-        let open_context = kit::button("open-context-slot")
-            .label("Открыть Context")
-            .ghost()
-            .xsmall()
-            .on_click(move |_, _, cx| {
-                let _ = view.update(cx, |this, cx| {
-                    this.select_page(PageId::Slot("context".to_string()), cx)
-                });
-            });
-        vec![
+        Some(
             section(
-                "Поставщики",
+                "Поставщики контекста",
                 Some(
-                    "Какие поставщики читаются автоматически, задают параметры модуля Context."
+                    "Какие поставщики читаются автоматически, задают параметры модуля Context выше."
                         .into(),
                 ),
-                Some(open_context.into_any_element()),
+                None,
                 providers,
                 cx,
             )
             .into_any_element(),
-        ]
+        )
     }
 
     /// Collapsible parameters inside a card row.

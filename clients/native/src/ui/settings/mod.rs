@@ -1,6 +1,7 @@
 //! Settings screen: the agent profile (`/config/builder`) and client
 //! preferences of this device.
 
+mod addons;
 mod client;
 mod editors;
 mod extension;
@@ -8,12 +9,15 @@ mod extensions;
 mod fields;
 mod frame;
 mod hooks;
+mod mcp;
+mod modules;
 mod nav;
+mod packages;
 mod params;
-mod plugins;
 mod revisions;
 mod shortcuts;
 mod sizes;
+mod skills;
 mod slots;
 mod tools;
 mod widgets;
@@ -61,6 +65,7 @@ pub struct SettingsView {
     api: Api,
     session_dir: PathBuf,
     state: LoadState,
+    addons: addons::AddonsState,
     baseline: Draft,
     draft: Draft,
     editors: Editors,
@@ -118,6 +123,9 @@ impl SettingsView {
             api,
             session_dir,
             state: LoadState::Loading,
+            addons: addons::AddonsState::Loading {
+                _request: Task::ready(()),
+            },
             baseline: Draft::default(),
             draft: Draft::default(),
             editors: Editors::default(),
@@ -144,6 +152,7 @@ impl SettingsView {
 
     fn load(&mut self, cx: &mut Context<Self>) {
         self.state = LoadState::Loading;
+        self.load_addons(cx);
         let api = self.api.clone();
         let dir = self.session_dir.clone();
         cx.spawn(async move |this, cx| {
@@ -291,6 +300,7 @@ impl SettingsView {
                 match result {
                     Ok(snapshot) => {
                         this.accept(snapshot);
+                        this.load_addons(cx);
                         this.history = HistoryState::Idle;
                         if this.page == PageId::History {
                             this.load_history(cx);

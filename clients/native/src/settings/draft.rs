@@ -12,7 +12,9 @@ pub enum Area {
     Mode,
     Tools,
     Hooks,
-    Addons,
+    Mcp,
+    Skills,
+    Packages,
     Slot(String),
 }
 
@@ -43,8 +45,7 @@ pub struct Draft {
     pub tools: BTreeSet<String>,
     pub provider: Option<String>,
     pub mode: String,
-    /// Skills, MCP servers and agent plugin packages; edited only by history
-    /// rollback here.
+    /// Skills, MCP servers and agent plugin packages.
     pub addons: AppAddonsUpdate,
 }
 
@@ -61,7 +62,7 @@ impl Draft {
             tools: snapshot.tools_enabled.iter().cloned().collect(),
             provider: snapshot.active_provider.clone(),
             mode: snapshot.permission_mode.clone(),
-            addons: snapshot.addon_settings.clone(),
+            addons: super::addons::normalized(snapshot.addon_settings.clone()),
         }
     }
 
@@ -173,7 +174,7 @@ impl Draft {
         draft.tools = state.tools_enabled.iter().cloned().collect();
         draft.provider = state.active_provider.clone();
         draft.mode = state.permission_mode.clone();
-        draft.addons = state.addon_settings.clone();
+        draft.addons = super::addons::normalized(state.addon_settings.clone());
         draft
     }
 
@@ -193,8 +194,17 @@ impl Draft {
         if request.hooks.is_some() {
             areas.insert(Area::Hooks);
         }
-        if request.addon_settings.is_some() {
-            areas.insert(Area::Addons);
+        let (before, after) = (&baseline.addons, &self.addons);
+        if before.mcp_servers != after.mcp_servers
+            || before.addons.disabled_mcp_servers != after.addons.disabled_mcp_servers
+        {
+            areas.insert(Area::Mcp);
+        }
+        if before.addons.disabled_skills != after.addons.disabled_skills {
+            areas.insert(Area::Skills);
+        }
+        if before.addons.plugins != after.addons.plugins {
+            areas.insert(Area::Packages);
         }
         for slot in request.modules.keys().chain(request.module_config.keys()) {
             areas.insert(Area::Slot(slot.clone()));

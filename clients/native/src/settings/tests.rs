@@ -1,3 +1,6 @@
+use std::path::Path;
+
+use proteus_contracts::app_protocol::addons::AppAddonsSnapshot;
 use proteus_contracts::app_protocol::config_builder::{
     ConfigBuilderModule, ConfigBuilderModuleSelection, ConfigBuilderSlot, ConfigBuilderSnapshot,
     ConfigBuilderState, ConfigBuilderTool, ConfigBuilderToolPack,
@@ -5,8 +8,12 @@ use proteus_contracts::app_protocol::config_builder::{
 use proteus_contracts::domain::{ConfigField, ConfigValueSchema, ModuleConfigSchema};
 use serde_json::json;
 
+use super::addons::{
+    mcp_servers, missing_skills, normalized, package_contents, package_state, tool_server,
+};
 use super::catalog::{
-    PackState, PageId, agent_pages, module_info, pack_summary, page_title, plural,
+    CONNECTION_PAGES, CONTEXT_PROVIDER_SLOT, PackState, PageId, agent_pages, module_info,
+    pack_summary, page_title, plural, slot_page,
 };
 use super::draft::Area;
 use super::history::describe_changes;
@@ -164,15 +171,14 @@ fn pages_cover_known_slots_and_append_unknown_ones() {
         slot_pages,
         ["workflow", "context", "policy", "earlier", "later"]
     );
-    for page in [
-        PageId::Model,
-        PageId::ContextProviders,
-        PageId::Tools,
-        PageId::Hooks,
-    ] {
+    for page in [PageId::Model, PageId::Tools, PageId::Hooks] {
         assert!(pages.contains(&page));
     }
-    assert_eq!(pages.last(), Some(&PageId::History));
+    assert!(CONNECTION_PAGES.iter().all(|page| !pages.contains(page)));
+    assert_eq!(
+        slot_page(CONTEXT_PROVIDER_SLOT),
+        PageId::Slot("context".into())
+    );
     assert_eq!(
         page_title(Some(&snapshot), &PageId::Slot("later".into())),
         "LATER"
@@ -274,4 +280,111 @@ fn pack_switch_leaves_runtime_tools_alone() {
     assert_eq!((summary.enabled, summary.total), (2, 3));
     assert_eq!(plural(3, "пакет", "пакета", "пакетов"), "3 пакета");
     assert_eq!(plural(11, "пакет", "пакета", "пакетов"), "11 пакетов");
+}
+
+fn addons_snapshot() -> AppAddonsSnapshot {
+    let skill = |id: &str| {
+        json!({
+            "id": id, "name": id, "description": "", "path": format!("/skills/{id}"),
+            "source": "project", "enabled": true,
+        })
+    };
+    let server = |name: &str, tool: &str| json!({ "name": name, "enabled": true, "tools": [tool], "error": null });
+    serde_json::from_value(json!({
+        "reload_error": null,
+        "writable": true,
+        "settings": {
+            "addons": {
+                "disabled_skills": [],
+                "disabled_mcp_servers": [],
+                "plugins": [{ "path": "pkg", "enabled": true }],
+            },
+            "mcp_servers": [],
+        },
+        "catalogs": [{
+            "provider": "skills",
+            "catalog": { "skills": [skill("review"), skill("team:deploy")], "warnings": [] },
+            "error": null,
+        }],
+        "mcp_servers": [server("db", "query"), server("team:x", "x_run")],
+        "plugins": [{
+            "path": "/work/pkg", "name": "team", "version": "1.0", "description": null,
+            "enabled": true, "warnings": [], "error": null,
+        }],
+    }))
+    .expect("addons snapshot")
+}
+
+#[test]
+fn addon_switches_stay_sets_and_mark_their_pages() {
+    let mut baseline = Draft::default();
+    baseline.addons = normalized(
+        serde_json::from_value(json!({
+            "addons": {
+                "disabled_skills": ["b", "a", "b"],
+                "disabled_mcp_servers": [],
+                "plugins": [{ "path": "pkg", "enabled": true }],
+            },
+            "mcp_servers": [{ "name": "db", "command": "db-mcp", "enabled": false }],
+        }))
+        .expect("addon settings"),
+    );
+    assert_eq!(baseline.addons.addons.disabled_skills, ["a", "b"]);
+    let mut draft = baseline.clone();
+    draft.set_skill("a", true);
+    draft.set_skill("a", false);
+    assert!(!draft.is_dirty(&baseline));
+
+    assert!(!draft.mcp_enabled("db"));
+    draft.set_mcp("db", true);
+    draft.set_mcp("team:x", false);
+    draft.set_skill("c", false);
+    draft.set_package(Path::new("pkg"), false);
+    assert!(draft.mcp_enabled("db") && !draft.mcp_enabled("team:x"));
+    assert_eq!(
+        draft.areas(&baseline),
+        [Area::Mcp, Area::Skills, Area::Packages]
+    );
+    assert_eq!(
+        describe_changes(&ConfigBuilderSnapshot::default(), &baseline, &draft),
+        ["Skills: − c", "MCP: − team:x, + db", "Packages: − pkg"]
+    );
+}
+
+#[test]
+fn addons_snapshot_links_servers_tools_skills_and_packages() {
+    let addons = addons_snapshot();
+    let mut draft = Draft::default();
+    draft.addons.mcp_servers = serde_json::from_value(json!([
+        { "name": "db", "command": "db-mcp" },
+        { "name": "fresh", "command": "fresh-mcp" },
+    ]))
+    .expect("servers");
+    draft.addons.addons.disabled_skills = vec!["gone".into(), "review".into()];
+
+    let servers = mcp_servers(&draft, Some(&addons));
+    let origins: Vec<_> = servers
+        .iter()
+        .map(|server| {
+            (
+                server.name,
+                server.configured.is_some(),
+                server.state.is_some(),
+                server.package,
+            )
+        })
+        .collect();
+    assert_eq!(
+        origins,
+        [
+            ("db", true, true, None),
+            ("team:x", false, true, Some("team")),
+            ("fresh", true, false, None),
+        ]
+    );
+    assert_eq!(tool_server(&addons, "x_run"), Some("team:x"));
+    assert_eq!(missing_skills(&draft, &addons), ["gone"]);
+    assert_eq!(package_contents(&addons, "team"), (1, 1));
+    let state = package_state(&addons, Path::new("pkg")).expect("package state");
+    assert_eq!(state.name.as_deref(), Some("team"));
 }

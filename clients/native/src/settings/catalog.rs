@@ -13,6 +13,7 @@ use super::draft::{Area, Draft};
 pub const MODEL_SLOT: &str = "model";
 pub const HOOK_SLOT: &str = "hook";
 pub const TOOL_SLOT: &str = "tool";
+pub const CONTEXT_SLOT: &str = "context";
 pub const CONTEXT_PROVIDER_SLOT: &str = "context_provider";
 pub const POLICY_SLOT: &str = "policy";
 
@@ -23,10 +24,14 @@ const SLOT_PAGES: [&str; 3] = ["workflow", "context", "policy"];
 pub enum PageId {
     Model,
     Slot(String),
-    ContextProviders,
     Tools,
     Hooks,
-    Plugins,
+    /// Process components of the profile with their exports.
+    Modules,
+    Mcp,
+    Skills,
+    /// Agent Plugins packages.
+    Packages,
     History,
     Appearance,
     Chat,
@@ -62,7 +67,10 @@ pub fn slot_text(slot: &str) -> Option<(&'static str, &'static str)> {
             "Workflow",
             "Управляет шагами агента от запроса до результата.",
         ),
-        "context" => ("Context", "Собирает сведения, которые получает модель."),
+        "context" => (
+            "Context",
+            "Собирает сведения, которые получает модель, в том числе от поставщиков контекста: навыков, поиска и памяти.",
+        ),
         CONTEXT_PROVIDER_SLOT => (
             "Context Providers",
             "Поставляют навыки, поиск и память. Какие из них читать автоматически, задают параметры модуля Context.",
@@ -87,8 +95,8 @@ pub fn slot_title(snapshot: &ConfigBuilderSnapshot, slot: &str) -> String {
         .unwrap_or_else(|| slot.to_string())
 }
 
-/// Agent pages: the known slots, then unknown select-one slots, plugins and
-/// history.
+/// Agent pages by what the part does: the known slots, then unknown
+/// select-one slots.
 pub fn agent_pages(snapshot: &ConfigBuilderSnapshot) -> Vec<PageId> {
     let mut pages = vec![PageId::Model];
     pages.extend(
@@ -96,7 +104,6 @@ pub fn agent_pages(snapshot: &ConfigBuilderSnapshot) -> Vec<PageId> {
             .into_iter()
             .map(|slot| PageId::Slot(slot.to_string())),
     );
-    pages.push(PageId::ContextProviders);
     pages.push(PageId::Tools);
     pages.push(PageId::Slot(POLICY_SLOT.to_string()));
     pages.push(PageId::Hooks);
@@ -111,10 +118,17 @@ pub fn agent_pages(snapshot: &ConfigBuilderSnapshot) -> Vec<PageId> {
             .into_iter()
             .map(|slot| PageId::Slot(slot.id.clone())),
     );
-    pages.push(PageId::Plugins);
-    pages.push(PageId::History);
     pages
 }
+
+/// Agent pages by where the parts come from, then the profile history.
+pub const CONNECTION_PAGES: [PageId; 5] = [
+    PageId::Modules,
+    PageId::Mcp,
+    PageId::Skills,
+    PageId::Packages,
+    PageId::History,
+];
 
 pub const CLIENT_PAGES: [PageId; 4] = [
     PageId::Appearance,
@@ -132,10 +146,12 @@ pub fn page_title(snapshot: Option<&ConfigBuilderSnapshot>, page: &PageId) -> St
                 .map(|(title, _)| title.to_string())
                 .unwrap_or_else(|| slot.clone()),
         },
-        PageId::ContextProviders => "Context Providers".into(),
         PageId::Tools => "Tools".into(),
         PageId::Hooks => "Hooks".into(),
-        PageId::Plugins => "Plugins".into(),
+        PageId::Modules => "Modules".into(),
+        PageId::Mcp => "MCP".into(),
+        PageId::Skills => "Skills".into(),
+        PageId::Packages => "Packages".into(),
         PageId::History => "History".into(),
         PageId::Appearance => "Внешний вид".into(),
         PageId::Chat => "Чат".into(),
@@ -161,13 +177,19 @@ pub fn page_description(snapshot: Option<&ConfigBuilderSnapshot>, page: &PageId)
                 })
                 .unwrap_or_default();
         }
-        PageId::ContextProviders => slot_text(CONTEXT_PROVIDER_SLOT)
-            .map(|(_, text)| text)
-            .unwrap_or(""),
         PageId::Tools => slot_text(TOOL_SLOT).map(|(_, text)| text).unwrap_or(""),
         PageId::Hooks => slot_text(HOOK_SLOT).map(|(_, text)| text).unwrap_or(""),
-        PageId::Plugins => {
-            "Плагины — процессные компоненты профиля. Один плагин может давать пакеты инструментов, обработчики и модули слотов."
+        PageId::Modules => {
+            "Процессные модули профиля. Один модуль может давать пакеты инструментов, обработчики и реализации слотов."
+        }
+        PageId::Mcp => {
+            "MCP-серверы профиля и пакетов. Инструменты сервера доступны агенту, пока сервер включён; изменения применяются после сохранения."
+        }
+        PageId::Skills => {
+            "Навыки, которые нашли поставщики контекста. Выключенный навык не виден модели и не загружается."
+        }
+        PageId::Packages => {
+            "Пакеты Agent Plugins приносят навыки и MCP-серверы. Выключение пакета выключает всё, что он даёт."
         }
         PageId::History => {
             "Каждое сохранение настроек агента запоминает состояние профиля, которое оно заменило. «Вернуть как было» загружает это состояние в черновик: проверьте изменения внизу и сохраните. Откат тоже попадает в историю."
@@ -191,7 +213,8 @@ pub fn slot_page(slot: &str) -> PageId {
         MODEL_SLOT => PageId::Model,
         HOOK_SLOT => PageId::Hooks,
         TOOL_SLOT => PageId::Tools,
-        CONTEXT_PROVIDER_SLOT => PageId::ContextProviders,
+        // Providers are listed with the context module that reads them.
+        CONTEXT_PROVIDER_SLOT => PageId::Slot(CONTEXT_SLOT.to_string()),
         _ => PageId::Slot(slot.to_string()),
     }
 }
@@ -203,9 +226,11 @@ pub fn area_page(area: &Area) -> PageId {
         Area::Mode => PageId::Slot(POLICY_SLOT.to_string()),
         Area::Tools => PageId::Tools,
         Area::Hooks => PageId::Hooks,
-        Area::Addons => PageId::Plugins,
+        Area::Mcp => PageId::Mcp,
+        Area::Skills => PageId::Skills,
+        Area::Packages => PageId::Packages,
         // Tool pack parameters are edited with their packs.
-        Area::Slot(slot) if slot == TOOL_SLOT => PageId::Plugins,
+        Area::Slot(slot) if slot == TOOL_SLOT => PageId::Modules,
         Area::Slot(slot) => slot_page(slot),
     }
 }
@@ -219,7 +244,9 @@ pub fn area_labels(snapshot: &ConfigBuilderSnapshot, areas: &[Area]) -> Vec<Stri
             Area::Mode => "permission_mode".to_string(),
             Area::Tools => "Tools".to_string(),
             Area::Hooks => "Hooks".to_string(),
-            Area::Addons => "Plugins".to_string(),
+            Area::Mcp => "MCP".to_string(),
+            Area::Skills => "Skills".to_string(),
+            Area::Packages => "Packages".to_string(),
             Area::Slot(slot) => slot_title(snapshot, slot),
         };
         if !labels.contains(&label) {

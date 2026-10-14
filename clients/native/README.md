@@ -173,10 +173,11 @@ LTO и инкрементально, поэтому правка клиента 
   событий по правилам `app_server/turn_progress.rs`, без GPUI;
 - `tool_display` — заголовки инструментов, разбор patch и плана;
 - `settings` — headless черновик и каталог страниц настроек агента поверх
-  `/config/builder` и `/config/history`: страница на каждый слот (Model,
-  Workflow, Context, Context Providers, Tools, Policy, Hooks; неизвестные
-  слоты добавляются по порядку; сжатие истории и отбор инструментов —
-  обработчики на странице Hooks), Plugins и
+  `/config/builder`, `/addons` и `/config/history`. Блок «Агент» — страница
+  на каждый слот (Model, Workflow, Context вместе с context providers, Tools,
+  Policy, Hooks; неизвестные слоты добавляются по порядку; сжатие истории и
+  отбор инструментов — обработчики на странице Hooks). Блок «Подключения» —
+  Modules (процессные components), MCP, Skills, Packages (Agent Plugins) и
   History с откатом; поля строятся по `config_schema` модулей, сохранение
   отправляет только изменённые разделы;
 - `preferences` — настройки самого клиента (тема и палитры, масштаб, анимации,

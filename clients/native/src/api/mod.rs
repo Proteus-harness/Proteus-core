@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Result, anyhow, bail};
+use proteus_contracts::app_protocol::addons::AppAddonsSnapshot;
 use proteus_contracts::app_protocol::config::ConfigSummary;
 use proteus_contracts::app_protocol::config_builder::{ConfigBuilderSnapshot, ConfigHistory};
 use proteus_contracts::app_protocol::http::{
@@ -196,6 +197,11 @@ impl Api {
 
     pub fn config_builder(&self, session_dir: &Path) -> Result<ConfigBuilderSnapshot> {
         self.get("/config/builder", Some(session_dir))
+    }
+
+    /// Skill catalogs, MCP discovery and package diagnostics of the assembly.
+    pub fn addons(&self, session_dir: &Path) -> Result<AppAddonsSnapshot> {
+        self.get("/addons", Some(session_dir))
     }
 
     pub fn workspace_list(&self, session_dir: &Path, path: &str) -> Result<Listing> {

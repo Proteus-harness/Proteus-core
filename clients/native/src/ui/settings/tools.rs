@@ -8,7 +8,9 @@ use gpui_kit::*;
 use proteus_contracts::app_protocol::config_builder::ConfigBuilderTool;
 
 use super::SettingsView;
+use super::mcp::mcp_key;
 use super::widgets::{Tone, card, changed_dot, chip, hashed_id, mono, note, section};
+use crate::settings::addons::tool_server;
 use crate::settings::catalog::{PageId, missing_tools, tool_matches};
 use crate::ui::kit;
 use crate::ui::kit::Hint as _;
@@ -80,25 +82,42 @@ impl SettingsView {
             },
             cx,
         )];
-        if tool.runtime_managed {
+        let server = self
+            .addons()
+            .and_then(|addons| tool_server(addons, &tool.name));
+        if tool.runtime_managed && server.is_none() {
             chips.push(chip("управляется runtime", Tone::Accent, cx));
         }
         if !tool.registered {
             chips.push(chip("не зарегистрирован", Tone::Warning, cx));
         }
-        let owner = tool.owner.as_ref().map(|owner| {
-            let key = pack_key(&owner.component_id, &owner.module_id);
+        let link = match (&tool.owner, server) {
+            (Some(owner), _) => Some((
+                format!("{} · {}", owner.component_id, owner.module_id),
+                "Открыть пакет в модуле",
+                pack_key(&owner.component_id, &owner.module_id),
+                PageId::Modules,
+            )),
+            (None, Some(server)) => Some((
+                format!("MCP · {server}"),
+                "Включается вместе с MCP-сервером",
+                mcp_key(server),
+                PageId::Mcp,
+            )),
+            (None, None) => None,
+        };
+        let owner = link.map(|(label, hint, key, page)| {
             let view = cx.weak_entity();
             kit::button(hashed_id("tool-owner", &tool.name))
-                .label(format!("{} · {}", owner.component_id, owner.module_id))
+                .label(label)
                 .ghost()
                 .xsmall()
-                .hint("Открыть пакет", cx)
+                .hint(hint, cx)
                 .on_click(move |_, _, cx| {
-                    let key = key.clone();
+                    let (key, page) = (key.clone(), page.clone());
                     let _ = view.update(cx, |this, cx| {
                         this.open.insert(key);
-                        this.select_page(PageId::Plugins, cx);
+                        this.select_page(page, cx);
                     });
                 })
         });
