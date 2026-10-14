@@ -11,7 +11,7 @@ use super::context_usage::ContextUsage;
 use super::{Chat, ChatEvent};
 use crate::api::Api;
 use crate::connection::{self, PumpItem};
-use crate::transcript::Change;
+use crate::transcript::{Change, Role};
 
 /// Streams the session into the chat until the chat is dropped; dropping
 /// the task closes the channel, which stops the stream thread.
@@ -118,6 +118,14 @@ impl Chat {
                     &snapshot.stream_id,
                     snapshot.seq,
                 ) {
+                    let shown = session.pending.as_ref();
+                    for key in super::requests::request_keys(&snapshot) {
+                        if !shown.is_some_and(|shown| {
+                            super::requests::request_keys(shown).any(|old| old == key)
+                        }) {
+                            self.fresh_requests.mark(key);
+                        }
+                    }
                     session.pending = Some(*snapshot);
                 }
                 if let Some(pending) = &session.pending {
@@ -151,8 +159,14 @@ impl Chat {
 
     fn apply_change(&mut self, change: Change, cx: &mut Context<Self>) {
         if matches!(change, Change::Spliced { .. }) {
-            let keys = self.session.transcript.entries().iter();
-            self.replies.retain(&keys.map(|entry| entry.key).collect());
+            let entries = self.session.transcript.entries();
+            self.replies
+                .retain(&entries.iter().map(|entry| entry.key).collect());
+            let replies = entries
+                .iter()
+                .filter(|entry| entry.role == Role::Assistant)
+                .map(|entry| (entry.key, &entry.text));
+            self.replies.prepare(replies, cx);
         }
         if matches!(change, Change::Pushed)
             && let Some(entry) = self.session.transcript.entries().last()

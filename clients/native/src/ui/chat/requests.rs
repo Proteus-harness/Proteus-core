@@ -1,9 +1,11 @@
+use std::hash::{DefaultHasher, Hash, Hasher};
+
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::input::Input;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use proteus_contracts::app_protocol::AppApprovalRequest;
+use proteus_contracts::app_protocol::{AppApprovalRequest, AppPendingRequests};
 use proteus_contracts::contracts::UserInputRequest;
 
 use super::Chat;
@@ -29,13 +31,19 @@ impl Chat {
             .approvals
             .iter()
             .map(|request| {
-                let id = format!("approval-{}", request.approval_id);
-                arrive(render_approval(request, cx), id)
+                let id = approval_card(request);
+                let fresh = self.fresh_requests.is_fresh(request_key(&id));
+                arrive(render_approval(request, cx), id, fresh)
             })
             .collect::<Vec<_>>();
         for request in &pending.user_inputs {
-            let id = format!("user-input-{}", request.request_id);
-            cards.push(arrive(self.render_user_input(request, window, cx), id));
+            let id = input_card(request);
+            let fresh = self.fresh_requests.is_fresh(request_key(&id));
+            cards.push(arrive(
+                self.render_user_input(request, window, cx),
+                id,
+                fresh,
+            ));
         }
         Some(
             h_flex().w_full().justify_center().px_6().pt_2().child(
@@ -178,9 +186,31 @@ impl Chat {
     }
 }
 
-/// A request card rises in once, when it arrives.
-fn arrive(card: AnyElement, id: String) -> AnyElement {
-    motion::rise_in(div().child(card), ElementId::Name(id.into())).into_any_element()
+/// A request card rises in once, when it arrives; shown again after a tab
+/// switch it stays put.
+fn arrive(card: AnyElement, id: String, fresh: bool) -> AnyElement {
+    motion::rise_in_if(div().child(card), ElementId::Name(id.into()), fresh).into_any_element()
+}
+
+/// Keys of the cards in `pending`, for telling the newly arrived ones.
+pub(super) fn request_keys(pending: &AppPendingRequests) -> impl Iterator<Item = u64> + '_ {
+    let approvals = pending.approvals.iter().map(approval_card);
+    let inputs = pending.user_inputs.iter().map(input_card);
+    approvals.chain(inputs).map(|id| request_key(&id))
+}
+
+fn approval_card(request: &AppApprovalRequest) -> String {
+    format!("approval-{}", request.approval_id)
+}
+
+fn input_card(request: &UserInputRequest) -> String {
+    format!("user-input-{}", request.request_id)
+}
+
+fn request_key(id: &str) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    id.hash(&mut hasher);
+    hasher.finish()
 }
 
 fn render_approval(request: &AppApprovalRequest, cx: &mut Context<Chat>) -> AnyElement {

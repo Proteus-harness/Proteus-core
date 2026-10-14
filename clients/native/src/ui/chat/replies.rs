@@ -10,6 +10,10 @@ use gpui_kit::*;
 
 use super::Chat;
 
+/// gpui-base parses a full text longer than this in the background, so its
+/// first frame is nearly empty until the parse lands.
+const BACKGROUND_PARSE_BYTES: usize = 4 * 1024;
+
 #[derive(Default)]
 pub(super) struct Replies(HashMap<u64, Reply>);
 
@@ -36,8 +40,10 @@ impl Replies {
             return reply.state.clone();
         }
         let state = cx.new(|cx| TextViewState::markdown(text, cx));
-        // Parsing finishes in the background and streamed text fades in.
-        let changes = cx.observe(&state, |_, _, cx| cx.notify());
+        // Parsing finishes in the background and streamed text fades in; the
+        // row is measured again, or a row out of view keeps its old height
+        // and jumps once scrolled to.
+        let changes = cx.observe(&state, move |chat, _, cx| chat.remeasure_row(key, cx));
         self.0.insert(
             key,
             Reply {
@@ -47,6 +53,20 @@ impl Replies {
             },
         );
         state
+    }
+
+    /// Starts parsing the long replies of a loaded thread ahead of their
+    /// rows, so scrolling up meets them at full height.
+    pub(super) fn prepare<'a>(
+        &mut self,
+        replies: impl IntoIterator<Item = (u64, &'a Arc<str>)>,
+        cx: &mut Context<Chat>,
+    ) {
+        for (key, text) in replies {
+            if text.len() > BACKGROUND_PARSE_BYTES && !self.0.contains_key(&key) {
+                self.state(key, text, cx);
+            }
+        }
     }
 
     /// Forgets replies whose rows left the thread.

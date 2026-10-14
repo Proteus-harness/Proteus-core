@@ -102,6 +102,9 @@ impl ArchitecturePage {
                 cx.on_next_frame(window, |_, _, cx| cx.notify());
             }
         }
+        // Until the area is measured the map would show at the default zoom
+        // for a frame, so only the probe is drawn.
+        let placed = !self.map.fit;
         let query = self.map.query.read(cx).value().trim().to_string();
         let found: Vec<usize> = if query.is_empty() {
             Vec::new()
@@ -318,8 +321,7 @@ impl ArchitecturePage {
                 CursorStyle::OpenHand
             })
             .child(probe)
-            .child(edges)
-            .children(nodes)
+            .when(placed, |area| area.child(edges).children(nodes))
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, event: &MouseDownEvent, _, _| {

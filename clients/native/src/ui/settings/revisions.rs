@@ -19,14 +19,17 @@ impl SettingsView {
         let history = match &self.history {
             HistoryState::Idle | HistoryState::Loading => {
                 return vec![
-                    h_flex()
-                        .gap_2()
-                        .items_center()
-                        .text_sm()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(Spinner::new().small())
-                        .child("Загружаю историю…")
-                        .into_any_element(),
+                    crate::ui::motion::late_in(
+                        h_flex()
+                            .gap_2()
+                            .items_center()
+                            .text_sm()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(Spinner::new().small())
+                            .child("Загружаю историю…"),
+                        "history-loading",
+                    )
+                    .into_any_element(),
                 ];
             }
             HistoryState::Failed(error) => {

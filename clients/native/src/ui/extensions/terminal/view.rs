@@ -245,8 +245,15 @@ impl Render for TerminalView {
         self.fit(cell, cx);
 
         let area = self.area.clone();
+        let view = cx.entity_id();
+        // A new size refits the grid on the next frame, even when nothing
+        // else redraws the terminal.
         let probe = canvas(
-            move |bounds, _, _| area.set(Some(bounds.size)),
+            move |bounds, _, cx| {
+                if area.replace(Some(bounds.size)) != Some(bounds.size) {
+                    cx.notify(view);
+                }
+            },
             |_, _, _, _| {},
         )
         .absolute()

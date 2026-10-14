@@ -14,8 +14,7 @@ use crate::ui::fade::faded;
 use crate::ui::floor::floor;
 use crate::ui::kit;
 use crate::ui::kit::Hint as _;
-use crate::ui::motion::Spinner;
-use crate::ui::motion::switch_in;
+use crate::ui::motion::{Spinner, late_in, switch_in};
 use crate::ui::prefs;
 
 const COLUMN_WIDTH: f32 = 720.;
@@ -25,13 +24,14 @@ impl SettingsView {
         if self.page.is_agent() {
             match &self.state {
                 LoadState::Loading => {
-                    return centered(
+                    return centered(late_in(
                         h_flex()
                             .gap_2()
                             .text_color(cx.theme().muted_foreground)
                             .child(Spinner::new())
                             .child("Загружаю профиль агента…"),
-                    );
+                        "settings-loading",
+                    ));
                 }
                 LoadState::Failed(error) => {
                     return centered(
@@ -266,7 +266,8 @@ impl SettingsView {
                         .label("Обновить")
                         .ghost()
                         .small()
-                        .disabled(self.saving)
+                        .loading(self.reloading)
+                        .disabled(self.saving || self.reloading)
                         .hint("Перечитать профиль", cx)
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.load(cx);

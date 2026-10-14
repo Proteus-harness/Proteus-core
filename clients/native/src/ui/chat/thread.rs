@@ -23,6 +23,11 @@ impl Chat {
             self.expanded.insert(key);
         }
         motion::toggled(reveal_key(cx.entity_id(), key), open, cx);
+        self.remeasure_row(key, cx);
+    }
+
+    /// Measures the row of entry `key` again on the next layout.
+    pub(super) fn remeasure_row(&mut self, key: u64, cx: &mut Context<Self>) {
         let row = self
             .session
             .transcript
@@ -250,6 +255,7 @@ fn render_subagent(
     let app: &App = cx;
     let tools = reveal(reveal_key(cx.entity_id(), key), expanded, app, || {
         v_flex()
+            .pt_2()
             .pl_5()
             .gap_1()
             .children(agent.tools.iter().map(|tool| tool_line(tool, app)))
@@ -258,7 +264,6 @@ fn render_subagent(
     v_flex()
         .px_3()
         .py_2()
-        .gap_2()
         .rounded(theme.radius_lg)
         .border_1()
         .border_color(theme.border)

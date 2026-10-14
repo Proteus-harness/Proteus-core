@@ -66,6 +66,8 @@ pub struct SettingsView {
     api: Api,
     session_dir: PathBuf,
     state: LoadState,
+    /// A reload of a shown profile is running; the page stays in place.
+    reloading: bool,
     addons: addons::AddonsState,
     baseline: Draft,
     draft: Draft,
@@ -124,7 +126,9 @@ impl SettingsView {
             api,
             session_dir,
             state: LoadState::Loading,
+            reloading: false,
             addons: addons::AddonsState::Loading {
+                previous: None,
                 _request: Task::ready(()),
             },
             baseline: Draft::default(),
@@ -151,9 +155,15 @@ impl SettingsView {
         view
     }
 
+    /// Reads the profile; a shown one stays on screen until the new arrives.
     fn load(&mut self, cx: &mut Context<Self>) {
-        self.state = LoadState::Loading;
+        if self.snapshot().is_some() {
+            self.reloading = true;
+        } else {
+            self.state = LoadState::Loading;
+        }
         self.load_addons(cx);
+        self.refresh_history(cx);
         let api = self.api.clone();
         let dir = self.session_dir.clone();
         cx.spawn(async move |this, cx| {
@@ -162,8 +172,16 @@ impl SettingsView {
                 .spawn(async move { api.config_builder(&dir) })
                 .await;
             this.update(cx, |this, cx| {
+                this.reloading = false;
                 match result {
+                    // Edits made while the profile was read win over it.
+                    Ok(_) if this.dirty() => {}
                     Ok(snapshot) => this.accept(snapshot),
+                    Err(error) if this.snapshot().is_some() => this.show_feedback(
+                        format!("Не удалось перечитать профиль: {error:#}"),
+                        true,
+                        cx,
+                    ),
                     Err(error) => this.state = LoadState::Failed(format!("{error:#}").into()),
                 }
                 cx.notify();
@@ -302,10 +320,7 @@ impl SettingsView {
                     Ok(snapshot) => {
                         this.accept(snapshot);
                         this.load_addons(cx);
-                        this.history = HistoryState::Idle;
-                        if this.page == PageId::History {
-                            this.load_history(cx);
-                        }
+                        this.refresh_history(cx);
                         this.show_feedback(
                             "Сохранено · новые запросы используют обновлённую сборку",
                             false,
@@ -324,8 +339,20 @@ impl SettingsView {
         .detach();
     }
 
+    /// Reads the history again on its page, or on the next visit.
+    fn refresh_history(&mut self, cx: &mut Context<Self>) {
+        if self.page == PageId::History {
+            self.load_history(cx);
+        } else {
+            self.history = HistoryState::Idle;
+        }
+    }
+
+    /// Loaded entries stay shown while a newer list is read.
     fn load_history(&mut self, cx: &mut Context<Self>) {
-        self.history = HistoryState::Loading;
+        if !matches!(self.history, HistoryState::Loaded(_)) {
+            self.history = HistoryState::Loading;
+        }
         let api = self.api.clone();
         let dir = self.session_dir.clone();
         cx.spawn(async move |this, cx| {

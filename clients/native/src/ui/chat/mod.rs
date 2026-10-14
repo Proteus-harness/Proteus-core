@@ -74,6 +74,8 @@ pub(super) struct Chat {
     open_chains: HashSet<u64>,
     /// Rows pushed by live events, for enter motion.
     fresh_rows: Recent,
+    /// Approval and question cards that just arrived, for enter motion.
+    fresh_requests: Recent,
     user_input: UserInputDrafts,
     notice: Notice,
     extras: ComposerExtras,
@@ -146,6 +148,7 @@ impl Chat {
             expanded: HashSet::new(),
             open_chains: HashSet::new(),
             fresh_rows: Recent::default(),
+            fresh_requests: Recent::default(),
             user_input: UserInputDrafts::default(),
             notice: Notice::default(),
             extras,

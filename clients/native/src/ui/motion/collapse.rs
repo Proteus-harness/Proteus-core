@@ -21,11 +21,6 @@ struct Squeeze {
     basis: AbsoluteLength,
 }
 
-#[derive(Clone, Copy)]
-struct CollapseState {
-    size: Size<Pixels>,
-}
-
 impl Collapse {
     pub(in crate::ui) fn new(id: impl Into<ElementId>, progress: f32, child: AnyElement) -> Self {
         Self {
@@ -82,28 +77,16 @@ impl Element for Collapse {
 
     fn request_layout(
         &mut self,
-        global_id: Option<&GlobalElementId>,
+        _: Option<&GlobalElementId>,
         _: Option<&InspectorElementId>,
         window: &mut Window,
         cx: &mut App,
     ) -> (LayoutId, Self::RequestLayoutState) {
-        let child = &mut self.child;
-        let natural = window.with_element_state(
-            global_id.expect("Collapse has an id"),
-            |state: Option<CollapseState>, window| {
-                // A child new under this id, such as a tab dropped into a
-                // strip or a row drawn afresh after a drag, is measured right
-                // away instead of taking no room for a frame.
-                let natural = state.map_or_else(
-                    || {
-                        let space = size(AvailableSpace::MaxContent, AvailableSpace::MaxContent);
-                        child.layout_as_root(space, window, cx)
-                    },
-                    |state| state.size,
-                );
-                (natural, CollapseState { size: natural })
-            },
-        );
+        // Measured on every frame: a size kept from the last frame showed new
+        // content (a title, a counter, a child new under this id) at the old
+        // width for a frame and moved the neighbours a frame late.
+        let space = size(AvailableSpace::MaxContent, AvailableSpace::MaxContent);
+        let natural = self.child.layout_as_root(space, window, cx);
         let width = natural.width;
         let mut style = Style::default();
         style.flex_shrink = 0.;
@@ -131,7 +114,7 @@ impl Element for Collapse {
 
     fn prepaint(
         &mut self,
-        global_id: Option<&GlobalElementId>,
+        _: Option<&GlobalElementId>,
         _: Option<&InspectorElementId>,
         bounds: Bounds<Pixels>,
         _: &mut Self::RequestLayoutState,
@@ -146,20 +129,6 @@ impl Element for Collapse {
         let measured =
             self.child
                 .layout_as_root(size(AvailableSpace::MaxContent, height), window, cx);
-        let vertical = self.vertical;
-        let changed = window.with_element_state(
-            global_id.expect("Collapse has an id"),
-            |state: Option<CollapseState>, _| {
-                let changed = state.is_none_or(|state| {
-                    state.size.width != measured.width
-                        || vertical && state.size.height != measured.height
-                });
-                (changed, CollapseState { size: measured })
-            },
-        );
-        if changed {
-            window.request_animation_frame();
-        }
         if self.squeeze.is_some() && self.progress > 0. {
             let room = bounds.size.width / self.progress;
             if room < measured.width - px(0.5) {

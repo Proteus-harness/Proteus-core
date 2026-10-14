@@ -1,7 +1,7 @@
 //! Short notes over the composer: a refused attachment, a server error.
 //! A note stays a few seconds, longer for a longer text, or until closed.
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::*;
@@ -19,6 +19,8 @@ pub(super) struct Notice {
     text: Option<SharedString>,
     /// Counts the notes, so each one fades in afresh.
     count: usize,
+    /// When the note came; shown again after a tab switch it stays put.
+    shown_at: Option<Instant>,
     hide: Option<Task<()>>,
 }
 
@@ -28,6 +30,7 @@ impl Chat {
         let stay = (SHOWN + PER_CHAR * text.chars().count() as u32).min(LONGEST);
         self.notice.text = Some(text);
         self.notice.count += 1;
+        self.notice.shown_at = Some(Instant::now());
         self.notice.hide = Some(cx.spawn(async move |this, cx| {
             cx.background_executor().timer(stay).await;
             this.update(cx, |this, cx| {
@@ -84,7 +87,9 @@ impl Chat {
                 .child(motion::fade_in_if(
                     note,
                     ("notice", self.notice.count),
-                    true,
+                    self.notice
+                        .shown_at
+                        .is_some_and(|at| at.elapsed() < motion::BASE * 2),
                 )),
         )
     }

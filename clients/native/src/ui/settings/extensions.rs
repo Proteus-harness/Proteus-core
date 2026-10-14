@@ -333,18 +333,7 @@ impl SettingsView {
             || "папка настроек не найдена".to_string(),
             |root| root.display().to_string(),
         );
-        let mut rows = vec![
-            disclosure(
-                "extensions-zip-toggle".into(),
-                open,
-                "Установить из ZIP",
-                false,
-                toggler(ZIP_KEY, cx),
-                cx,
-            )
-            .into_any_element(),
-        ];
-        rows.extend(self.reveal(ZIP_KEY, cx, || {
+        let content = self.reveal(ZIP_KEY, cx, || {
             v_flex()
                 .px_4()
                 .pb_4()
@@ -387,7 +376,22 @@ impl SettingsView {
                         .child(mono(folder.clone(), cx)),
                 )
                 .into_any_element()
-        }));
+        });
+        // The toggle and what it opens share one cell, so no divider is
+        // left over while it closes.
+        let mut rows = vec![
+            v_flex()
+                .child(disclosure(
+                    "extensions-zip-toggle".into(),
+                    open,
+                    "Установить из ZIP",
+                    false,
+                    toggler(ZIP_KEY, cx),
+                    cx,
+                ))
+                .children(content)
+                .into_any_element(),
+        ];
         rows.extend(extensions::problems().into_iter().map(|problem| {
             v_flex()
                 .px_4()
@@ -412,18 +416,7 @@ impl SettingsView {
 
     fn restore_section(&self, cx: &Context<Self>) -> Div {
         let open = self.is_open(RESTORE_KEY);
-        let mut rows = vec![
-            disclosure(
-                "extensions-restore-toggle".into(),
-                open,
-                "Восстановить стандартный список",
-                false,
-                toggler(RESTORE_KEY, cx),
-                cx,
-            )
-            .into_any_element(),
-        ];
-        rows.extend(self.reveal(RESTORE_KEY, cx, || {
+        let content = self.reveal(RESTORE_KEY, cx, || {
             h_flex()
                 .px_4()
                 .pb_4()
@@ -443,8 +436,21 @@ impl SettingsView {
                         })),
                 )
                 .into_any_element()
-        }));
-        card(rows, cx)
+        });
+        card(
+            [v_flex()
+                .child(disclosure(
+                    "extensions-restore-toggle".into(),
+                    open,
+                    "Восстановить стандартный список",
+                    false,
+                    toggler(RESTORE_KEY, cx),
+                    cx,
+                ))
+                .children(content)
+                .into_any_element()],
+            cx,
+        )
     }
 }
 

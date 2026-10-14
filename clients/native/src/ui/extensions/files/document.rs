@@ -16,7 +16,7 @@ use crate::files::{DiffKind, FileContent, FileDiff, FileKind, language_for};
 use crate::ui::extensions::{Host, HostEvent};
 use crate::ui::kit;
 use crate::ui::kit::Hint as _;
-use crate::ui::motion::Spinner;
+use crate::ui::motion::{self, Spinner};
 use crate::ui::prefs;
 
 const MAX_PREVIEW: &str = "512 КБ";
@@ -199,7 +199,11 @@ impl Render for FileDocument {
                     .xsmall(),
             );
         let body = match &self.preview {
-            Preview::Loading => centered(Spinner::new(), cx).into_any_element(),
+            Preview::Loading => centered(
+                motion::late_in(div().child(Spinner::new()), "file-preview-loading"),
+                cx,
+            )
+            .into_any_element(),
             Preview::Note(text) => centered(text.clone(), cx).into_any_element(),
             Preview::Text => div()
                 .flex_1()

@@ -93,11 +93,8 @@ impl Workspace {
             }
         };
         let header = self.render_panel_header(panel, cx).into_any_element();
-        let theme = cx.theme();
         v_flex()
             .size_full()
-            .bg(theme.sidebar)
-            .text_color(theme.sidebar_foreground)
             .child(header)
             .child(div().flex_1().min_h_0().w_full().child(content))
             .into_any_element()

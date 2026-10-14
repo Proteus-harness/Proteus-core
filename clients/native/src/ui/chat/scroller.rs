@@ -37,8 +37,8 @@ pub(super) struct ChatScroller {
     /// Content changed since the last frame; the new size is known only after
     /// the next layout.
     dirty: bool,
-    /// Width of the viewport on the last layout.
-    width: Option<Pixels>,
+    /// Size of the viewport on the last layout.
+    size: Option<gpui_kit::Size<Pixels>>,
 }
 
 impl ChatScroller {
@@ -58,7 +58,7 @@ impl ChatScroller {
             last_offset: None,
             last_frame: None,
             dirty: false,
-            width: None,
+            size: None,
         }
     }
 
@@ -72,10 +72,19 @@ impl ChatScroller {
     }
 
     pub(super) fn splice(&mut self, range: Range<usize>, count: usize, cx: &mut Context<Self>) {
-        if range.start > range.end || range.end > self.list.item_count() {
+        let total = self.list.item_count();
+        if range.start > range.end || range.end > total {
             return;
         }
+        // A loaded or reloaded thread opens at its end: the list would show
+        // the top, and with rows above still unmeasured the glide would crawl
+        // through the whole history.
+        let whole = range.start == 0 && range.end == total;
         self.list.splice(range, count);
+        if whole && self.following {
+            self.list.scroll_to_end();
+            self.last_offset = None;
+        }
         self.changed(cx);
     }
 
@@ -105,10 +114,12 @@ impl ChatScroller {
     }
 
     /// A new width re-measures every row and keeps the top one in place, so
-    /// the end would drop out of view; a following list stays at its end.
-    /// Called before the list lays out at `width`.
-    fn keep_end(&mut self, width: Pixels) {
-        let resized = self.width.replace(width).is_some_and(|last| last != width);
+    /// the end would drop out of view; a new height (the composer growing,
+    /// a request card) keeps the top too and cuts the last lines until the
+    /// glide brings them back. A following list stays at its end. Called
+    /// before the list lays out at `size`.
+    fn keep_end(&mut self, size: gpui_kit::Size<Pixels>) {
+        let resized = self.size.replace(size).is_some_and(|last| last != size);
         if resized && self.following {
             self.list.scroll_to_end();
             // Rows above are unmeasured now, so the offset reads lower
@@ -246,7 +257,7 @@ impl RenderOnce for ChatList {
                     .min_w_0()
                     // Ahead of the rows, so it runs before the list lays out.
                     .on_prepaint(move |bounds, _, cx| {
-                        resized.update(cx, |state, _| state.keep_end(bounds.size.width))
+                        resized.update(cx, |state, _| state.keep_end(bounds.size))
                     })
                     .child(rows)
                     .vertical_scrollbar(&list_state),

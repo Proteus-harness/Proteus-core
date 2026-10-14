@@ -10,6 +10,8 @@ use super::{BASE, FAST, ease_enter, shift};
 /// Rows of a list that join a staggered entrance; later ones appear at once.
 const STAGGER_ROWS: usize = 14;
 const STAGGER_STEP: Duration = Duration::from_millis(18);
+/// Loads shorter than this show no waiting indicator.
+const LATE: Duration = Duration::from_millis(200);
 
 /// Fade plus a short rise; for freshly shown blocks.
 pub(in crate::ui) fn rise_in<E: IntoElement + Styled + 'static>(
@@ -77,6 +79,19 @@ pub(in crate::ui) fn fade_in_if<E: IntoElement + Styled + 'static>(
             }
         },
     )
+}
+
+/// A waiting indicator held back for a moment, then faded in: a load that
+/// finishes sooner does not flash it.
+pub(in crate::ui) fn late_in<E: IntoElement + Styled + 'static>(
+    element: E,
+    id: impl Into<ElementId>,
+) -> AnimationElement<E> {
+    let total = LATE + FAST;
+    let late = LATE.as_secs_f32() / total.as_secs_f32();
+    element.with_animation(id, Animation::new(total), move |element, delta| {
+        element.opacity(((delta - late) / (1. - late)).clamp(0., 1.))
+    })
 }
 
 /// Row `index` of a list shown for the first time: rows fade in one after

@@ -37,31 +37,37 @@ impl SettingsView {
                 let path = path_of(&field.key);
                 self.draft.value(&path) != self.baseline.value(&path)
             });
-            let view = cx.weak_entity();
-            let toggle_key = key.clone();
-            rows.push(
-                disclosure(
-                    hashed_id("params-advanced", &key),
-                    open,
-                    format!("Дополнительно · {}", advanced.len()),
-                    changed,
-                    move |cx| {
-                        let _ = view.update(cx, |this, cx| this.toggle_open(&toggle_key, cx));
-                    },
-                    cx,
-                )
-                .into_any_element(),
-            );
             let border = cx.theme().border;
-            rows.extend(self.reveal(&key, cx, || {
+            let advanced_count = advanced.len();
+            // The divider under the toggle is part of the revealed rows, so
+            // nothing is left over once they close.
+            let content = self.reveal(&key, cx, || {
                 v_flex()
-                    .children(advanced.into_iter().enumerate().map(|(ix, field)| {
+                    .children(advanced.into_iter().map(|field| {
                         div()
-                            .when(ix > 0, |cell| cell.border_t_1().border_color(border))
+                            .border_t_1()
+                            .border_color(border)
                             .child(field_row(field))
                     }))
                     .into_any_element()
-            }));
+            });
+            let view = cx.weak_entity();
+            let toggle_key = key.clone();
+            rows.push(
+                v_flex()
+                    .child(disclosure(
+                        hashed_id("params-advanced", &key),
+                        open,
+                        format!("Дополнительно · {}", advanced_count),
+                        changed,
+                        move |cx| {
+                            let _ = view.update(cx, |this, cx| this.toggle_open(&toggle_key, cx));
+                        },
+                        cx,
+                    ))
+                    .children(content)
+                    .into_any_element(),
+            );
         }
         let extra: Vec<&str> = object
             .and_then(Value::as_object)

@@ -102,14 +102,15 @@ pub(super) fn render_tool(
 ) -> AnyElement {
     let muted = cx.theme().muted_foreground;
     let app: &App = cx;
+    // The gap above the details is part of them, so it opens and closes
+    // with them instead of jumping at the end.
     let details = reveal(
         super::thread::reveal_key(cx.entity_id(), key),
         expanded,
         app,
-        || tool_details(key, tool, app).into_any_element(),
+        || tool_details(key, tool, app).pt_1().into_any_element(),
     );
     v_flex()
-        .gap_1()
         .child(
             tool_line(tool, cx)
                 .id(row_id("tool", key))

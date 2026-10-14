@@ -11,8 +11,10 @@ use crate::ui::kit;
 use crate::ui::motion::Spinner;
 
 pub(super) enum AddonsState {
-    /// Holds the pending request, so a newer one drops it.
+    /// Holds the pending request, so a newer one drops it, and the snapshot
+    /// it replaces, so the pages stay in place while it runs.
     Loading {
+        previous: Option<Box<AppAddonsSnapshot>>,
         _request: Task<()>,
     },
     Failed(SharedString),
@@ -22,6 +24,11 @@ pub(super) enum AddonsState {
 impl SettingsView {
     /// Reads the snapshot again; a newer request replaces a pending one.
     pub(super) fn load_addons(&mut self, cx: &mut Context<Self>) {
+        let previous = match std::mem::replace(&mut self.addons, AddonsState::Failed("".into())) {
+            AddonsState::Ready(snapshot) => Some(snapshot),
+            AddonsState::Loading { previous, .. } => previous,
+            AddonsState::Failed(_) => None,
+        };
         let api = self.api.clone();
         let dir = self.session_dir.clone();
         let task = cx.spawn(async move |this, cx| {
@@ -38,12 +45,19 @@ impl SettingsView {
             })
             .ok();
         });
-        self.addons = AddonsState::Loading { _request: task };
+        self.addons = AddonsState::Loading {
+            previous,
+            _request: task,
+        };
     }
 
     pub(super) fn addons(&self) -> Option<&AppAddonsSnapshot> {
         match &self.addons {
-            AddonsState::Ready(snapshot) => Some(snapshot),
+            AddonsState::Ready(snapshot)
+            | AddonsState::Loading {
+                previous: Some(snapshot),
+                ..
+            } => Some(snapshot),
             _ => None,
         }
     }
@@ -52,8 +66,11 @@ impl SettingsView {
     pub(super) fn addons_notice(&self, cx: &Context<Self>) -> Option<AnyElement> {
         let theme = cx.theme();
         let row = match &self.addons {
-            AddonsState::Ready(_) => return None,
-            AddonsState::Loading { .. } => h_flex()
+            AddonsState::Ready(_)
+            | AddonsState::Loading {
+                previous: Some(_), ..
+            } => return None,
+            AddonsState::Loading { previous: None, .. } => h_flex()
                 .px_4()
                 .py_3()
                 .gap_2()

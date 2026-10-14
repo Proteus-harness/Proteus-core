@@ -3,7 +3,7 @@
 //! the edge gives back the default width. It slides open and closed, and a
 //! panel replacing another fades in.
 
-use gpui_kit::component::h_flex;
+use gpui_kit::component::{ActiveTheme as _, h_flex};
 use gpui_kit::*;
 
 use crate::preferences::{SIDEBAR_WIDTH, SidebarPreferences};
@@ -63,6 +63,9 @@ impl Workspace {
                     prefs::update(cx, |prefs| prefs.sidebar.width = width);
                 }
             }));
+        // The background stays outside the fade, so a switched panel does
+        // not flash the window color through.
+        let theme = cx.theme();
         let side = div()
             .flex()
             .flex_none()
@@ -83,6 +86,8 @@ impl Workspace {
                     .min_w_0()
                     .h_full()
                     .overflow_hidden()
+                    .bg(theme.sidebar)
+                    .text_color(theme.sidebar_foreground)
                     .child(content),
             )
             .child(tabs::divider_line(Axis::Row, grip, cx));
