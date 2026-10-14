@@ -37,6 +37,9 @@ thread_local! {
 
 /// An invisible layer for the window root that turns wheel lines into a glide,
 /// lets touchpad flicks coast and speeds up any scrolling while Ctrl is held.
+/// It goes before the content: capture handlers run in paint order, and a
+/// scroller that consumes the wheel there (gpui-kit's `ScrollableMask` over
+/// the chat list) would otherwise hide the gesture from the layer.
 pub(super) fn layer() -> impl IntoElement {
     canvas(
         |_, _, _| (),

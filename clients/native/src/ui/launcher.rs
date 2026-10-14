@@ -266,8 +266,8 @@ impl Render for Launcher {
             Stage::Ready(workspace) => div()
                 .relative()
                 .size_full()
-                .child(workspace.clone())
                 .child(super::wheel::layer())
+                .child(workspace.clone())
                 .child(super::tip::layer(cx))
                 .into_any_element(),
             Stage::Picking { error } => {
@@ -290,6 +290,7 @@ impl Render for Launcher {
                     .relative()
                     .size_full()
                     .track_focus(&self.focus)
+                    .child(super::wheel::layer())
                     .child(chrome::picker_top_bar(projects, window, cx))
                     .child(
                         div()
@@ -297,7 +298,6 @@ impl Render for Launcher {
                             .min_h_0()
                             .child(self.render_picker(error.clone(), cx)),
                     )
-                    .child(super::wheel::layer())
                     .child(super::tip::layer(cx))
                     .into_any_element()
             }
