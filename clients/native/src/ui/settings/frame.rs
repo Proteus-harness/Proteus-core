@@ -14,7 +14,7 @@ use crate::ui::fade::faded;
 use crate::ui::kit;
 use crate::ui::kit::Hint as _;
 use crate::ui::motion::Spinner;
-use crate::ui::motion::rise_in;
+use crate::ui::motion::switch_in;
 use crate::ui::prefs;
 
 const COLUMN_WIDTH: f32 = 720.;
@@ -137,7 +137,7 @@ impl SettingsView {
             .px_8()
             .pt_8()
             .pb_10()
-            .child(rise_in(
+            .child(switch_in(
                 column,
                 ElementId::Name(format!("settings-page-{key}").into()),
             ))

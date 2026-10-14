@@ -11,7 +11,7 @@ use super::{BASE, FAST, ease_enter, shift};
 const STAGGER_ROWS: usize = 14;
 const STAGGER_STEP: Duration = Duration::from_millis(18);
 
-/// Fade plus a short rise; for screens and freshly shown blocks.
+/// Fade plus a short rise; for freshly shown blocks.
 pub(in crate::ui) fn rise_in<E: IntoElement + Styled + 'static>(
     element: E,
     id: impl Into<ElementId>,
@@ -19,6 +19,18 @@ pub(in crate::ui) fn rise_in<E: IntoElement + Styled + 'static>(
     EffectTransition::new(BASE)
         .ease(ease_enter)
         .slide_y(shift(6.), px(0.))
+        .fade(0., 1.)
+        .apply(element, id)
+}
+
+/// A short fade for a screen or page that replaces another: content that
+/// moves on every switch reads as a jump.
+pub(in crate::ui) fn switch_in<E: IntoElement + Styled + 'static>(
+    element: E,
+    id: impl Into<ElementId>,
+) -> AnimationElement<E> {
+    EffectTransition::new(FAST)
+        .ease(ease_enter)
         .fade(0., 1.)
         .apply(element, id)
 }

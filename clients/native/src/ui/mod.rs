@@ -169,7 +169,7 @@ impl Render for Workspace {
                 self.sync_badges(window, cx);
                 let rail = self.render_rail(cx);
                 let main = match self.settings.clone() {
-                    Some(settings) => motion::rise_in(
+                    Some(settings) => motion::switch_in(
                         div().flex_1().min_w_0().h_full().child(settings),
                         "settings-screen",
                     )
@@ -177,7 +177,7 @@ impl Render for Workspace {
                     None => {
                         let sidebar = self.render_sidebar(window, cx);
                         let tabs = self.render_tabs(window, cx);
-                        motion::rise_in(
+                        motion::switch_in(
                             h_flex()
                                 .flex_1()
                                 .min_w_0()
