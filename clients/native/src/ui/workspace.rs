@@ -12,7 +12,7 @@ use proteus_contracts::app_protocol::AppSessionSummary;
 use super::chats::OpenChat;
 use super::chrome::WorkspaceRequest;
 use super::extensions::{OpenDocument, SurfaceView};
-use super::panels::Renaming;
+use super::panels::{Renaming, SessionList};
 use super::settings::SettingsView;
 use super::tabs::{SplitResize, TabDrop, TabMotion};
 use crate::api::Api;
@@ -94,6 +94,8 @@ pub struct Workspace {
     pub(super) show_archived: bool,
     /// A session name being edited in the list.
     pub(super) renaming: Option<Renaming>,
+    /// Search and keyboard cursor of the session list.
+    pub(super) session_list: SessionList,
     /// Open chat tabs by tab id.
     pub(super) chats: HashMap<String, OpenChat>,
     /// Chats being resumed, and how they open.
@@ -114,6 +116,9 @@ pub struct Workspace {
     pub(super) split_drag: Option<SplitResize>,
     /// Width of the side panel while its edge is dragged.
     pub(super) sidebar_drag: Option<f32>,
+    /// The panel the side panel showed last, kept on screen while it
+    /// slides closed.
+    pub(super) sidebar_last: Option<&'static str>,
     /// A tab is being dragged, so panes show where it can go.
     pub(super) tab_drag: bool,
     /// Where the dragged tab would land when dropped onto a pane.
@@ -132,7 +137,7 @@ pub struct Workspace {
 
 impl Workspace {
     pub fn new(options: LaunchOptions, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let subscriptions = vec![cx.on_app_quit(|this, _| {
+        let mut subscriptions = vec![cx.on_app_quit(|this, _| {
             let backend = this.backend.take();
             async move {
                 if let Some(backend) = backend {
@@ -140,6 +145,8 @@ impl Workspace {
                 }
             }
         })];
+        let (session_list, list_events) = SessionList::new(window, cx);
+        subscriptions.push(list_events);
 
         let workspace_path = options.workspace.clone();
         let switchable = matches!(options.target, Target::Spawn { .. });
@@ -173,6 +180,7 @@ impl Workspace {
             window_handle: window.window_handle(),
             show_archived: false,
             renaming: None,
+            session_list,
             chats: HashMap::new(),
             opening: HashMap::new(),
             active_chat: None,
@@ -185,6 +193,7 @@ impl Workspace {
             badges: HashMap::new(),
             split_drag: None,
             sidebar_drag: None,
+            sidebar_last: None,
             tab_drag: false,
             tab_drop: None,
             tab_strips: HashMap::new(),

@@ -69,6 +69,7 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("alt-up", PreviousSettingsPage, Some(SETTINGS_CONTEXT)),
     ]);
     extensions::bind_keys(cx);
+    panels::bind_keys(cx);
 }
 
 impl Render for Workspace {

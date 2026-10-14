@@ -1,10 +1,13 @@
 //! Panels: the session list and the panels of extensions, shown one at a
 //! time in the side panel next to the rail.
 
+mod header;
+mod session_list;
 mod session_menu;
 mod sessions;
 mod sidebar;
 
+pub(super) use session_list::{SessionList, bind_keys};
 pub(super) use session_menu::Renaming;
 pub(super) use sidebar::SidebarDrag;
 
@@ -77,39 +80,45 @@ impl Workspace {
 
     fn render_panel(
         &mut self,
-        name: &str,
+        panel: &PanelInfo,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let content = if name == SESSIONS_PANEL {
-            self.render_sessions(cx).into_any_element()
+        let content = if panel.name == SESSIONS_PANEL {
+            self.render_sessions(window, cx).into_any_element()
         } else {
-            match self.ensure_panel(name, window, cx) {
+            match self.ensure_panel(panel.name, window, cx) {
                 Some(view) => view.view.into_any_element(),
                 None => div().into_any_element(),
             }
         };
+        let header = self.render_panel_header(panel, cx).into_any_element();
         let theme = cx.theme();
-        div()
+        v_flex()
             .size_full()
             .bg(theme.sidebar)
             .text_color(theme.sidebar_foreground)
-            .child(content)
+            .child(header)
+            .child(div().flex_1().min_h_0().w_full().child(content))
             .into_any_element()
     }
 
-    /// Moves the keyboard into a panel; the session list has no keys of
-    /// its own, so the window takes them.
+    /// Moves the keyboard into a panel.
     fn focus_panel(&mut self, name: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if name == SESSIONS_PANEL {
+            return self.session_list.focus.focus(window, cx);
+        }
         match self.ensure_panel(name, window, cx) {
             Some(view) => view.focus.focus(window, cx),
             None => self.focus_handle.focus(window, cx),
         }
     }
 
-    /// Whether the keyboard is in the panel `name`; the session list counts
-    /// as always holding it.
+    /// Whether the keyboard is in the panel `name`.
     fn panel_focused(&self, name: &str, window: &Window, cx: &App) -> bool {
+        if name == SESSIONS_PANEL {
+            return self.session_list.focus.contains_focused(window, cx);
+        }
         match extensions::panel(name, cx).and_then(|m| self.panels.get(m.id)) {
             Some(view) => view.focus.contains_focused(window, cx),
             None => true,

@@ -78,11 +78,19 @@ impl Workspace {
     ) {
         let title = self.session_title(&dir, cx);
         let input = cx.new(|cx| InputState::new(window, cx).default_value(title));
-        let events = cx.subscribe_in(&input, window, |this, _, event: &InputEvent, _, cx| {
-            if matches!(event, InputEvent::PressEnter { .. } | InputEvent::Blur) {
-                this.finish_rename(true, cx);
-            }
-        });
+        let events =
+            cx.subscribe_in(
+                &input,
+                window,
+                |this, _, event: &InputEvent, window, cx| match event {
+                    InputEvent::PressEnter { .. } => {
+                        this.finish_rename(true, cx);
+                        this.session_list.focus.focus(window, cx);
+                    }
+                    InputEvent::Blur => this.finish_rename(true, cx),
+                    _ => {}
+                },
+            );
         input.update(cx, |input, cx| {
             input.focus(window, cx);
             input.select_all(window, cx);
