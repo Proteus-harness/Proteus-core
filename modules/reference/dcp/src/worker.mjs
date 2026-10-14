@@ -3,6 +3,7 @@ import { createInterface } from "node:readline";
 import { Console } from "node:console";
 import { createDcp } from "./module.mjs";
 import { configuration } from "./config.mjs";
+import { configSchema } from "./schema.mjs";
 
 globalThis.console = new Console({ stdout: process.stderr, stderr: process.stderr });
 const send = (frame) => process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", ...frame })}\n`);
@@ -24,12 +25,6 @@ const wireId = (id, direction, zero = false) => {
   if (!match || match[1] !== direction || match[2] !== generation || (!zero && match[3] === "0") ||
     BigInt(match[2]) > 18446744073709551615n || BigInt(match[3]) > 18446744073709551615n) throw new Error("invalid wire id/generation");
 };
-const configSchema = { fields: [
-  ["state_dir", "State directory", { type: "string", multiline: false, secret: false }],
-  ["debug", "Debug", { type: "boolean" }],
-  ...["compress", "strategies", "turnProtection", "protectedFilePatterns"].map((key) => [key, key, { type: "json" }]),
-].map(([key, title, value]) => ({ key, title, description: "Настройки реализации DCP; одинаковые у hook и tool exports.",
-  value, default: null, required: false, advanced: key !== "compress", unit: null })) };
 
 async function initialize(frame) {
   object(frame.params, ["protocol_version", "component_id", "exports"], "initialize");

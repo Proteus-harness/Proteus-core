@@ -49,5 +49,20 @@ pub fn register_modules(registry: &mut dyn ModuleRegistry) -> Result<(), Process
     registry.register_tool(Box::new(tool::ApplyPatchTool { config }))
 }
 
+pub fn config_schema() -> proteus_contracts::domain::ModuleConfigSchema {
+    use proteus_contracts::domain::{ConfigField, ConfigValueSchema, ModuleConfigSchema};
+    ModuleConfigSchema {
+        fields: vec![
+            ConfigField::new(
+                "reject_self_move",
+                "Запрет переноса в себя",
+                "Отклонять перенос файла на тот же путь до любых записей. Выключено — как в pinned Codex.",
+                ConfigValueSchema::Boolean {},
+            )
+            .with_default(false),
+        ],
+    }
+}
+
 #[cfg(test)]
 mod tests;

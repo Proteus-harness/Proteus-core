@@ -13,6 +13,25 @@ pub(crate) fn describe(slot: &str, id: &str, config: &Value) -> Option<ModuleCon
         "tool" | "context_provider" if id == "jsonl_memory" => memory_pack::config_schema(),
         "tool" | "context_provider" if id == "sqlite_memory" => sqlite_memory::config_schema(),
         "tool" | "context_provider" if id == "rg_search" => ModuleConfigSchema::default(),
+        "tool" if id == "codex_patch" => codex_patch::config_schema(),
+        // These packs read no module config.
+        "tool"
+            if matches!(
+                id,
+                "file_tools"
+                    | "git_tools"
+                    | "plan_tool"
+                    | "policy_tools"
+                    | "rust_lsp"
+                    | "shell_tools"
+                    | "skill_tool"
+                    | "direct_patch"
+                    | "reference.tools"
+            ) =>
+        {
+            ModuleConfigSchema::default()
+        }
+        "context_provider" if id == "skills" => ModuleConfigSchema::default(),
         _ => return None,
     })
 }
