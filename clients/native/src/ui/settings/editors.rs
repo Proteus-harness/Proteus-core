@@ -6,6 +6,7 @@ use std::collections::HashMap;
 
 use gpui_kit::component::input::{InputEvent, InputState, TextareaState};
 use gpui_kit::*;
+use proteus_contracts::domain::ConfigField;
 use serde_json::Value;
 
 use super::SettingsView;
@@ -115,15 +116,17 @@ impl SettingsView {
                 .and_then(|info| info.schema)
                 .map(|schema| schema.fields.clone())
                 .unwrap_or_default();
-            for field in fields {
-                if let FieldKind::Text(format) = field_kind(&field.value) {
-                    let path = FieldPath::new(&slot, &module, &field.key);
-                    if !self.editors.fields.contains_key(&path) {
-                        let placeholder = default_hint(&field)
-                            .map(|hint| format!("По умолчанию: {hint}"))
-                            .unwrap_or_else(|| "Не задано".to_string());
-                        self.create_field(path, format, placeholder, window, cx);
-                    }
+            let mut leaves = Vec::new();
+            for field in &fields {
+                text_leaves(
+                    FieldPath::new(&slot, &module, &field.key),
+                    field,
+                    &mut leaves,
+                );
+            }
+            for (path, format, placeholder) in leaves {
+                if !self.editors.fields.contains_key(&path) {
+                    self.create_field(path, format, placeholder, window, cx);
                 }
             }
         }
@@ -278,8 +281,34 @@ impl SettingsView {
             .is_some_and(|field| field.error.is_some())
     }
 
+    /// Removes the value at `path`, nested values included; their editors
+    /// are rebuilt from the draft.
     pub(super) fn reset_field(&mut self, path: &FieldPath, cx: &mut Context<Self>) {
-        self.editors.fields.remove(path);
+        self.editors
+            .fields
+            .retain(|editor, _| !editor.starts_with(path));
         self.update_draft(cx, |draft| draft.set_value(path, None));
+    }
+}
+
+/// Text controls a field needs: its own, or those of its nested fields.
+fn text_leaves(
+    path: FieldPath,
+    field: &ConfigField,
+    out: &mut Vec<(FieldPath, TextFormat, String)>,
+) {
+    match field_kind(&field.value) {
+        FieldKind::Text(format) => {
+            let placeholder = default_hint(field)
+                .map(|hint| format!("По умолчанию: {hint}"))
+                .unwrap_or_else(|| "Не задано".to_string());
+            out.push((path, format, placeholder));
+        }
+        FieldKind::Group(fields) => {
+            for child in fields {
+                text_leaves(path.child(&child.key), child, out);
+            }
+        }
+        FieldKind::Switch | FieldKind::Choice(_) | FieldKind::MultiChoice(_) => {}
     }
 }

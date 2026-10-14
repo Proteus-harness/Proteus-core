@@ -17,7 +17,7 @@ use super::catalog::{
 };
 use super::draft::Area;
 use super::history::describe_changes;
-use super::{Draft, FieldPath, TextFormat, format_value, parse_text};
+use super::{Draft, FieldKind, FieldPath, TextFormat, field_kind, format_value, parse_text};
 
 fn integer(minimum: Option<i64>, maximum: Option<i64>) -> TextFormat {
     TextFormat::Integer { minimum, maximum }
@@ -387,4 +387,49 @@ fn addons_snapshot_links_servers_tools_skills_and_packages() {
     assert_eq!(package_contents(&addons, "team"), (1, 1));
     let state = package_state(&addons, Path::new("pkg")).expect("package state");
     assert_eq!(state.name.as_deref(), Some("team"));
+}
+
+#[test]
+fn nested_values_create_and_prune_their_objects() {
+    let object = ConfigValueSchema::Object {
+        fields: vec![ConfigField::new(
+            "mode",
+            "Режим",
+            "",
+            ConfigValueSchema::text(),
+        )],
+    };
+    assert!(matches!(field_kind(&object), FieldKind::Group(fields) if fields.len() == 1));
+    let empty = ConfigValueSchema::Object { fields: Vec::new() };
+    assert!(matches!(
+        field_kind(&empty),
+        FieldKind::Text(TextFormat::Json)
+    ));
+
+    let mut draft = Draft::default();
+    let group = FieldPath::new("hook", "dcp", "compress");
+    let mode = group.child("mode");
+    let turns = FieldPath::new("hook", "dcp", "strategies")
+        .child("purgeErrors")
+        .child("turns");
+    draft.set_value(&mode, Some(json!("message")));
+    draft.set_value(&turns, Some(json!(3)));
+    assert_eq!(
+        draft.module_config("hook", "dcp"),
+        Some(&json!({
+            "compress": { "mode": "message" },
+            "strategies": { "purgeErrors": { "turns": 3 } },
+        }))
+    );
+    assert_eq!(draft.value(&mode), Some(&json!("message")));
+    assert!(mode.starts_with(&group) && !group.starts_with(&mode));
+    assert_eq!(turns.dotted(), "strategies.purgeErrors.turns");
+
+    draft.set_value(&turns, None);
+    assert_eq!(
+        draft.module_config("hook", "dcp"),
+        Some(&json!({ "compress": { "mode": "message" } }))
+    );
+    draft.set_value(&group, None);
+    assert_eq!(draft.module_config("hook", "dcp"), Some(&json!({})));
 }

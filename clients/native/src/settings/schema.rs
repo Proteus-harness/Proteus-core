@@ -29,6 +29,8 @@ pub enum FieldKind<'a> {
     Choice(&'a [ConfigChoice]),
     MultiChoice(&'a [ConfigChoice]),
     Text(TextFormat),
+    /// Object with known fields, edited as nested fields.
+    Group(&'a [ConfigField]),
 }
 
 pub fn field_kind(schema: &ConfigValueSchema) -> FieldKind<'_> {
@@ -53,6 +55,7 @@ pub fn field_kind(schema: &ConfigValueSchema) -> FieldKind<'_> {
             } => FieldKind::Text(TextFormat::Lines),
             _ => FieldKind::Text(TextFormat::Json),
         },
+        ConfigValueSchema::Object { fields } if !fields.is_empty() => FieldKind::Group(fields),
         ConfigValueSchema::Object { .. } | ConfigValueSchema::Json {} => {
             FieldKind::Text(TextFormat::Json)
         }
@@ -163,6 +166,7 @@ pub fn default_hint(field: &ConfigField) -> Option<String> {
             _ => format_value(TextFormat::Lines, default).replace('\n', ", "),
         },
         FieldKind::Text(format) => format_value(format, default),
+        FieldKind::Group(_) => choice_key(default),
     };
     Some(text)
 }

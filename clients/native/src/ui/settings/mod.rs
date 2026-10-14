@@ -8,6 +8,7 @@ mod extension;
 mod extensions;
 mod fields;
 mod frame;
+mod group;
 mod hooks;
 mod mcp;
 mod modules;

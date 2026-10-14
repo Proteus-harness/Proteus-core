@@ -1,15 +1,16 @@
 //! Parameters of one module: a form generated from its `config_schema`
 //! or the raw JSON object.
 
+use std::path::Path;
+
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::input::Textarea;
 use gpui_kit::component::*;
-use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use super::SettingsView;
 use super::editors::module_key;
-use super::widgets::{card, disclosure, hashed_id, note, section};
+use super::widgets::{card, hashed_id, note, section};
 use crate::settings::FieldPath;
 use crate::settings::catalog::module_info;
 use crate::ui::kit;
@@ -49,12 +50,23 @@ impl SettingsView {
             .into_any_element()
     }
 
+    /// Opening the profile file and switching between the form and JSON.
     fn mode_switch(&self, slot: &str, module: &str, cx: &Context<Self>) -> Option<AnyElement> {
         let snapshot = self.snapshot()?;
-        module_info(snapshot, slot, module)?.schema?;
-        let json = self.is_json(slot, module);
-        let (slot, module) = (slot.to_string(), module.to_string());
-        Some(
+        let file = snapshot.target_path.clone().map(|path| {
+            kit::button(hashed_id("params-file", &(slot, module)))
+                .label("Файл профиля")
+                .ghost()
+                .xsmall()
+                .hint(
+                    &format!("Открыть [module_config.{slot}.{module}] в {path}"),
+                    cx,
+                )
+                .on_click(move |_, _, cx| cx.open_with_system(Path::new(&path)))
+        });
+        let mode = module_info(snapshot, slot, module)?.schema.map(|_| {
+            let json = self.is_json(slot, module);
+            let (slot, module) = (slot.to_string(), module.to_string());
             kit::button(hashed_id("params-mode", &(&slot, &module)))
                 .label(if json { "Форма" } else { "JSON" })
                 .ghost()
@@ -69,8 +81,14 @@ impl SettingsView {
                     cx,
                 )
                 .on_click(cx.listener(move |this, _, _, cx| this.toggle_json(&slot, &module, cx)))
-                .into_any_element(),
-        )
+        });
+        (file.is_some() || mode.is_some()).then(|| {
+            h_flex()
+                .gap_1()
+                .children(file)
+                .children(mode)
+                .into_any_element()
+        })
     }
 
     fn params_body(&self, slot: &str, module: &str, cx: &Context<Self>) -> AnyElement {
@@ -108,82 +126,13 @@ impl SettingsView {
             )
             .into_any_element();
         }
-        let field_row = |field: &proteus_contracts::domain::ConfigField| {
-            self.render_field(&FieldPath::new(slot, module, &field.key), field, cx)
-        };
-        let mut rows: Vec<AnyElement> = schema
-            .fields
-            .iter()
-            .filter(|field| !field.advanced)
-            .map(field_row)
-            .collect();
-        let advanced: Vec<_> = schema
-            .fields
-            .iter()
-            .filter(|field| field.advanced)
-            .collect();
-        if !advanced.is_empty() {
-            let key = format!("advanced:{slot}:{module}");
-            let open = self.is_open(&key);
-            let changed = advanced.iter().any(|field| {
-                let path = FieldPath::new(slot, module, &field.key);
-                self.draft.value(&path) != self.baseline.value(&path)
-            });
-            let view = cx.weak_entity();
-            let toggle_key = key.clone();
-            rows.push(
-                disclosure(
-                    hashed_id("params-advanced", &key),
-                    open,
-                    format!("Дополнительно · {}", advanced.len()),
-                    changed,
-                    move |cx| {
-                        let _ = view.update(cx, |this, cx| this.toggle_open(&toggle_key, cx));
-                    },
-                    cx,
-                )
-                .into_any_element(),
-            );
-            let border = cx.theme().border;
-            rows.extend(self.reveal(&key, cx, || {
-                v_flex()
-                    .children(advanced.into_iter().enumerate().map(|(ix, field)| {
-                        div()
-                            .when(ix > 0, |cell| cell.border_t_1().border_color(border))
-                            .child(field_row(field))
-                    }))
-                    .into_any_element()
-            }));
-        }
-        let known: Vec<&str> = schema
-            .fields
-            .iter()
-            .map(|field| field.key.as_str())
-            .collect();
-        let extra: Vec<String> = self
-            .draft
-            .module_config(slot, module)
-            .and_then(|value| value.as_object())
-            .map(|object| {
-                object
-                    .keys()
-                    .filter(|key| !known.contains(&key.as_str()))
-                    .cloned()
-                    .collect()
-            })
-            .unwrap_or_default();
-        if !extra.is_empty() {
-            rows.push(
-                note(
-                    format!(
-                        "Дополнительные параметры: {}. Они сохраняются вместе с профилем; изменить их можно в JSON.",
-                        extra.join(", ")
-                    ),
-                    cx,
-                )
-                .into_any_element(),
-            );
-        }
+        let rows = self.field_rows(
+            &schema.fields,
+            |key| FieldPath::new(slot, module, key),
+            self.draft.module_config(slot, module),
+            &format!("{slot}:{module}"),
+            cx,
+        );
         card(rows, cx).into_any_element()
     }
 }

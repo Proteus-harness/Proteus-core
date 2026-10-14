@@ -18,12 +18,13 @@ pub enum Area {
     Slot(String),
 }
 
-/// Address of one module config value: `module_config[slot][module][key]`.
+/// Address of one module config value:
+/// `module_config[slot][module][keys[0]][keys[1]]…`.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FieldPath {
     pub slot: String,
     pub module: String,
-    pub key: String,
+    pub keys: Vec<String>,
 }
 
 impl FieldPath {
@@ -31,8 +32,27 @@ impl FieldPath {
         Self {
             slot: slot.to_string(),
             module: module.to_string(),
-            key: key.to_string(),
+            keys: vec![key.to_string()],
         }
+    }
+
+    /// Field `key` inside the object at this path.
+    pub fn child(&self, key: &str) -> Self {
+        let mut path = self.clone();
+        path.keys.push(key.to_string());
+        path
+    }
+
+    /// Whether this path is `prefix` or lies inside it.
+    pub fn starts_with(&self, prefix: &FieldPath) -> bool {
+        self.slot == prefix.slot
+            && self.module == prefix.module
+            && self.keys.starts_with(&prefix.keys)
+    }
+
+    /// Dotted keys, as written in the profile.
+    pub fn dotted(&self) -> String {
+        self.keys.join(".")
     }
 }
 
@@ -67,37 +87,40 @@ impl Draft {
     }
 
     pub fn value(&self, path: &FieldPath) -> Option<&Value> {
-        self.config
-            .get(&path.slot)?
-            .get(&path.module)?
-            .as_object()?
-            .get(&path.key)
+        let module = self.config.get(&path.slot)?.get(&path.module)?;
+        path.keys
+            .iter()
+            .try_fold(module, |value, key| value.as_object()?.get(key))
     }
 
+    /// Sets a value, creating the objects on its way; `None` removes it and
+    /// then the nested objects it leaves empty.
     pub fn set_value(&mut self, path: &FieldPath, value: Option<Value>) {
+        let Some((leaf, parents)) = path.keys.split_last() else {
+            return;
+        };
         match value {
             Some(value) => {
-                let module = self
+                let mut object = self
                     .config
                     .entry(path.slot.clone())
                     .or_default()
                     .entry(path.module.clone())
                     .or_insert_with(|| Value::Object(Map::new()));
-                if !module.is_object() {
-                    *module = Value::Object(Map::new());
+                for key in parents {
+                    object = ensure_object(object)
+                        .entry(key.clone())
+                        .or_insert_with(|| Value::Object(Map::new()));
                 }
-                if let Some(object) = module.as_object_mut() {
-                    object.insert(path.key.clone(), value);
-                }
+                ensure_object(object).insert(leaf.clone(), value);
             }
             None => {
-                if let Some(object) = self
+                if let Some(module) = self
                     .config
                     .get_mut(&path.slot)
                     .and_then(|modules| modules.get_mut(&path.module))
-                    .and_then(Value::as_object_mut)
                 {
-                    object.remove(&path.key);
+                    remove_nested(module, &path.keys);
                 }
             }
         }
@@ -266,4 +289,38 @@ impl Draft {
 
 fn is_empty_object(value: &Value) -> bool {
     value.as_object().is_some_and(Map::is_empty)
+}
+
+/// Object at `value`, replacing a scalar that stands in its way.
+fn ensure_object(value: &mut Value) -> &mut Map<String, Value> {
+    if !value.is_object() {
+        *value = Value::Object(Map::new());
+    }
+    value
+        .as_object_mut()
+        .expect("value was just made an object")
+}
+
+/// Removes `keys` under `value`; returns whether `value` is left an empty
+/// object, so the caller drops it in turn.
+fn remove_nested(value: &mut Value, keys: &[String]) -> bool {
+    let Some(object) = value.as_object_mut() else {
+        return false;
+    };
+    match keys {
+        [] => false,
+        [leaf] => {
+            object.remove(leaf);
+            object.is_empty()
+        }
+        [key, rest @ ..] => {
+            if object
+                .get_mut(key)
+                .is_some_and(|child| remove_nested(child, rest))
+            {
+                object.remove(key);
+            }
+            object.is_empty()
+        }
+    }
 }

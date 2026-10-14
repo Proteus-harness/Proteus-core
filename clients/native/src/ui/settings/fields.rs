@@ -84,6 +84,7 @@ impl SettingsView {
             }
             FieldKind::Choice(options) => choice_menu(&spec, options),
             FieldKind::MultiChoice(options) => multi_choice(&spec, options),
+            FieldKind::Group(fields) => return self.render_group(path, field, fields, cx),
             FieldKind::Text(_) => match text.map(|text| &text.input) {
                 Some(TextInput::Line(state)) => Input::new(state)
                     .small()
@@ -150,7 +151,7 @@ impl SettingsView {
             .child(field.title.clone())
             .children(origin)
             .when(changed, |title| title.child(changed_dot(cx)))
-            .tip_text(field.key.clone());
+            .tip_text(path.dotted());
         let description = field.description.trim();
         row(
             title,
