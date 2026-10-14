@@ -223,7 +223,7 @@ impl SettingsView {
                 "Сохраняю и проверяю сборку…".to_string(),
                 theme.muted_foreground,
             )
-        } else if self.editors.has_errors() {
+        } else if self.has_errors() {
             ("Исправьте отмеченные значения".to_string(), theme.danger)
         } else if let Some(feedback) = self.feedback.as_ref().filter(|feedback| feedback.error) {
             (feedback.text.to_string(), theme.danger)

@@ -5,6 +5,7 @@ pub mod addons;
 pub mod catalog;
 mod draft;
 pub mod history;
+pub mod mcp;
 mod schema;
 
 pub use draft::{Draft, FieldPath};

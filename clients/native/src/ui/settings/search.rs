@@ -333,20 +333,27 @@ impl SettingsView {
         for server in addons::mcp_servers(&self.draft, Some(addons)) {
             let command = server
                 .configured
-                .map(|server| server.command.as_str())
+                .map(|(_, server)| server.command.as_str())
                 .unwrap_or_default();
             finder.add(
-                Hit::new(server.name, mcp.clone(), PageId::Mcp).open(vec![mcp_key(server.name)]),
+                Hit::new(server.name, mcp.clone(), PageId::Mcp)
+                    .open(vec![mcp_key(server.name)])
+                    .spot(spot::mcp(server.name)),
                 &[command, server.package.unwrap_or_default()],
             );
         }
         let packages = page_title(None, &PageId::Packages);
-        for package in &addons.plugins {
+        for package in &self.draft.addons.addons.plugins {
+            let state = addons::package_state(addons, &package.path);
             let path = package.path.to_string_lossy();
-            let title = package.name.clone().unwrap_or_else(|| path.to_string());
+            let title = state
+                .and_then(|state| state.name.clone())
+                .unwrap_or_else(|| path.to_string());
+            let about = state.and_then(|state| state.description.as_deref());
             finder.add(
-                Hit::new(title, packages.clone(), PageId::Packages),
-                &[package.description.as_deref().unwrap_or_default(), &path],
+                Hit::new(title, packages.clone(), PageId::Packages)
+                    .spot(spot::package(&package.path)),
+                &[about.unwrap_or_default(), &path],
             );
         }
     }

@@ -1,12 +1,12 @@
 //! Skills, MCP servers and Agent Plugins packages of the profile: edits of
 //! the draft and lookups in the server's addons snapshot.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use proteus_contracts::app_protocol::addons::{
     AppAddonsSnapshot, AppAddonsUpdate, AppAgentPluginState, AppMcpServerState,
 };
-use proteus_contracts::domain::{ConfiguredMcpServerConfig, SkillDescriptor};
+use proteus_contracts::domain::{AgentPluginConfig, ConfiguredMcpServerConfig, SkillDescriptor};
 
 use super::draft::Draft;
 
@@ -23,7 +23,7 @@ pub fn normalized(mut addons: AppAddonsUpdate) -> AppAddonsUpdate {
     addons
 }
 
-fn set_listed(list: &mut Vec<String>, item: &str, listed: bool) {
+pub(super) fn set_listed(list: &mut Vec<String>, item: &str, listed: bool) {
     match (
         list.binary_search_by(|entry| entry.as_str().cmp(item)),
         listed,
@@ -93,6 +93,26 @@ impl Draft {
             }
         }
     }
+
+    /// Lists a package folder, or switches on the entry that already
+    /// lists it.
+    pub fn add_package(&mut self, path: PathBuf) {
+        let plugins = &mut self.addons.addons.plugins;
+        match plugins.iter_mut().find(|plugin| plugin.path == path) {
+            Some(plugin) => plugin.enabled = true,
+            None => plugins.push(AgentPluginConfig {
+                path,
+                enabled: true,
+            }),
+        }
+    }
+
+    pub fn remove_package(&mut self, path: &Path) {
+        self.addons
+            .addons
+            .plugins
+            .retain(|plugin| plugin.path != path);
+    }
 }
 
 /// MCP server known to the profile or to the last assembly.
@@ -100,49 +120,61 @@ pub struct McpServer<'a> {
     pub name: &'a str,
     /// Discovery result of the saved assembly.
     pub state: Option<&'a AppMcpServerState>,
-    /// Entry of the profile's own `tools.mcp_servers`.
-    pub configured: Option<&'a ConfiguredMcpServerConfig>,
+    /// Position and entry in the draft's own `tools.mcp_servers`.
+    pub configured: Option<(usize, &'a ConfiguredMcpServerConfig)>,
     /// Package that brings the server, by its `package:server` name.
     pub package: Option<&'a str>,
 }
 
-/// Servers of the last assembly in its order, then profile entries it does
-/// not report.
+/// Profile servers of the draft in their order, then the package servers
+/// of the last assembly in its order.
 pub fn mcp_servers<'a>(
     draft: &'a Draft,
     addons: Option<&'a AppAddonsSnapshot>,
 ) -> Vec<McpServer<'a>> {
-    let states = addons
-        .map(|addons| addons.mcp_servers.as_slice())
-        .unwrap_or_default();
-    let mut servers: Vec<McpServer<'a>> = states
+    let saved = |name: &str| {
+        addons.and_then(|addons| {
+            addons
+                .settings
+                .mcp_servers
+                .iter()
+                .any(|server| server.name == name)
+                .then(|| addons.mcp_servers.iter().find(|state| state.name == name))
+                .flatten()
+        })
+    };
+    let mut servers: Vec<McpServer<'a>> = draft
+        .addons
+        .mcp_servers
         .iter()
-        .map(|state| McpServer {
-            name: &state.name,
-            state: Some(state),
-            configured: draft.configured_mcp(&state.name),
+        .enumerate()
+        .map(|(ix, server)| McpServer {
+            name: &server.name,
+            state: saved(&server.name),
+            configured: Some((ix, server)),
             package: None,
         })
         .collect();
-    servers.extend(
-        draft
-            .addons
-            .mcp_servers
-            .iter()
-            .filter(|server| !states.iter().any(|state| state.name == server.name))
-            .map(|server| McpServer {
-                name: &server.name,
-                state: None,
-                configured: Some(server),
-                package: None,
-            }),
-    );
-    for server in &mut servers {
-        if server.configured.is_none() {
-            server.package = addons.and_then(|addons| package_of(addons, server.name));
-        }
+    if let Some(addons) = addons {
+        servers.extend(package_servers(addons).map(|state| McpServer {
+            name: &state.name,
+            state: Some(state),
+            configured: None,
+            package: package_of(addons, &state.name),
+        }));
     }
     servers
+}
+
+/// Servers of the last assembly that the saved profile does not list.
+pub fn package_servers(addons: &AppAddonsSnapshot) -> impl Iterator<Item = &AppMcpServerState> {
+    addons.mcp_servers.iter().filter(|state| {
+        !addons
+            .settings
+            .mcp_servers
+            .iter()
+            .any(|server| server.name == state.name)
+    })
 }
 
 /// Name of the loaded package whose `package:item` prefix `name` carries.

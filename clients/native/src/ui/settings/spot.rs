@@ -67,6 +67,14 @@ pub(super) fn skill(id: &str) -> String {
     format!("skill:{id}")
 }
 
+pub(super) fn mcp(server: &str) -> String {
+    format!("mcp:{server}")
+}
+
+pub(super) fn package(path: &std::path::Path) -> String {
+    format!("package:{}", path.display())
+}
+
 /// Strength of the mark `elapsed` after the jump; without animations it
 /// stays full and then disappears.
 fn strength(elapsed: Duration) -> f32 {

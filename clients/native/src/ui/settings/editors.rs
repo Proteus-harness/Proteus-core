@@ -10,6 +10,7 @@ use proteus_contracts::domain::ConfigField;
 use serde_json::Value;
 
 use super::SettingsView;
+use super::mcp_editors::McpForm;
 use crate::settings::catalog::{
     self, CONTEXT_PROVIDER_SLOT, CONTEXT_SLOT, HOOK_SLOT, MODEL_SLOT, PageId, TOOL_SLOT,
     module_info,
@@ -40,12 +41,15 @@ pub(super) type ModuleKey = (String, String);
 pub(super) struct Editors {
     pub fields: HashMap<FieldPath, TextField>,
     pub json: HashMap<ModuleKey, JsonField>,
+    /// Forms of profile MCP servers by position in `tools.mcp_servers`.
+    pub mcp: HashMap<usize, McpForm>,
 }
 
 impl Editors {
     pub fn has_errors(&self) -> bool {
         self.fields.values().any(|field| field.error.is_some())
             || self.json.values().any(|field| field.error.is_some())
+            || self.mcp.values().any(McpForm::has_errors)
     }
 
     fn forget_form(&mut self, slot: &str, module: &str) {
@@ -103,6 +107,9 @@ impl SettingsView {
     }
 
     pub(super) fn prepare_editors(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.page == PageId::Mcp {
+            self.prepare_mcp_forms(window, cx);
+        }
         for (slot, module) in self.visible_modules() {
             if self.is_json(&slot, &module) {
                 self.ensure_json(&slot, &module, window, cx);

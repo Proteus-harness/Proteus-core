@@ -19,6 +19,8 @@ use super::draft::Area;
 use super::history::describe_changes;
 use super::{Draft, FieldKind, FieldPath, TextFormat, field_kind, format_value, parse_text};
 
+mod connections;
+
 fn integer(minimum: Option<i64>, maximum: Option<i64>) -> TextFormat {
     TextFormat::Integer { minimum, maximum }
 }
@@ -299,7 +301,7 @@ fn addons_snapshot() -> AppAddonsSnapshot {
                 "disabled_mcp_servers": [],
                 "plugins": [{ "path": "pkg", "enabled": true }],
             },
-            "mcp_servers": [],
+            "mcp_servers": [{ "name": "db", "command": "db-mcp" }],
         },
         "catalogs": [{
             "provider": "skills",
@@ -378,8 +380,8 @@ fn addons_snapshot_links_servers_tools_skills_and_packages() {
         origins,
         [
             ("db", true, true, None),
-            ("team:x", false, true, Some("team")),
             ("fresh", true, false, None),
+            ("team:x", false, true, Some("team")),
         ]
     );
     assert_eq!(tool_server(&addons, "x_run"), Some("team:x"));

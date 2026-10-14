@@ -11,6 +11,8 @@ mod frame;
 mod group;
 mod hooks;
 mod mcp;
+mod mcp_editors;
+mod mcp_form;
 mod modules;
 mod nav;
 mod packages;
@@ -37,6 +39,7 @@ use proteus_contracts::app_protocol::config_builder::{ConfigBuilderSnapshot, Con
 use crate::api::Api;
 use crate::settings::Draft;
 use crate::settings::catalog::PageId;
+use crate::settings::mcp::mcp_problems;
 use editors::Editors;
 
 const FEEDBACK_TIMEOUT: Duration = Duration::from_secs(4);
@@ -240,7 +243,12 @@ impl SettingsView {
         self.snapshot().is_some_and(|snapshot| snapshot.writable)
             && !self.saving
             && self.dirty()
-            && !self.editors.has_errors()
+            && !self.has_errors()
+    }
+
+    /// Text that does not parse, or profile MCP servers that cannot be saved.
+    fn has_errors(&self) -> bool {
+        self.editors.has_errors() || !mcp_problems(&self.draft, self.addons()).is_empty()
     }
 
     fn update_draft(&mut self, cx: &mut Context<Self>, change: impl FnOnce(&mut Draft)) {
