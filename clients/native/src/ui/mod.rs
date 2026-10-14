@@ -45,6 +45,7 @@ gpui_kit::actions!(
         NewTerminal,
         NextSettingsPage,
         PreviousSettingsPage,
+        FocusSettingsSearch,
         NextTab,
         PreviousTab,
         SplitRight,
@@ -68,6 +69,7 @@ pub fn init(cx: &mut App) {
     cx.bind_keys([
         KeyBinding::new("alt-down", NextSettingsPage, Some(SETTINGS_CONTEXT)),
         KeyBinding::new("alt-up", PreviousSettingsPage, Some(SETTINGS_CONTEXT)),
+        KeyBinding::new("ctrl-f", FocusSettingsSearch, Some(SETTINGS_CONTEXT)),
     ]);
     extensions::bind_keys(cx);
     panels::bind_keys(cx);

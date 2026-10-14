@@ -16,14 +16,16 @@ mod nav;
 mod packages;
 mod params;
 mod revisions;
+mod search;
 mod shortcuts;
 mod sizes;
 mod skills;
 mod slots;
+mod spot;
 mod tools;
 mod widgets;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -80,6 +82,12 @@ pub struct SettingsView {
     feedback: Option<Feedback>,
     feedback_timer: Option<Task<()>>,
     page: PageId,
+    /// Scroll positions of the visited pages.
+    scrolls: HashMap<String, ScrollHandle>,
+    /// Settings search and the row its last hit points at.
+    search: Entity<InputState>,
+    query: String,
+    spot: Option<spot::Spot>,
     history: HistoryState,
     tool_search: Entity<InputState>,
     tool_query: String,
@@ -106,17 +114,32 @@ impl SettingsView {
     ) -> Self {
         let tool_search =
             cx.new(|cx| InputState::new(window, cx).placeholder("Поиск по имени или описанию"));
+        let search = cx.new(|cx| InputState::new(window, cx).placeholder("Поиск настроек"));
         let (sizes, mut subscriptions) = sizes::SizeSliders::new(window, cx);
-        subscriptions.extend([cx.subscribe_in(
-            &tool_search,
-            window,
-            |this, state, event, _, cx| {
+        subscriptions.extend([
+            cx.subscribe_in(
+                &search,
+                window,
+                |this, state, event, window, cx| match event {
+                    InputEvent::Change => {
+                        this.query = state.read(cx).value().trim().to_string();
+                        cx.notify();
+                    }
+                    InputEvent::PressEnter { .. } => {
+                        if let Some(hit) = this.search(&this.query, cx).into_iter().next() {
+                            this.go_to(&hit, window, cx);
+                        }
+                    }
+                    _ => {}
+                },
+            ),
+            cx.subscribe_in(&tool_search, window, |this, state, event, _, cx| {
                 if matches!(event, InputEvent::Change) {
                     this.tool_query = state.read(cx).value().trim().to_string();
                     cx.notify();
                 }
-            },
-        )]);
+            }),
+        ]);
         // Keeps window shortcuts routed while no input inside the screen is focused.
         let focus_handle = cx.focus_handle();
         focus_handle.focus(window, cx);
@@ -140,6 +163,10 @@ impl SettingsView {
             feedback: None,
             feedback_timer: None,
             page: PageId::Model,
+            scrolls: HashMap::new(),
+            search,
+            query: String::new(),
+            spot: None,
             history: HistoryState::Idle,
             tool_search,
             tool_query: String::new(),
@@ -246,6 +273,7 @@ impl SettingsView {
         }
         self.page = page;
         self.removing = None;
+        self.spot = None;
         cx.notify();
     }
 
@@ -376,6 +404,7 @@ impl SettingsView {
 impl Render for SettingsView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.prepare_editors(window, cx);
+        self.scrolls.entry(spot::page_key(&self.page)).or_default();
         crate::ui::motion::drive(window, cx);
         h_flex()
             .size_full()
@@ -386,6 +415,11 @@ impl Render for SettingsView {
             )
             .on_action(
                 cx.listener(|this, _: &super::PreviousSettingsPage, _, cx| this.step_page(-1, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &super::FocusSettingsSearch, window, cx| {
+                    this.search.update(cx, |state, cx| state.focus(window, cx))
+                }),
             )
             .child(self.render_nav(cx))
             .child(

@@ -54,73 +54,146 @@ const NOTIFICATIONS: [(Notifications, &str); 2] = [
     (Notifications::Off, "Выключены"),
 ];
 
+/// Title and explanation of a client row, shared with the settings search.
+pub(super) struct RowText {
+    pub(super) title: &'static str,
+    pub(super) about: Option<&'static str>,
+}
+
+const fn text(title: &'static str, about: Option<&'static str>) -> RowText {
+    RowText { title, about }
+}
+
+const THEME: RowText = text("Тема", None);
+const DARK_PALETTE: RowText = text("Тёмная палитра", None);
+const LIGHT_PALETTE: RowText = text(
+    "Светлая палитра",
+    Some(
+        "Свои темы в формате gpui-kit кладите в ~/.config/dev.proteus.native/themes/; они читаются при запуске.",
+    ),
+);
+const SCALE: RowText = text(
+    "Масштаб",
+    Some("Ctrl + = и Ctrl + − меняют масштаб, Ctrl + 0 возвращает 100%."),
+);
+const MOTION: RowText = text(
+    "Анимации",
+    Some("Уменьшенные оставляют плавное появление без сдвигов; выключенные показывают всё сразу."),
+);
+const HINTS_ROW: RowText = text(
+    "Подсказки к кнопкам",
+    Some("Сведения значков и полные названия видны всегда."),
+);
+const SEND: RowText = text(
+    "Отправка сообщения",
+    Some(
+        "Shift+Enter всегда переносит строку. Во время ответа отправка добавляет сообщение в очередь.",
+    ),
+);
+const TEXT_SIZE: RowText = text("Размер текста", Some("Сообщения диалога и поле ввода."));
+const CHAT_WIDTH: RowText = text(
+    "Ширина диалога",
+    Some("Наибольшая ширина ленты и поля ввода."),
+);
+const COMPACT_TOOLS: RowText = text(
+    "Компактные цепочки инструментов",
+    Some("Три и больше вызова подряд сворачиваются в одну строку."),
+);
+const AUTOSCROLL: RowText = text(
+    "Автопрокрутка",
+    Some("Плавно следовать за ответом, пока лента внизу."),
+);
+const NOTIFICATIONS_ROW: RowText = text(
+    "Уведомления",
+    Some("Когда окно в фоне: агент закончил, ждёт подтверждения или ответа."),
+);
+
+pub(super) const APPEARANCE_ROWS: [&RowText; 6] = [
+    &THEME,
+    &DARK_PALETTE,
+    &LIGHT_PALETTE,
+    &SCALE,
+    &MOTION,
+    &HINTS_ROW,
+];
+pub(super) const CHAT_ROWS: [&RowText; 6] = [
+    &SEND,
+    &TEXT_SIZE,
+    &CHAT_WIDTH,
+    &COMPACT_TOOLS,
+    &AUTOSCROLL,
+    &NOTIFICATIONS_ROW,
+];
+
 impl SettingsView {
+    fn text_row(
+        &self,
+        text: &RowText,
+        control: impl IntoElement,
+        cx: &Context<Self>,
+    ) -> AnyElement {
+        self.spotted(
+            &super::spot::row(text.title),
+            row(text.title, text.about.map(Into::into), control, false, cx),
+            cx,
+        )
+    }
     pub(super) fn appearance_page(&self, cx: &Context<Self>) -> Vec<AnyElement> {
         let current = prefs::current(cx);
         let rows = [
-            row(
-                "Тема",
-                None,
+            self.text_row(
+                &THEME,
                 choice("pref-theme", &THEMES, current.theme, |prefs, value| {
                     prefs.theme = value
                 }),
-                false,
                 cx,
             )
             .into_any_element(),
-            row(
-                "Тёмная палитра",
-                None,
-                theme_choice("pref-dark-theme", true, &current.themes.dark, cx, |prefs, name| {
-                    prefs.themes.dark = name
-                }),
-                false,
-                cx,
-            )
-            .into_any_element(),
-            row(
-                "Светлая палитра",
-                Some(
-                    "Свои темы в формате gpui-kit кладите в ~/.config/dev.proteus.native/themes/; они читаются при запуске."
-                        .into(),
+            self.text_row(
+                &DARK_PALETTE,
+                theme_choice(
+                    "pref-dark-theme",
+                    true,
+                    &current.themes.dark,
+                    cx,
+                    |prefs, name| prefs.themes.dark = name,
                 ),
-                theme_choice("pref-light-theme", false, &current.themes.light, cx, |prefs, name| {
-                    prefs.themes.light = name
-                }),
-                false,
                 cx,
             )
             .into_any_element(),
-            row(
-                "Масштаб",
-                Some("Ctrl + = и Ctrl + − меняют масштаб, Ctrl + 0 возвращает 100%.".into()),
+            self.text_row(
+                &LIGHT_PALETTE,
+                theme_choice(
+                    "pref-light-theme",
+                    false,
+                    &current.themes.light,
+                    cx,
+                    |prefs, name| prefs.themes.light = name,
+                ),
+                cx,
+            )
+            .into_any_element(),
+            self.text_row(
+                &SCALE,
                 choice("pref-scale", &SCALES, current.view.scale, |prefs, value| {
                     prefs.view.scale = value
                 }),
-                false,
                 cx,
             )
             .into_any_element(),
-            row(
-                "Анимации",
-                Some(
-                    "Уменьшенные оставляют плавное появление без сдвигов; выключенные показывают всё сразу."
-                        .into(),
-                ),
+            self.text_row(
+                &MOTION,
                 choice("pref-motion", &MOTIONS, current.motion, |prefs, value| {
                     prefs.motion = value
                 }),
-                false,
                 cx,
             )
             .into_any_element(),
-            row(
-                "Подсказки к кнопкам",
-                Some("Сведения значков и полные названия видны всегда.".into()),
+            self.text_row(
+                &HINTS_ROW,
                 choice("pref-hints", &HINTS, current.hints, |prefs, value| {
                     prefs.hints = value
                 }),
-                false,
                 cx,
             )
             .into_any_element(),
@@ -139,39 +212,22 @@ impl SettingsView {
 
     pub(super) fn chat_page(&self, cx: &Context<Self>) -> Vec<AnyElement> {
         let current = prefs::current(cx);
-        let rows = [row(
-            "Отправка сообщения",
-            Some(
-                "Shift+Enter всегда переносит строку. Во время ответа отправка добавляет сообщение в очередь."
-                    .into(),
-            ),
-            choice("pref-send", &SEND_MODES, current.send, |prefs, value| {
-                prefs.send = value
-            }),
-            false,
-            cx,
-        )
-        .into_any_element()];
+        let rows = [self
+            .text_row(
+                &SEND,
+                choice("pref-send", &SEND_MODES, current.send, |prefs, value| {
+                    prefs.send = value
+                }),
+                cx,
+            )
+            .into_any_element()];
         let sizes = [
-            row(
-                "Размер текста",
-                Some("Сообщения диалога и поле ввода.".into()),
-                slider(&self.sizes.chat_text, "px", cx),
-                false,
-                cx,
-            )
-            .into_any_element(),
-            row(
-                "Ширина диалога",
-                Some("Наибольшая ширина ленты и поля ввода.".into()),
-                slider(&self.sizes.chat_width, "px", cx),
-                false,
-                cx,
-            )
-            .into_any_element(),
-            row(
-                "Компактные цепочки инструментов",
-                Some("Три и больше вызова подряд сворачиваются в одну строку.".into()),
+            self.text_row(&TEXT_SIZE, slider(&self.sizes.chat_text, "px", cx), cx)
+                .into_any_element(),
+            self.text_row(&CHAT_WIDTH, slider(&self.sizes.chat_width, "px", cx), cx)
+                .into_any_element(),
+            self.text_row(
+                &COMPACT_TOOLS,
                 kit::switch("pref-compact-tools")
                     .checked(current.view.compact_tools)
                     .on_click(|checked, _, cx| {
@@ -179,13 +235,11 @@ impl SettingsView {
                         prefs::update(cx, move |prefs| prefs.view.compact_tools = checked)
                     })
                     .into_any_element(),
-                false,
                 cx,
             )
             .into_any_element(),
-            row(
-                "Автопрокрутка",
-                Some("Плавно следовать за ответом, пока лента внизу.".into()),
+            self.text_row(
+                &AUTOSCROLL,
                 kit::switch("pref-autoscroll")
                     .checked(current.view.autoscroll)
                     .on_click(|checked, _, cx| {
@@ -193,20 +247,17 @@ impl SettingsView {
                         prefs::update(cx, move |prefs| prefs.view.autoscroll = checked)
                     })
                     .into_any_element(),
-                false,
                 cx,
             )
             .into_any_element(),
-            row(
-                "Уведомления",
-                Some("Когда окно в фоне: агент закончил, ждёт подтверждения или ответа.".into()),
+            self.text_row(
+                &NOTIFICATIONS_ROW,
                 choice(
                     "pref-notifications",
                     &NOTIFICATIONS,
                     current.notifications,
                     |prefs, value| prefs.notifications = value,
                 ),
-                false,
                 cx,
             )
             .into_any_element(),

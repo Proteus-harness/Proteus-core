@@ -63,7 +63,11 @@ impl SettingsView {
             }
             let hint =
                 (!command.in_terminal()).then(|| "В фокусе терминала уходит в shell.".into());
-            row(command.title(), hint, control, false, cx).into_any_element()
+            self.spotted(
+                &super::spot::row(command.title()),
+                row(command.title(), hint, control, false, cx),
+                cx,
+            )
         });
         let reset_all = (!shortcuts.is_empty()).then(|| {
             kit::button("shortcuts-reset-all")

@@ -177,7 +177,11 @@ impl SettingsView {
             .children(reset)
             .children(missing)
             .when(changed, |title| title.child(changed_dot(cx)));
-        field_row(title, control, fit).into_any_element()
+        self.spotted(
+            &super::spot::field(path),
+            field_row(title, control, fit),
+            cx,
+        )
     }
 }
 

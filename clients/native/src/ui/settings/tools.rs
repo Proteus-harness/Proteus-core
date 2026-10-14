@@ -144,9 +144,11 @@ impl SettingsView {
             .map(IntoElement::into_any_element)
             .chain(owner)
             .chain([switch.into_any_element()]);
-        item_row(title, trailing)
-            .when(!tool.registered, |row| row.opacity(0.65))
-            .into_any_element()
+        self.spotted(
+            &super::spot::tool(&tool.name),
+            item_row(title, trailing).when(!tool.registered, |row| row.opacity(0.65)),
+            cx,
+        )
     }
 
     fn missing_tool_row(&self, name: &str, cx: &Context<Self>) -> AnyElement {

@@ -3,8 +3,8 @@
 use gpui_kit::component::*;
 use gpui_kit::*;
 
-use super::SettingsView;
 use super::widgets::{Tone, card, chip, hashed_id, mono, note, radio_card, section};
+use super::{SettingsView, spot};
 use crate::settings::catalog::{
     CONTEXT_PROVIDER_SLOT, CONTEXT_SLOT, MODEL_SLOT, POLICY_SLOT, exports, find_slot, model_module,
     permission_description, selected_module,
@@ -31,7 +31,7 @@ impl SettingsView {
                     chips.push(chip(provider.provider.clone(), Tone::Muted, cx));
                 }
                 let (view, id) = (view.clone(), provider.id.clone());
-                radio_card(
+                let card = radio_card(
                     hashed_id("provider", &provider.id),
                     self.draft.provider.as_deref() == Some(provider.id.as_str()),
                     title,
@@ -44,8 +44,8 @@ impl SettingsView {
                         });
                     },
                     cx,
-                )
-                .into_any_element()
+                );
+                self.spotted(&spot::provider(&provider.id), card, cx)
             })
             .collect();
         let providers = if cards.is_empty() {
@@ -156,7 +156,7 @@ impl SettingsView {
                 }
             }
             let (view, slot_id, id) = (view.clone(), slot.to_string(), module.id.clone());
-            radio_card(
+            let card = radio_card(
                 hashed_id("module", &(slot, &module.id)),
                 selected.as_deref() == Some(module.id.as_str()),
                 mono(module.id.clone(), cx),
@@ -169,7 +169,8 @@ impl SettingsView {
                     });
                 },
                 cx,
-            )
+            );
+            self.spotted(&spot::module(slot, &module.id), card, cx)
         });
         let mut parts = vec![
             section(
@@ -220,7 +221,11 @@ impl SettingsView {
                         ),
                 );
                 v_flex()
-                    .child(header)
+                    .child(self.spotted(
+                        &spot::export(CONTEXT_PROVIDER_SLOT, &export.id),
+                        header,
+                        cx,
+                    ))
                     .child(self.params_disclosure(
                         CONTEXT_PROVIDER_SLOT,
                         &export.id,

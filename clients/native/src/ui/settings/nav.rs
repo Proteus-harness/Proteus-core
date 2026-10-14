@@ -5,9 +5,11 @@ use std::collections::HashSet;
 
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::ButtonVariants as _;
+use gpui_kit::component::input::Input;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use proteus_contracts::app_protocol::config_builder::ConfigBuilderSnapshot;
 
 use super::widgets::changed_dot;
 use super::{SettingsEvent, SettingsView};
@@ -50,6 +52,16 @@ fn page_icon(page: &PageId) -> Icon {
     }
 }
 
+/// Title of a page in the navigation; extensions are named by their manifests.
+pub(super) fn nav_title(snapshot: Option<&ConfigBuilderSnapshot>, page: &PageId) -> String {
+    match page {
+        PageId::Extension(id) => {
+            extensions::find(id).map_or_else(|| id.clone(), |manifest| manifest.title.to_string())
+        }
+        page => page_title(snapshot, page),
+    }
+}
+
 impl SettingsView {
     fn agent_page_list(&self) -> Vec<PageId> {
         self.snapshot()
@@ -70,12 +82,18 @@ impl SettingsView {
             .collect()
     }
 
-    /// Moves the selection through the navigation list, wrapping around.
-    pub(super) fn step_page(&mut self, offset: isize, cx: &mut Context<Self>) {
+    /// Every page of the navigation in its order.
+    pub(super) fn page_list(&self, cx: &App) -> Vec<PageId> {
         let mut pages = self.agent_page_list();
         pages.extend(CONNECTION_PAGES.iter().cloned());
         pages.extend(CLIENT_PAGES.iter().cloned());
         pages.extend(self.extension_page_list(cx));
+        pages
+    }
+
+    /// Moves the selection through the navigation list, wrapping around.
+    pub(super) fn step_page(&mut self, offset: isize, cx: &mut Context<Self>) {
+        let pages = self.page_list(cx);
         let current = pages
             .iter()
             .position(|page| *page == self.page)
@@ -97,11 +115,7 @@ impl SettingsView {
             .collect();
         let item = |page: PageId, cx: &Context<Self>| {
             let selected = self.page == page;
-            let title = match &page {
-                PageId::Extension(id) => extensions::find(id)
-                    .map_or_else(|| id.clone(), |manifest| manifest.title.to_string()),
-                page => page_title(snapshot, page),
-            };
+            let title = nav_title(snapshot, &page);
             let dot = changed.contains(&page);
             let target = page.clone();
             h_flex()
@@ -180,6 +194,14 @@ impl SettingsView {
                     .child("Настройки"),
             )
             .child(
+                div().px_2().pb_1().child(
+                    Input::new(&self.search)
+                        .small()
+                        .cleanable(true)
+                        .prefix(Icon::new(IconName::Search).small()),
+                ),
+            )
+            .child(if self.query.is_empty() {
                 v_flex()
                     .id("settings-pages")
                     .flex_1()
@@ -197,8 +219,10 @@ impl SettingsView {
                     .when(!installed.is_empty(), |list| {
                         list.child(heading("Расширения"))
                             .children(installed.into_iter().map(|page| item(page, cx)))
-                    }),
-            )
+                    })
+            } else {
+                self.render_hits(cx)
+            })
             .children(profile.map(|(path, writable)| {
                 let name = std::path::Path::new(&path)
                     .file_name()
@@ -223,5 +247,61 @@ impl SettingsView {
                     })
                     .tip_text(path)
             }))
+    }
+
+    /// Search hits in place of the page list; Enter in the field opens the
+    /// first one.
+    fn render_hits(&self, cx: &Context<Self>) -> Stateful<Div> {
+        let theme = cx.theme();
+        let hits = self.search(&self.query, cx);
+        let empty = hits.is_empty();
+        v_flex()
+            .id("settings-hits")
+            .flex_1()
+            .min_h_0()
+            .overflow_y_scroll()
+            .px_2()
+            .pt_1()
+            .pb_3()
+            .gap_0p5()
+            .children(hits.into_iter().enumerate().map(|(ix, hit)| {
+                let (icon, title, place) =
+                    (page_icon(&hit.page), hit.title.clone(), hit.place.clone());
+                h_flex()
+                    .id(("settings-hit", ix))
+                    .flex_none()
+                    .px_2()
+                    .py_1()
+                    .gap_2()
+                    .items_center()
+                    .rounded(theme.radius)
+                    .cursor_pointer()
+                    .text_color(theme.sidebar_foreground)
+                    .hover(|item| item.bg(theme.list_hover))
+                    .child(icon.small().flex_none().text_color(theme.muted_foreground))
+                    .child(
+                        v_flex()
+                            .flex_1()
+                            .min_w_0()
+                            .child(div().text_sm().child(faded(title)))
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(theme.muted_foreground)
+                                    .child(faded(place)),
+                            ),
+                    )
+                    .on_click(cx.listener(move |this, _, window, cx| this.go_to(&hit, window, cx)))
+            }))
+            .when(empty, |list| {
+                list.child(
+                    div()
+                        .px_2()
+                        .py_2()
+                        .text_sm()
+                        .text_color(theme.muted_foreground)
+                        .child("Ничего не найдено"),
+                )
+            })
     }
 }

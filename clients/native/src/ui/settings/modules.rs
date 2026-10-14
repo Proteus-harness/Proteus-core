@@ -110,7 +110,7 @@ impl SettingsView {
             )
             .children(counts.into_iter().map(|text| chip(text, Tone::Muted, cx)));
 
-        let mut rows = vec![header.into_any_element()];
+        let mut rows = vec![self.spotted(&super::spot::component(&plugin.id), header, cx)];
         if plugin.exports.is_empty() && plugin.tool_packs.is_empty() {
             rows.push(note("Модуль не объявил exports.", cx).into_any_element());
         }
@@ -232,7 +232,10 @@ impl SettingsView {
             }
             content.into_any_element()
         });
-        v_flex().child(header).children(content).into_any_element()
+        v_flex()
+            .child(self.spotted(&key, header, cx))
+            .children(content)
+            .into_any_element()
     }
 
     fn pack_tool_row(&self, name: &str, cx: &Context<Self>) -> AnyElement {

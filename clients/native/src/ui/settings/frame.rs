@@ -133,8 +133,11 @@ impl SettingsView {
                     .flatten(),
             )
             .children(body);
-        let scroll = v_flex()
-            .size_full()
+        let handle = self.page_scroll();
+        let content = v_flex()
+            .flex_none()
+            .w_full()
+            .min_h_full()
             .items_center()
             .px_8()
             .pt_8()
@@ -146,9 +149,24 @@ impl SettingsView {
                     column,
                     ElementId::Name(format!("settings-page-{key}").into()),
                 ),
-            ))
-            .overflow_y_scrollbar()
-            .id(ElementId::Name(format!("settings-scroll-{key}").into()));
+            ));
+        // Own scroll handle per page, so a search hit can move the page.
+        let scroll = div()
+            .id(ElementId::Name(format!("settings-scroll-{key}").into()))
+            .size_full()
+            .relative()
+            .child(
+                div()
+                    .id(ElementId::Name(format!("settings-area-{key}").into()))
+                    .size_full()
+                    .flex()
+                    .flex_col()
+                    .overflow_y_scroll()
+                    .track_scroll(&handle)
+                    .lock_scroll_axis()
+                    .child(content),
+            )
+            .vertical_scrollbar(&handle);
         v_flex()
             .size_full()
             .child(div().flex_1().min_h_0().child(scroll))

@@ -164,6 +164,9 @@ impl SettingsView {
                 )
                 .into_any_element()
         });
-        v_flex().child(header).children(content).into_any_element()
+        v_flex()
+            .child(self.spotted(&super::spot::field(path), header, cx))
+            .children(content)
+            .into_any_element()
     }
 }

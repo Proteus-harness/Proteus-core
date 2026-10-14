@@ -120,7 +120,11 @@ impl SettingsView {
             .into_iter()
             .map(IntoElement::into_any_element)
             .chain([switch.into_any_element()]);
-        item_row(title, trailing).into_any_element()
+        self.spotted(
+            &super::spot::skill(&skill.id),
+            item_row(title, trailing),
+            cx,
+        )
     }
 
     /// Disabled entry that no catalog lists any more; switching it on only

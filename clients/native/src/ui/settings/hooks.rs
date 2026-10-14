@@ -82,7 +82,7 @@ impl SettingsView {
                     ],
                 );
                 v_flex()
-                    .child(header)
+                    .child(self.spotted(&super::spot::hook(id), header, cx))
                     .child(self.params_disclosure(HOOK_SLOT, id, &key, open, cx))
                     .into_any_element()
             })
@@ -102,7 +102,7 @@ impl SettingsView {
             .filter(|module| !self.draft.hooks.contains(&module.id))
             .map(|module| {
                 let id = module.id.clone();
-                item_row(
+                let row = item_row(
                     named(
                         hashed_id("hook-name", &module.id),
                         module.id.clone(),
@@ -118,8 +118,8 @@ impl SettingsView {
                             this.update_draft(cx, |draft| draft.set_hook(&id, true))
                         }))
                         .into_any_element()],
-                )
-                .into_any_element()
+                );
+                self.spotted(&super::spot::hook(&module.id), row, cx)
             })
             .collect();
         let available = if available.is_empty() {
