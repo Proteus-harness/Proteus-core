@@ -1,6 +1,6 @@
-//! The model icon's chooser: the effort step on top with the model under it
-//! and the effort pill below. The model opens its list in their place, and a
-//! chosen model returns to the effort without closing the chooser.
+//! The model icon's chooser: the model on top and the reasoning effort with
+//! its pill below. The model opens its list in their place, and a chosen
+//! model returns to the effort without closing the chooser.
 
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::ButtonVariants as _;
@@ -38,8 +38,8 @@ impl SelectorBadge {
             .unwrap_or_else(|| effort_position(config))
             .min(count - 1);
         vec![
-            self.effort_header(config, chat, shown, cx)
-                .into_any_element(),
+            self.model_row(config, cx).into_any_element(),
+            self.effort_row(config, chat, shown, cx).into_any_element(),
             div()
                 .px_1()
                 .pb_1()
@@ -48,7 +48,30 @@ impl SelectorBadge {
         ]
     }
 
-    fn effort_header(
+    fn model_row(&self, config: &ConfigSummary, cx: &mut Context<Self>) -> Stateful<Div> {
+        let theme = cx.theme();
+        let (muted, hover, radius) = (theme.muted_foreground, theme.list_hover, theme.radius);
+        h_flex()
+            .id("selector-model")
+            .gap_1()
+            .px_2()
+            .py_1()
+            .rounded(radius)
+            .font_medium()
+            .child(div().flex_1().min_w_0().child(faded(model_label(config))))
+            .when(!models(config).is_empty(), |row| {
+                row.cursor_pointer()
+                    .hover(move |style| style.bg(hover))
+                    .child(
+                        div()
+                            .text_color(muted)
+                            .child(Icon::new(Lucide::ChevronRight).xsmall()),
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| this.show_models(true, cx)))
+            })
+    }
+
+    fn effort_row(
         &self,
         config: &ConfigSummary,
         chat: WeakEntity<Chat>,
@@ -56,21 +79,8 @@ impl SelectorBadge {
         cx: &mut Context<Self>,
     ) -> Div {
         let theme = cx.theme();
-        let (muted, foreground, primary) =
-            (theme.muted_foreground, theme.foreground, theme.primary);
+        let (muted, primary, border) = (theme.muted_foreground, theme.primary, theme.border);
         let title = efforts(config).get(shown).cloned().unwrap_or_default();
-        let model = h_flex()
-            .id("selector-model")
-            .max_w_full()
-            .gap_0p5()
-            .text_color(muted)
-            .child(div().child(faded(model_label(config))))
-            .when(!models(config).is_empty(), |row| {
-                row.cursor_pointer()
-                    .hover(move |style| style.text_color(foreground))
-                    .child(Icon::new(Lucide::ChevronRight).xsmall())
-                    .on_click(cx.listener(|this, _, _, cx| this.show_models(true, cx)))
-            });
         let overridden = current_effort(config).is_some() || self.pending.is_some();
         let this = cx.entity().downgrade();
         let reset = kit::button("selector-effort-reset")
@@ -88,24 +98,26 @@ impl SelectorBadge {
                 let _ = chat.update(cx, |chat, cx| chat.set_effort(None, cx));
             });
         div()
-            .relative()
-            .px_8()
+            .mt_1()
             .pt_1()
-            .pb_2()
+            .border_t_1()
+            .border_color(border)
             .child(
-                v_flex()
-                    .items_center()
-                    .gap_0p5()
+                h_flex()
+                    .gap_1()
+                    .pl_2()
+                    .pr_0p5()
+                    .pb_1()
                     .child(
                         div()
-                            .text_base()
-                            .font_medium()
-                            .text_color(primary)
-                            .child(title),
+                            .flex_1()
+                            .text_xs()
+                            .text_color(muted)
+                            .child("Рассуждения"),
                     )
-                    .child(model),
+                    .child(div().font_medium().text_color(primary).child(title))
+                    .child(reset),
             )
-            .child(div().absolute().top_1().right_1().child(reset))
     }
 
     fn model_list(
@@ -127,7 +139,7 @@ impl SelectorBadge {
                         .icon(Lucide::ChevronLeft)
                         .ghost()
                         .xsmall()
-                        .hint("К рассуждениям", cx)
+                        .hint("Назад", cx)
                         .on_click(cx.listener(|this, _, _, cx| this.show_models(false, cx))),
                 )
                 .child(heading(title, cx).px_0().pt_0().pb_0())
