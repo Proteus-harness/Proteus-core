@@ -298,6 +298,12 @@ pub(super) fn problems() -> Vec<Problem> {
     declarative::problems(&builtin_ids())
 }
 
+/// Re-reads managed folders after a catalog installation or removal.
+pub(super) fn reload_installed(cx: &mut App) {
+    declarative::rescan(&builtin_ids());
+    cx.refresh_windows();
+}
+
 /// Folder of an extension installed by the user; built-in ones have none.
 pub(super) fn folder(id: &str) -> Option<&'static Path> {
     declarative::folder(&builtin_ids(), id)

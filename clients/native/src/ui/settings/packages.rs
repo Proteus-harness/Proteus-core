@@ -49,7 +49,11 @@ impl SettingsView {
                     "Пакет не запускает процессных модулей: он даёт навыки и описания MCP-серверов."
                         .into(),
                 ),
-                Some(add.into_any_element()),
+                Some(h_flex().flex_wrap().gap_2().child(add).child(
+                    kit::button("package-zip").label("Из ZIP…").ghost().xsmall()
+                        .disabled(self.catalogs.busy || self.saving)
+                        .on_click(cx.listener(|this, _, _, cx| this.choose_package_zip(cx)))
+                ).into_any_element()),
                 card(rows, cx),
                 cx,
             )

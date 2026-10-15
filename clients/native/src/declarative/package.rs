@@ -5,131 +5,34 @@
 //! `<root>/<id>` only when complete, so a broken archive leaves nothing
 //! behind.
 
-use std::{
-    collections::BTreeMap,
-    io::{Cursor, Read},
-    path::{Component, Path, PathBuf},
-};
+use std::path::Path;
 
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Result, ensure};
+
+use crate::packages::Contents;
 
 use super::manifest::{MANIFEST, Manifest, parse};
-
-const MAX_ARCHIVE_BYTES: u64 = 64 * 1024 * 1024;
-const MAX_EXPANDED_BYTES: u64 = 128 * 1024 * 1024;
-const MAX_FILES: usize = 4096;
-
-struct File {
-    content: Vec<u8>,
-    mode: Option<u32>,
-}
 
 /// Unpacks the archive at `archive` into `<root>/<id>`. `taken` are ids the
 /// new extension must not reuse besides the folders already in `root`.
 pub fn install(root: &Path, archive: &Path, taken: &[&str]) -> Result<Manifest> {
-    let size = std::fs::metadata(archive)
-        .with_context(|| format!("Не удалось прочитать {}", archive.display()))?
-        .len();
-    ensure!(size <= MAX_ARCHIVE_BYTES, "ZIP превышает 64 МиБ");
-    let bytes = std::fs::read(archive)
-        .with_context(|| format!("Не удалось прочитать {}", archive.display()))?;
-    install_bytes(root, &bytes, taken)
+    install_contents(root, Contents::zip(archive)?, taken)
 }
 
+#[cfg(test)]
 fn install_bytes(root: &Path, bytes: &[u8], taken: &[&str]) -> Result<Manifest> {
-    let files = unpack(bytes)?;
-    let text = files
-        .get(Path::new(MANIFEST))
-        .context("В корне ZIP нужен extension.json")?;
-    let text = std::str::from_utf8(&text.content).context("extension.json не в UTF-8")?;
-    let manifest = parse(text).context("Неверный extension.json")?;
-    let destination = root.join(&manifest.id);
+    install_contents(root, Contents::zip_bytes(bytes)?, taken)
+}
+
+fn install_contents(root: &Path, files: Contents, taken: &[&str]) -> Result<Manifest> {
+    let manifest = parse(files.text(MANIFEST)?)?;
     ensure!(
-        !taken.contains(&manifest.id.as_str()) && !destination.exists(),
+        !taken.contains(&manifest.id.as_str()),
         "Расширение `{}` уже установлено или его имя занято",
         manifest.id
     );
-    std::fs::create_dir_all(root)
-        .with_context(|| format!("Не удалось создать {}", root.display()))?;
-    let temporary = root.join(format!(".install-{}", uuid::Uuid::new_v4()));
-    let result = write(&temporary, &files).and_then(|()| {
-        std::fs::rename(&temporary, &destination)
-            .with_context(|| format!("Не удалось создать {}", destination.display()))
-    });
-    if result.is_err() {
-        let _ = std::fs::remove_dir_all(&temporary);
-    }
-    result.map(|()| manifest)
-}
-
-fn unpack(bytes: &[u8]) -> Result<BTreeMap<PathBuf, File>> {
-    let mut archive =
-        zip::ZipArchive::new(Cursor::new(bytes)).context("Не удалось прочитать ZIP")?;
-    ensure!(
-        archive.len() <= MAX_FILES,
-        "В ZIP больше {MAX_FILES} записей"
-    );
-    let mut files = BTreeMap::new();
-    let mut total = 0u64;
-    for index in 0..archive.len() {
-        let mut entry = archive.by_index(index)?;
-        let path = relative_path(entry.name())?;
-        let mode = entry.unix_mode();
-        ensure!(
-            mode.is_none_or(|mode| mode & 0o170000 != 0o120000),
-            "Ссылки в ZIP не поддерживаются"
-        );
-        if entry.is_dir() {
-            continue;
-        }
-        let size = entry.size();
-        total = total.checked_add(size).context("Неверный размер ZIP")?;
-        ensure!(
-            total <= MAX_EXPANDED_BYTES,
-            "Распакованный ZIP превышает 128 МиБ"
-        );
-        let mut content = Vec::new();
-        entry.by_ref().take(size + 1).read_to_end(&mut content)?;
-        ensure!(content.len() as u64 == size, "Неверный размер файла в ZIP");
-        let file = File { content, mode };
-        ensure!(
-            files.insert(path, file).is_none(),
-            "Повторный путь файла в ZIP"
-        );
-    }
-    Ok(files)
-}
-
-fn relative_path(name: &str) -> Result<PathBuf> {
-    let path = Path::new(name);
-    let mut clean = PathBuf::new();
-    for component in path.components() {
-        match component {
-            Component::Normal(part) => clean.push(part),
-            Component::CurDir => {}
-            _ => bail!("Путь `{name}` выходит за пределы расширения"),
-        }
-    }
-    ensure!(!clean.as_os_str().is_empty(), "Пустой путь в ZIP");
-    Ok(clean)
-}
-
-fn write(dir: &Path, files: &BTreeMap<PathBuf, File>) -> Result<()> {
-    std::fs::create_dir(dir).with_context(|| format!("Не удалось создать {}", dir.display()))?;
-    for (path, file) in files {
-        let target = dir.join(path);
-        if let Some(parent) = target.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        std::fs::write(&target, &file.content)
-            .with_context(|| format!("Не удалось записать {}", target.display()))?;
-        if let Some(mode) = file.mode {
-            use std::os::unix::fs::PermissionsExt;
-            let permissions = std::fs::Permissions::from_mode(mode & 0o755 | 0o600);
-            std::fs::set_permissions(&target, permissions)?;
-        }
-    }
-    Ok(())
+    files.install(root, &manifest.id, false)?;
+    Ok(manifest)
 }
 
 /// Deletes the folder of an installed extension.
@@ -139,12 +42,15 @@ pub fn remove(root: &Path, id: &str) -> Result<()> {
         dir.parent() == Some(root) && !id.is_empty() && !id.starts_with('.'),
         "Неверное имя расширения `{id}`"
     );
-    std::fs::remove_dir_all(&dir).with_context(|| format!("Не удалось удалить {}", dir.display()))
+    Ok(std::fs::remove_dir_all(&dir)?)
 }
 
 #[cfg(test)]
 mod tests {
-    use std::io::Write as _;
+    use std::{
+        io::{Cursor, Write as _},
+        path::PathBuf,
+    };
 
     use zip::write::SimpleFileOptions;
 

@@ -1,0 +1,14 @@
+{
+  "format": 1,
+  "title": "Пример каталога Proteus",
+  "categories": [
+    {"id": "client", "title": "Интерфейс"},
+    {"id": "agent", "title": "Агент"}
+  ],
+  "entries": [
+    {"id": "catalog-demo", "kind": "client_extension", "title": "Демо-панель", "description": "Минимальное расширение клиента на Python 3.", "category": "client", "version": "1.0.0", "path": "client/demo"},
+    {"id": "review-pack", "kind": "agent_plugin", "title": "Пакет ревью", "description": "Agent Plugins 1.0 с навыком проверки изменений.", "category": "agent", "version": "1.0.0", "path": "plugins/review"},
+    {"id": "review", "kind": "skill", "title": "Проверка изменений", "description": "Самостоятельный навык ревью.", "category": "agent", "version": "1.0.0", "path": "skills/review"},
+    {"id": "fetch", "kind": "mcp_server", "title": "MCP Fetch", "description": "Получение страниц через mcp-server-fetch; нужен uvx.", "category": "agent", "version": "1.0.0", "path": "mcp/fetch"}
+  ]
+}

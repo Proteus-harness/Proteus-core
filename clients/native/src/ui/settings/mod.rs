@@ -2,6 +2,7 @@
 //! preferences of this device.
 
 mod addons;
+mod catalog;
 mod client;
 mod editors;
 mod extension;
@@ -95,6 +96,7 @@ pub struct SettingsView {
     tool_search: Entity<InputState>,
     tool_query: String,
     sizes: sizes::SizeSliders,
+    catalogs: catalog::State,
     overview: crate::ui::analytics::Pages,
     /// Result of the last extension install or removal.
     extension_notice: Option<Feedback>,
@@ -119,6 +121,8 @@ impl SettingsView {
             cx.new(|cx| InputState::new(window, cx).placeholder("Поиск по имени или описанию"));
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Поиск настроек"));
         let (sizes, mut subscriptions) = sizes::SizeSliders::new(window, cx);
+        let (catalogs, catalog_changes) = catalog::State::new(window, cx);
+        subscriptions.push(catalog_changes);
         subscriptions.extend([
             cx.subscribe_in(
                 &search,
@@ -174,6 +178,7 @@ impl SettingsView {
             tool_search,
             tool_query: String::new(),
             sizes,
+            catalogs,
             overview,
             extension_notice: None,
             removing: None,
@@ -222,6 +227,7 @@ impl SettingsView {
     }
 
     fn accept(&mut self, snapshot: ConfigBuilderSnapshot) {
+        self.catalogs.pending.clear();
         self.baseline = Draft::from_snapshot(&snapshot);
         self.draft = self.baseline.clone();
         self.forget_editors();
@@ -242,6 +248,7 @@ impl SettingsView {
     fn can_save(&self) -> bool {
         self.snapshot().is_some_and(|snapshot| snapshot.writable)
             && !self.saving
+            && !self.catalogs.busy
             && self.dirty()
             && !self.has_errors()
     }
@@ -267,6 +274,7 @@ impl SettingsView {
     }
 
     fn discard(&mut self, cx: &mut Context<Self>) {
+        self.catalogs.pending.clear();
         self.replace_draft(self.baseline.clone(), cx);
     }
 
@@ -276,6 +284,9 @@ impl SettingsView {
     }
 
     fn select_page(&mut self, page: PageId, cx: &mut Context<Self>) {
+        if page == PageId::Catalog {
+            self.open_catalogs(cx);
+        }
         if page == PageId::History && matches!(self.history, HistoryState::Idle) {
             self.load_history(cx);
         }
@@ -354,6 +365,14 @@ impl SettingsView {
                 this.saving = false;
                 match result {
                     Ok(snapshot) => {
+                        let pending = std::mem::take(&mut this.catalogs.pending);
+                        if !pending.is_empty() {
+                            crate::ui::prefs::update(cx, |prefs| {
+                                for installed in pending {
+                                    prefs.catalogs.remember(installed);
+                                }
+                            });
+                        }
                         this.accept(snapshot);
                         this.load_addons(cx);
                         this.refresh_history(cx);

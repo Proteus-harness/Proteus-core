@@ -38,6 +38,7 @@ fn page_icon(page: &PageId) -> Icon {
         PageId::Tools => Icon::new(Lucide::Wrench),
         PageId::Hooks => Icon::new(Lucide::Webhook),
         PageId::Modules => Icon::new(Lucide::Boxes),
+        PageId::Catalog => Icon::new(Lucide::Library),
         PageId::Mcp => Icon::new(Lucide::Server),
         PageId::Skills => Icon::new(Lucide::Sparkles),
         PageId::Packages => Icon::new(Lucide::Package),

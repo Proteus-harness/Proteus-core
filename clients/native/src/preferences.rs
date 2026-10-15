@@ -92,6 +92,7 @@ pub struct Preferences {
     pub notifications: Notifications,
     pub view: ViewPreferences,
     pub extensions: ExtensionPreferences,
+    pub catalogs: crate::catalog::Preferences,
     pub sidebar: SidebarPreferences,
     pub tabs: TabLayout,
     pub sessions: SessionMarks,

@@ -28,6 +28,7 @@ pub enum PageId {
     Hooks,
     /// Process components of the profile with their exports.
     Modules,
+    Catalog,
     Mcp,
     Skills,
     /// Agent Plugins packages.
@@ -54,7 +55,12 @@ impl PageId {
     pub fn is_agent(&self) -> bool {
         !matches!(
             self,
-            Self::Appearance | Self::Chat | Self::Shortcuts | Self::Extensions | Self::Extension(_)
+            Self::Catalog
+                | Self::Appearance
+                | Self::Chat
+                | Self::Shortcuts
+                | Self::Extensions
+                | Self::Extension(_)
         )
     }
 }
@@ -122,7 +128,8 @@ pub fn agent_pages(snapshot: &ConfigBuilderSnapshot) -> Vec<PageId> {
 }
 
 /// Agent pages by where the parts come from, then the profile history.
-pub const CONNECTION_PAGES: [PageId; 5] = [
+pub const CONNECTION_PAGES: [PageId; 6] = [
+    PageId::Catalog,
     PageId::Modules,
     PageId::Mcp,
     PageId::Skills,
@@ -149,6 +156,7 @@ pub fn page_title(snapshot: Option<&ConfigBuilderSnapshot>, page: &PageId) -> St
         PageId::Tools => "Tools".into(),
         PageId::Hooks => "Hooks".into(),
         PageId::Modules => "Modules".into(),
+        PageId::Catalog => "Каталог".into(),
         PageId::Mcp => "MCP".into(),
         PageId::Skills => "Skills".into(),
         PageId::Packages => "Packages".into(),
@@ -181,6 +189,9 @@ pub fn page_description(snapshot: Option<&ConfigBuilderSnapshot>, page: &PageId)
         PageId::Hooks => slot_text(HOOK_SLOT).map(|(_, text)| text).unwrap_or(""),
         PageId::Modules => {
             "Процессные модули профиля. Один модуль может давать пакеты инструментов, обработчики и реализации слотов."
+        }
+        PageId::Catalog => {
+            "Расширения клиента, Agent Plugins, навыки и MCP из ваших git-репозиториев. Процессные модули устанавливаются отдельно."
         }
         PageId::Mcp => {
             "MCP-серверы профиля и пакетов. Серверы профиля добавляются и правятся здесь, серверы пакетов только включаются. Инструменты сервера доступны агенту, пока сервер включён; изменения применяются после сохранения."

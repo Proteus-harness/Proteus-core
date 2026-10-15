@@ -75,6 +75,7 @@ impl SettingsView {
             PageId::Tools => self.tools_page(cx),
             PageId::Hooks => self.hooks_page(cx),
             PageId::Modules => self.modules_page(cx),
+            PageId::Catalog => self.catalog_page(cx),
             PageId::Mcp => self.mcp_page(cx),
             PageId::Skills => self.skills_page(cx),
             PageId::Packages => self.packages_page(cx),
@@ -170,9 +171,10 @@ impl SettingsView {
         v_flex()
             .size_full()
             .child(div().flex_1().min_h_0().child(scroll))
-            .when(self.page.is_agent(), |frame| {
-                frame.child(self.render_save_bar(cx))
-            })
+            .when(
+                self.page.is_agent() || self.page == PageId::Catalog && self.snapshot().is_some(),
+                |frame| frame.child(self.render_save_bar(cx)),
+            )
             .when(self.page == PageId::Extensions, |frame| {
                 frame.on_drop(cx.listener(|this, paths: &ExternalPaths, _, cx| {
                     this.install_archives(paths.paths(), cx)
