@@ -1,6 +1,6 @@
 //! The rail along the left edge, under the top bar: the panels it opens
-//! beside itself, what the agent is doing, the narrow extension icons
-//! placed at either end, and the settings at the bottom.
+//! beside itself, the narrow extension icons placed at either end, and the
+//! settings at the bottom.
 
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::*;
@@ -9,8 +9,6 @@ use gpui_kit::*;
 
 use crate::preferences::{BadgePlace, SESSIONS_PANEL};
 use crate::shortcuts::Command;
-use crate::ui::chat::ChatState;
-use crate::ui::motion::Spinner;
 use crate::ui::tip::Tip as _;
 use crate::ui::workspace::Workspace;
 use crate::ui::{kit, panels, prefs};
@@ -33,7 +31,6 @@ impl Workspace {
             .border_color(theme.status_bar_border)
             .text_color(theme.muted_foreground)
             .child(self.render_panel_buttons(cx))
-            .child(self.render_agent_state(cx))
             .child(self.render_badge_strip(BadgePlace::RailStart, cx))
             .child(div().flex_1())
             .child(self.render_badge_strip(BadgePlace::RailEnd, cx))
@@ -82,55 +79,6 @@ impl Workspace {
         )
         .on_click(cx.listener(|this, _, window, cx| this.toggle_settings(window, cx)))
     }
-
-    /// State of the active chat, and how many others are working; the words
-    /// are in the tooltips.
-    fn render_agent_state(&self, cx: &App) -> impl IntoElement + use<> {
-        let theme = cx.theme();
-        let state = |id: &String| {
-            self.chats
-                .get(id)
-                .map(|chat| chat.view.read(cx).session.state())
-        };
-        let active = self.active_chat.as_ref().and_then(state);
-        let others = self
-            .chats
-            .keys()
-            .filter(|id| Some(*id) != self.active_chat.as_ref())
-            .filter(|id| matches!(state(id), Some(ChatState::Busy(_))))
-            .count();
-        let current = match active {
-            Some(ChatState::Busy(label)) => Some(cell(
-                "rail-agent-state",
-                label,
-                Spinner::new().small().into_any_element(),
-            )),
-            Some(ChatState::Trouble(label)) => Some(cell(
-                "rail-agent-state",
-                label,
-                Icon::new(Lucide::TriangleAlert)
-                    .small()
-                    .text_color(theme.warning)
-                    .into_any_element(),
-            )),
-            Some(ChatState::Idle) | None => None,
-        };
-        let others = (others > 0).then(|| {
-            cell(
-                "rail-agent-others",
-                format!("ещё в работе: {others}"),
-                div()
-                    .text_xs()
-                    .child(format!("+{others}"))
-                    .into_any_element(),
-            )
-        });
-        v_flex()
-            .gap_1()
-            .items_center()
-            .children(current)
-            .children(others)
-    }
 }
 
 /// A button of the rail, marked while what it opens is shown.
@@ -159,16 +107,4 @@ fn rail_button(
         })
         .child(icon)
         .when_some(hint, |button, hint| button.tip_text(hint))
-}
-
-/// An icon-sized cell that names what it shows in a tooltip.
-fn cell(id: &'static str, tip: impl Into<SharedString>, content: AnyElement) -> impl IntoElement {
-    div()
-        .id(id)
-        .size_7()
-        .flex()
-        .items_center()
-        .justify_center()
-        .child(content)
-        .tip_text(tip)
 }
