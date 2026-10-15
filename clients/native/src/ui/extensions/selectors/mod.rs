@@ -48,9 +48,40 @@ struct SelectorBadge {
     track: Rc<Cell<Bounds<Pixels>>>,
     /// Step the effort thumb is drawn at while it slides.
     thumb: Rc<Cell<Option<f32>>>,
+    /// Holds the keys while the chooser is open, so Esc reaches it.
+    focus: FocusHandle,
+    /// What had the keys before the chooser took them.
+    restore: Option<FocusHandle>,
 }
 
 impl SelectorBadge {
+    fn open_chooser(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.restore = window.focused(cx);
+        self.set_open(true, cx);
+        self.focus.focus(window, cx);
+    }
+
+    /// Closes the chooser and hands the keys back, unless something else
+    /// has taken them meanwhile.
+    fn close_chooser(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.set_open(false, cx);
+        let restore = self.restore.take();
+        if self.focus.is_focused(window)
+            && let Some(restore) = restore
+        {
+            restore.focus(window, cx);
+        }
+    }
+
+    /// Esc steps back from the model list first, then closes.
+    fn escape(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.models_open {
+            self.show_models(false, cx);
+        } else {
+            self.close_chooser(window, cx);
+        }
+    }
+
     fn set_open(&mut self, open: bool, cx: &mut Context<Self>) {
         if self.open != open {
             self.open = open;
@@ -157,8 +188,14 @@ impl Render for SelectorBadge {
                 .into_any_element()
         });
         let this = cx.entity().downgrade();
-        let press: Press = Rc::new(move |_, cx| {
-            let _ = this.update(cx, |this, cx| this.set_open(!this.open, cx));
+        let press: Press = Rc::new(move |window, cx| {
+            let _ = this.update(cx, |this, cx| {
+                if this.open {
+                    this.close_chooser(window, cx);
+                } else {
+                    this.open_chooser(window, cx);
+                }
+            });
         });
         let bounds = self.bounds.clone();
         let popup = self
@@ -192,7 +229,7 @@ fn model_face(config: &ConfigSummary) -> String {
 }
 
 fn build(host: Host, id: &'static str, control: Control, cx: &mut App) -> AnyView {
-    cx.new(|_| SelectorBadge {
+    cx.new(|cx| SelectorBadge {
         host,
         id,
         control,
@@ -203,6 +240,8 @@ fn build(host: Host, id: &'static str, control: Control, cx: &mut App) -> AnyVie
         pending: None,
         track: Rc::default(),
         thumb: Rc::default(),
+        focus: cx.focus_handle(),
+        restore: None,
     })
     .into()
 }

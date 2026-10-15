@@ -48,6 +48,7 @@ impl SelectorBadge {
                 .child(
                     v_flex()
                         .id("selector-popup")
+                        .track_focus(&self.focus)
                         .occlude()
                         .popover_style(cx)
                         .p_1()
@@ -58,10 +59,23 @@ impl SelectorBadge {
                             Control::Model => popup.w(prefs::scaled(MODEL_WIDTH)),
                         })
                         .text_sm()
-                        // A press on the icon toggles it itself.
-                        .on_mouse_down_out(move |event, _, cx| {
+                        .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                            if event.keystroke.key == "escape" {
+                                cx.stop_propagation();
+                                this.escape(window, cx);
+                            }
+                        }))
+                        // A press on the icon toggles it itself. The press
+                        // elsewhere settles focus first: the keys go back
+                        // only if it left them with the chooser.
+                        .on_mouse_down_out(move |event, window, cx| {
                             if !trigger.get().contains(&event.position) {
-                                let _ = this.update(cx, |this, cx| this.set_open(false, cx));
+                                let this = this.clone();
+                                window.defer(cx, move |window, cx| {
+                                    let _ = this.update(cx, |this, cx| {
+                                        this.close_chooser(window, cx)
+                                    });
+                                });
                             }
                         })
                         .children(content),
@@ -84,9 +98,9 @@ fn mode_choices(
         .map(|(index, (value, label))| {
             let (chat, value) = (chat.clone(), *value);
             let this = cx.entity().downgrade();
-            choice(("mode", index), *label, value == mode, cx, move |cx| {
+            choice(("mode", index), *label, value == mode, cx, move |window, cx| {
                 let _ = chat.update(cx, |chat, cx| chat.set_mode(value, cx));
-                let _ = this.update(cx, |this, cx| this.set_open(false, cx));
+                let _ = this.update(cx, |this, cx| this.close_chooser(window, cx));
             })
             .into_any_element()
         })
@@ -109,7 +123,7 @@ pub(super) fn choice(
     label: impl Into<SharedString>,
     selected: bool,
     cx: &App,
-    on_choose: impl Fn(&mut App) + 'static,
+    on_choose: impl Fn(&mut Window, &mut App) + 'static,
 ) -> Stateful<Div> {
     let theme = cx.theme();
     let (hover, primary) = (theme.list_hover, theme.primary);
@@ -126,5 +140,5 @@ pub(super) fn choice(
         })
         .when(!selected, |row| row.hover(move |style| style.bg(hover)))
         .child(faded(label.into()))
-        .on_click(move |_, _, cx| on_choose(cx))
+        .on_click(move |_, window, cx| on_choose(window, cx))
 }

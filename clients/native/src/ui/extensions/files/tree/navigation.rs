@@ -1,5 +1,6 @@
 //! Keyboard control of the list: arrows move the cursor and preview files
-//! under it, Left/Right fold directories, Enter keeps the file open.
+//! under it, Left/Right fold directories, Enter keeps the file open. Esc
+//! clears the filter, then gives the keys back to the chat.
 
 use gpui_kit::*;
 
@@ -7,6 +8,8 @@ use super::{FilesPanel, Tab};
 use crate::files::EntryKind;
 
 pub(super) const LIST_CONTEXT: &str = "ProteusFilesList";
+/// The whole panel, the filter included.
+const PANEL_CONTEXT: &str = "ProteusFiles";
 
 gpui_kit::actions!(
     proteus_files,
@@ -20,6 +23,7 @@ gpui_kit::actions!(
         OpenEntry,
         ToggleEntry,
         FocusFilter,
+        Dismiss,
     ]
 );
 
@@ -36,6 +40,7 @@ pub(in crate::ui::extensions) fn bind_keys(cx: &mut App) {
         KeyBinding::new("space", ToggleEntry, context),
         KeyBinding::new("/", FocusFilter, context),
         KeyBinding::new("ctrl-f", FocusFilter, context),
+        KeyBinding::new("escape", Dismiss, Some(PANEL_CONTEXT)),
     ]);
 }
 
@@ -75,6 +80,28 @@ impl FilesPanel {
                 this.filter
                     .update(cx, |filter, cx| filter.focus(window, cx));
             }))
+    }
+
+    /// Esc anywhere on the panel, the filter included.
+    pub(super) fn panel_actions(&self, element: Div, cx: &mut Context<Self>) -> Div {
+        element
+            .key_context(PANEL_CONTEXT)
+            .on_action(cx.listener(|this, _: &Dismiss, window, cx| this.dismiss(window, cx)))
+    }
+
+    /// The filter is cleared only where it is shown, on the tree tab.
+    fn dismiss(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let filter = self.filter.clone();
+        if self.tab != Tab::Tree || filter.read(cx).value().is_empty() {
+            if let Some(chat) = self.host.chat(cx) {
+                chat.update(cx, |chat, cx| chat.focus(window, cx));
+            }
+            return;
+        }
+        filter.update(cx, |filter, cx| filter.set_value("", window, cx));
+        self.query.clear();
+        self.schedule_search(cx);
+        self.sync_rows(cx);
     }
 
     fn stops(&self, cx: &App) -> Vec<Stop> {

@@ -154,7 +154,7 @@ impl SelectorBadge {
                 let selected = current.as_ref() == Some(&name);
                 let chat = chat.clone();
                 let this = cx.entity().downgrade();
-                choice(("model", index), label, selected, cx, move |cx| {
+                choice(("model", index), label, selected, cx, move |_, cx| {
                     let _ = chat.update(cx, |chat, cx| chat.set_model(name.clone(), cx));
                     let _ = this.update(cx, |this, cx| {
                         this.scrub = None;

@@ -114,7 +114,9 @@ impl Workspace {
                 .cleanable(true)
                 .prefix(Icon::new(IconName::Search).small()),
         );
-        v_flex().size_full().child(filter).child(list)
+        self.session_panel_actions(v_flex().size_full(), cx)
+            .child(filter)
+            .child(list)
     }
 
     fn render_archive_toggle(&self, count: usize, cx: &Context<Self>) -> impl IntoElement {

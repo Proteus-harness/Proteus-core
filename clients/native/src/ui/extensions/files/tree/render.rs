@@ -273,8 +273,7 @@ impl Render for FilesPanel {
             .list_actions(v_flex().flex_1().min_h_0(), cx)
             .track_focus(&self.focus_handle)
             .child(list);
-        v_flex()
-            .size_full()
+        self.panel_actions(v_flex().size_full(), cx)
             .child(div().px_2().pb_2().child(tabs))
             .when_some(self.error.clone(), |column, error| {
                 column.child(

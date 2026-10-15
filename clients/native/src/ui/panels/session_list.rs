@@ -1,6 +1,6 @@
 //! Search and keyboard control of the session list: the filter narrows it
 //! by title, arrows move the cursor, Enter opens the session under it and
-//! F2 renames it.
+//! F2 renames it. Esc clears the filter, then gives the keys back to the chat.
 
 use std::path::PathBuf;
 
@@ -10,6 +10,8 @@ use gpui_kit::*;
 use crate::ui::workspace::Workspace;
 
 const LIST_CONTEXT: &str = "ProteusSessionList";
+/// The whole panel, the filter included.
+const PANEL_CONTEXT: &str = "ProteusSessions";
 
 gpui_kit::actions!(
     proteus_sessions,
@@ -21,6 +23,7 @@ gpui_kit::actions!(
         OpenSession,
         RenameSession,
         FocusFilter,
+        Dismiss,
     ]
 );
 
@@ -34,6 +37,7 @@ pub(in crate::ui) fn bind_keys(cx: &mut App) {
         KeyBinding::new("enter", OpenSession, context),
         KeyBinding::new("f2", RenameSession, context),
         KeyBinding::new("ctrl-f", FocusFilter, context),
+        KeyBinding::new("escape", Dismiss, Some(PANEL_CONTEXT)),
     ]);
 }
 
@@ -107,6 +111,26 @@ impl Workspace {
                     .filter
                     .update(cx, |filter, cx| filter.focus(window, cx));
             }))
+    }
+
+    /// Esc anywhere on the panel, the filter included.
+    pub(super) fn session_panel_actions(&self, element: Div, cx: &mut Context<Self>) -> Div {
+        element
+            .key_context(PANEL_CONTEXT)
+            .on_action(cx.listener(|this, _: &Dismiss, window, cx| {
+                this.dismiss_session_list(window, cx)
+            }))
+    }
+
+    fn dismiss_session_list(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let filter = self.session_list.filter.clone();
+        if filter.read(cx).value().is_empty() {
+            self.focus_active_chat(window, cx);
+            return;
+        }
+        filter.update(cx, |filter, cx| filter.set_value("", window, cx));
+        self.session_list.search.clear();
+        cx.notify();
     }
 
     /// The row under the cursor: where the arrows left it, or the open
