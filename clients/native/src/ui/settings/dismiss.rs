@@ -6,6 +6,7 @@ use gpui_kit::component::input::InputState;
 use gpui_kit::*;
 
 use super::{SettingsEvent, SettingsView, reveal_key};
+use crate::settings::catalog::PageId;
 
 impl SettingsView {
     pub(super) fn dismiss(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -21,6 +22,10 @@ impl SettingsView {
         if clear_focused(&self.catalogs.search.clone(), window, cx) {
             self.catalogs.query.clear();
             cx.notify();
+            return;
+        }
+        if self.page == PageId::Catalog && self.catalogs.selected.is_some() {
+            self.deselect_catalog_entry(cx);
             return;
         }
         if !self.search.read(cx).value().is_empty() {
@@ -40,11 +45,14 @@ impl SettingsView {
             return;
         }
         if self.dirty() {
-            self.show_feedback(
-                "Есть несохранённые изменения: сохраните или сбросьте их",
-                true,
-                cx,
-            );
+            let text = "Есть несохранённые изменения: сохраните или сбросьте их";
+            // The catalog page has no save bar to show the warning.
+            if self.page == PageId::Catalog {
+                self.catalog_message(Err(anyhow::anyhow!(text)));
+                cx.notify();
+            } else {
+                self.show_feedback(text, true, cx);
+            }
             return;
         }
         cx.emit(SettingsEvent::Close);

@@ -2,10 +2,10 @@ use gpui_kit::*;
 
 use super::super::SettingsView;
 use crate::catalog::{
-    Locations, Source, git, install,
-    schema::{self, Entry, Kind},
+    Locations, Source, git,
+    schema::{self, Entry},
 };
-use crate::ui::{extensions, prefs};
+use crate::ui::prefs;
 
 impl SettingsView {
     pub(in crate::ui::settings) fn open_catalogs(&mut self, cx: &mut Context<Self>) {
@@ -15,6 +15,7 @@ impl SettingsView {
         self.catalogs.opened = true;
         let sources = prefs::current(cx).catalogs.sources.clone();
         self.catalogs.busy = true;
+        self.catalogs.working = None;
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
@@ -50,7 +51,7 @@ impl SettingsView {
         .detach();
     }
 
-    pub(in crate::ui::settings) fn add_catalog(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn add_catalog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let url = self.catalogs.url.read(cx).value().trim().to_string();
         let branch = self.catalogs.branch.read(cx).value().trim().to_string();
         let source = Source {
@@ -67,39 +68,62 @@ impl SettingsView {
                 prefs.catalogs.sources.push(source.clone());
             }
         });
-        self.refresh_catalog(source, cx);
+        for input in [&self.catalogs.url, &self.catalogs.branch] {
+            input.update(cx, |input, cx| input.set_value("", window, cx));
+        }
+        self.refresh_catalogs(vec![source], cx);
     }
 
-    pub(in crate::ui::settings) fn refresh_catalog(
-        &mut self,
-        source: Source,
-        cx: &mut Context<Self>,
-    ) {
-        if self.catalogs.busy {
+    /// Downloads the sources again, one after another.
+    pub(super) fn refresh_catalogs(&mut self, sources: Vec<Source>, cx: &mut Context<Self>) {
+        if self.catalogs.busy || sources.is_empty() {
             return;
         }
         self.catalogs.busy = true;
+        self.catalogs.working = None;
         self.catalogs.message = None;
         cx.notify();
         cx.spawn(async move |this, cx| {
-            let copied = source.clone();
-            let result = cx
+            let results = cx
                 .background_executor()
-                .spawn(async move { git::refresh(&Locations::local()?.cache, &copied) })
+                .spawn(async move {
+                    let cache = Locations::local().map(|locations| locations.cache);
+                    sources
+                        .into_iter()
+                        .map(|source| {
+                            let catalog = match &cache {
+                                Ok(cache) => git::refresh(cache, &source),
+                                Err(error) => Err(anyhow::anyhow!("{error:#}")),
+                            };
+                            (source, catalog)
+                        })
+                        .collect::<Vec<_>>()
+                })
                 .await;
             this.update(cx, |this, cx| {
                 this.catalogs.busy = false;
-                match result {
-                    Ok(catalog) => {
-                        this.catalogs.loaded.retain(|(old, _)| *old != source);
-                        this.catalogs.loaded.push((source.clone(), catalog));
-                        this.catalogs.selected = None;
-                        this.catalogs.readme = None;
-                        this.catalogs.category = None;
-                        this.catalog_message(Ok("Каталог обновлён"));
+                let mut failed = Vec::new();
+                for (source, result) in results {
+                    match result {
+                        Ok(catalog) => {
+                            match this
+                                .catalogs
+                                .loaded
+                                .iter_mut()
+                                .find(|(old, _)| *old == source)
+                            {
+                                Some((_, old)) => *old = catalog,
+                                None => this.catalogs.loaded.push((source, catalog)),
+                            }
+                        }
+                        Err(error) => failed.push(format!("{}: {error:#}", source.url)),
                     }
-                    Err(error) => this.catalog_message(Err(error)),
                 }
+                this.catalog_message(if failed.is_empty() {
+                    Ok("Каталог обновлён")
+                } else {
+                    Err(anyhow::anyhow!(failed.join("\n")))
+                });
                 cx.notify();
             })
             .ok();
@@ -107,22 +131,23 @@ impl SettingsView {
         .detach();
     }
 
-    pub(in crate::ui::settings) fn forget_catalog(
-        &mut self,
-        source: &Source,
-        cx: &mut Context<Self>,
-    ) {
+    pub(super) fn forget_catalog(&mut self, source: &Source, cx: &mut Context<Self>) {
         prefs::update(cx, |prefs| {
             prefs.catalogs.sources.retain(|old| old != source)
         });
         self.catalogs.loaded.retain(|(old, _)| old != source);
-        self.catalogs.selected = None;
-        self.catalogs.readme = None;
-        self.catalogs.category = None;
+        if self
+            .catalogs
+            .selected
+            .as_ref()
+            .is_some_and(|(old, _)| old == source)
+        {
+            self.deselect_catalog_entry(cx);
+        }
         cx.notify();
     }
 
-    pub(in crate::ui::settings) fn select_catalog_entry(
+    pub(super) fn select_catalog_entry(
         &mut self,
         source: Source,
         entry: Entry,
@@ -165,154 +190,14 @@ impl SettingsView {
         .detach();
     }
 
-    pub(in crate::ui::settings) fn install_catalog_entry(
-        &mut self,
-        source: Source,
-        entry: Entry,
-        cx: &mut Context<Self>,
-    ) {
-        if self.catalogs.busy || self.saving || self.reloading {
-            return;
-        }
-        let profile = self
-            .snapshot()
-            .and_then(|snapshot| snapshot.target_path.as_deref())
-            .map(std::path::PathBuf::from)
-            .unwrap_or_default();
-        if matches!(entry.kind, Kind::McpServer | Kind::AgentPlugin)
-            && (profile.as_os_str().is_empty()
-                || !self.snapshot().is_some_and(|snapshot| snapshot.writable))
-        {
-            return;
-        }
-        let previous = install::receipt(&self.catalogs.pending, &source, &entry, &profile)
-            .or_else(|| {
-                install::receipt(
-                    &prefs::current(cx).catalogs.installed,
-                    &source,
-                    &entry,
-                    &profile,
-                )
-            })
-            .cloned();
-        let Some((_, catalog)) = self.catalogs.loaded.iter().find(|(old, _)| *old == source) else {
-            return;
-        };
-        let catalog = catalog.clone();
-        let taken = extensions::ids()
-            .into_iter()
-            .map(str::to_string)
-            .collect::<Vec<_>>();
-        self.catalogs.busy = true;
-        self.catalogs.message = None;
+    pub(in crate::ui::settings) fn deselect_catalog_entry(&mut self, cx: &mut Context<Self>) {
+        self.catalogs.selected = None;
+        self.catalogs.readme = None;
+        self.catalogs.readme_changes = None;
         cx.notify();
-        cx.spawn(async move |this, cx| {
-            let old = previous.clone();
-            let result = cx
-                .background_executor()
-                .spawn(async move {
-                    install::prepare(
-                        &Locations::local()?,
-                        &source,
-                        &catalog,
-                        &entry,
-                        old.as_ref(),
-                        &profile,
-                        &taken,
-                    )
-                })
-                .await;
-            this.update(cx, |this, cx| {
-                this.catalogs.busy = false;
-                let result = result.and_then(|installed| {
-                    let mut draft = this.draft.clone();
-                    install::connect(&mut draft, &installed, previous.as_ref())?;
-                    if draft != this.draft {
-                        this.replace_draft(draft, cx);
-                    }
-                    if installed.kind == Kind::ClientExtension {
-                        extensions::reload_installed(cx);
-                    }
-                    if installed.kind == Kind::Skill {
-                        this.load_addons(cx);
-                    }
-                    let immediate = matches!(installed.kind, Kind::ClientExtension | Kind::Skill);
-                    if immediate {
-                        prefs::update(cx, |prefs| prefs.catalogs.remember(installed));
-                    } else {
-                        this.catalogs.pending.retain(|old| {
-                            old.source != installed.source
-                                || old.entry != installed.entry
-                                || old.profile != installed.profile
-                        });
-                        this.catalogs.pending.push(installed);
-                    }
-                    Ok(if immediate {
-                        "Установлено"
-                    } else {
-                        "Добавлено в черновик · нажмите «Сохранить»"
-                    })
-                });
-                this.catalog_message(result);
-                cx.notify();
-            })
-            .ok();
-        })
-        .detach();
     }
 
-    pub(in crate::ui::settings) fn remove_catalog_entry(
-        &mut self,
-        installed: crate::catalog::Installed,
-        cx: &mut Context<Self>,
-    ) {
-        if self.catalogs.busy || self.saving || self.reloading {
-            return;
-        }
-        self.catalogs.busy = true;
-        cx.notify();
-        cx.spawn(async move |this, cx| {
-            let files = installed.clone();
-            let result = cx
-                .background_executor()
-                .spawn(async move { install::remove_files(&Locations::local()?, &files) })
-                .await;
-            this.update(cx, |this, cx| {
-                this.catalogs.busy = false;
-                let result = result.and_then(|_| {
-                    let mut draft = this.draft.clone();
-                    install::disconnect(&mut draft, &installed)?;
-                    if draft != this.draft {
-                        this.replace_draft(draft, cx);
-                    }
-                    let immediate = matches!(installed.kind, Kind::ClientExtension | Kind::Skill);
-                    if immediate {
-                        prefs::update(cx, |prefs| {
-                            prefs.catalogs.installed.retain(|old| *old != installed)
-                        });
-                    }
-                    if installed.kind == Kind::ClientExtension {
-                        prefs::update(cx, |prefs| prefs.extensions.forget(&installed.entry));
-                        extensions::reload_installed(cx);
-                    }
-                    if installed.kind == Kind::Skill {
-                        this.load_addons(cx);
-                    }
-                    Ok(if immediate {
-                        "Удалено"
-                    } else {
-                        "Убрано из черновика · файлы пакета сохранены, нажмите «Сохранить»"
-                    })
-                });
-                this.catalog_message(result);
-                cx.notify();
-            })
-            .ok();
-        })
-        .detach();
-    }
-
-    fn catalog_message(&mut self, result: anyhow::Result<&str>) {
+    pub(in crate::ui::settings) fn catalog_message(&mut self, result: anyhow::Result<&str>) {
         self.catalogs.message = Some(match result {
             Ok(text) => (false, text.to_string()),
             Err(error) => (true, format!("{error:#}")),

@@ -1,288 +1,443 @@
+//! Catalog page: header, toolbar, the entry list and the details beside it.
+
+use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::input::Input;
-use gpui_kit::component::text::TextView;
+use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
-use super::super::{
-    SettingsView,
-    widgets::{Tone, card, chip, hashed_id, item_row, named, note, section},
-};
-use crate::catalog::{
-    Source, install,
-    schema::{Catalog, Entry, Kind},
-};
-use crate::ui::{kit, prefs};
+use super::super::{SettingsView, widgets::hashed_id};
+use super::Show;
+use super::items::{Item, KINDS, Status, kind_filter, kind_icon};
+use crate::settings::catalog::{PageId, page_description, page_title};
+use crate::ui::fade::faded;
+use crate::ui::kit;
+use crate::ui::kit::Hint as _;
+use crate::ui::prefs;
 
 impl SettingsView {
-    pub(in crate::ui::settings) fn catalog_page(&self, cx: &Context<Self>) -> Vec<AnyElement> {
-        let busy = self.catalogs.busy;
-        let mut parts = vec![section(
-            "Репозитории", None, None,
-            card([
-                note("Git-репозитории с proteus-catalog.json в корне. Скачивание не запускает сборку или install-скрипты.", cx).into_any_element(),
-                v_flex().px_4().pb_3().gap_2()
-                    .child(Input::new(&self.catalogs.url).small())
-                    .child(h_flex().flex_wrap().gap_2()
-                        .child(Input::new(&self.catalogs.branch).small().w_48())
-                        .child(kit::button("catalog-add").label("Добавить каталог").small().primary()
-                            .disabled(busy).on_click(cx.listener(|this, _, _, cx| this.add_catalog(cx)))))
-                    .into_any_element(),
-            ], cx), cx).into_any_element()];
-        for source in &prefs::current(cx).catalogs.sources {
-            let found = self.catalogs.loaded.iter().find(|(old, _)| old == source);
-            let title = found
-                .map(|(_, catalog)| catalog.title.as_str())
-                .unwrap_or(&source.url);
-            let (update, forget) = (source.clone(), source.clone());
-            let about = format!(
-                "{}{}",
-                source.url,
-                source
-                    .branch
-                    .as_ref()
-                    .map(|branch| format!(" · {branch}"))
-                    .unwrap_or_default()
-            );
-            parts.push(
-                card(
-                    [item_row(
-                        named(
-                            hashed_id("catalog-source", source),
-                            title.to_string(),
-                            Some(about.into()),
-                            None,
-                            cx,
-                        ),
-                        [
-                            kit::button(hashed_id("catalog-refresh", source))
-                                .label("Обновить")
-                                .small()
-                                .ghost()
-                                .loading(busy)
-                                .disabled(busy)
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.refresh_catalog(update.clone(), cx)
-                                }))
-                                .into_any_element(),
-                            kit::button(hashed_id("catalog-forget", source))
-                                .label("Убрать")
-                                .small()
-                                .ghost()
-                                .disabled(busy)
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.forget_catalog(&forget, cx)
-                                }))
-                                .into_any_element(),
-                        ],
-                    )
-                    .into_any_element()],
-                    cx,
-                )
-                .into_any_element(),
-            );
-            if found.is_none() {
-                parts.push(
-                    note(
-                        "Нет сохранённого каталога · нажмите «Обновить» для загрузки.",
-                        cx,
-                    )
-                    .into_any_element(),
-                );
-            }
-        }
-        if let Some((error, message)) = &self.catalogs.message {
-            parts.push(
-                note(message.clone(), cx)
-                    .when(*error, |note| note.text_color(cx.theme().danger))
-                    .into_any_element(),
-            );
-        }
-        parts.push(
-            Input::new(&self.catalogs.search)
-                .small()
-                .cleanable(true)
-                .prefix(Icon::new(IconName::Search).small())
-                .into_any_element(),
-        );
-        let mut filters = vec![self.category_button(None, "Все категории", cx)];
-        // Category ids are local to a source, not shared between repositories.
-        for (source, catalog) in &self.catalogs.loaded {
-            for category in &catalog.categories {
-                let key = format!("{}:{}", source.key(), category.id);
-                filters.push(self.category_button(Some(key), &category.title, cx));
-            }
-        }
-        parts.push(
-            h_flex()
-                .flex_wrap()
-                .gap_2()
-                .children(filters)
-                .into_any_element(),
-        );
-        for (source, catalog) in &self.catalogs.loaded {
-            let rows = catalog
-                .entries
+    pub(in crate::ui::settings) fn catalog_page(&self, cx: &Context<Self>) -> AnyElement {
+        let theme = cx.theme();
+        let sources = &prefs::current(cx).catalogs.sources;
+        let installed = &prefs::current(cx).catalogs.installed;
+        let items = self.catalog_items(installed);
+        let updates = items
+            .iter()
+            .filter(|item| item.status == Status::Update)
+            .count();
+        let shown = items
+            .iter()
+            .filter(|item| self.catalog_item_shown(item))
+            .collect::<Vec<_>>();
+        let selected = self.catalogs.selected.as_ref().and_then(|(source, id)| {
+            items
                 .iter()
-                .filter(|entry| {
-                    let category = format!("{}:{}", source.key(), entry.category);
-                    self.catalogs
-                        .category
-                        .as_ref()
-                        .is_none_or(|selected| *selected == category)
-                        && format!(
-                            "{} {} {} {}",
-                            entry.id,
-                            entry.title,
-                            entry.description,
-                            entry.kind.title()
-                        )
-                        .to_lowercase()
-                        .contains(self.catalogs.query.trim())
-                })
-                .map(|entry| self.catalog_entry(source, catalog, entry, cx))
-                .collect::<Vec<_>>();
-            if !rows.is_empty() {
-                parts.push(
-                    section(catalog.title.clone(), None, None, card(rows, cx), cx)
-                        .into_any_element(),
-                );
-            }
-            for problem in &catalog.problems {
-                parts.push(
-                    note(format!("{}: {problem}", catalog.title), cx)
-                        .text_color(cx.theme().warning)
-                        .into_any_element(),
-                );
-            }
-        }
-        parts
-    }
-
-    fn category_button(&self, key: Option<String>, title: &str, cx: &Context<Self>) -> AnyElement {
-        kit::button(hashed_id("catalog-category", &key))
-            .label(title.to_string())
-            .small()
-            .ghost()
-            .selected(self.catalogs.category == key)
-            .on_click(cx.listener(move |this, _, _, cx| {
-                this.catalogs.category = key.clone();
-                cx.notify();
+                .find(|item| item.source == source && item.entry.id == *id)
+        });
+        let body = if sources.is_empty() {
+            self.catalog_empty(
+                "Источников пока нет",
+                "Добавьте git-репозиторий с proteus-catalog.json в корне.",
+                true,
+                cx,
+            )
+        } else if shown.is_empty() {
+            self.catalog_empty(
+                if items.is_empty() {
+                    "Каталоги пусты"
+                } else {
+                    "Ничего не найдено"
+                },
+                if items.is_empty() {
+                    "Обновите источники или проверьте их в окне «Источники»."
+                } else {
+                    "Измените поиск или фильтры."
+                },
+                false,
+                cx,
+            )
+        } else {
+            div()
+                .id("catalog-list")
+                .flex_1()
+                .min_w_0()
+                .h_full()
+                .child(
+                    v_flex().children(
+                        shown
+                            .iter()
+                            .map(|item| self.catalog_row(item, selected.is_some(), cx)),
+                    ),
+                )
+                .overflow_y_scrollbar()
+                .into_any_element()
+        };
+        v_flex()
+            .size_full()
+            .child(self.catalog_header(sources.len(), cx))
+            .child(self.catalog_toolbar(updates, cx))
+            .children(self.catalogs.message.as_ref().map(|(error, text)| {
+                h_flex()
+                    .px_8()
+                    .pb_3()
+                    .gap_2()
+                    .items_start()
+                    .text_sm()
+                    .text_color(if *error { theme.danger } else { theme.success })
+                    .child(
+                        Icon::new(if *error {
+                            IconName::TriangleAlert
+                        } else {
+                            IconName::Check
+                        })
+                        .small()
+                        .flex_none()
+                        .mt_0p5(),
+                    )
+                    .child(div().flex_1().min_w_0().child(text.clone()))
             }))
+            .child(
+                h_flex()
+                    .flex_1()
+                    .min_h_0()
+                    .border_t_1()
+                    .border_color(theme.border)
+                    .child(body)
+                    .children(selected.map(|item| self.catalog_details(item, cx))),
+            )
             .into_any_element()
     }
 
-    fn catalog_entry(
-        &self,
-        source: &Source,
-        _catalog: &Catalog,
-        entry: &Entry,
-        cx: &Context<Self>,
-    ) -> AnyElement {
-        let profile = self
-            .snapshot()
-            .and_then(|snapshot| snapshot.target_path.as_deref())
-            .map(std::path::Path::new)
-            .unwrap_or(std::path::Path::new(""));
-        let installed =
-            install::receipt(&self.catalogs.pending, source, entry, profile).or_else(|| {
-                install::receipt(
-                    &prefs::current(cx).catalogs.installed,
-                    source,
-                    entry,
-                    profile,
-                )
-            });
-        let connected = installed.is_some_and(|old| install::connected(old, &self.draft));
-        let update = installed.is_some_and(|old| old.version != entry.version);
-        let needs_profile = matches!(entry.kind, Kind::AgentPlugin | Kind::McpServer);
-        let unavailable = needs_profile
-            && !self
-                .snapshot()
-                .is_some_and(|snapshot| snapshot.writable && snapshot.target_path.is_some());
-        let disabled = self.catalogs.busy || self.saving || self.reloading || unavailable;
-        let (add_source, add_entry) = (source.clone(), entry.clone());
-        let mut controls = vec![
-            chip(entry.kind.title(), Tone::Muted, cx).into_any_element(),
-            chip(entry.version.clone(), Tone::Muted, cx).into_any_element(),
-        ];
-        if connected {
-            let pending =
-                installed.is_some_and(|installed| self.catalogs.pending.contains(installed));
-            controls.push(
-                chip(
-                    if pending {
-                        "В черновике"
-                    } else if needs_profile {
-                        "Подключено"
-                    } else {
-                        "Установлено"
-                    },
-                    Tone::Success,
-                    cx,
-                )
-                .into_any_element(),
-            );
-        }
-        if !connected || update {
-            controls.push(
-                kit::button(hashed_id("catalog-install", &(source, &entry.id)))
-                    .label(if update {
-                        "Обновить"
-                    } else if installed.is_some() {
-                        "Подключить"
-                    } else {
-                        "Установить"
-                    })
-                    .small()
-                    .outline()
-                    .disabled(disabled)
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.install_catalog_entry(add_source.clone(), add_entry.clone(), cx)
-                    }))
-                    .into_any_element(),
-            );
-        }
-        if connected {
-            let installed = installed.unwrap().clone();
-            controls.push(
-                kit::button(hashed_id("catalog-remove", &(source, &entry.id)))
-                    .label("Удалить")
-                    .small()
-                    .ghost()
-                    .disabled(disabled)
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.remove_catalog_entry(installed.clone(), cx)
-                    }))
-                    .into_any_element(),
-            );
-        }
-        let (open_source, open_entry) = (source.clone(), entry.clone());
-        controls.push(
-            kit::button(hashed_id("catalog-details", &(source, &entry.id)))
-                .label("Подробнее")
-                .small()
+    fn catalog_header(&self, sources: usize, cx: &Context<Self>) -> impl IntoElement + use<> {
+        let theme = cx.theme();
+        let busy = self.catalogs.busy;
+        h_flex()
+            .px_8()
+            .pt_6()
+            .pb_4()
+            .gap_4()
+            .items_start()
+            .child(
+                v_flex()
+                    .flex_1()
+                    .min_w_0()
+                    .gap_1()
+                    .child(
+                        div()
+                            .text_xl()
+                            .font_semibold()
+                            .child(page_title(self.snapshot(), &PageId::Catalog)),
+                    )
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(theme.muted_foreground)
+                            .child(page_description(self.snapshot(), &PageId::Catalog)),
+                    ),
+            )
+            .child(
+                h_flex()
+                    .flex_none()
+                    .gap_2()
+                    .child(
+                        kit::button("catalog-refresh-all")
+                            .icon(Icon::new(Lucide::RefreshCw))
+                            .ghost()
+                            .small()
+                            .loading(busy)
+                            .disabled(busy || sources == 0)
+                            .hint("Скачать источники заново", cx)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                let sources = prefs::current(cx).catalogs.sources.clone();
+                                this.refresh_catalogs(sources, cx)
+                            })),
+                    )
+                    .child(
+                        kit::button("catalog-sources")
+                            .icon(Icon::new(Lucide::GitBranch))
+                            .label(if sources == 0 {
+                                "Источники".to_string()
+                            } else {
+                                format!("Источники · {sources}")
+                            })
+                            .outline()
+                            .small()
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.open_catalog_sources(window, cx)
+                            })),
+                    ),
+            )
+    }
+
+    fn catalog_toolbar(&self, updates: usize, cx: &Context<Self>) -> impl IntoElement + use<> {
+        let show = |id: &'static str, show: Show, label: String| {
+            kit::button(id)
+                .label(label)
                 .ghost()
+                .small()
+                .selected(self.catalogs.show == show)
                 .on_click(cx.listener(move |this, _, _, cx| {
-                    this.select_catalog_entry(open_source.clone(), open_entry.clone(), cx)
+                    this.catalogs.show = show;
+                    cx.notify();
                 }))
-                .into_any_element(),
-        );
+        };
+        let kind = |id: ElementId, kind: Option<_>, label: &'static str| {
+            kit::button(id)
+                .label(label)
+                .when_some(kind, |button, kind| button.icon(kind_icon(kind)))
+                .ghost()
+                .xsmall()
+                .selected(self.catalogs.kind == kind)
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.catalogs.kind = kind;
+                    cx.notify();
+                }))
+        };
+        v_flex()
+            .px_8()
+            .pb_3()
+            .gap_2()
+            .child(
+                h_flex()
+                    .gap_3()
+                    .items_center()
+                    .child(
+                        div().flex_1().min_w_0().child(
+                            Input::new(&self.catalogs.search)
+                                .small()
+                                .cleanable(true)
+                                .prefix(Icon::new(IconName::Search).small()),
+                        ),
+                    )
+                    .child(
+                        h_flex()
+                            .flex_none()
+                            .gap_1()
+                            .child(show("catalog-show-all", Show::All, "Все".into()))
+                            .child(show(
+                                "catalog-show-installed",
+                                Show::Installed,
+                                "Установленные".into(),
+                            ))
+                            .child(show(
+                                "catalog-show-updates",
+                                Show::Updates,
+                                if updates == 0 {
+                                    "Обновления".into()
+                                } else {
+                                    format!("Обновления · {updates}")
+                                },
+                            )),
+                    ),
+            )
+            .child(
+                h_flex()
+                    .flex_wrap()
+                    .gap_1()
+                    .child(kind("catalog-kind-all".into(), None, "Все типы"))
+                    .children(KINDS.into_iter().map(|item| {
+                        kind(
+                            ElementId::Name(format!("catalog-kind-{item:?}").into()),
+                            Some(item),
+                            kind_filter(item),
+                        )
+                    })),
+            )
+    }
+
+    fn catalog_row(&self, item: &Item, narrow: bool, cx: &Context<Self>) -> AnyElement {
+        let theme = cx.theme();
         let selected = self
             .catalogs
             .selected
             .as_ref()
-            .is_some_and(|(old, id)| old == source && *id == entry.id);
-        v_flex().child(v_flex().px_4().py_2().gap_1()
-            .child(named(hashed_id("catalog-name", &(source, &entry.id)), entry.title.clone(), Some(entry.description.clone().into()), Some(entry.id.clone().into()), cx))
-            .child(h_flex().w_full().min_w_0().flex_wrap().gap_2().items_center().children(controls))
-        ).when(selected, |row| row.child(
-            v_flex().px_4().pb_4().gap_3()
-                .child(note(entry.description.clone(), cx).p_0())
-                .when(needs_profile, |details| details.child(note("Подключение меняет черновик текущего профиля. Нажмите «Сохранить». Файлы Agent Plugins остаются на диске после отключения.", cx).p_0()))
-                .when(unavailable, |details| details.child(note("Нужен загруженный доступный для записи профиль.", cx).p_0()))
-                .children(self.catalogs.readme.as_ref().map(|state| TextView::new(state)))
-        )).into_any_element()
+            .is_some_and(|(source, id)| item.key() == (source, id.as_str()));
+        let (source, entry) = (item.source.clone(), item.entry.clone());
+        h_flex()
+            .id(hashed_id("catalog-row", &item.key()))
+            .px_8()
+            .when(narrow, |row| row.pr_4())
+            .py_2p5()
+            .gap_3()
+            .items_center()
+            .border_b_1()
+            .border_color(theme.border.opacity(0.6))
+            .cursor_pointer()
+            .map(|row| {
+                if selected {
+                    row.bg(theme.list_active)
+                } else {
+                    row.hover(|row| row.bg(theme.list_hover))
+                }
+            })
+            .child(kind_badge(item, cx))
+            .child(
+                v_flex()
+                    .flex_1()
+                    .min_w_0()
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .items_center()
+                            .child(
+                                div()
+                                    .min_w_0()
+                                    .text_sm()
+                                    .font_medium()
+                                    .child(faded(item.entry.title.clone())),
+                            )
+                            .child(
+                                div()
+                                    .flex_none()
+                                    .text_xs()
+                                    .text_color(theme.muted_foreground)
+                                    .child(item.entry.version.clone()),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(theme.muted_foreground)
+                            .child(faded(format!(
+                                "{} · {}",
+                                item.catalog.title, item.entry.description
+                            ))),
+                    ),
+            )
+            .child(
+                div()
+                    .flex_none()
+                    .child(self.catalog_action(item, "row", cx)),
+            )
+            .on_click(cx.listener(move |this, _, _, cx| {
+                if this
+                    .catalogs
+                    .selected
+                    .as_ref()
+                    .is_some_and(|(old, id)| *old == source && *id == entry.id)
+                {
+                    this.deselect_catalog_entry(cx);
+                } else {
+                    this.select_catalog_entry(source.clone(), entry.clone(), cx);
+                }
+            }))
+            .into_any_element()
     }
+
+    /// The main action of an entry: install, connect again or update; an
+    /// installed entry gets a mark instead.
+    pub(super) fn catalog_action(
+        &self,
+        item: &Item,
+        place: &'static str,
+        cx: &Context<Self>,
+    ) -> AnyElement {
+        let label = match item.status {
+            Status::Available => "Установить",
+            Status::Detached => "Подключить",
+            Status::Update => "Обновить",
+            Status::Installed => {
+                let theme = cx.theme();
+                return h_flex()
+                    .gap_1()
+                    .items_center()
+                    .text_xs()
+                    .text_color(theme.muted_foreground)
+                    .child(
+                        Icon::new(Lucide::CircleCheck)
+                            .xsmall()
+                            .text_color(theme.success),
+                    )
+                    .child("Установлено")
+                    .into_any_element();
+            }
+        };
+        let blocked = self.catalog_blocked(item.entry.kind);
+        let working = self.catalogs.busy
+            && self
+                .catalogs
+                .working
+                .as_ref()
+                .is_some_and(|(source, id)| item.key() == (source, id.as_str()));
+        let (source, entry) = (item.source.clone(), item.entry.clone());
+        kit::button(hashed_id("catalog-install", &(place, item.key())))
+            .label(label)
+            .small()
+            .map(|button| {
+                if item.status == Status::Update {
+                    button.primary()
+                } else {
+                    button.outline()
+                }
+            })
+            .loading(working)
+            .disabled(!self.catalog_idle() || blocked.is_some())
+            .when_some(blocked, |button, reason| button.hint(reason, cx))
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.install_catalog_entry(source.clone(), entry.clone(), cx)
+            }))
+            .into_any_element()
+    }
+
+    fn catalog_empty(
+        &self,
+        title: &'static str,
+        text: &'static str,
+        add: bool,
+        cx: &Context<Self>,
+    ) -> AnyElement {
+        let theme = cx.theme();
+        v_flex()
+            .flex_1()
+            .min_w_0()
+            .h_full()
+            .items_center()
+            .justify_center()
+            .gap_2()
+            .p_8()
+            .child(
+                Icon::new(Lucide::Library)
+                    .large()
+                    .text_color(theme.muted_foreground),
+            )
+            .child(div().font_medium().child(title))
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(theme.muted_foreground)
+                    .child(text),
+            )
+            .when(add, |empty| {
+                empty.child(
+                    kit::button("catalog-add-first")
+                        .label("Добавить источник…")
+                        .primary()
+                        .small()
+                        .mt_2()
+                        .on_click(
+                            cx.listener(|this, _, window, cx| {
+                                this.open_catalog_sources(window, cx)
+                            }),
+                        ),
+                )
+            })
+            .into_any_element()
+    }
+}
+
+/// Icon of the entry kind on a tinted square.
+pub(super) fn kind_badge(item: &Item, cx: &App) -> impl IntoElement + use<> {
+    let theme = cx.theme();
+    div()
+        .flex_none()
+        .size(prefs::scaled(32.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(theme.radius)
+        .bg(theme.muted)
+        .text_color(theme.muted_foreground)
+        .child(kind_icon(item.entry.kind).small())
 }

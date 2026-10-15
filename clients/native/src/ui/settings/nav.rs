@@ -1,5 +1,5 @@
-//! Settings navigation: agent pages, client pages, then a page for every
-//! enabled extension.
+//! Settings navigation: the catalog, agent pages, client pages, then a page
+//! for every enabled extension.
 
 use std::collections::HashSet;
 
@@ -85,7 +85,8 @@ impl SettingsView {
 
     /// Every page of the navigation in its order.
     pub(super) fn page_list(&self, cx: &App) -> Vec<PageId> {
-        let mut pages = self.agent_page_list();
+        let mut pages = vec![PageId::Catalog];
+        pages.extend(self.agent_page_list());
         pages.extend(CONNECTION_PAGES.iter().cloned());
         pages.extend(CLIENT_PAGES.iter().cloned());
         pages.extend(self.extension_page_list(cx));
@@ -211,6 +212,7 @@ impl SettingsView {
                     .px_2()
                     .pb_3()
                     .gap_0p5()
+                    .child(div().pt_2().child(item(PageId::Catalog, cx)))
                     .child(heading("Агент"))
                     .children(agent.into_iter().map(|page| item(page, cx)))
                     .child(heading("Подключения"))

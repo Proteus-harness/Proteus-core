@@ -228,7 +228,6 @@ impl SettingsView {
     }
 
     fn accept(&mut self, snapshot: ConfigBuilderSnapshot) {
-        self.catalogs.pending.clear();
         self.baseline = Draft::from_snapshot(&snapshot);
         self.draft = self.baseline.clone();
         self.forget_editors();
@@ -275,7 +274,6 @@ impl SettingsView {
     }
 
     fn discard(&mut self, cx: &mut Context<Self>) {
-        self.catalogs.pending.clear();
         self.replace_draft(self.baseline.clone(), cx);
     }
 
@@ -366,14 +364,6 @@ impl SettingsView {
                 this.saving = false;
                 match result {
                     Ok(snapshot) => {
-                        let pending = std::mem::take(&mut this.catalogs.pending);
-                        if !pending.is_empty() {
-                            crate::ui::prefs::update(cx, |prefs| {
-                                for installed in pending {
-                                    prefs.catalogs.remember(installed);
-                                }
-                            });
-                        }
                         this.accept(snapshot);
                         this.load_addons(cx);
                         this.refresh_history(cx);

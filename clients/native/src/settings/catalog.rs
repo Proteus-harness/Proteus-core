@@ -128,8 +128,7 @@ pub fn agent_pages(snapshot: &ConfigBuilderSnapshot) -> Vec<PageId> {
 }
 
 /// Agent pages by where the parts come from, then the profile history.
-pub const CONNECTION_PAGES: [PageId; 6] = [
-    PageId::Catalog,
+pub const CONNECTION_PAGES: [PageId; 5] = [
     PageId::Modules,
     PageId::Mcp,
     PageId::Skills,
