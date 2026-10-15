@@ -59,11 +59,11 @@ impl SettingsView {
                 .map(|id| self.missing_skill_row(id, cx)),
         );
         if rows.is_empty() {
-            rows.push(note("Поставщики контекста не нашли навыков.", cx).into_any_element());
+            rows.push(note("Поставщики контекста не нашли skills.", cx).into_any_element());
         }
         parts.push(
             section(
-                format!("Навыки · {enabled} из {}", skills.len()),
+                format!("Skills · {enabled} из {}", skills.len()),
                 Some("Изменения применяются после сохранения.".into()),
                 None,
                 card(rows, cx),

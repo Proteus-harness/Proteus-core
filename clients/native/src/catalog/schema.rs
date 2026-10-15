@@ -25,7 +25,7 @@ impl Kind {
         match self {
             Self::ClientExtension => "Расширение клиента",
             Self::AgentPlugin => "Agent Plugin",
-            Self::Skill => "Навык",
+            Self::Skill => "Skill",
             Self::McpServer => "MCP-сервер",
         }
     }
@@ -104,7 +104,12 @@ pub fn directory(root: &Path, entry: &Entry) -> Result<PathBuf> {
     Ok(path)
 }
 
-pub fn read(root: &Path) -> Result<Catalog> {
+/// A repository without the index is read as an Agent Skills repository;
+/// `name` titles it then.
+pub fn read(root: &Path, name: &str) -> Result<Catalog> {
+    if !root.join(INDEX).exists() {
+        return super::skills::read(root, name.to_owned());
+    }
     let text = std::fs::read_to_string(root.join(INDEX))
         .context("Не удалось прочитать proteus-catalog.json")?;
     let index: Index = serde_json::from_str(&text).context("Неверный индекс каталога")?;
@@ -167,8 +172,11 @@ pub fn read(root: &Path) -> Result<Catalog> {
     })
 }
 
+/// README.md of the entry; a skill without one shows its instructions.
 pub fn readme(catalog: &Catalog, entry: &Entry) -> Result<Option<String>> {
-    let path = directory(&catalog.root, entry)?.join("README.md");
+    let dir = directory(&catalog.root, entry)?;
+    let skill = entry.kind == Kind::Skill && !dir.join("README.md").exists();
+    let path = dir.join(if skill { "SKILL.md" } else { "README.md" });
     if !path.exists() {
         return Ok(None);
     }
@@ -181,5 +189,10 @@ pub fn readme(catalog: &Catalog, entry: &Entry) -> Result<Option<String>> {
         std::fs::metadata(&resolved)?.len() <= 512 * 1024,
         "README больше 512 КиБ"
     );
-    Ok(Some(std::fs::read_to_string(resolved)?))
+    let text = std::fs::read_to_string(resolved)?;
+    Ok(Some(if skill {
+        super::skills::body(&text).to_owned()
+    } else {
+        text
+    }))
 }

@@ -77,7 +77,7 @@ impl SettingsView {
                 .text_sm()
                 .text_color(theme.muted_foreground)
                 .child(Spinner::new())
-                .child("Проверяю навыки, MCP-серверы и пакеты…"),
+                .child("Проверяю skills, MCP-серверы и пакеты…"),
             AddonsState::Failed(error) => h_flex()
                 .px_4()
                 .py_3()

@@ -74,7 +74,7 @@ pub fn validate(source: &Source) -> Result<()> {
 
 /// Reads an existing checkout without contacting its origin.
 pub fn cached(cache: &Path, source: &Source) -> Result<Catalog> {
-    schema::read(&cache.join(source.key()))
+    schema::read(&cache.join(source.key()), &source.name())
 }
 
 pub fn refresh(cache: &Path, source: &Source) -> Result<Catalog> {
@@ -129,7 +129,7 @@ pub fn refresh(cache: &Path, source: &Source) -> Result<Catalog> {
             ],
             cache,
         )?;
-        schema::read(&temporary)?;
+        schema::read(&temporary, &source.name())?;
         crate::packages::publish(&temporary, &cache.join(source.key()), true)?;
         cached(cache, source)
     })();

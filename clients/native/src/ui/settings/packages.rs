@@ -46,7 +46,7 @@ impl SettingsView {
             section(
                 format!("Пакеты · {enabled} из {}", packages.len()),
                 Some(
-                    "Пакет не запускает процессных модулей: он даёт навыки и описания MCP-серверов."
+                    "Пакет не запускает процессных модулей: он даёт skills и описания MCP-серверов."
                         .into(),
                 ),
                 Some(h_flex().flex_wrap().gap_2().child(add).child(
@@ -111,7 +111,7 @@ impl SettingsView {
             if skills > 0 {
                 chips.push(self.page_link(
                     ("package-skills", name),
-                    plural(skills, "навык", "навыка", "навыков"),
+                    plural(skills, "skill", "skills", "skills"),
                     PageId::Skills,
                     cx,
                 ));

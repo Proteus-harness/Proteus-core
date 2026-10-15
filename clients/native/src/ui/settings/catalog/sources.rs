@@ -7,12 +7,14 @@ use gpui_kit::component::*;
 use gpui_kit::*;
 
 use super::super::{SettingsView, widgets::hashed_id};
+use crate::catalog::open::OPEN;
 use crate::ui::fade::faded;
 use crate::ui::kit;
 use crate::ui::kit::Hint as _;
 use crate::ui::prefs;
 
 const DIALOG_WIDTH: f32 = 600.;
+const PROBLEMS: usize = 3;
 
 impl SettingsView {
     pub(super) fn open_catalog_sources(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -74,12 +76,16 @@ fn sources(view: &Entity<SettingsView>, cx: &App) -> AnyElement {
                                     .child(faded(about)),
                             )
                             .children(found.into_iter().flat_map(|catalog| {
-                                catalog.problems.iter().map(|problem| {
-                                    div()
-                                        .text_xs()
-                                        .text_color(theme.warning)
-                                        .child(problem.clone())
-                                })
+                                let more = catalog.problems.len().saturating_sub(PROBLEMS);
+                                catalog
+                                    .problems
+                                    .iter()
+                                    .take(PROBLEMS)
+                                    .cloned()
+                                    .chain((more > 0).then(|| format!("…и ещё {more}")))
+                                    .map(|problem| {
+                                        div().text_xs().text_color(theme.warning).child(problem)
+                                    })
                             })),
                     )
                     .child(
@@ -118,7 +124,7 @@ fn sources(view: &Entity<SettingsView>, cx: &App) -> AnyElement {
             div()
                 .text_xs()
                 .text_color(theme.muted_foreground)
-                .child("Git-репозитории с proteus-catalog.json в корне. Скачивание не запускает сборку или install-скрипты."),
+                .child("Git-репозитории с proteus-catalog.json в корне или с папками Agent Skills (SKILL.md). Скачивание не запускает сборку или install-скрипты."),
         )
         .child(Input::new(&this.catalogs.url).small())
         .child(
@@ -152,6 +158,7 @@ fn sources(view: &Entity<SettingsView>, cx: &App) -> AnyElement {
                 .children(rows)
                 .into_any_element()
         })
+        .children(open_sources(view, busy, cx))
         .children(this.catalogs.message.as_ref().map(|(error, text)| {
             div()
                 .text_xs()
@@ -159,4 +166,84 @@ fn sources(view: &Entity<SettingsView>, cx: &App) -> AnyElement {
                 .child(text.clone())
         }))
         .into_any_element()
+}
+
+/// Public skill repositories that are not added yet.
+fn open_sources(view: &Entity<SettingsView>, busy: bool, cx: &App) -> Option<AnyElement> {
+    let theme = cx.theme();
+    let added = &prefs::current(cx).catalogs.sources;
+    let rows = OPEN
+        .iter()
+        .filter(|open| !added.contains(&open.source()))
+        .map(|open| {
+            let view = view.downgrade();
+            let source = open.source();
+            h_flex()
+                .px_3()
+                .py_2()
+                .gap_3()
+                .items_center()
+                .border_b_1()
+                .border_color(theme.border)
+                .child(
+                    v_flex()
+                        .flex_1()
+                        .min_w_0()
+                        .child(
+                            h_flex()
+                                .gap_2()
+                                .items_baseline()
+                                .child(div().text_sm().font_medium().child(open.title))
+                                .child(
+                                    div()
+                                        .min_w_0()
+                                        .text_xs()
+                                        .text_color(theme.muted_foreground)
+                                        .child(faded(source.name())),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(theme.muted_foreground)
+                                .child(faded(open.about)),
+                        ),
+                )
+                .child(
+                    kit::button(hashed_id("catalog-open-add", &source))
+                        .label("Добавить")
+                        .ghost()
+                        .xsmall()
+                        .disabled(busy)
+                        .on_click(move |_, _, cx| {
+                            view.update(cx, |this, cx| {
+                                this.add_catalog_sources(vec![source.clone()], cx)
+                            })
+                            .ok();
+                        }),
+                )
+        })
+        .collect::<Vec<_>>();
+    if rows.is_empty() {
+        return None;
+    }
+    Some(
+        v_flex()
+            .gap_1()
+            .child(
+                div()
+                    .text_xs()
+                    .font_medium()
+                    .text_color(theme.muted_foreground)
+                    .child("Открытые каталоги skills"),
+            )
+            .child(
+                v_flex()
+                    .rounded(theme.radius)
+                    .border_1()
+                    .border_color(theme.border)
+                    .children(rows),
+            )
+            .into_any_element(),
+    )
 }

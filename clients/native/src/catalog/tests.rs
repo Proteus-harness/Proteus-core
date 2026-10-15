@@ -120,7 +120,7 @@ fn git_refresh_keeps_last_good_checkout_and_reports_bad_entries() {
 fn installation_binding_update_and_removal_use_the_existing_formats() {
     let fixture = Fixture::new();
     let locations = fixture.locations();
-    let catalog = schema::read(&example()).unwrap();
+    let catalog = schema::read(&example(), "example").unwrap();
     let source = source(&example());
     let profile = fixture.0.join("profile.toml");
     let mut draft = Draft::default();
@@ -199,7 +199,7 @@ fn installation_binding_update_and_removal_use_the_existing_formats() {
 #[test]
 fn mcp_conflicts_dont_overwrite_manual_edits_and_receipts_are_profile_scoped() {
     let fixture = Fixture::new();
-    let catalog = schema::read(&example()).unwrap();
+    let catalog = schema::read(&example(), "example").unwrap();
     let entry = catalog
         .entries
         .iter()
@@ -258,7 +258,7 @@ fn plugin_zip_and_invalid_catalog_paths_share_checked_package_io() {
     assert!(schema::relative(Path::new("../outside")).is_err());
     assert!(schema::relative(Path::new("/absolute")).is_err());
     assert!(schema::relative(Path::new("a/.git/config")).is_err());
-    let mut catalog = schema::read(&example()).unwrap();
+    let mut catalog = schema::read(&example(), "example").unwrap();
     catalog.entries[0].path = "../outside".into();
     assert!(schema::directory(&catalog.root, &catalog.entries[0]).is_err());
     let mut broken = Source {
@@ -269,4 +269,83 @@ fn plugin_zip_and_invalid_catalog_paths_share_checked_package_io() {
     broken.url = "x".into();
     broken.branch = Some("--bad".into());
     assert!(git::validate(&broken).is_err());
+}
+
+#[test]
+fn repository_without_index_lists_agent_skills_as_installable_entries() {
+    let fixture = Fixture::new();
+    let root = fixture.0.join("repo");
+    let skill = |dir: &str, front: &str| {
+        let path = root.join(dir);
+        fs::create_dir_all(&path).unwrap();
+        fs::write(
+            path.join("SKILL.md"),
+            format!("---\n{front}\n---\n\n# Body\n"),
+        )
+        .unwrap();
+    };
+    skill("skills/.curated/pdf", "name: pdf\ndescription: Read PDFs");
+    // Nested folders belong to the enclosing skill.
+    skill(
+        "skills/.curated/pdf/forms",
+        "name: forms\ndescription: Part of pdf",
+    );
+    skill("skills/.curated/docs", "name: docs\ndescription: Curated");
+    skill("skills/.system/docs", "name: docs\ndescription: System");
+    skill("template", "name: template-skill\ndescription: Mismatch");
+    skill("tools/lint", "name: lint\ndescription: >\n  Folded\n  text");
+    let catalog = schema::read(&root, "owner/skills").unwrap();
+    assert_eq!(catalog.title, "owner/skills");
+    let ids = catalog
+        .entries
+        .iter()
+        .map(|entry| entry.id.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(ids, ["pdf", "lint"]);
+    assert_eq!(catalog.problems.len(), 2, "{:?}", catalog.problems);
+    let categories = catalog
+        .categories
+        .iter()
+        .map(|category| category.id.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(categories, ["skills/.curated", "tools"]);
+    let (pdf, lint) = (&catalog.entries[0], &catalog.entries[1]);
+    assert_eq!(
+        (pdf.kind, lint.description.as_str()),
+        (Kind::Skill, "Folded text")
+    );
+    assert_eq!(
+        schema::readme(&catalog, pdf).unwrap().as_deref(),
+        Some("# Body")
+    );
+
+    let locations = fixture.locations();
+    let installed = install::prepare(
+        &locations,
+        &source(&root),
+        &catalog,
+        pdf,
+        None,
+        &fixture.0,
+        &[],
+    )
+    .unwrap();
+    assert!(locations.skills.join("pdf/forms/SKILL.md").is_file());
+    fs::write(root.join("skills/.curated/pdf/forms/extra.md"), "more").unwrap();
+    let changed = schema::read(&root, "owner/skills").unwrap();
+    assert_ne!(changed.entries[0].version, installed.version);
+    fs::remove_dir_all(&root).unwrap();
+    fs::create_dir_all(&root).unwrap();
+    assert!(schema::read(&root, "owner/skills").is_err());
+
+    for url in [
+        "https://github.com/owner/skills.git/",
+        "git@github.com:owner/skills",
+    ] {
+        let source = Source {
+            url: url.into(),
+            branch: None,
+        };
+        assert_eq!(source.name(), "owner/skills");
+    }
 }

@@ -11,6 +11,7 @@ use gpui_kit::*;
 use super::super::{SettingsView, widgets::hashed_id};
 use super::Show;
 use super::items::{Item, KINDS, Status, kind_filter, kind_icon};
+use crate::catalog::open::OPEN;
 use crate::settings::catalog::{PageId, page_description, page_title};
 use crate::ui::fade::faded;
 use crate::ui::kit;
@@ -39,7 +40,7 @@ impl SettingsView {
         let body = if sources.is_empty() {
             self.catalog_empty(
                 "Источников пока нет",
-                "Добавьте git-репозиторий с proteus-catalog.json в корне.",
+                "Подключите открытые каталоги skills или свой git-репозиторий.",
                 true,
                 cx,
             )
@@ -411,15 +412,28 @@ impl SettingsView {
             )
             .when(add, |empty| {
                 empty.child(
-                    kit::button("catalog-add-first")
-                        .label("Добавить источник…")
-                        .primary()
-                        .small()
+                    h_flex()
+                        .gap_2()
                         .mt_2()
-                        .on_click(
-                            cx.listener(|this, _, window, cx| {
-                                this.open_catalog_sources(window, cx)
-                            }),
+                        .child(
+                            kit::button("catalog-add-open")
+                                .label("Добавить открытые каталоги")
+                                .primary()
+                                .small()
+                                .loading(self.catalogs.busy)
+                                .disabled(self.catalogs.busy)
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    let sources = OPEN.iter().map(|open| open.source()).collect();
+                                    this.add_catalog_sources(sources, cx)
+                                })),
+                        )
+                        .child(
+                            kit::button("catalog-add-first")
+                                .label("Источники…")
+                                .small()
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.open_catalog_sources(window, cx)
+                                })),
                         ),
                 )
             })

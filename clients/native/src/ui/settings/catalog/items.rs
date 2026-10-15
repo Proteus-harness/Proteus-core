@@ -76,7 +76,7 @@ pub(super) fn kind_filter(kind: Kind) -> &'static str {
     match kind {
         Kind::ClientExtension => "Расширения",
         Kind::AgentPlugin => "Agent Plugins",
-        Kind::Skill => "Навыки",
+        Kind::Skill => "Skills",
         Kind::McpServer => "MCP",
     }
 }

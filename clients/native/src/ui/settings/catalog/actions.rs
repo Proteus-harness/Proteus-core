@@ -63,15 +63,22 @@ impl SettingsView {
             cx.notify();
             return;
         }
-        prefs::update(cx, |prefs| {
-            if !prefs.catalogs.sources.contains(&source) {
-                prefs.catalogs.sources.push(source.clone());
-            }
-        });
         for input in [&self.catalogs.url, &self.catalogs.branch] {
             input.update(cx, |input, cx| input.set_value("", window, cx));
         }
-        self.refresh_catalogs(vec![source], cx);
+        self.add_catalog_sources(vec![source], cx);
+    }
+
+    /// Remembers the sources and downloads them.
+    pub(super) fn add_catalog_sources(&mut self, sources: Vec<Source>, cx: &mut Context<Self>) {
+        prefs::update(cx, |prefs| {
+            for source in &sources {
+                if !prefs.catalogs.sources.contains(source) {
+                    prefs.catalogs.sources.push(source.clone());
+                }
+            }
+        });
+        self.refresh_catalogs(sources, cx);
     }
 
     /// Downloads the sources again, one after another.
