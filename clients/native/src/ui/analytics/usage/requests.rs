@@ -14,6 +14,7 @@ use crate::analytics::usage::{
     scoped, select as select_requests, status_label, summarize, turn_ids,
 };
 use crate::ui::kit;
+use crate::ui::kit::Pressable as _;
 use crate::ui::prefs;
 
 const PAGE: usize = 20;
@@ -392,6 +393,7 @@ impl UsagePage {
             .border_1()
             .border_color(theme.border)
             .cursor_pointer()
+            .pressable(cx)
             .hover(|row| row.bg(theme.list_hover))
             .on_click(cx.listener(move |this, _, _, cx| {
                 if !this.expanded.remove(&index) {

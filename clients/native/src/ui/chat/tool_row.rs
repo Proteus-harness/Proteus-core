@@ -12,6 +12,7 @@ use crate::tool_display::{self, DiffLine, PatchFile, PlanStep, StepStatus};
 use crate::ui::fade::faded;
 use crate::ui::format;
 use crate::ui::kit::Hint as _;
+use crate::ui::kit::Pressable as _;
 use crate::ui::motion::{Spinner, chevron, reveal};
 
 const RESULT_LINES: usize = 40;
@@ -115,6 +116,7 @@ pub(super) fn render_tool(
             tool_line(tool, cx)
                 .id(row_id("tool", key))
                 .cursor_pointer()
+                .pressable(cx)
                 .child(chevron(row_id("tool-chevron", key), expanded, muted))
                 .on_click(cx.listener(move |this, _, _, cx| this.toggle_expanded(key, cx))),
         )

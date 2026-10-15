@@ -11,6 +11,7 @@ use super::{Control, SelectorBadge};
 use crate::ui::chat::Chat;
 use crate::ui::chat::controls::{MODES, mode_from_value};
 use crate::ui::fade::faded;
+use crate::ui::kit::{self, Pressable as _};
 use crate::ui::prefs;
 
 /// Room between the icon and its chooser.
@@ -60,9 +61,8 @@ impl SelectorBadge {
                         })
                         .text_sm()
                         .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
-                            if event.keystroke.key == "escape" {
-                                cx.stop_propagation();
-                                this.escape(window, cx);
+                            if !event.keystroke.modifiers.modified() {
+                                this.press_key(&event.keystroke.key, window, cx);
                             }
                         }))
                         // A press on the icon toggles it itself. The press
@@ -77,11 +77,26 @@ impl SelectorBadge {
                                 });
                             }
                         })
-                        .children(content),
+                        .children(content)
+                        .focus_trap("selector-popup-trap", &self.focus),
                 ),
         )
         .with_priority(1)
         .into_any_element()
+    }
+
+    /// Esc steps back or closes, Up and Down walk the rows round, and Left
+    /// and Right move the reasoning effort a step.
+    fn press_key(&mut self, key: &str, window: &mut Window, cx: &mut Context<Self>) {
+        match key {
+            "escape" => self.escape(window, cx),
+            "down" | "up" => kit::cycle_focus(&self.focus, key == "down", window, cx),
+            "left" | "right" if matches!(self.control, Control::Model) => {
+                self.step_effort(if key == "right" { 1 } else { -1 }, cx)
+            }
+            _ => return,
+        }
+        cx.stop_propagation();
     }
 }
 
@@ -138,6 +153,7 @@ pub(super) fn choice(
         .py_1()
         .rounded(theme.radius)
         .cursor_pointer()
+        .pressable(cx)
         .when(selected, |row| {
             row.text_color(primary)
                 .font_medium()

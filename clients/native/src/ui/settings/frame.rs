@@ -312,6 +312,7 @@ impl SettingsView {
                     .small()
                     .loading(self.saving)
                     .disabled(!self.can_save())
+                    .hint_keys("Записать изменения в профиль", Some("Ctrl+S"), cx)
                     .on_click(cx.listener(|this, _, _, cx| this.save(cx))),
             )
     }

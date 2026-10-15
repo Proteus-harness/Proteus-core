@@ -10,6 +10,7 @@ use super::view::DeclarativeView;
 use crate::declarative::widget::{Direction, Gap, Item, Node, TextSize, Tone, Variant};
 use crate::ui::fade::faded;
 use crate::ui::kit;
+use crate::ui::kit::Pressable as _;
 use crate::ui::prefs;
 
 pub(super) fn tone_color(tone: Tone, cx: &App) -> Hsla {
@@ -198,6 +199,7 @@ impl DeclarativeView {
                             .py_1()
                             .text_sm()
                             .cursor_pointer()
+                            .pressable(cx)
                             .text_color(if index == selected { active } else { muted })
                             .when(index == selected, |tab| {
                                 tab.border_b_2().border_color(active)
@@ -295,6 +297,7 @@ impl DeclarativeView {
             Some(action) => {
                 let send = self.sender(action.clone(), item.value.clone());
                 row.cursor_pointer()
+                    .pressable(cx)
                     .hover(move |style| style.bg(hover))
                     .on_click(cx.listener(move |this, _, _, cx| send(this, cx)))
                     .into_any_element()

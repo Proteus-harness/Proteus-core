@@ -12,6 +12,7 @@ use super::tool_chain::render_chain_header;
 use super::tool_row::{render_tool, tool_line};
 use crate::transcript::{Entry, Role};
 use crate::ui::fade::faded;
+use crate::ui::kit::Pressable as _;
 use crate::ui::kit::{self, Hint as _};
 use crate::ui::motion::{self, chevron, fade_in_if, reveal};
 use crate::ui::{format, prefs};
@@ -273,6 +274,7 @@ fn render_subagent(
                 .gap_2()
                 .text_sm()
                 .cursor_pointer()
+                .pressable(cx)
                 .child(Icon::new(IconName::Bot).small())
                 .child(div().flex_none().font_semibold().child(agent.role.clone()))
                 .child(

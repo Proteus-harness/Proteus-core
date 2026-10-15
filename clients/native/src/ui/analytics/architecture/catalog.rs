@@ -11,6 +11,7 @@ use super::super::widgets::{Tone, badge, card, code, note};
 use super::ArchitecturePage;
 use crate::analytics::format::pretty;
 use crate::analytics::graph::slot_views;
+use crate::ui::kit::Pressable as _;
 use crate::ui::prefs;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -158,6 +159,7 @@ impl ArchitecturePage {
                     .rounded(theme.radius)
                     .text_sm()
                     .cursor_pointer()
+                    .pressable(cx)
                     .when(active, |chip| chip.bg(theme.accent).font_semibold())
                     .when(!active, |chip| chip.hover(|chip| chip.bg(theme.list_hover)))
                     .child(filter.label())
@@ -197,6 +199,7 @@ impl ArchitecturePage {
                         .text_xs()
                         .text_color(theme.muted_foreground)
                         .cursor_pointer()
+                        .pressable(cx)
                         .hover(|link| link.text_color(theme.foreground))
                         .child(if open {
                             "Скрыть схему параметров"

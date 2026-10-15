@@ -10,6 +10,7 @@ use serde_json::Value;
 use super::SettingsView;
 use super::widgets::{changed_dot, described, disclosure, hashed_id, note, reset_mark};
 use crate::settings::FieldPath;
+use crate::ui::kit::Pressable as _;
 use crate::ui::prefs;
 
 impl SettingsView {
@@ -131,6 +132,7 @@ impl SettingsView {
             .text_sm()
             .cursor_pointer()
             .hover(|row| row.bg(theme.list_hover))
+            .pressable(cx)
             .child(crate::ui::motion::chevron(
                 ElementId::Name(format!("{key}-chevron").into()),
                 open,

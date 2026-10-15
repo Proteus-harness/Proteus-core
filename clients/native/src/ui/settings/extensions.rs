@@ -17,6 +17,7 @@ use crate::settings::catalog::PageId;
 use crate::ui::extensions::{self, Manifest};
 use crate::ui::kit;
 use crate::ui::kit::Hint as _;
+use crate::ui::kit::Pressable as _;
 use crate::ui::prefs;
 
 const ZIP_KEY: &str = "extensions-zip";
@@ -210,6 +211,7 @@ impl SettingsView {
             .min_w_0()
             .gap_0p5()
             .cursor_pointer()
+            .pressable(cx)
             .child(
                 h_flex()
                     .gap_2()

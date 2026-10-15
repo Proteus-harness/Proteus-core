@@ -9,6 +9,7 @@ use gpui_kit::*;
 
 use crate::preferences::{BadgePlace, SESSIONS_PANEL};
 use crate::shortcuts::Command;
+use crate::ui::kit::Pressable as _;
 use crate::ui::tip::Tip as _;
 use crate::ui::workspace::Workspace;
 use crate::ui::{kit, panels, prefs};
@@ -99,6 +100,7 @@ fn rail_button(
         .justify_center()
         .rounded(theme.radius)
         .cursor_pointer()
+        .pressable(cx)
         .when(active, |button| {
             button.bg(theme.accent).text_color(theme.accent_foreground)
         })

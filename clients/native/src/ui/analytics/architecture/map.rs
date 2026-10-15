@@ -20,6 +20,7 @@ use crate::analytics::graph::{
 };
 use crate::ui::fade::faded;
 use crate::ui::kit;
+use crate::ui::kit::Pressable as _;
 use crate::ui::prefs;
 
 const MIN_ZOOM: f32 = 0.12;
@@ -272,6 +273,7 @@ impl ArchitecturePage {
                 })
                 .bg(theme.background)
                 .cursor_pointer()
+                .pressable(cx)
                 .when(!node.active, |node| node.opacity(0.65))
                 .when(dimmed, |node| node.opacity(0.25))
                 .child(div().w(px(4. * zoom)).h_full().flex_none().bg(accent))
@@ -417,6 +419,7 @@ impl ArchitecturePage {
                     .id(SharedString::from(format!("map-link-{id}-{arrow}-{other}")))
                     .text_sm()
                     .cursor_pointer()
+                    .pressable(cx)
                     .hover(|link| link.text_color(theme.primary))
                     .child(format!("{arrow} {label} · {}", edge_label(edge)))
                     .on_click(cx.listener(move |this, _, _, cx| {

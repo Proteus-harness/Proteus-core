@@ -15,6 +15,7 @@ use crate::ui::chat::Chat;
 use crate::ui::chat::controls::{current_effort, efforts, model_label, models, models_provider};
 use crate::ui::fade::faded;
 use crate::ui::kit::Hint as _;
+use crate::ui::kit::Pressable as _;
 use crate::ui::{kit, prefs};
 
 impl SelectorBadge {
@@ -61,6 +62,7 @@ impl SelectorBadge {
             .child(div().flex_1().min_w_0().child(faded(model_label(config))))
             .when(!models(config).is_empty(), |row| {
                 row.cursor_pointer()
+                    .pressable(cx)
                     .hover(move |style| style.bg(hover))
                     .child(
                         div()

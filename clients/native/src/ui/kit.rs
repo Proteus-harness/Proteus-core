@@ -1,29 +1,84 @@
-//! gpui-kit controls as the client builds them. A press of any mouse button
-//! focuses a control, and the kit then rings it as if it was reached with
-//! Tab; the client's controls keep focus without the ring. Hints are the
-//! tooltips of controls, shown as the hints preference asks.
+//! gpui-kit controls as the client builds them. A focused control is ringed
+//! only while the keyboard drives the window, so one focused by a click or
+//! by the client itself stays plain. Hints are the tooltips of controls,
+//! shown as the hints preference asks.
 
+use std::cell::Cell;
+
+use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::component::FocusableExt as _;
 use gpui_kit::component::button::Button;
 use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::component::clipboard::Clipboard;
 use gpui_kit::component::switch::Switch;
-use gpui_kit::{App, ElementId, SharedString};
+use gpui_kit::{App, ElementId, MouseButton, SharedString, StatefulInteractiveElement, Styled};
 
 use super::prefs;
 use crate::preferences::Hints;
 use crate::shortcuts::{self, Command};
 
+thread_local! {
+    static KEYBOARD: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Remembers whether the keyboard drives the window, for the controls built
+/// in this frame. The window's root view calls it first in its render; a
+/// switch between keyboard and mouse redraws every view, so no control is
+/// built with a stale answer.
+pub(crate) fn track_input(window: &gpui_kit::Window) {
+    KEYBOARD.set(window.last_input_was_keyboard());
+}
+
 pub(crate) fn button(id: impl Into<ElementId>) -> Button {
-    Button::new(id).focus_ring(false)
+    Button::new(id).focus_ring(KEYBOARD.get())
 }
 
 pub(crate) fn switch(id: impl Into<ElementId>) -> Switch {
-    Switch::new(id).focus_ring(false)
+    Switch::new(id).focus_ring(KEYBOARD.get())
 }
 
 pub(crate) fn checkbox(id: impl Into<ElementId>) -> Checkbox {
-    Checkbox::new(id).focus_ring(false)
+    Checkbox::new(id).focus_ring(KEYBOARD.get())
+}
+
+/// A clickable row or card that Tab reaches like a button: Enter or Space
+/// presses it, and it is marked while the keyboard holds focus on it. A
+/// mouse press leaves focus where it was, as with buttons.
+pub(crate) trait Pressable: StatefulInteractiveElement + Styled {
+    fn pressable(self, cx: &App) -> Self {
+        let theme = cx.theme();
+        let (ring, mark) = (theme.ring, theme.list_hover);
+        self.focusable()
+            .tab_stop(true)
+            .focus_visible(move |style| style.bg(mark).border_color(ring))
+            .on_mouse_down(MouseButton::Left, |_, window, _| window.prevent_default())
+    }
+}
+
+impl<E: StatefulInteractiveElement + Styled> Pressable for E {}
+
+/// Moves focus to the next or the previous stop inside `container`, coming
+/// round from its end to its start.
+pub(crate) fn cycle_focus(
+    container: &gpui_kit::FocusHandle,
+    forward: bool,
+    window: &mut gpui_kit::Window,
+    cx: &mut App,
+) {
+    let start = window.focused(cx);
+    // The container itself is no stop, so a walk from it never comes back
+    // to it when it holds no stops either.
+    for _ in 0..256 {
+        if forward {
+            window.focus_next(cx);
+        } else {
+            window.focus_prev(cx);
+        }
+        let focused = window.focused(cx);
+        if container.contains_focused(window, cx) || focused == start {
+            return;
+        }
+    }
 }
 
 /// Tooltip text of a control as the hints preference asks: what it does,

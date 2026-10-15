@@ -21,6 +21,7 @@ use crate::ui::extensions;
 use crate::ui::fade::faded;
 use crate::ui::kit;
 use crate::ui::kit::Hint as _;
+use crate::ui::kit::Pressable as _;
 use crate::ui::prefs;
 use crate::ui::tip::Tip as _;
 
@@ -104,8 +105,14 @@ impl SettingsView {
         self.select_page(pages[next].clone(), window, cx);
     }
 
-    pub(super) fn render_nav(&self, cx: &Context<Self>) -> impl IntoElement + use<> {
+    pub(super) fn render_nav(
+        &self,
+        window: &Window,
+        cx: &Context<Self>,
+    ) -> impl IntoElement + use<> {
         let theme = cx.theme();
+        // The list holds focus as a whole; its selected page shows it.
+        let marked = self.nav_focus.is_focused(window) && window.last_input_was_keyboard();
         let snapshot = self.snapshot();
         let agent = self.agent_page_list();
         let installed = self.extension_page_list(cx);
@@ -128,6 +135,12 @@ impl SettingsView {
                 .gap_2()
                 .items_center()
                 .rounded(theme.radius)
+                .border_1()
+                .border_color(if selected && marked {
+                    theme.ring
+                } else {
+                    gpui_kit::transparent_black()
+                })
                 .text_sm()
                 .cursor_pointer()
                 .map(|item| {
@@ -197,17 +210,16 @@ impl SettingsView {
                     .font_semibold()
                     .child("Настройки"),
             )
-            .child(
+            .child(Self::search_keys(
                 div().px_2().pb_1().child(
                     Input::new(&self.search)
                         .small()
                         .cleanable(true)
                         .prefix(Icon::new(IconName::Search).small()),
                 ),
-            )
+            ))
             .child(if self.query.is_empty() {
-                v_flex()
-                    .id("settings-pages")
+                self.nav_keys(v_flex().id("settings-pages"))
                     .flex_1()
                     .min_h_0()
                     .overflow_y_scroll()
@@ -260,8 +272,7 @@ impl SettingsView {
         let theme = cx.theme();
         let hits = self.search(&self.query, cx);
         let empty = hits.is_empty();
-        v_flex()
-            .id("settings-hits")
+        Self::hits_keys(v_flex().id("settings-hits"))
             .flex_1()
             .min_h_0()
             .overflow_y_scroll()
@@ -283,6 +294,7 @@ impl SettingsView {
                     .cursor_pointer()
                     .text_color(theme.sidebar_foreground)
                     .hover(|item| item.bg(theme.list_hover))
+                    .pressable(cx)
                     .child(icon.small().flex_none().text_color(theme.muted_foreground))
                     .child(
                         v_flex()

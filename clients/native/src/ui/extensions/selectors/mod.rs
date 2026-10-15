@@ -66,7 +66,7 @@ impl SelectorBadge {
     fn close_chooser(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.set_open(false, cx);
         let restore = self.restore.take();
-        if self.focus.is_focused(window)
+        if self.focus.contains_focused(window, cx)
             && let Some(restore) = restore
         {
             restore.focus(window, cx);
@@ -110,6 +110,26 @@ impl SelectorBadge {
         if self.scrub != Some(position) {
             self.scrub = Some(position);
             cx.notify();
+        }
+    }
+
+    /// Moves the effort a step from the shown one, as a click on the track.
+    fn step_effort(&mut self, offset: isize, cx: &mut Context<Self>) {
+        let Some((_, config)) = self.session(cx) else {
+            return;
+        };
+        let count = efforts(&config).len();
+        if self.models_open || count < 2 {
+            return;
+        }
+        let shown = self
+            .pending
+            .unwrap_or_else(|| effort_position(&config))
+            .min(count - 1);
+        let next = shown.saturating_add_signed(offset).min(count - 1);
+        if next != shown {
+            self.scrub = Some(next);
+            self.finish_scrub(cx);
         }
     }
 

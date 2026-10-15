@@ -10,6 +10,7 @@ use proteus_contracts::contracts::UserInputRequest;
 
 use super::Chat;
 use crate::ui::kit;
+use crate::ui::kit::Pressable as _;
 use crate::ui::prefs;
 use crate::ui::{format, motion};
 
@@ -93,6 +94,7 @@ impl Chat {
                         .py_1()
                         .rounded(theme.radius)
                         .cursor_pointer()
+                        .pressable(cx)
                         .when(selected, |row| row.bg(theme.accent))
                         .hover(|row| row.bg(theme.list_hover))
                         .child(div().w_4().flex_none().when(selected, |slot| {

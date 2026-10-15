@@ -11,6 +11,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use crate::ui::kit;
+use crate::ui::kit::Pressable as _;
 use crate::ui::prefs;
 
 /// One request kind's state: last good data survives a failed refresh.
@@ -336,6 +337,7 @@ pub(super) fn segments<V: 'static>(
                 .rounded(theme.radius)
                 .text_sm()
                 .cursor_pointer()
+                .pressable(cx)
                 .when(active, |tab| {
                     tab.bg(theme.background).font_semibold().shadow_xs()
                 })

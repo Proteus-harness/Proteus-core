@@ -12,6 +12,7 @@ use super::tool_row::{is_running, status_icon, tool_args};
 use crate::tool_display;
 use crate::transcript::{affected_rows, tool_chain};
 use crate::ui::fade::faded;
+use crate::ui::kit::Pressable as _;
 use crate::ui::motion::chevron;
 
 const LABELS: usize = 3;
@@ -78,6 +79,7 @@ pub(super) fn render_chain_header(
         .text_sm()
         .min_w_0()
         .cursor_pointer()
+        .pressable(cx)
         .child(status_icon(chain_status(tools), cx))
         .child(
             div()

@@ -25,6 +25,7 @@ use crate::analytics::format::{clock, pretty, short_id, tokens};
 use crate::api::Api;
 use crate::ui::fade::faded;
 use crate::ui::kit;
+use crate::ui::kit::Pressable as _;
 use crate::ui::prefs;
 
 pub(super) struct AnalysisPage {
@@ -198,6 +199,7 @@ impl AnalysisPage {
                     .gap_0p5()
                     .rounded(theme.radius)
                     .cursor_pointer()
+                    .pressable(cx)
                     .when(selected, |row| row.bg(theme.accent))
                     .when(!selected, |row| row.hover(|row| row.bg(theme.list_hover)))
                     .child(
@@ -329,6 +331,7 @@ impl AnalysisPage {
                     .p_2()
                     .rounded(theme.radius)
                     .cursor_pointer()
+                    .pressable(cx)
                     .when(selected, |row| row.bg(theme.accent))
                     .when(!selected, |row| row.hover(|row| row.bg(theme.list_hover)))
                     .child(note(format!("{} · #{}", step_kind(step), sequence), cx).text_xs())
@@ -395,6 +398,7 @@ impl AnalysisPage {
                     .text_sm()
                     .text_color(theme.muted_foreground)
                     .cursor_pointer()
+                    .pressable(cx)
                     .hover(|row| row.text_color(theme.foreground))
                     .child(
                         Icon::new(if open {

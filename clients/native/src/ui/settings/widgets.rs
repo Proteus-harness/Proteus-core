@@ -15,6 +15,7 @@ use gpui_kit::*;
 use crate::ui::fade::faded;
 use crate::ui::kit;
 use crate::ui::kit::Hint as _;
+use crate::ui::kit::Pressable as _;
 use crate::ui::prefs;
 use crate::ui::tip::Tip as _;
 
@@ -368,6 +369,7 @@ pub(super) fn radio_card(
         .rounded(theme.radius_lg)
         .border_1()
         .cursor_pointer()
+        .pressable(cx)
         .map(|card| {
             if selected {
                 card.border_color(theme.primary.opacity(0.6))
@@ -419,6 +421,7 @@ pub(super) fn disclosure(
         .text_color(theme.muted_foreground)
         .cursor_pointer()
         .hover(|row| row.bg(theme.list_hover))
+        .pressable(cx)
         .child(crate::ui::motion::chevron(
             chevron_id,
             open,

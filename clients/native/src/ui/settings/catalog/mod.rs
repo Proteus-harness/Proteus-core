@@ -89,7 +89,7 @@ impl State {
                 failures: Vec::new(),
                 opened: false,
                 message: None,
-                focus: cx.focus_handle(),
+                focus: cx.focus_handle().tab_stop(true),
                 scroll: ScrollHandle::new(),
             },
             changes,

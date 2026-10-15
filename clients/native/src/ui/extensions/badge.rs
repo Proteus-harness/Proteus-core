@@ -12,6 +12,7 @@ use gpui_kit::*;
 
 use super::host::Host;
 use crate::preferences::BadgePlace;
+use crate::ui::kit::Pressable as _;
 use crate::ui::tip::Tip as _;
 use crate::ui::{drag, prefs};
 
@@ -112,6 +113,7 @@ pub(super) fn pressable_badge(
         .when_some(press, |badge, press| {
             badge
                 .cursor_pointer()
+                .pressable(cx)
                 .on_click(move |_, window, cx| press(window, cx))
         })
         .hover(move |style| style.bg(hover).text_color(foreground))

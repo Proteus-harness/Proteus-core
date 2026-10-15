@@ -12,6 +12,7 @@ mod fields;
 mod frame;
 mod group;
 mod hooks;
+mod keys;
 mod mcp;
 mod mcp_editors;
 mod mcp_form;
@@ -44,7 +45,7 @@ use crate::settings::catalog::PageId;
 use crate::settings::mcp::mcp_problems;
 use editors::Editors;
 
-pub(super) use catalog::bind_keys;
+pub(super) use keys::bind_keys;
 
 const FEEDBACK_TIMEOUT: Duration = Duration::from_secs(4);
 
@@ -108,6 +109,8 @@ pub struct SettingsView {
     /// Command whose new shortcut is being recorded.
     recording: Option<(crate::shortcuts::Command, Subscription)>,
     focus_handle: FocusHandle,
+    /// The page list, a single stop for Tab walked with the arrows.
+    nav_focus: FocusHandle,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -150,9 +153,10 @@ impl SettingsView {
                 }
             }),
         ]);
-        // Keeps window shortcuts routed while no input inside the screen is focused.
+        // Keeps window shortcuts routed while no control inside the screen is focused.
         let focus_handle = cx.focus_handle();
-        focus_handle.focus(window, cx);
+        let nav_focus = cx.focus_handle().tab_stop(true);
+        nav_focus.focus(window, cx);
         let overview =
             crate::ui::analytics::Pages::new(api.clone(), session_dir.clone(), window, cx);
         let mut view = Self {
@@ -187,6 +191,7 @@ impl SettingsView {
             removing: None,
             recording: None,
             focus_handle,
+            nav_focus,
             _subscriptions: subscriptions,
         };
         view.load(cx);
@@ -427,10 +432,11 @@ impl Render for SettingsView {
         self.prepare_editors(window, cx);
         self.scrolls.entry(spot::page_key(&self.page)).or_default();
         crate::ui::motion::drive(window, cx);
-        h_flex()
+        let screen = h_flex()
             .size_full()
             .key_context(super::SETTINGS_CONTEXT)
-            .track_focus(&self.focus_handle)
+            .track_focus(&self.focus_handle);
+        self.settings_keys(screen, cx)
             .on_action(
                 cx.listener(|this, _: &super::NextSettingsPage, window, cx| {
                     this.step_page(1, window, cx)
@@ -451,7 +457,7 @@ impl Render for SettingsView {
                     this.dismiss(window, cx)
                 }),
             )
-            .child(self.render_nav(cx))
+            .child(self.render_nav(window, cx))
             .child(
                 div()
                     .flex_1()

@@ -16,6 +16,7 @@ use super::workspace::{Status, Workspace};
 use crate::launch::{LaunchOptions, Target};
 use crate::ui::fade::faded;
 use crate::ui::kit;
+use crate::ui::kit::Pressable as _;
 
 pub struct Launcher {
     stage: Stage,
@@ -175,6 +176,7 @@ impl Launcher {
                     .rounded(theme.radius)
                     .when(exists, |row| {
                         row.cursor_pointer()
+                            .pressable(cx)
                             .hover(|row| row.bg(theme.list_hover))
                             .on_click(cx.listener(move |this, _, window, cx| {
                                 this.open(path.clone(), window, cx)
@@ -262,6 +264,7 @@ impl Focusable for Launcher {
 
 impl Render for Launcher {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        super::kit::track_input(window);
         match &self.stage {
             Stage::Ready(workspace) => div()
                 .relative()
