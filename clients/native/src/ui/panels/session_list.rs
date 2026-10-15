@@ -115,11 +115,9 @@ impl Workspace {
 
     /// Esc anywhere on the panel, the filter included.
     pub(super) fn session_panel_actions(&self, element: Div, cx: &mut Context<Self>) -> Div {
-        element
-            .key_context(PANEL_CONTEXT)
-            .on_action(cx.listener(|this, _: &Dismiss, window, cx| {
-                this.dismiss_session_list(window, cx)
-            }))
+        element.key_context(PANEL_CONTEXT).on_action(
+            cx.listener(|this, _: &Dismiss, window, cx| this.dismiss_session_list(window, cx)),
+        )
     }
 
     fn dismiss_session_list(&mut self, window: &mut Window, cx: &mut Context<Self>) {

@@ -72,9 +72,8 @@ impl SelectorBadge {
                             if !trigger.get().contains(&event.position) {
                                 let this = this.clone();
                                 window.defer(cx, move |window, cx| {
-                                    let _ = this.update(cx, |this, cx| {
-                                        this.close_chooser(window, cx)
-                                    });
+                                    let _ =
+                                        this.update(cx, |this, cx| this.close_chooser(window, cx));
                                 });
                             }
                         })
@@ -98,10 +97,16 @@ fn mode_choices(
         .map(|(index, (value, label))| {
             let (chat, value) = (chat.clone(), *value);
             let this = cx.entity().downgrade();
-            choice(("mode", index), *label, value == mode, cx, move |window, cx| {
-                let _ = chat.update(cx, |chat, cx| chat.set_mode(value, cx));
-                let _ = this.update(cx, |this, cx| this.close_chooser(window, cx));
-            })
+            choice(
+                ("mode", index),
+                *label,
+                value == mode,
+                cx,
+                move |window, cx| {
+                    let _ = chat.update(cx, |chat, cx| chat.set_mode(value, cx));
+                    let _ = this.update(cx, |this, cx| this.close_chooser(window, cx));
+                },
+            )
             .into_any_element()
         })
         .collect()

@@ -97,27 +97,22 @@ impl SelectorBadge {
                 });
                 let _ = chat.update(cx, |chat, cx| chat.set_effort(None, cx));
             });
-        div()
-            .mt_1()
-            .pt_1()
-            .border_t_1()
-            .border_color(border)
-            .child(
-                h_flex()
-                    .gap_1()
-                    .pl_2()
-                    .pr_0p5()
-                    .pb_1()
-                    .child(
-                        div()
-                            .flex_1()
-                            .text_xs()
-                            .text_color(muted)
-                            .child("Рассуждения"),
-                    )
-                    .child(div().font_medium().text_color(primary).child(title))
-                    .child(reset),
-            )
+        div().mt_1().pt_1().border_t_1().border_color(border).child(
+            h_flex()
+                .gap_1()
+                .pl_2()
+                .pr_0p5()
+                .pb_1()
+                .child(
+                    div()
+                        .flex_1()
+                        .text_xs()
+                        .text_color(muted)
+                        .child("Рассуждения"),
+                )
+                .child(div().font_medium().text_color(primary).child(title))
+                .child(reset),
+        )
     }
 
     fn model_list(
