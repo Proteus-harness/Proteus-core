@@ -53,8 +53,8 @@ impl SettingsView {
                                     .label("К списку расширений")
                                     .outline()
                                     .small()
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.select_page(PageId::Extensions, cx)
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.select_page(PageId::Extensions, window, cx)
                                     })),
                             )
                             .into_any_element(),

@@ -31,7 +31,7 @@ impl SettingsView {
 fn sources(view: &Entity<SettingsView>, cx: &App) -> AnyElement {
     let this = view.read(cx);
     let theme = cx.theme();
-    let busy = this.catalogs.busy;
+    let loading = &this.catalogs.loading;
     let rows =
         prefs::current(cx)
             .catalogs
@@ -48,7 +48,9 @@ fn sources(view: &Entity<SettingsView>, cx: &App) -> AnyElement {
                 if let Some(branch) = &source.branch {
                     about.push_str(&format!(" · {branch}"));
                 }
+                let fetching = loading.contains(source);
                 about.push_str(&match found {
+                    _ if fetching => " · скачивается…".to_string(),
                     Some(catalog) => format!(" · записей: {}", catalog.entries.len()),
                     None => " · не загружен".to_string(),
                 });
@@ -93,7 +95,8 @@ fn sources(view: &Entity<SettingsView>, cx: &App) -> AnyElement {
                             .icon(Icon::new(Lucide::RefreshCw))
                             .ghost()
                             .xsmall()
-                            .disabled(busy)
+                            .loading(fetching)
+                            .disabled(fetching)
                             .hint("Скачать заново", cx)
                             .on_click(move |_, _, cx| {
                                 update
@@ -108,7 +111,6 @@ fn sources(view: &Entity<SettingsView>, cx: &App) -> AnyElement {
                             .label("Убрать")
                             .ghost()
                             .xsmall()
-                            .disabled(busy)
                             .on_click(move |_, _, cx| {
                                 forget
                                     .update(cx, |this, cx| this.forget_catalog(&forgotten, cx))
@@ -136,8 +138,6 @@ fn sources(view: &Entity<SettingsView>, cx: &App) -> AnyElement {
                         .label("Добавить")
                         .primary()
                         .small()
-                        .loading(busy)
-                        .disabled(busy)
                         .on_click(move |_, window, cx| {
                             add.update(cx, |this, cx| this.add_catalog(window, cx)).ok();
                         }),
@@ -158,7 +158,7 @@ fn sources(view: &Entity<SettingsView>, cx: &App) -> AnyElement {
                 .children(rows)
                 .into_any_element()
         })
-        .children(open_sources(view, busy, cx))
+        .children(open_sources(view, cx))
         .children(this.catalogs.message.as_ref().map(|(error, text)| {
             div()
                 .text_xs()
@@ -169,7 +169,7 @@ fn sources(view: &Entity<SettingsView>, cx: &App) -> AnyElement {
 }
 
 /// Public skill repositories that are not added yet.
-fn open_sources(view: &Entity<SettingsView>, busy: bool, cx: &App) -> Option<AnyElement> {
+fn open_sources(view: &Entity<SettingsView>, cx: &App) -> Option<AnyElement> {
     let theme = cx.theme();
     let added = &prefs::current(cx).catalogs.sources;
     let rows = OPEN
@@ -214,7 +214,6 @@ fn open_sources(view: &Entity<SettingsView>, busy: bool, cx: &App) -> Option<Any
                         .label("Добавить")
                         .ghost()
                         .xsmall()
-                        .disabled(busy)
                         .on_click(move |_, _, cx| {
                             view.update(cx, |this, cx| {
                                 this.add_catalog_sources(vec![source.clone()], cx)

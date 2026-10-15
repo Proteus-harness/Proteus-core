@@ -13,6 +13,7 @@ use super::Show;
 use super::items::{Item, KINDS, Status, kind_filter, kind_icon};
 use crate::catalog::open::OPEN;
 use crate::settings::catalog::{PageId, page_description, page_title};
+use crate::ui::Spinner;
 use crate::ui::fade::faded;
 use crate::ui::kit;
 use crate::ui::kit::Hint as _;
@@ -37,11 +38,19 @@ impl SettingsView {
                 .iter()
                 .find(|item| item.source == source && item.entry.id == *id)
         });
+        let loading = &self.catalogs.loading;
         let body = if sources.is_empty() {
             self.catalog_empty(
                 "Источников пока нет",
                 "Подключите открытые каталоги skills или свой git-репозиторий.",
                 true,
+                cx,
+            )
+        } else if items.is_empty() && !loading.is_empty() {
+            self.catalog_empty(
+                "Скачиваю каталоги…",
+                "Записи появятся, как только скачается первый источник.",
+                false,
                 cx,
             )
         } else if shown.is_empty() {
@@ -60,22 +69,30 @@ impl SettingsView {
                 cx,
             )
         } else {
+            // Rows are direct children of the tracked list, so the arrows
+            // can scroll to them by index.
             div()
                 .id("catalog-list")
+                .relative()
                 .flex_1()
                 .min_w_0()
                 .h_full()
                 .child(
-                    v_flex().children(
-                        shown
-                            .iter()
-                            .map(|item| self.catalog_row(item, selected.is_some(), cx)),
-                    ),
+                    v_flex()
+                        .id("catalog-rows")
+                        .size_full()
+                        .overflow_y_scroll()
+                        .track_scroll(&self.catalogs.scroll)
+                        .children(
+                            shown
+                                .iter()
+                                .map(|item| self.catalog_row(item, selected.is_some(), cx)),
+                        ),
                 )
-                .overflow_y_scrollbar()
+                .vertical_scrollbar(&self.catalogs.scroll)
                 .into_any_element()
         };
-        v_flex()
+        let page = v_flex()
             .size_full()
             .child(self.catalog_header(sources.len(), cx))
             .child(self.catalog_toolbar(updates, cx))
@@ -99,21 +116,38 @@ impl SettingsView {
                     )
                     .child(div().flex_1().min_w_0().child(text.clone()))
             }))
+            .when(!loading.is_empty(), |page| {
+                let names = loading
+                    .iter()
+                    .map(|source| source.name())
+                    .collect::<Vec<_>>();
+                page.child(
+                    h_flex()
+                        .px_8()
+                        .pb_3()
+                        .gap_2()
+                        .items_center()
+                        .text_sm()
+                        .text_color(theme.muted_foreground)
+                        .child(Spinner::new().small())
+                        .child(faded(format!("Скачиваю: {}", names.join(", ")))),
+                )
+            })
             .child(
-                h_flex()
+                self.catalog_list_keys(h_flex())
                     .flex_1()
                     .min_h_0()
                     .border_t_1()
                     .border_color(theme.border)
                     .child(body)
                     .children(selected.map(|item| self.catalog_details(item, cx))),
-            )
-            .into_any_element()
+            );
+        self.catalog_page_keys(page, cx).into_any_element()
     }
 
     fn catalog_header(&self, sources: usize, cx: &Context<Self>) -> impl IntoElement + use<> {
         let theme = cx.theme();
-        let busy = self.catalogs.busy;
+        let loading = !self.catalogs.loading.is_empty();
         h_flex()
             .px_8()
             .pt_6()
@@ -147,8 +181,8 @@ impl SettingsView {
                             .icon(Icon::new(Lucide::RefreshCw))
                             .ghost()
                             .small()
-                            .loading(busy)
-                            .disabled(busy || sources == 0)
+                            .loading(loading)
+                            .disabled(loading || sources == 0)
                             .hint("Скачать источники заново", cx)
                             .on_click(cx.listener(|this, _, _, cx| {
                                 let sources = prefs::current(cx).catalogs.sources.clone();
@@ -205,7 +239,7 @@ impl SettingsView {
                     .gap_3()
                     .items_center()
                     .child(
-                        div().flex_1().min_w_0().child(
+                        Self::catalog_search_keys(div()).flex_1().min_w_0().child(
                             Input::new(&self.catalogs.search)
                                 .small()
                                 .cleanable(true)
@@ -355,7 +389,7 @@ impl SettingsView {
                     .into_any_element();
             }
         };
-        let blocked = self.catalog_blocked(item.entry.kind);
+        let blocked = self.catalog_install_blocked(item.source, item.entry.kind);
         let working = self.catalogs.busy
             && self
                 .catalogs
@@ -420,8 +454,8 @@ impl SettingsView {
                                 .label("Добавить открытые каталоги")
                                 .primary()
                                 .small()
-                                .loading(self.catalogs.busy)
-                                .disabled(self.catalogs.busy)
+                                .loading(!self.catalogs.loading.is_empty())
+                                .disabled(!self.catalogs.loading.is_empty())
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     let sources = OPEN.iter().map(|open| open.source()).collect();
                                     this.add_catalog_sources(sources, cx)

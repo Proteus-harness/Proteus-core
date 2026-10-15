@@ -2,8 +2,11 @@
 //! repository refresh never touches a user's working copy.
 
 use std::{
+    collections::HashMap,
+    os::unix::process::CommandExt as _,
     path::Path,
     process::{Command, Stdio},
+    sync::{Arc, LazyLock, Mutex},
     time::{Duration, Instant},
 };
 
@@ -21,7 +24,19 @@ fn run(args: &[&str], dir: &Path) -> Result<()> {
     let log = dir.join(format!(".git-output-{}", uuid::Uuid::new_v4()));
     let output = std::fs::File::create(&log)?;
     let result = (|| {
-        let mut child = Command::new("git")
+        let mut command = Command::new("git");
+        // Own group: a timeout also stops the transport helpers git starts.
+        command.process_group(0);
+        // SAFETY: prctl is async-signal-safe; git must not outlive the client.
+        unsafe {
+            command.pre_exec(|| {
+                if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM) != 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        let mut child = command
             .args(args)
             .env("GIT_TERMINAL_PROMPT", "0")
             .env("GIT_ASKPASS", "")
@@ -45,7 +60,8 @@ fn run(args: &[&str], dir: &Path) -> Result<()> {
                 return Ok(());
             }
             if start.elapsed() >= TIMEOUT {
-                let _ = child.kill();
+                // SAFETY: the group is the one this child leads.
+                unsafe { libc::killpg(child.id() as libc::pid_t, libc::SIGKILL) };
                 let _ = child.wait();
                 bail!("git: превышено время ожидания (90 с)");
             }
@@ -78,9 +94,17 @@ pub fn cached(cache: &Path, source: &Source) -> Result<Catalog> {
 }
 
 pub fn refresh(cache: &Path, source: &Source) -> Result<Catalog> {
-    // Multiple settings windows share the same on-disk checkout and git index.
-    static REFRESH: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    let _guard = REFRESH
+    // Sources download side by side; one source's checkout and git index
+    // take a single writer, even one left by a closed settings screen.
+    static LOCKS: LazyLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> =
+        LazyLock::new(Default::default);
+    let lock = LOCKS
+        .lock()
+        .map_err(|_| anyhow::anyhow!("Предыдущее обновление каталога прервано"))?
+        .entry(source.key())
+        .or_default()
+        .clone();
+    let _guard = lock
         .lock()
         .map_err(|_| anyhow::anyhow!("Предыдущее обновление каталога прервано"))?;
     validate(source)?;

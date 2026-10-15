@@ -301,7 +301,9 @@ impl SettingsView {
                 .label("Порядок")
                 .ghost()
                 .xsmall()
-                .on_click(cx.listener(|this, _, _, cx| this.select_page(PageId::Hooks, cx)))
+                .on_click(
+                    cx.listener(|this, _, window, cx| this.select_page(PageId::Hooks, window, cx)),
+                )
                 .into_any_element()
         });
         let switch = kit::switch(hashed_id("hook-switch", &export.id))
@@ -337,7 +339,9 @@ impl SettingsView {
                 .label(format!("Открыть {}", page_title(Some(snapshot), &page)))
                 .ghost()
                 .xsmall()
-                .on_click(cx.listener(move |this, _, _, cx| this.select_page(page.clone(), cx)))
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.select_page(page.clone(), window, cx)
+                }))
                 .into_any_element(),
         );
         export_row(export, trailing, cx).into_any_element()

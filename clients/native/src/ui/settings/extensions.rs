@@ -233,8 +233,8 @@ impl SettingsView {
                     .text_color(theme.muted_foreground)
                     .child(manifest.description),
             )
-            .on_click(cx.listener(move |this, _, _, cx| {
-                this.select_page(PageId::Extension(id.to_string()), cx)
+            .on_click(cx.listener(move |this, _, window, cx| {
+                this.select_page(PageId::Extension(id.to_string()), window, cx)
             }));
         let controls = h_flex()
             .flex_none()

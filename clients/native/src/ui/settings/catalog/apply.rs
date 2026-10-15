@@ -22,6 +22,18 @@ impl SettingsView {
         in_profile(kind).then(|| self.profile_blocked()).flatten()
     }
 
+    /// Installing also reads the source's checkout, which a download replaces.
+    pub(super) fn catalog_install_blocked(
+        &self,
+        source: &Source,
+        kind: Kind,
+    ) -> Option<&'static str> {
+        if self.catalogs.loading.contains(source) {
+            return Some("Источник сейчас скачивается");
+        }
+        self.catalog_blocked(kind)
+    }
+
     fn profile_blocked(&self) -> Option<&'static str> {
         if !self
             .snapshot()
@@ -46,7 +58,7 @@ impl SettingsView {
         if !self.catalog_idle() {
             return;
         }
-        if let Some(reason) = self.catalog_blocked(entry.kind) {
+        if let Some(reason) = self.catalog_install_blocked(&source, entry.kind) {
             self.catalog_message(Err(anyhow!(reason)));
             cx.notify();
             return;

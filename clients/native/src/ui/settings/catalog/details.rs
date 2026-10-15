@@ -48,7 +48,7 @@ impl SettingsView {
                 ),
                 Kind::ClientExtension | Kind::Skill => None,
             },
-            self.catalog_blocked(entry.kind),
+            self.catalog_install_blocked(item.source, entry.kind),
         ];
         let removable = item
             .installed

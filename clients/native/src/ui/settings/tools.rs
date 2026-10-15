@@ -109,11 +109,11 @@ impl SettingsView {
                 .ghost()
                 .xsmall()
                 .hint(&hint, cx)
-                .on_click(move |_, _, cx| {
+                .on_click(move |_, window, cx| {
                     let (key, page) = (key.clone(), page.clone());
                     let _ = view.update(cx, |this, cx| {
                         this.open.insert(key);
-                        this.select_page(page, cx);
+                        this.select_page(page, window, cx);
                     });
                 })
                 .into_any_element()

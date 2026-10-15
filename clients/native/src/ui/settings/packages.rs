@@ -231,7 +231,9 @@ impl SettingsView {
             .label(label)
             .ghost()
             .xsmall()
-            .on_click(cx.listener(move |this, _, _, cx| this.select_page(page.clone(), cx)))
+            .on_click(
+                cx.listener(move |this, _, window, cx| this.select_page(page.clone(), window, cx)),
+            )
             .into_any_element()
     }
 }

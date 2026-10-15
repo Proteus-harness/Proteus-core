@@ -3,7 +3,7 @@ use gpui_kit::*;
 use super::super::SettingsView;
 use crate::catalog::{
     Locations, Source, git,
-    schema::{self, Entry},
+    schema::{self, Catalog, Entry},
 };
 use crate::ui::prefs;
 
@@ -37,10 +37,12 @@ impl SettingsView {
                 match result {
                     Ok(catalogs) => {
                         for (source, catalog) in catalogs {
-                            if let Ok(catalog) = catalog {
+                            let fresh = this.catalogs.loaded.iter().any(|(old, _)| *old == source);
+                            if let (Ok(catalog), false) = (catalog, fresh) {
                                 this.catalogs.loaded.push((source, catalog));
                             }
                         }
+                        this.order_catalogs(cx);
                     }
                     Err(error) => this.catalog_message(Err(error)),
                 }
@@ -81,61 +83,73 @@ impl SettingsView {
         self.refresh_catalogs(sources, cx);
     }
 
-    /// Downloads the sources again, one after another.
+    /// Downloads the sources side by side; each list shows up when ready.
     pub(super) fn refresh_catalogs(&mut self, sources: Vec<Source>, cx: &mut Context<Self>) {
-        if self.catalogs.busy || sources.is_empty() {
+        let sources = sources
+            .into_iter()
+            .filter(|source| !self.catalogs.loading.contains(source))
+            .collect::<Vec<_>>();
+        if sources.is_empty() {
             return;
         }
-        self.catalogs.busy = true;
-        self.catalogs.working = None;
-        self.catalogs.message = None;
-        cx.notify();
-        cx.spawn(async move |this, cx| {
-            let results = cx
-                .background_executor()
-                .spawn(async move {
-                    let cache = Locations::local().map(|locations| locations.cache);
-                    sources
-                        .into_iter()
-                        .map(|source| {
-                            let catalog = match &cache {
-                                Ok(cache) => git::refresh(cache, &source),
-                                Err(error) => Err(anyhow::anyhow!("{error:#}")),
-                            };
-                            (source, catalog)
-                        })
-                        .collect::<Vec<_>>()
-                })
-                .await;
-            this.update(cx, |this, cx| {
-                this.catalogs.busy = false;
-                let mut failed = Vec::new();
-                for (source, result) in results {
-                    match result {
-                        Ok(catalog) => {
-                            match this
-                                .catalogs
-                                .loaded
-                                .iter_mut()
-                                .find(|(old, _)| *old == source)
-                            {
-                                Some((_, old)) => *old = catalog,
-                                None => this.catalogs.loaded.push((source, catalog)),
-                            }
-                        }
-                        Err(error) => failed.push(format!("{}: {error:#}", source.url)),
-                    }
-                }
-                this.catalog_message(if failed.is_empty() {
-                    Ok("Каталог обновлён")
-                } else {
-                    Err(anyhow::anyhow!(failed.join("\n")))
-                });
-                cx.notify();
+        if self.catalogs.loading.is_empty() {
+            self.catalogs.failures.clear();
+            self.catalogs.message = None;
+        }
+        for source in sources {
+            self.catalogs.loading.push(source.clone());
+            cx.spawn(async move |this, cx| {
+                let task = source.clone();
+                let result = cx
+                    .background_executor()
+                    .spawn(async move { git::refresh(&Locations::local()?.cache, &task) })
+                    .await;
+                this.update(cx, |this, cx| this.catalog_loaded(source, result, cx))
+                    .ok();
             })
-            .ok();
-        })
-        .detach();
+            .detach();
+        }
+        cx.notify();
+    }
+
+    fn catalog_loaded(
+        &mut self,
+        source: Source,
+        result: anyhow::Result<Catalog>,
+        cx: &mut Context<Self>,
+    ) {
+        self.catalogs.loading.retain(|old| *old != source);
+        // A source removed meanwhile stays removed.
+        if prefs::current(cx).catalogs.sources.contains(&source) {
+            match result {
+                Ok(catalog) => {
+                    self.catalogs.loaded.retain(|(old, _)| *old != source);
+                    self.catalogs.loaded.push((source, catalog));
+                    self.order_catalogs(cx);
+                }
+                Err(error) => self
+                    .catalogs
+                    .failures
+                    .push(format!("{}: {error:#}", source.name())),
+            }
+        }
+        if self.catalogs.loading.is_empty() {
+            let failures = std::mem::take(&mut self.catalogs.failures);
+            self.catalog_message(if failures.is_empty() {
+                Ok("Каталог обновлён")
+            } else {
+                Err(anyhow::anyhow!(failures.join("\n")))
+            });
+        }
+        cx.notify();
+    }
+
+    /// Lists follow the order the sources were added in.
+    fn order_catalogs(&mut self, cx: &App) {
+        let sources = &prefs::current(cx).catalogs.sources;
+        self.catalogs
+            .loaded
+            .sort_by_key(|(old, _)| sources.iter().position(|known| known == old));
     }
 
     pub(super) fn forget_catalog(&mut self, source: &Source, cx: &mut Context<Self>) {
@@ -143,6 +157,7 @@ impl SettingsView {
             prefs.catalogs.sources.retain(|old| old != source)
         });
         self.catalogs.loaded.retain(|(old, _)| old != source);
+        self.catalogs.loading.retain(|old| old != source);
         if self
             .catalogs
             .selected

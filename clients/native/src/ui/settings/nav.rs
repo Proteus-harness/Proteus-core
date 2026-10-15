@@ -94,14 +94,14 @@ impl SettingsView {
     }
 
     /// Moves the selection through the navigation list, wrapping around.
-    pub(super) fn step_page(&mut self, offset: isize, cx: &mut Context<Self>) {
+    pub(super) fn step_page(&mut self, offset: isize, window: &mut Window, cx: &mut Context<Self>) {
         let pages = self.page_list(cx);
         let current = pages
             .iter()
             .position(|page| *page == self.page)
             .unwrap_or(0);
         let next = (current as isize + offset).rem_euclid(pages.len() as isize) as usize;
-        self.select_page(pages[next].clone(), cx);
+        self.select_page(pages[next].clone(), window, cx);
     }
 
     pub(super) fn render_nav(&self, cx: &Context<Self>) -> impl IntoElement + use<> {
@@ -146,7 +146,9 @@ impl SettingsView {
                 }))
                 .child(div().flex_1().min_w_0().child(faded(title)))
                 .when(dot, |item| item.child(changed_dot(cx)))
-                .on_click(cx.listener(move |this, _, _, cx| this.select_page(target.clone(), cx)))
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.select_page(target.clone(), window, cx)
+                }))
         };
         let heading = |text: &'static str| {
             div()

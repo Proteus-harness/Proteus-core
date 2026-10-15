@@ -44,6 +44,8 @@ use crate::settings::catalog::PageId;
 use crate::settings::mcp::mcp_problems;
 use editors::Editors;
 
+pub(super) use catalog::bind_keys;
+
 const FEEDBACK_TIMEOUT: Duration = Duration::from_secs(4);
 
 pub enum SettingsEvent {
@@ -282,9 +284,10 @@ impl SettingsView {
         self.json.clear();
     }
 
-    fn select_page(&mut self, page: PageId, cx: &mut Context<Self>) {
+    fn select_page(&mut self, page: PageId, window: &mut Window, cx: &mut Context<Self>) {
         if page == PageId::Catalog {
             self.open_catalogs(cx);
+            window.focus(&self.catalogs.focus, cx);
         }
         if page == PageId::History && matches!(self.history, HistoryState::Idle) {
             self.load_history(cx);
@@ -429,10 +432,14 @@ impl Render for SettingsView {
             .key_context(super::SETTINGS_CONTEXT)
             .track_focus(&self.focus_handle)
             .on_action(
-                cx.listener(|this, _: &super::NextSettingsPage, _, cx| this.step_page(1, cx)),
+                cx.listener(|this, _: &super::NextSettingsPage, window, cx| {
+                    this.step_page(1, window, cx)
+                }),
             )
             .on_action(
-                cx.listener(|this, _: &super::PreviousSettingsPage, _, cx| this.step_page(-1, cx)),
+                cx.listener(|this, _: &super::PreviousSettingsPage, window, cx| {
+                    this.step_page(-1, window, cx)
+                }),
             )
             .on_action(
                 cx.listener(|this, _: &super::FocusSettingsSearch, window, cx| {

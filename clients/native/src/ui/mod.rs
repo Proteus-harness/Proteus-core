@@ -75,6 +75,7 @@ pub fn init(cx: &mut App) {
     ]);
     extensions::bind_keys(cx);
     panels::bind_keys(cx);
+    settings::bind_keys(cx);
 }
 
 impl Render for Workspace {

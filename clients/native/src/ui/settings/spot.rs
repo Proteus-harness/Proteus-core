@@ -101,7 +101,7 @@ impl SettingsView {
                 state.set_value("", window, cx)
             });
         }
-        self.select_page(hit.page.clone(), cx);
+        self.select_page(hit.page.clone(), window, cx);
         self.spot = hit.spot.clone().map(|key| Spot {
             key,
             since: Instant::now(),
