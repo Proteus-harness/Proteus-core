@@ -124,7 +124,9 @@ impl SettingsView {
         if self.catalog_cursor(&shown) == Some(next) {
             return;
         }
-        self.catalogs.scroll.scroll_to_item(next);
+        self.catalogs
+            .scroll
+            .scroll_to_item(next, ScrollStrategy::Nearest);
         let (source, entry) = shown[next].clone();
         self.select_catalog_entry(source, entry, cx);
     }

@@ -1,5 +1,7 @@
 //! Catalog page: header, toolbar, the entry list and the details beside it.
 
+use std::ops::Range;
+
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::input::Input;
@@ -18,6 +20,10 @@ use crate::ui::fade::faded;
 use crate::ui::kit;
 use crate::ui::kit::Hint as _;
 use crate::ui::prefs;
+
+/// A row shows one line, so the rest of a long description never comes
+/// into view there.
+const ROW_TEXT: usize = 200;
 
 impl SettingsView {
     pub(in crate::ui::settings) fn catalog_page(&self, cx: &Context<Self>) -> AnyElement {
@@ -69,8 +75,8 @@ impl SettingsView {
                 cx,
             )
         } else {
-            // Rows are direct children of the tracked list, so the arrows
-            // can scroll to them by index.
+            // Only the rows in sight are built; the arrows scroll by index.
+            let narrow = selected.is_some();
             div()
                 .id("catalog-list")
                 .relative()
@@ -78,16 +84,23 @@ impl SettingsView {
                 .min_w_0()
                 .h_full()
                 .child(
-                    v_flex()
-                        .id("catalog-rows")
-                        .size_full()
-                        .overflow_y_scroll()
-                        .track_scroll(&self.catalogs.scroll)
-                        .children(
-                            shown
+                    uniform_list(
+                        "catalog-rows",
+                        shown.len(),
+                        cx.processor(move |this, range: Range<usize>, _, cx| {
+                            let installed = &prefs::current(cx).catalogs.installed;
+                            let profile = this.profile_blocked();
+                            this.catalog_items(installed)
                                 .iter()
-                                .map(|item| self.catalog_row(item, selected.is_some(), cx)),
-                        ),
+                                .filter(|item| this.catalog_item_shown(item))
+                                .skip(range.start)
+                                .take(range.len())
+                                .map(|item| this.catalog_row(item, narrow, profile, cx))
+                                .collect::<Vec<_>>()
+                        }),
+                    )
+                    .size_full()
+                    .track_scroll(&self.catalogs.scroll),
                 )
                 .vertical_scrollbar(&self.catalogs.scroll)
                 .into_any_element()
@@ -282,7 +295,13 @@ impl SettingsView {
             )
     }
 
-    fn catalog_row(&self, item: &Item, narrow: bool, cx: &Context<Self>) -> AnyElement {
+    fn catalog_row(
+        &self,
+        item: &Item,
+        narrow: bool,
+        profile: Option<&'static str>,
+        cx: &Context<Self>,
+    ) -> AnyElement {
         let theme = cx.theme();
         let selected = self
             .catalogs
@@ -337,14 +356,19 @@ impl SettingsView {
                             .text_color(theme.muted_foreground)
                             .child(faded(format!(
                                 "{} · {}",
-                                item.catalog.title, item.entry.description
+                                item.catalog.title,
+                                item.entry
+                                    .description
+                                    .chars()
+                                    .take(ROW_TEXT)
+                                    .collect::<String>()
                             ))),
                     ),
             )
             .child(
                 div()
                     .flex_none()
-                    .child(self.catalog_action(item, "row", cx)),
+                    .child(self.catalog_action(item, "row", profile, cx)),
             )
             .on_click(cx.listener(move |this, _, _, cx| {
                 if this
@@ -367,6 +391,7 @@ impl SettingsView {
         &self,
         item: &Item,
         place: &'static str,
+        profile: Option<&'static str>,
         cx: &Context<Self>,
     ) -> AnyElement {
         let label = match item.status {
@@ -389,7 +414,7 @@ impl SettingsView {
                     .into_any_element();
             }
         };
-        let blocked = self.catalog_install_blocked(item.source, item.entry.kind);
+        let blocked = self.catalog_install_gate(item.source, item.entry.kind, profile);
         let working = self.catalogs.busy
             && self
                 .catalogs

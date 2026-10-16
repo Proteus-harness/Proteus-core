@@ -28,13 +28,24 @@ impl SettingsView {
         source: &Source,
         kind: Kind,
     ) -> Option<&'static str> {
+        self.catalog_install_gate(source, kind, self.profile_blocked())
+    }
+
+    /// The same check with `profile`, the verdict of `profile_blocked`,
+    /// worked out once for a whole list: it compares the entire draft.
+    pub(super) fn catalog_install_gate(
+        &self,
+        source: &Source,
+        kind: Kind,
+        profile: Option<&'static str>,
+    ) -> Option<&'static str> {
         if self.catalogs.loading.contains(source) {
             return Some("Источник сейчас скачивается");
         }
-        self.catalog_blocked(kind)
+        in_profile(kind).then_some(profile).flatten()
     }
 
-    fn profile_blocked(&self) -> Option<&'static str> {
+    pub(super) fn profile_blocked(&self) -> Option<&'static str> {
         if !self
             .snapshot()
             .is_some_and(|snapshot| snapshot.writable && snapshot.target_path.is_some())

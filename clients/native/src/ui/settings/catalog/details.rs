@@ -101,7 +101,7 @@ impl SettingsView {
                     .child(
                         h_flex()
                             .gap_2()
-                            .child(self.catalog_action(item, "details", cx))
+                            .child(self.catalog_action(item, "details", self.profile_blocked(), cx))
                             .children(removable.map(|installed| {
                                 kit::button(hashed_id("catalog-remove", &item.key()))
                                     .label("Удалить")

@@ -43,7 +43,7 @@ pub(super) struct State {
     pub message: Option<(bool, String)>,
     /// The entry list; the arrows work while focus is on the page.
     pub focus: FocusHandle,
-    pub scroll: ScrollHandle,
+    pub scroll: UniformListScrollHandle,
 }
 
 /// Which entries the list shows.
@@ -90,7 +90,7 @@ impl State {
                 opened: false,
                 message: None,
                 focus: cx.focus_handle().tab_stop(true),
-                scroll: ScrollHandle::new(),
+                scroll: UniformListScrollHandle::new(),
             },
             changes,
         )
