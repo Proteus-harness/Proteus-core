@@ -89,7 +89,8 @@ impl DeclarativeView {
                     .into_any_element()
             }
             Node::Fill { children } => v_flex()
-                .size_full()
+                .flex_1()
+                .w_full()
                 .min_h_0()
                 .children(self.children(children, path, cx))
                 .into_any_element(),

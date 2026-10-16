@@ -79,6 +79,7 @@ impl Render for Tree {
                         };
                         h_flex()
                             .id(("tree-row", index))
+                            .w_full()
                             .h(prefs::scaled(26.))
                             .gap_1p5()
                             .pr_2()
@@ -110,8 +111,10 @@ impl Render for Tree {
             }),
         )
         .track_scroll(&self.scroll)
-        .size_full();
-        div()
+        .flex_1()
+        .min_h_0()
+        .w_full();
+        v_flex()
             .size_full()
             .track_focus(&self.focus)
             .on_mouse_down(
