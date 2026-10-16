@@ -192,18 +192,23 @@ mod tests {
         let script = r#"read hello; printf '\377\n'; echo '{"type":"view","view":"panel","root":{"type":"text","text":"ok"}}'; echo 'junk'; echo 'bye' >&2"#;
         let extension = Installed {
             dir: std::env::temp_dir(),
+            revision: 0,
             manifest: Manifest {
+                protocol: 2,
                 id: "test".into(),
                 title: "Test".into(),
+                author: String::new(),
                 description: String::new(),
                 icon: None,
                 command: vec!["sh".into(), "-c".into(), script.into()],
+                session_events: false,
                 surfaces: Surfaces::default(),
             },
         };
         let (process, signals) = Process::spawn(&extension).unwrap();
         process.send(&Outgoing::Event {
             event: HostEventKind::RunSettled,
+            document: None,
             session_dir: None,
         });
         // A line that is not UTF-8 is a bad message, not the end of output.

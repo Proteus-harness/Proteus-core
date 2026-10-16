@@ -1,5 +1,3 @@
-use gpui_kit::component::*;
-use gpui_kit::*;
 use proteus_contracts::app_protocol::AppContextUsageSnapshot;
 use proteus_contracts::domain::TokenUsageSnapshot;
 
@@ -41,27 +39,6 @@ impl ContextUsage {
             usage.compaction_trigger_tokens,
         )
     }
-
-    pub fn percent(self) -> f32 {
-        (self.used as f32 / self.max as f32 * 100.).min(100.)
-    }
-
-    /// Ring and bar color: muted until the compaction trigger gets close.
-    pub fn color(self, theme: &Theme) -> Hsla {
-        match self.trigger {
-            Some(trigger) if self.used >= trigger => theme.danger,
-            Some(trigger) if self.used as f32 >= trigger as f32 * 0.8 => theme.warning,
-            _ => theme.muted_foreground,
-        }
-    }
-}
-
-pub(in crate::ui) fn tokens(value: u32) -> String {
-    match value {
-        0..1_000 => value.to_string(),
-        1_000..1_000_000 => format!("{:.0}k", value as f32 / 1_000.),
-        _ => format!("{:.1}M", value as f32 / 1_000_000.),
-    }
 }
 
 #[cfg(test)]
@@ -71,8 +48,8 @@ mod tests {
     #[test]
     fn usage_needs_a_known_window() {
         let usage = ContextUsage::new(14_021, Some(200_000), Some(180_000)).unwrap();
-        assert_eq!(usage.percent().round(), 7.);
-        assert_eq!(super::tokens(usage.used), "14k");
+        assert_eq!(usage.used, 14_021);
+        assert_eq!(usage.max, 200_000);
         assert_eq!(ContextUsage::new(10, Some(0), None), None);
         assert_eq!(ContextUsage::new(10, None, None), None);
     }

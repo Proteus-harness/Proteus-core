@@ -74,6 +74,8 @@ def badge():
 
 
 views = {}
+sequences = {}
+view_sessions = {}
 
 
 def render(view):
@@ -84,7 +86,7 @@ def render(view):
         root = badge()
     else:
         root = document(argument)
-    send({"type": "view", "view": view, "root": root})
+    send({"type": "view", "session_dir":view_sessions.get(view), "view": view, "root": root, "sequence": sequences.get(view, 0)})
 
 
 for line in sys.stdin:
@@ -93,11 +95,13 @@ for line in sys.stdin:
     if kind == "hello":
         server = message["server"]
     elif kind == "render":
+        view_sessions[message["view"]] = message.get("session_dir")
         views[message["view"]] = (message["surface"], message.get("argument"))
         render(message["view"])
     elif kind == "close":
         views.pop(message["view"], None)
     elif kind == "action":
+        sequences[message["view"]] = message["sequence"]
         if message["action"] == "click":
             clicks += 1
         elif message["action"] == "open":
@@ -105,5 +109,6 @@ for line in sys.stdin:
         for view in list(views):
             render(view)
     elif kind == "event":
+        view_sessions = {view: message.get("session_dir") for view in views}
         for view in list(views):
             render(view)

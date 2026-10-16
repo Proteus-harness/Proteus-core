@@ -199,6 +199,33 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         match event {
+            ChatEvent::SessionStateChanged | ChatEvent::SessionEntriesChanged(_) => {
+                if self.active_chat_view() != Some(chat) {
+                    return;
+                }
+                let session = &chat.read(cx).session;
+                let update = match event {
+                    ChatEvent::SessionEntriesChanged(change) => {
+                        super::extensions::session::changed(session, *change)
+                    }
+                    _ => Some(crate::declarative::session::Update::State {
+                        state: Box::new(super::extensions::session::state(
+                            session,
+                            self.sessions
+                                .iter()
+                                .find(|summary| summary.session_dir == session.dir)
+                                .and_then(|summary| summary.activity.clone()),
+                        )),
+                    }),
+                };
+                if let Some(update) = update {
+                    cx.emit(super::extensions::session::SessionChanged {
+                        session_dir: session.dir.clone(),
+                        update,
+                    });
+                }
+                return;
+            }
             ChatEvent::RunSettled => {
                 self.refresh_sessions(cx);
                 if self.active_chat_view() == Some(chat) {

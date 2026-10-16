@@ -51,11 +51,13 @@ impl Chat {
                 session.pending_cursor.begin_connection();
                 session.connected = true;
                 session.link_error = None;
+                cx.emit(ChatEvent::SessionStateChanged);
                 true
             }
             PumpItem::Disconnected(error) => {
                 session.connected = false;
                 session.link_error = Some(error.into());
+                cx.emit(ChatEvent::SessionStateChanged);
                 true
             }
             PumpItem::Event(event) => self.apply_event(*event, cx),
@@ -78,6 +80,12 @@ impl Chat {
         if !session.cursor.accept(&event) {
             return false;
         }
+        let state_changed = match &event {
+            AppServerEvent::Runtime { envelope } => {
+                matches!(envelope.event, RuntimeEvent::TokenUsageUpdated { .. })
+            }
+            _ => true,
+        };
         let mut shown = true;
         let change = match event {
             AppServerEvent::SessionSnapshot { snapshot } => {
@@ -154,6 +162,12 @@ impl Chat {
         };
         shown |= !matches!(change, Change::None);
         self.apply_change(change, cx);
+        if !matches!(change, Change::None) {
+            cx.emit(ChatEvent::SessionEntriesChanged(change));
+        }
+        if state_changed {
+            cx.emit(ChatEvent::SessionStateChanged);
+        }
         shown
     }
 

@@ -31,7 +31,16 @@ fn install_contents(root: &Path, files: Contents, taken: &[&str]) -> Result<Mani
         "Расширение `{}` уже установлено или его имя занято",
         manifest.id
     );
-    files.install(root, &manifest.id, false)?;
+    let existing = root.join(&manifest.id);
+    let replace = existing.exists();
+    if replace {
+        let previous = parse(&std::fs::read_to_string(existing.join(MANIFEST))?)?;
+        ensure!(
+            previous.id == manifest.id,
+            "Существующая папка не принадлежит этому расширению"
+        );
+    }
+    files.install(root, &manifest.id, replace)?;
     Ok(manifest)
 }
 
@@ -56,7 +65,7 @@ mod tests {
 
     use super::*;
 
-    const MANIFEST_TEXT: &str = r#"{"id": "todo", "title": "Задачи", "command": ["./run"],
+    const MANIFEST_TEXT: &str = r#"{"protocol": 2, "id": "todo", "title": "Задачи", "command": ["./run"],
         "surfaces": {"panel": {"title": "Задачи"}}}"#;
 
     fn archive(files: &[(&str, &str, u32)]) -> Vec<u8> {
@@ -74,7 +83,7 @@ mod tests {
     }
 
     #[test]
-    fn installs_once_keeping_executables_and_removes() {
+    fn installs_and_updates_keeping_executables_and_removes() {
         use std::os::unix::fs::PermissionsExt;
         let root = temp_root();
         let bytes = archive(&[
@@ -91,7 +100,31 @@ mod tests {
             .mode();
         assert_eq!(mode & 0o111, 0o111);
         assert!(root.join("todo/lib/data.txt").is_file());
-        assert!(install_bytes(&root, &bytes, &[]).is_err());
+        let changed = archive(&[
+            (
+                "extension.json",
+                &MANIFEST_TEXT.replace("Задачи", "Новые задачи"),
+                0o644,
+            ),
+            ("run", "#!/bin/sh\necho updated\n", 0o755),
+        ]);
+        assert_eq!(
+            install_bytes(&root, &changed, &[]).unwrap().title,
+            "Новые задачи"
+        );
+        assert!(!root.join("todo/lib/data.txt").exists());
+        assert!(
+            std::fs::read_to_string(root.join("todo/run"))
+                .unwrap()
+                .contains("updated")
+        );
+        let bad = archive(&[("extension.json", "{}", 0o644)]);
+        assert!(install_bytes(&root, &bad, &[]).is_err());
+        assert!(
+            std::fs::read_to_string(root.join("todo/run"))
+                .unwrap()
+                .contains("updated")
+        );
 
         remove(&root, "todo").unwrap();
         let left: Vec<_> = std::fs::read_dir(&root).unwrap().collect();

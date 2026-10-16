@@ -1,0 +1,15 @@
+{
+  "protocol": 2,
+  "id": "analysis",
+  "title": "Анализ ходов",
+  "description": "Шаги ходов агента: запросы модели, инструменты и хуки.",
+  "icon": "activity",
+  "command": [
+    "python3",
+    "main.py"
+  ],
+  "surfaces": {
+    "page": {}
+  },
+  "author": "Proteus Project"
+}

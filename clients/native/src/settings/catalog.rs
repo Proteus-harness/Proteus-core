@@ -43,14 +43,6 @@ pub enum PageId {
     Extension(String),
 }
 
-/// Read-only analytics views of the built-in extensions.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum Overview {
-    Usage,
-    Analysis,
-    Architecture,
-}
-
 impl PageId {
     pub fn is_agent(&self) -> bool {
         !matches!(

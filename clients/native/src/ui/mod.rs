@@ -1,5 +1,4 @@
 mod actions;
-mod analytics;
 mod badges;
 mod chat;
 mod chats;
@@ -73,7 +72,6 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("ctrl-f", FocusSettingsSearch, Some(SETTINGS_CONTEXT)),
         KeyBinding::new("escape", DismissSettings, Some(SETTINGS_CONTEXT)),
     ]);
-    extensions::bind_keys(cx);
     panels::bind_keys(cx);
     settings::bind_keys(cx);
 }

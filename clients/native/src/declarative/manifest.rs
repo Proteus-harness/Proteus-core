@@ -1,5 +1,6 @@
 //! `extension.json` of an installed extension and the folder scan.
 
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result, bail};
@@ -12,9 +13,12 @@ pub const MANIFEST: &str = "extension.json";
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Manifest {
+    pub protocol: u32,
     /// Equals the folder name; tab ids and preferences use it.
     pub id: String,
     pub title: String,
+    #[serde(default)]
+    pub author: String,
     #[serde(default)]
     pub description: String,
     /// Icon name from the client's set; unknown names get the default.
@@ -22,6 +26,9 @@ pub struct Manifest {
     pub icon: Option<String>,
     /// Program and arguments, started in the extension folder.
     pub command: Vec<String>,
+    /// Subscribe to the active session's state and transcript metadata.
+    #[serde(default)]
+    pub session_events: bool,
     pub surfaces: Surfaces,
 }
 
@@ -29,11 +36,32 @@ pub struct Manifest {
 #[serde(deny_unknown_fields)]
 pub struct Surfaces {
     #[serde(default)]
+    pub page: Option<PageSurface>,
+    #[serde(default)]
+    pub popup: Option<PopupSurface>,
+    #[serde(default)]
     pub panel: Option<PanelSurface>,
     #[serde(default)]
     pub document: Option<DocumentSurface>,
     #[serde(default)]
     pub badge: Option<BadgeSurface>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct PopupSurface {
+    #[serde(default)]
+    pub escape_action: Option<String>,
+    #[serde(default = "popup_width")]
+    pub width: f32,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct PageSurface {}
+
+fn popup_width() -> f32 {
+    280.
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -44,11 +72,20 @@ pub struct PanelSurface {
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
-pub struct DocumentSurface {}
+pub struct DocumentSurface {
+    /// Template supports {argument} and {filename}.
+    #[serde(default)]
+    pub label: Option<String>,
+    /// Contribution address used by client commands, e.g. terminal.new.
+    #[serde(default)]
+    pub command: Option<String>,
+}
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct BadgeSurface {
+    #[serde(default)]
+    pub narrow: bool,
     #[serde(default = "composer_start")]
     pub place: BadgePlace,
 }
@@ -62,6 +99,7 @@ fn composer_start() -> BadgePlace {
 pub struct Installed {
     pub dir: PathBuf,
     pub manifest: Manifest,
+    pub revision: u64,
 }
 
 /// A folder that looks like an extension but cannot be loaded.
@@ -74,6 +112,35 @@ pub struct Problem {
 /// Where the user keeps extensions.
 pub fn root() -> Option<PathBuf> {
     Some(crate::preferences::config_dir()?.join("extensions"))
+}
+
+/// Portable assets or the source checkout used by `cargo run`.
+pub fn bundled_root() -> PathBuf {
+    if let Some(path) = std::env::var_os("PROTEUS_EXTENSIONS_DIR") {
+        return path.into();
+    }
+    let exe = std::env::current_exe().unwrap_or_default();
+    let native = Path::new(env!("CARGO_MANIFEST_DIR"));
+    if exe.starts_with(native.join("target")) {
+        return native.join("../extensions/packages");
+    }
+    exe.parent()
+        .and_then(Path::parent)
+        .unwrap_or(Path::new("."))
+        .join("share/extensions")
+}
+
+/// A user installation overrides a bundled package, including a broken
+/// installation: show its error instead of silently running another version.
+pub fn discover_sources(bundled: &Path, user: Option<&Path>) -> (Vec<Installed>, Vec<Problem>) {
+    let (mut found, mut problems) = discover(bundled);
+    if let Some(user) = user {
+        found.retain(|extension| !user.join(&extension.manifest.id).exists());
+        let (installed, errors) = discover(user);
+        found.extend(installed);
+        problems.extend(errors);
+    }
+    (found, problems)
 }
 
 /// Reads every `<root>/<id>/extension.json`, sorted by folder name. A
@@ -91,7 +158,11 @@ pub fn discover(root: &Path) -> (Vec<Installed>, Vec<Problem>) {
     dirs.sort();
     for dir in dirs {
         match load(&dir) {
-            Ok(manifest) => installed.push(Installed { dir, manifest }),
+            Ok(manifest) => installed.push(Installed {
+                revision: revision(&dir),
+                dir,
+                manifest,
+            }),
             Err(error) => problems.push(Problem {
                 dir,
                 error: format!("{error:#}"),
@@ -99,6 +170,35 @@ pub fn discover(root: &Path) -> (Vec<Installed>, Vec<Problem>) {
         }
     }
     (installed, problems)
+}
+
+/// Detect package replacement and source edits without rebuilding the client.
+fn revision(dir: &Path) -> u64 {
+    fn visit(dir: &Path, hash: &mut impl Hasher) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        let mut paths: Vec<_> = entries
+            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+            .collect();
+        paths.sort();
+        for path in paths {
+            if is_hidden(&path) || path.file_name().is_some_and(|name| name == "__pycache__") {
+                continue;
+            }
+            path.hash(hash);
+            if let Ok(metadata) = path.metadata() {
+                metadata.len().hash(hash);
+                metadata.modified().ok().hash(hash);
+                if metadata.is_dir() && !path.is_symlink() {
+                    visit(&path, hash);
+                }
+            }
+        }
+    }
+    let mut hash = std::collections::hash_map::DefaultHasher::new();
+    visit(dir, &mut hash);
+    hash.finish()
 }
 
 /// Dot folders are unfinished installs and anything else the user hid.
@@ -123,6 +223,13 @@ fn load(dir: &Path) -> Result<Manifest> {
 /// Reads and checks an `extension.json` text.
 pub fn parse(text: &str) -> Result<Manifest> {
     let manifest: Manifest = serde_json::from_str(text)?;
+    if manifest.protocol != super::protocol::PROTOCOL {
+        bail!(
+            "unsupported extension protocol {}; expected {}",
+            manifest.protocol,
+            super::protocol::PROTOCOL
+        );
+    }
     if !valid_id(&manifest.id) {
         bail!("id must be lowercase latin letters, digits and dashes");
     }
@@ -137,13 +244,27 @@ pub fn parse(text: &str) -> Result<Manifest> {
         bail!("command is empty");
     }
     let surfaces = &manifest.surfaces;
-    if surfaces.panel.is_none() && surfaces.document.is_none() && surfaces.badge.is_none() {
+    if surfaces.panel.is_none()
+        && surfaces.document.is_none()
+        && surfaces.badge.is_none()
+        && surfaces.page.is_none()
+    {
         bail!("no surfaces");
+    }
+    if surfaces.popup.is_some() && surfaces.badge.is_none() {
+        bail!("popup requires a badge");
+    }
+    if surfaces
+        .popup
+        .as_ref()
+        .is_some_and(|popup| !popup.width.is_finite() || !(100. ..=1200.).contains(&popup.width))
+    {
+        bail!("popup width must be in 100..=1200");
     }
     if surfaces
         .badge
         .as_ref()
-        .is_some_and(|badge| badge.place.is_rail())
+        .is_some_and(|badge| badge.place.is_rail() && !badge.narrow)
     {
         bail!("a badge with text does not fit the rail");
     }
@@ -175,18 +296,18 @@ mod tests {
         write(
             &root,
             "todo",
-            r#"{"id": "todo", "title": "Задачи", "command": ["python3", "main.py"],
+            r#"{"protocol": 2, "id": "todo", "title": "Задачи", "command": ["python3", "main.py"],
                 "surfaces": {"panel": {"title": "Задачи"}, "badge": {}}}"#,
         );
         write(
             &root,
             "other",
-            r#"{"id": "todo", "title": "x", "command": ["x"], "surfaces": {"document": {}}}"#,
+            r#"{"protocol": 2, "id": "todo", "title": "x", "command": ["x"], "surfaces": {"document": {}}}"#,
         );
         write(
             &root,
             "bad",
-            r#"{"id": "bad", "title": "x", "command": ["x"], "surfaces": {}}"#,
+            r#"{"protocol": 2, "id": "bad", "title": "x", "command": ["x"], "surfaces": {}}"#,
         );
         std::fs::create_dir_all(root.join("empty")).unwrap();
 
@@ -213,5 +334,29 @@ mod tests {
         assert!(!valid_id("Git"));
         assert!(!valid_id("a:b"));
         assert!(!valid_id("-a"));
+    }
+
+    #[test]
+    fn user_package_overrides_bundled_and_broken_update_stays_visible() {
+        let root = std::env::temp_dir().join(format!("proteus-sources-{}", uuid::Uuid::new_v4()));
+        let bundled = root.join("bundled");
+        let user = root.join("user");
+        let text = r#"{"protocol":2,"id":"quota","title":"Quota","command":["python3","main.py"],"surfaces":{"badge":{"narrow":true,"place":"rail_end"}}}"#;
+        write(&bundled, "quota", text);
+        write(&user, "quota", &text.replace("Quota", "Updated"));
+        let (found, errors) = discover_sources(&bundled, Some(&user));
+        assert!(errors.is_empty());
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].manifest.title, "Updated");
+        write(
+            &user,
+            "quota",
+            &text.replace("\"protocol\":2", "\"protocol\":1"),
+        );
+        let (found, errors) = discover_sources(&bundled, Some(&user));
+        assert!(found.is_empty());
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].error.contains("unsupported extension protocol"));
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

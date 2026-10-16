@@ -1,11 +1,9 @@
-mod analytics;
 mod api;
 mod attention;
 mod backend;
 mod catalog;
 mod connection;
 mod declarative;
-mod files;
 mod graphics;
 mod launch;
 mod notify;

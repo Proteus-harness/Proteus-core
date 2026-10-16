@@ -13,7 +13,8 @@ impl Workspace {
             return;
         };
         let dir = dir.to_path_buf();
-        let view = cx.new(|cx| SettingsView::new(api, dir, window, cx));
+        let workspace = cx.weak_entity();
+        let view = cx.new(|cx| SettingsView::new(workspace, api, dir, window, cx));
         self.settings_subscription = Some(cx.subscribe_in(
             &view,
             window,

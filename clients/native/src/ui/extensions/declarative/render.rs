@@ -1,6 +1,8 @@
 //! Native rendering of the widget tree an extension sends.
 
 use gpui_kit::component::button::ButtonVariants as _;
+use gpui_kit::component::input::{Editor, Input};
+use gpui_kit::component::menu::{DropdownMenu as _, PopupMenu, PopupMenuItem};
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -12,6 +14,7 @@ use crate::ui::fade::faded;
 use crate::ui::kit;
 use crate::ui::kit::Pressable as _;
 use crate::ui::prefs;
+use crate::ui::tip::Tip as _;
 
 pub(super) fn tone_color(tone: Tone, cx: &App) -> Hsla {
     let theme = cx.theme();
@@ -30,6 +33,138 @@ impl DeclarativeView {
     /// selected tab, so they survive a new tree of the same shape.
     pub(super) fn node(&self, node: &Node, path: &str, cx: &mut Context<Self>) -> AnyElement {
         match node {
+            Node::Cells { cells } => h_flex()
+                .flex_wrap()
+                .w_full()
+                .children(cells.iter().enumerate().map(|(index, cell)| {
+                    div()
+                        .id(("extension-cell", index))
+                        .w(relative(0.05))
+                        .h(prefs::scaled(12.))
+                        .p(px(1.))
+                        .child(
+                            div()
+                                .size_full()
+                                .rounded(px(1.))
+                                .bg(tone_color(cell.tone, cx)),
+                        )
+                        .tip_text(cell.label.clone())
+                }))
+                .into_any_element(),
+            Node::Graph { id, .. } => div()
+                .flex_1()
+                .min_h_0()
+                .children(self.fields.graphs.get(id).cloned())
+                .into_any_element(),
+            Node::Select {
+                id,
+                label,
+                options,
+                action,
+            } => {
+                let (options, action, this) = (options.clone(), action.clone(), cx.weak_entity());
+                kit::button(ElementId::Name(format!("select-{id}").into()))
+                    .small()
+                    .label(label.clone())
+                    .outline()
+                    .dropdown_caret(true)
+                    .dropdown_menu_with_anchor(Anchor::TopRight, move |menu: PopupMenu, _, _| {
+                        options.iter().fold(
+                            menu.min_w(px(200.)).max_h(px(360.)).scrollable(true),
+                            |menu, option| {
+                                let (value, action, this) =
+                                    (option.value.clone(), action.clone(), this.clone());
+                                menu.item(
+                                    PopupMenuItem::new(option.label.clone())
+                                        .checked(option.selected)
+                                        .on_click(move |_, _, cx| {
+                                            let _ = this.update(cx, |this, cx| {
+                                                this.act(action.clone(), Some(value.clone()), cx)
+                                            });
+                                        }),
+                                )
+                            },
+                        )
+                    })
+                    .into_any_element()
+            }
+            Node::Fill { children } => v_flex()
+                .size_full()
+                .min_h_0()
+                .children(self.children(children, path, cx))
+                .into_any_element(),
+            Node::Input { id, .. } => div()
+                .p_2()
+                .children(
+                    self.fields
+                        .inputs
+                        .get(id)
+                        .map(|input| Input::new(&input.state).w_full()),
+                )
+                .into_any_element(),
+            Node::Code { id, height, .. } => div()
+                .when(height.is_none(), |node| node.flex_1())
+                .when_some(*height, |node, height| node.h(prefs::scaled(height)))
+                .min_h_0()
+                .children(self.fields.codes.get(id).map(|editor| {
+                    Editor::new(editor)
+                        .readonly(true)
+                        .bordered(false)
+                        .appearance(false)
+                        .h_full()
+                }))
+                .into_any_element(),
+            Node::Terminal { id, .. } => div()
+                .flex_1()
+                .min_h_0()
+                .children(self.fields.terminals.get(id).cloned())
+                .into_any_element(),
+            Node::Tree { id, .. } => div()
+                .flex_1()
+                .min_h_0()
+                .children(self.fields.trees.get(id).cloned())
+                .into_any_element(),
+            Node::Steps { id, .. } => div()
+                .w_full()
+                .p_1()
+                .children(self.steps.get(id).cloned())
+                .into_any_element(),
+            Node::Choice {
+                label,
+                selected,
+                action,
+                value,
+            } => {
+                let theme = cx.theme();
+                let (hover, primary) = (theme.list_hover, theme.primary);
+                let cursor = self
+                    .choices()
+                    .iter()
+                    .position(|(candidate, candidate_value, _)| {
+                        candidate == action && candidate_value == value
+                    });
+                let keyboard = cursor.is_some() && cursor == self.choice_cursor;
+                let (action, value) = (action.clone(), value.clone());
+                div()
+                    .id(ElementId::Name(format!("choice-{path}").into()))
+                    .px_2()
+                    .py_1()
+                    .rounded(theme.radius)
+                    .cursor_pointer()
+                    .pressable(cx)
+                    .when(keyboard, |row| row.bg(hover))
+                    .when(*selected, |row| {
+                        row.text_color(primary)
+                            .font_medium()
+                            .bg(primary.opacity(0.12))
+                    })
+                    .when(!*selected, |row| row.hover(move |style| style.bg(hover)))
+                    .child(faded(label.clone()))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.act(action.clone(), Some(value.clone()), cx)
+                    }))
+                    .into_any_element()
+            }
             Node::Stack {
                 direction,
                 gap,

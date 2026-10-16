@@ -7,28 +7,19 @@
 
 mod badge;
 mod declarative;
-mod files;
 mod host;
-mod quota;
-mod selectors;
-mod session_badges;
-mod session_info;
-mod shared;
-mod terminal;
+pub(in crate::ui) mod session;
 
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::*;
 use std::path::Path;
-use std::sync::OnceLock;
 
 pub(super) use badge::DraggedBadge;
 pub(super) use host::{Host, HostEvent, OpenDocument};
-pub(super) use terminal::next_tab as next_terminal;
 
 use super::prefs;
 use crate::declarative::manifest::Problem;
 use crate::preferences::BadgePlace;
-use crate::settings::catalog::Overview;
 
 /// Builds an icon view. Runs inside a workspace update, so it must not read
 /// the [`Host`] synchronously.
@@ -50,7 +41,8 @@ pub(super) struct PanelSurface {
 pub(super) struct DocumentSurface {
     pub build: BuildDocument,
     /// Short tab title of an argument.
-    pub label: fn(&str) -> SharedString,
+    pub label: Option<&'static str>,
+    pub command: Option<&'static str>,
 }
 
 /// Compact icon and where it goes until the user moves it.
@@ -69,244 +61,41 @@ pub(super) struct SurfaceView {
     pub focus: FocusHandle,
 }
 
-/// Key bindings of extensions; registered once at startup.
-pub(super) fn bind_keys(cx: &mut App) {
-    files::bind_keys(cx);
-}
-
 pub(super) struct Manifest {
     pub id: &'static str,
     pub title: &'static str,
+    pub author: &'static str,
     pub description: &'static str,
     pub icon: Lucide,
     /// Read-only analytics page among the extension pages of the settings.
-    pub page: Option<Overview>,
+    pub page: Option<BuildFocused>,
     pub panel: Option<PanelSurface>,
     pub document: Option<DocumentSurface>,
     /// Icon under the composer or in a window bar.
     pub badge: Option<BadgeSurface>,
 }
 
-fn builtin() -> [Manifest; 12] {
-    [
-        selector(
-            selectors::MODE,
-            "Режим",
-            "Выбор режима разрешений сессии.",
-            Lucide::ShieldCheck,
-            selectors::build_mode,
-        ),
-        selector(
-            selectors::MODEL,
-            "Модель",
-            "Выбор модели сессии и глубины её рассуждений.",
-            Lucide::Cpu,
-            selectors::build_model,
-        ),
-        Manifest {
-            id: session_info::CONTEXT,
-            title: "Контекст",
-            description: "Заполненность контекста модели и порог автокомпакта.",
-            icon: Lucide::Layers,
-            page: None,
-            panel: None,
-            document: None,
-            badge: Some(BadgeSurface {
-                build: session_badges::build_context,
-                place: BadgePlace::RailEnd,
-                narrow: true,
-            }),
-        },
-        Manifest {
-            id: session_info::PLAN,
-            title: "План",
-            description: "Шаги текущего плана агента.",
-            icon: Lucide::ListChecks,
-            page: None,
-            panel: None,
-            document: None,
-            badge: Some(BadgeSurface {
-                build: session_badges::build_plan,
-                place: BadgePlace::ComposerStart,
-                narrow: false,
-            }),
-        },
-        Manifest {
-            id: quota::ID,
-            title: "Лимиты модели",
-            description: "Остаток лимитов у провайдера модели.",
-            icon: Lucide::Gauge,
-            page: None,
-            panel: None,
-            document: None,
-            badge: Some(BadgeSurface {
-                build: quota::build_badge,
-                place: BadgePlace::ComposerStart,
-                narrow: true,
-            }),
-        },
-        Manifest {
-            id: files::ID,
-            title: "Файлы",
-            description: "Дерево рабочей папки и изменения git на панели, файлы во вкладках.",
-            icon: Lucide::FolderTree,
-            page: None,
-            panel: Some(PanelSurface {
-                title: "Файлы",
-                build: files::build_panel,
-            }),
-            document: Some(DocumentSurface {
-                build: files::build_document,
-                label: files::document_label,
-            }),
-            badge: Some(BadgeSurface {
-                build: files::build_badge,
-                place: BadgePlace::HeaderEnd,
-                narrow: true,
-            }),
-        },
-        Manifest {
-            id: session_info::SESSION,
-            title: "Сессия",
-            description: "Статус, число сообщений и ожидающие запросы.",
-            icon: Lucide::Info,
-            page: None,
-            panel: None,
-            document: None,
-            badge: Some(BadgeSurface {
-                build: session_badges::build_session,
-                place: BadgePlace::RailEnd,
-                narrow: true,
-            }),
-        },
-        Manifest {
-            id: session_info::AGENT,
-            title: "Агент",
-            description: "Профиль, модель, режим и инструменты сессии.",
-            icon: Lucide::Bot,
-            page: None,
-            panel: None,
-            document: None,
-            badge: Some(BadgeSurface {
-                build: session_badges::build_agent,
-                place: BadgePlace::RailEnd,
-                narrow: true,
-            }),
-        },
-        Manifest {
-            id: terminal::ID,
-            title: "Терминал",
-            description: "Оболочка в рабочей папке во вкладке.",
-            icon: Lucide::SquareTerminal,
-            page: None,
-            panel: None,
-            document: Some(DocumentSurface {
-                build: terminal::build_document,
-                label: terminal::document_label,
-            }),
-            badge: None,
-        },
-        analytics(
-            "usage",
-            "Расход и контекст",
-            "Токены, стоимость и заполнение контекста по запросам сессии.",
-            Lucide::ChartColumn,
-            Overview::Usage,
-        ),
-        analytics(
-            "analysis",
-            "Анализ ходов",
-            "Шаги ходов агента: запросы модели, инструменты и хуки.",
-            Lucide::Activity,
-            Overview::Analysis,
-        ),
-        analytics(
-            "architecture",
-            "Архитектура",
-            "Карта модулей и слотов запущенного агента.",
-            Lucide::Network,
-            Overview::Architecture,
-        ),
-    ]
-}
-
-/// A read-only analytics page in the settings.
-fn analytics(
-    id: &'static str,
-    title: &'static str,
-    description: &'static str,
-    icon: Lucide,
-    page: Overview,
-) -> Manifest {
-    Manifest {
-        id,
-        title,
-        description,
-        icon,
-        page: Some(page),
-        panel: None,
-        document: None,
-        badge: None,
-    }
-}
-
-/// A session setting selector, kept under the composer until moved.
-fn selector(
-    id: &'static str,
-    title: &'static str,
-    description: &'static str,
-    icon: Lucide,
-    build: BuildView,
-) -> Manifest {
-    Manifest {
-        id,
-        title,
-        description,
-        icon,
-        page: None,
-        panel: None,
-        document: None,
-        badge: Some(BadgeSurface {
-            build,
-            place: BadgePlace::ComposerStart,
-            narrow: false,
-        }),
-    }
-}
-
-fn builtins() -> &'static [Manifest] {
-    static BUILTIN: OnceLock<[Manifest; 12]> = OnceLock::new();
-    BUILTIN.get_or_init(builtin)
-}
-
-fn builtin_ids() -> Vec<&'static str> {
-    builtins().iter().map(|manifest| manifest.id).collect()
-}
-
-/// Built-in extensions followed by the installed ones. The extensions folder
+/// Shipped packages, overridden by user installations with the same id. The extensions folder
 /// is read on first use and again after an install or removal.
 pub(super) fn catalog() -> Vec<&'static Manifest> {
-    let taken = builtin_ids();
-    builtins()
-        .iter()
-        .chain(declarative::manifests(&taken))
-        .collect()
+    declarative::manifests()
 }
 
 /// Installed extension folders that failed to load, and where they live.
 pub(super) fn problems() -> Vec<Problem> {
-    declarative::problems(&builtin_ids())
+    declarative::problems()
 }
 
 /// Re-reads managed folders after a catalog installation or removal.
 pub(super) fn reload_installed(cx: &mut App) {
-    declarative::rescan(&builtin_ids());
+    declarative::rescan();
+    declarative::reload_runtimes(cx);
     cx.refresh_windows();
 }
 
 /// Folder of an extension installed by the user; built-in ones have none.
 pub(super) fn folder(id: &str) -> Option<&'static Path> {
-    declarative::folder(&builtin_ids(), id)
+    declarative::folder(id)
 }
 
 /// Unpacks an extension archive into the extensions folder and adds it to
@@ -314,20 +103,26 @@ pub(super) fn folder(id: &str) -> Option<&'static Path> {
 pub(super) fn install(archive: &Path, cx: &mut App) -> anyhow::Result<&'static Manifest> {
     let root = crate::declarative::manifest::root()
         .ok_or_else(|| anyhow::anyhow!("Не найдена папка настроек"))?;
-    let taken = builtin_ids();
-    let manifest = crate::declarative::package::install(&root, archive, &taken)?;
-    declarative::rescan(&taken);
+    let manifest = crate::declarative::package::install(&root, archive, &[])?;
+    declarative::rescan();
+    declarative::reload_runtimes(cx);
     cx.refresh_windows();
     find(&manifest.id).ok_or_else(|| anyhow::anyhow!("Расширение `{}` не загрузилось", manifest.id))
 }
 
-/// Deletes an installed extension with its folder and forgets its settings.
+/// Removes a user package. A restored shipped version stays disabled.
 pub(super) fn remove(id: &str, cx: &mut App) -> anyhow::Result<()> {
     let root = crate::declarative::manifest::root()
         .ok_or_else(|| anyhow::anyhow!("Не найдена папка настроек"))?;
     crate::declarative::package::remove(&root, id)?;
-    declarative::rescan(&builtin_ids());
-    prefs::update(cx, |preferences| preferences.extensions.forget(id));
+    declarative::rescan();
+    declarative::reload_runtimes(cx);
+    prefs::update(cx, |preferences| {
+        preferences.extensions.forget(id);
+        if find(id).is_some() {
+            preferences.extensions.set_enabled(id, false);
+        }
+    });
     cx.refresh_windows();
     Ok(())
 }
@@ -426,5 +221,40 @@ mod tests {
             assert!(!tabs::is_chat(&id), "extension `{}`", manifest.id);
             assert_ne!(manifest.id, SESSIONS_PANEL);
         }
+    }
+}
+
+pub(super) fn next_document(
+    command: &str,
+    layout: &crate::tabs::TabLayout,
+    cx: &App,
+) -> Option<String> {
+    let manifest = ordered(cx).into_iter().find(|manifest| {
+        is_enabled(manifest.id, cx)
+            && manifest
+                .document
+                .as_ref()
+                .is_some_and(|document| document.command == Some(command))
+    })?;
+    let prefix = format!("{}:", manifest.id);
+    let last = layout
+        .panes()
+        .iter()
+        .flat_map(|pane| &pane.tabs)
+        .filter_map(|tab| tab.strip_prefix(&prefix)?.parse::<u32>().ok())
+        .max()
+        .unwrap_or(0);
+    Some(format!("{prefix}{}", last + 1))
+}
+impl DocumentSurface {
+    pub(super) fn title(&self, argument: &str) -> SharedString {
+        self.label
+            .unwrap_or("{argument}")
+            .replace("{argument}", argument)
+            .replace(
+                "{filename}",
+                argument.rsplit('/').next().unwrap_or(argument),
+            )
+            .into()
     }
 }

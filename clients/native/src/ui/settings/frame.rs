@@ -57,7 +57,7 @@ impl SettingsView {
         }
         if let PageId::Extension(id) = &self.page
             && extensions::is_enabled(id, cx)
-            && let Some(page) = extensions::find(id).and_then(|manifest| manifest.page)
+            && let Some((_, page)) = &self.extension_view
         {
             return self
                 .page_keys(
@@ -66,7 +66,7 @@ impl SettingsView {
                         .px_8()
                         .pt_6()
                         .pb_4()
-                        .child(self.overview.view(page)),
+                        .child(page.view.clone()),
                 )
                 .into_any_element();
         }

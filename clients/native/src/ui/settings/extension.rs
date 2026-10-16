@@ -181,9 +181,9 @@ impl SettingsView {
 
     fn origin_section(&self, manifest: &'static Manifest, cx: &Context<Self>) -> Div {
         let id = manifest.id;
-        let rows = match extensions::folder(id) {
+        let mut rows = match extensions::folder(id) {
             None => {
-                vec![note("Встроено в клиент; его можно только выключить.", cx).into_any_element()]
+                vec![note("Поставляется с приложением отдельным пакетом. Можно выключить или обновить через ZIP с тем же id.", cx).into_any_element()]
             }
             Some(folder) => {
                 let confirming = self.removing.as_deref() == Some(id);
@@ -234,6 +234,12 @@ impl SettingsView {
                 ]
             }
         };
+        if !manifest.author.is_empty() {
+            rows.insert(
+                0,
+                note(format!("Автор: {}", manifest.author), cx).into_any_element(),
+            );
+        }
         section("Источник", None, None, card(rows, cx), cx)
     }
 }

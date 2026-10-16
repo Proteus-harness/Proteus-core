@@ -1,15 +1,12 @@
 //! Server calls of a chat: sending, stopping, answers and session config.
 
-use std::path::Path;
-
 use gpui_kit::*;
 use proteus_contracts::app_protocol::config::ConfigSummary;
 use proteus_contracts::app_protocol::http::SendRequest;
-use proteus_contracts::domain::{MessageId, PermissionMode, RunOptions};
+use proteus_contracts::domain::{MessageId, RunOptions};
 
 use super::context_usage::ContextUsage;
 use super::{Chat, ChatEvent};
-use crate::api::Api;
 
 impl Chat {
     pub fn load_config(&mut self, cx: &mut Context<Self>) {
@@ -26,11 +23,12 @@ impl Chat {
         self.call(
             cx,
             move |api| api.context(&dir),
-            |this, context, _| {
+            |this, context, cx| {
                 this.session.context = context
                     .latest_usage
                     .as_ref()
                     .and_then(ContextUsage::from_snapshot);
+                cx.emit(ChatEvent::SessionStateChanged);
             },
         );
     }
@@ -134,35 +132,11 @@ impl Chat {
         );
     }
 
-    pub(in crate::ui) fn set_mode(&mut self, mode: PermissionMode, cx: &mut Context<Self>) {
-        self.update_config(cx, move |api, dir| api.set_mode(dir, mode));
-    }
-
-    pub(in crate::ui) fn set_model(&mut self, model: String, cx: &mut Context<Self>) {
-        self.update_config(cx, move |api, dir| api.set_model(dir, &model));
-    }
-
-    pub(in crate::ui) fn set_effort(&mut self, effort: Option<String>, cx: &mut Context<Self>) {
-        self.update_config(cx, move |api, dir| api.set_effort(dir, effort));
-    }
-
-    fn update_config(
-        &mut self,
-        cx: &mut Context<Self>,
-        job: impl FnOnce(&Api, &Path) -> anyhow::Result<ConfigSummary> + Send + 'static,
-    ) {
-        let dir = self.session.dir.clone();
-        self.call(
-            cx,
-            move |api| job(api, &dir),
-            |this, config, cx| this.apply_config(config, cx),
-        );
-    }
-
-    fn apply_config(&mut self, config: ConfigSummary, cx: &mut Context<Self>) {
+    pub(in crate::ui) fn apply_config(&mut self, config: ConfigSummary, cx: &mut Context<Self>) {
         if let Some(error) = &config.model_catalog_error {
             self.show_notice(format!("Не удалось загрузить каталог моделей: {error}"), cx);
         }
         self.session.config = Some(config);
+        cx.emit(ChatEvent::SessionStateChanged);
     }
 }

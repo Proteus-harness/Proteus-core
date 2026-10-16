@@ -103,7 +103,7 @@ impl Workspace {
                 title: manifest
                     .document
                     .as_ref()
-                    .map_or_else(|| argument.clone().into(), |doc| (doc.label)(&argument)),
+                    .map_or_else(|| argument.clone().into(), |doc| doc.title(&argument)),
                 tooltip: Some(argument.into()),
             },
             None => TabLabel {

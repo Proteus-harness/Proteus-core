@@ -6,8 +6,12 @@
 //! sends and forwards user actions, so the client stays independent of what
 //! the extension does.
 
+pub mod graph;
 pub mod manifest;
 pub mod package;
+pub mod presentation;
 pub mod process;
 pub mod protocol;
+pub mod session;
+pub mod tree;
 pub mod widget;

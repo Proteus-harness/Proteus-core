@@ -1,5 +1,3 @@
-mod analytics;
-
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::sync::Arc;
@@ -17,13 +15,11 @@ use proteus_contracts::app_protocol::http::{
 use proteus_contracts::app_protocol::{
     AppBootstrap, AppContextMapSnapshot, AppServerEvent, AppSessionSummary, StdioOutput,
 };
-use proteus_contracts::contracts::{ModelQuotaSnapshot, UserInputResponse};
+use proteus_contracts::contracts::UserInputResponse;
 use proteus_contracts::domain::{MessageId, PermissionMode};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-
-use crate::files::{Changes, FileContent, FileDiff, Listing, SearchResult};
 
 /// Blocking HTTP client for the app server; call it off the UI thread.
 #[derive(Clone)]
@@ -148,11 +144,6 @@ impl Api {
         self.get("/context", Some(session_dir))
     }
 
-    /// `None` when the active model provider reports no quota.
-    pub fn model_quota(&self, session_dir: &Path) -> Result<Option<ModelQuotaSnapshot>> {
-        self.get("/model/quota", Some(session_dir))
-    }
-
     pub fn set_mode(&self, session_dir: &Path, mode: PermissionMode) -> Result<ConfigSummary> {
         let body = SetPermissionModeRequest {
             id: Some(request_id("mode")),
@@ -202,26 +193,6 @@ impl Api {
     /// Skill catalogs, MCP discovery and package diagnostics of the assembly.
     pub fn addons(&self, session_dir: &Path) -> Result<AppAddonsSnapshot> {
         self.get("/addons", Some(session_dir))
-    }
-
-    pub fn workspace_list(&self, session_dir: &Path, path: &str) -> Result<Listing> {
-        self.get_with("/workspace/list", Some(session_dir), &[("path", path)])
-    }
-
-    pub fn workspace_search(&self, session_dir: &Path, query: &str) -> Result<SearchResult> {
-        self.get_with("/workspace/search", Some(session_dir), &[("q", query)])
-    }
-
-    pub fn workspace_file(&self, session_dir: &Path, path: &str) -> Result<FileContent> {
-        self.get_with("/workspace/file", Some(session_dir), &[("path", path)])
-    }
-
-    pub fn workspace_changes(&self, session_dir: &Path) -> Result<Changes> {
-        self.get("/workspace/changes", Some(session_dir))
-    }
-
-    pub fn workspace_diff(&self, session_dir: &Path, path: &str) -> Result<FileDiff> {
-        self.get_with("/workspace/diff", Some(session_dir), &[("path", path)])
     }
 
     /// Bytes of an image the session stored, by its `ImageRef::id`.

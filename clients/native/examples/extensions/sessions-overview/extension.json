@@ -1,12 +1,20 @@
 {
+  "protocol": 2,
   "id": "sessions-overview",
   "title": "Обзор сессий",
   "description": "Пример расширения: сессии рабочей папки и счётчик нажатий.",
   "icon": "chart",
-  "command": ["python3", "main.py"],
+  "command": [
+    "python3",
+    "main.py"
+  ],
   "surfaces": {
-    "panel": { "title": "Обзор" },
+    "panel": {
+      "title": "Обзор"
+    },
     "document": {},
-    "badge": { "place": "header_end" }
+    "badge": {
+      "place": "header_end"
+    }
   }
 }

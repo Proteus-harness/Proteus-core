@@ -27,11 +27,57 @@ pub(in crate::ui) enum HostEvent {
     SessionOpened,
     /// A run of the active chat finished; files and quotas may differ.
     RunSettled,
+    NavigationChanged,
 }
 
 impl EventEmitter<HostEvent> for Workspace {}
 
 impl Host {
+    pub(in crate::ui) fn retain_process(&self, process: AnyEntity, cx: &mut App) {
+        let _ = self.workspace.update(cx, |workspace, _| {
+            workspace
+                .extension_processes
+                .insert(self.extension, process);
+        });
+    }
+    pub(in crate::ui) fn session_snapshot(
+        &self,
+        cx: &App,
+    ) -> crate::declarative::protocol::Outgoing {
+        let (state, entries) = self
+            .read(cx, |host| {
+                host.session().map(|session| {
+                    (
+                        Box::new(super::session::state(session, host.activity().cloned())),
+                        super::session::entries(session, 0..session.transcript.entries().len()),
+                    )
+                })
+            })
+            .flatten()
+            .map_or((None, Vec::new()), |(state, entries)| {
+                (Some(state), entries)
+            });
+        crate::declarative::protocol::Outgoing::SessionSnapshot {
+            session_dir: self.session_dir(cx),
+            state,
+            entries,
+        }
+    }
+
+    pub(in crate::ui) fn subscribe_session<T: 'static>(
+        &self,
+        cx: &mut Context<T>,
+        mut on_event: impl FnMut(&mut T, &super::session::SessionChanged, &mut Context<T>) + 'static,
+    ) -> Option<Subscription> {
+        Some(
+            cx.subscribe(&self.workspace.upgrade()?, move |this, _, event, cx| {
+                on_event(this, event, cx)
+            }),
+        )
+    }
+    pub(in crate::ui) fn identity(&self) -> EntityId {
+        self.workspace.entity_id()
+    }
     pub(in crate::ui) fn new(workspace: WeakEntity<Workspace>, extension: &'static str) -> Self {
         Self {
             workspace,
@@ -70,6 +116,11 @@ impl Host {
             .flatten()
     }
 
+    pub(in crate::ui) fn active_document(&self, cx: &App) -> Option<String> {
+        self.read(cx, |host| host.active_document(self.extension, cx))
+            .flatten()
+    }
+
     /// Calls `on_event` for every host event while `cx`'s entity lives.
     pub(in crate::ui) fn subscribe<T: 'static>(
         &self,
@@ -82,21 +133,6 @@ impl Host {
                 on_event(this, *event, cx)
             }),
         )
-    }
-
-    /// Like [`Host::subscribe`], for views that need the window.
-    pub(in crate::ui) fn subscribe_in<T: 'static>(
-        &self,
-        window: &Window,
-        cx: &mut Context<T>,
-        mut on_event: impl FnMut(&mut T, HostEvent, &mut Window, &mut Context<T>) + 'static,
-    ) -> Option<Subscription> {
-        let workspace = self.workspace.upgrade()?;
-        Some(cx.subscribe_in(
-            &workspace,
-            window,
-            move |this, _, event: &HostEvent, window, cx| on_event(this, *event, window, cx),
-        ))
     }
 
     /// Opens a document of extension `extension` as a tab and returns its

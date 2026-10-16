@@ -1,0 +1,15 @@
+{
+  "protocol": 2,
+  "id": "architecture",
+  "title": "Архитектура",
+  "description": "Карта модулей и слотов запущенного агента.",
+  "icon": "network",
+  "command": [
+    "python3",
+    "main.py"
+  ],
+  "surfaces": {
+    "page": {}
+  },
+  "author": "Proteus Project"
+}

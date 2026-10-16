@@ -68,17 +68,6 @@ fn badge_box() -> Div {
 /// What a click on an icon does instead of bringing its panel forward.
 pub(super) type Press = Rc<dyn Fn(&mut Window, &mut App)>;
 
-/// The shared shell of every icon: hover, tooltip, click, drag and menu.
-pub(super) fn badge_frame(
-    id: &'static str,
-    face: Face,
-    details: Details,
-    host: &Host,
-    cx: &App,
-) -> impl IntoElement + use<> {
-    pressable_badge(id, face, details, host, None, cx)
-}
-
 /// An icon whose click runs `press`; a drag still moves it, since a press
 /// only counts once the pointer is released without dragging.
 pub(super) fn pressable_badge(
@@ -183,12 +172,4 @@ fn badge_menu(menu: PopupMenu, id: &'static str, host: &Host, cx: &App) -> Popup
                 prefs::update(cx, |prefs| prefs.extensions.set_pinned(id, !pinned))
             }),
     )
-}
-
-/// Icon of an extension with a small counter next to it.
-pub(super) fn icon_with_count(icon: Icon, count: Option<String>) -> Div {
-    h_flex()
-        .gap_1()
-        .child(icon.small())
-        .children(count.map(|count| div().text_xs().child(count)))
 }

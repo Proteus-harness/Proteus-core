@@ -131,7 +131,8 @@ impl SettingsView {
         self.removing = None;
         self.extension_notice = Some(match extensions::remove(id, cx) {
             Ok(()) => Feedback {
-                text: "Расширение удалено".into(),
+                text: "Пользовательский пакет удалён; поставляемая версия, если есть, выключена"
+                    .into(),
                 error: false,
             },
             Err(error) => Feedback {
@@ -407,7 +408,7 @@ impl SettingsView {
             "Новое расширение",
             Some(
                 "Расширение — архив с extension.json и программой, которая рисует свои \
-                 панели виджетами. Установка и удаление применяются сразу."
+                 панели виджетами. Установка, обновление и удаление применяются сразу. ZIP с тем же id обновляет пакет."
                     .into(),
             ),
             None,

@@ -92,6 +92,7 @@ impl SettingsView {
         let catalog = catalog.clone();
         let taken = extensions::ids()
             .into_iter()
+            .filter(|id| extensions::folder(id).is_some())
             .map(str::to_string)
             .collect::<Vec<_>>();
         self.catalogs.busy = true;
@@ -185,6 +186,7 @@ impl SettingsView {
                     prefs.catalogs.installed.retain(|old| *old != installed);
                     if installed.kind == Kind::ClientExtension {
                         prefs.extensions.forget(&installed.entry);
+                        prefs.extensions.set_enabled(&installed.entry, false);
                     }
                 });
                 this.reload_installed(installed.kind, cx);

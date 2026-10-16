@@ -60,6 +60,8 @@ def assemble(agent_profile, client_profile):
     )
     for path in tracked_configs():
         install_file(ROOT / path, staging / "share" / path)
+    run([sys.executable, str(ROOT / "clients/extensions/package.py"), "--bundle",
+         str(staging / "share/extensions")], ROOT)
     install_file(ICON, staging / "share/icons/proteus-native.png")
     install_file(ASSETS / "proteus-native", staging / "proteus-native", True)
     install_file(ASSETS / "install-shortcut", staging / "install-shortcut", True)

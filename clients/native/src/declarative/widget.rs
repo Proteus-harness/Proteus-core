@@ -13,6 +13,58 @@ const MAX_NODES: usize = 5_000;
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Node {
+    Cells {
+        cells: Vec<Cell>,
+    },
+    Select {
+        id: String,
+        label: String,
+        options: Vec<super::graph::Choice>,
+        action: String,
+    },
+    Graph {
+        id: String,
+        nodes: Vec<super::graph::Node>,
+        edges: Vec<super::graph::Edge>,
+        action: String,
+    },
+    Tree {
+        id: String,
+        rows: Vec<super::tree::Row>,
+        action: String,
+    },
+    Fill {
+        children: Vec<Node>,
+    },
+    Input {
+        id: String,
+        value: String,
+        placeholder: String,
+        action: String,
+    },
+    Code {
+        id: String,
+        text: String,
+        language: String,
+        #[serde(default)]
+        height: Option<f32>,
+    },
+    Terminal {
+        id: String,
+        cwd: std::path::PathBuf,
+    },
+    Choice {
+        label: String,
+        selected: bool,
+        action: String,
+        value: Value,
+    },
+    Steps {
+        id: String,
+        options: Vec<String>,
+        selected: usize,
+        action: String,
+    },
     Stack {
         #[serde(default)]
         direction: Direction,
@@ -80,6 +132,13 @@ pub enum Node {
         tone: Tone,
     },
     Divider {},
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct Cell {
+    pub label: String,
+    pub tone: Tone,
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
@@ -166,6 +225,26 @@ fn hundred() -> f64 {
 }
 
 impl Node {
+    pub fn visit(&self, each: &mut impl FnMut(&Node)) {
+        each(self);
+        match self {
+            Node::Stack { children, .. }
+            | Node::Card { children, .. }
+            | Node::Fill { children } => {
+                for child in children {
+                    child.visit(each);
+                }
+            }
+            Node::Tabs { tabs } => {
+                for tab in tabs {
+                    for child in &tab.children {
+                        child.visit(each);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
     /// Rejects trees the renderer must not try: too deep or too large, rows
     /// that do not match the columns, non-finite numbers.
     pub fn validate(&self) -> Result<()> {
@@ -182,7 +261,40 @@ impl Node {
             bail!("widget tree has more than {MAX_NODES} nodes");
         }
         let children: &[Node] = match self {
-            Node::Stack { children, .. } | Node::Card { children, .. } => children,
+            Node::Code {
+                height: Some(height),
+                ..
+            } if !height.is_finite() || *height <= 0. => {
+                bail!("code height must be finite and positive")
+            }
+            Node::Graph { nodes, edges, .. } => {
+                let ids: std::collections::HashSet<_> = nodes.iter().map(|node| &node.id).collect();
+                if ids.len() != nodes.len()
+                    || nodes
+                        .iter()
+                        .any(|node| !node.x.is_finite() || !node.y.is_finite())
+                {
+                    bail!("graph requires unique ids and finite positions");
+                }
+                if edges
+                    .iter()
+                    .any(|edge| !ids.contains(&edge.from) || !ids.contains(&edge.to))
+                {
+                    bail!("graph edge references an unknown node");
+                }
+                &[]
+            }
+            Node::Steps {
+                options, selected, ..
+            } => {
+                if options.is_empty() || *selected >= options.len() {
+                    bail!("steps require a selected option");
+                }
+                &[]
+            }
+            Node::Stack { children, .. }
+            | Node::Card { children, .. }
+            | Node::Fill { children } => children,
             Node::Tabs { tabs } => {
                 for tab in tabs {
                     for child in &tab.children {

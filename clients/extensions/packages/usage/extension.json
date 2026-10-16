@@ -1,0 +1,15 @@
+{
+  "protocol": 2,
+  "id": "usage",
+  "title": "Расход и контекст",
+  "description": "Токены, стоимость и заполнение контекста по запросам сессии.",
+  "icon": "chart",
+  "command": [
+    "python3",
+    "main.py"
+  ],
+  "surfaces": {
+    "page": {}
+  },
+  "author": "Proteus Project"
+}

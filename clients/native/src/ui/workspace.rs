@@ -111,6 +111,7 @@ pub struct Workspace {
     /// layout and the side panel themselves are client preferences.
     pub(super) panels: HashMap<&'static str, SurfaceView>,
     pub(super) documents: HashMap<String, SurfaceView>,
+    pub(super) extension_processes: HashMap<&'static str, AnyEntity>,
     pub(super) badges: HashMap<&'static str, AnyView>,
     /// Size of the split whose divider is being dragged.
     pub(super) split_drag: Option<SplitResize>,
@@ -190,6 +191,7 @@ impl Workspace {
             settings_subscription: None,
             panels: HashMap::new(),
             documents: HashMap::new(),
+            extension_processes: HashMap::new(),
             badges: HashMap::new(),
             split_drag: None,
             sidebar_drag: None,

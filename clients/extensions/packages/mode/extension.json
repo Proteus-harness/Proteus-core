@@ -1,0 +1,21 @@
+{
+  "protocol": 2,
+  "id": "mode",
+  "title": "Режим",
+  "description": "Выбор режима разрешений сессии.",
+  "icon": "shield",
+  "command": [
+    "python3",
+    "main.py"
+  ],
+  "session_events": true,
+  "surfaces": {
+    "badge": {
+      "place": "composer_start"
+    },
+    "popup": {
+      "width": 240
+    }
+  },
+  "author": "Proteus Project"
+}

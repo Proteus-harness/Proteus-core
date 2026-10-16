@@ -8,6 +8,7 @@ for line in sys.stdin:
     if event["type"] == "render":
         print(json.dumps({
             "type": "view",
+            "session_dir":event.get("session_dir"),
             "view": event["view"],
             "root": {"type": "text", "text": "Расширение установлено из каталога."},
         }, ensure_ascii=False), flush=True)

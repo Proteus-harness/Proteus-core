@@ -19,7 +19,7 @@ pub(super) use split::{SplitDrag, SplitResize, divider_grip, divider_line};
 
 use gpui_kit::*;
 
-use super::extensions::{self, Host, OpenDocument, SurfaceView};
+use super::extensions::{self, Host, HostEvent, OpenDocument, SurfaceView};
 use super::prefs;
 use super::workspace::Workspace;
 use crate::tabs::{self, Edge, PaneId, TabLayout};
@@ -52,6 +52,7 @@ impl Workspace {
         self.documents.retain(|id, _| layout.contains(id));
         self.sync_chats(&layout, cx);
         prefs::update(cx, |prefs| prefs.tabs = layout);
+        cx.emit(HostEvent::NavigationChanged);
         cx.notify();
     }
 
@@ -85,7 +86,9 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let id = extensions::next_terminal(&self.tab_layout(cx));
+        let Some(id) = extensions::next_document("terminal.new", &self.tab_layout(cx), cx) else {
+            return;
+        };
         if self.ensure_document(&id, window, cx).is_none() {
             return;
         }

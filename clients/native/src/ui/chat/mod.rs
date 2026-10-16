@@ -7,7 +7,6 @@ mod actions;
 mod attachments;
 mod composer;
 pub(super) mod context_usage;
-pub(super) mod controls;
 mod images;
 mod notice;
 mod pump;
@@ -48,6 +47,8 @@ use user_input::UserInputDrafts;
 pub(super) type ComposerExtras = Rc<dyn Fn(EntityId, bool, &App) -> Option<AnyElement>>;
 
 pub(super) enum ChatEvent {
+    SessionStateChanged,
+    SessionEntriesChanged(crate::transcript::Change),
     /// A run of this session finished.
     RunSettled,
     /// Activity of some session; every session stream carries all of them.

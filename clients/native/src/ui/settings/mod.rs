@@ -102,7 +102,8 @@ pub struct SettingsView {
     tool_query: String,
     sizes: sizes::SizeSliders,
     catalogs: catalog::State,
-    overview: crate::ui::analytics::Pages,
+    workspace: WeakEntity<crate::ui::workspace::Workspace>,
+    extension_view: Option<(String, crate::ui::extensions::SurfaceView)>,
     /// Result of the last extension install or removal.
     extension_notice: Option<Feedback>,
     /// Installed extension whose removal waits for confirmation.
@@ -121,6 +122,7 @@ impl EventEmitter<SettingsEvent> for SettingsView {}
 
 impl SettingsView {
     pub fn new(
+        workspace: WeakEntity<crate::ui::workspace::Workspace>,
         api: Api,
         session_dir: PathBuf,
         window: &mut Window,
@@ -160,8 +162,6 @@ impl SettingsView {
         let focus_handle = cx.focus_handle();
         let nav_focus = cx.focus_handle().tab_stop(true);
         nav_focus.focus(window, cx);
-        let overview =
-            crate::ui::analytics::Pages::new(api.clone(), session_dir.clone(), window, cx);
         let mut view = Self {
             api,
             session_dir,
@@ -189,7 +189,8 @@ impl SettingsView {
             tool_query: String::new(),
             sizes,
             catalogs,
-            overview,
+            workspace,
+            extension_view: None,
             extension_notice: None,
             removing: None,
             recording: None,
@@ -433,6 +434,27 @@ impl SettingsView {
 
 impl Render for SettingsView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let extension = match &self.page {
+            PageId::Extension(id) if crate::ui::extensions::is_enabled(id, cx) => {
+                crate::ui::extensions::find(id).filter(|manifest| manifest.page.is_some())
+            }
+            _ => None,
+        };
+        if let Some(extension) = extension {
+            if self
+                .extension_view
+                .as_ref()
+                .is_none_or(|(id, _)| id != extension.id)
+            {
+                let host = crate::ui::extensions::Host::new(self.workspace.clone(), extension.id);
+                self.extension_view = Some((
+                    extension.id.to_owned(),
+                    (extension.page.unwrap())(host, window, cx),
+                ));
+            }
+        } else {
+            self.extension_view = None;
+        }
         self.prepare_editors(window, cx);
         self.scrolls.entry(spot::page_key(&self.page)).or_default();
         crate::ui::motion::drive(window, cx);
