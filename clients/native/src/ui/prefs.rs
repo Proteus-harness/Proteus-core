@@ -23,6 +23,11 @@ pub fn scaled(value: f32) -> Rems {
     rems(value / BASE_FONT)
 }
 
+/// A laid out length in the units of [`scaled`].
+pub fn unscaled(length: Pixels, window: &Window) -> f32 {
+    f32::from(length) / f32::from(window.rem_size()) * BASE_FONT
+}
+
 /// Text size of chat messages and the composer.
 pub fn chat_text(cx: &App) -> Rems {
     scaled(f32::from(current(cx).view.chat_text))

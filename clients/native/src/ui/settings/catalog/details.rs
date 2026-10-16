@@ -4,35 +4,43 @@ use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::text::TextView;
 use gpui_kit::component::*;
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use super::super::{
     SettingsView,
     widgets::{Tone, chip, hashed_id},
 };
-use super::items::{Item, Status};
+use super::items::{Item, Status, version_label};
 use super::view::kind_badge;
 use crate::catalog::schema::Kind;
 use crate::ui::kit;
 use crate::ui::kit::Hint as _;
 use crate::ui::prefs;
 
-const DETAILS_WIDTH: f32 = 420.;
+pub(super) const DETAILS_WIDTH: f32 = 420.;
 
 impl SettingsView {
-    pub(super) fn catalog_details(&self, item: &Item, cx: &Context<Self>) -> AnyElement {
+    /// `full` gives the pane the whole width when the list beside it
+    /// would get too narrow.
+    pub(super) fn catalog_details(
+        &self,
+        item: &Item,
+        full: bool,
+        cx: &Context<Self>,
+    ) -> AnyElement {
         let theme = cx.theme();
         let entry = item.entry;
         let mut facts = vec![
             chip(entry.kind.title(), Tone::Muted, cx),
-            chip(entry.version.clone(), Tone::Muted, cx),
+            chip(version_label(&entry.version), Tone::Muted, cx),
         ];
         if let Some(category) = item.category() {
             facts.push(chip(category.to_string(), Tone::Muted, cx));
         }
         match (item.status, item.installed) {
             (Status::Update, Some(old)) => facts.push(chip(
-                format!("установлена {}", old.version),
+                format!("установлена {}", version_label(&old.version)),
                 Tone::Warning,
                 cx,
             )),
@@ -56,11 +64,17 @@ impl SettingsView {
             .cloned();
         div()
             .id(hashed_id("catalog-details", &item.key()))
-            .w(prefs::scaled(DETAILS_WIDTH))
-            .flex_none()
+            .map(|pane| {
+                if full {
+                    pane.flex_1().min_w_0()
+                } else {
+                    pane.w(prefs::scaled(DETAILS_WIDTH))
+                        .flex_none()
+                        .border_l_1()
+                        .border_color(theme.border)
+                }
+            })
             .h_full()
-            .border_l_1()
-            .border_color(theme.border)
             .child(
                 v_flex()
                     .px_6()

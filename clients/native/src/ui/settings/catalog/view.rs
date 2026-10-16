@@ -3,6 +3,7 @@
 use std::ops::Range;
 
 use gpui_kit::assets::IconName as Lucide;
+use gpui_kit::base::ElementExt as _;
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::input::Input;
 use gpui_kit::component::scroll::ScrollableElement as _;
@@ -12,7 +13,8 @@ use gpui_kit::*;
 
 use super::super::{SettingsView, widgets::hashed_id};
 use super::Show;
-use super::items::{Item, KINDS, Status, kind_filter, kind_icon};
+use super::details::DETAILS_WIDTH;
+use super::items::{Item, KINDS, Status, kind_filter, kind_icon, version_label};
 use crate::catalog::open::OPEN;
 use crate::settings::catalog::{PageId, page_description, page_title};
 use crate::ui::Spinner;
@@ -45,6 +47,15 @@ impl SettingsView {
                 .find(|item| item.source == source && item.entry.id == *id)
         });
         let loading = &self.catalogs.loading;
+        let width = self.catalogs.width.clone();
+        // Until the first layout the page is taken for wide.
+        let measured = if width.get() > 0. { width.get() } else { 1200. };
+        let full = measured < DETAILS_WIDTH * 2.;
+        let list_width = if selected.is_some() && !full {
+            measured - DETAILS_WIDTH
+        } else {
+            measured
+        };
         let body = if sources.is_empty() {
             self.catalog_empty(
                 "Источников пока нет",
@@ -60,7 +71,7 @@ impl SettingsView {
                 cx,
             )
         } else if !self.catalog_browsing() && !items.is_empty() {
-            self.catalog_overview(&items, selected.is_some(), cx)
+            self.catalog_overview(&items, selected.is_some(), list_width, cx)
         } else if shown.is_empty() {
             self.catalog_empty(
                 if items.is_empty() {
@@ -154,8 +165,15 @@ impl SettingsView {
                     .min_h_0()
                     .border_t_1()
                     .border_color(theme.border)
-                    .child(body)
-                    .children(selected.map(|item| self.catalog_details(item, cx))),
+                    .when(!(selected.is_some() && full), |row| row.child(body))
+                    .children(selected.map(|item| self.catalog_details(item, full, cx)))
+                    .on_prepaint(move |bounds, window, _| {
+                        let next = prefs::unscaled(bounds.size.width, window);
+                        if (width.get() - next).abs() > 1. {
+                            width.set(next);
+                            window.refresh();
+                        }
+                    }),
             );
         self.catalog_page_keys(page, cx).into_any_element()
     }
@@ -367,7 +385,7 @@ impl SettingsView {
                                     .flex_none()
                                     .text_xs()
                                     .text_color(theme.muted_foreground)
-                                    .child(item.entry.version.clone()),
+                                    .child(version_label(&item.entry.version)),
                             ),
                     )
                     .child(

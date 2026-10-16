@@ -71,6 +71,16 @@ pub(super) fn kind_icon(kind: Kind) -> Icon {
     })
 }
 
+/// Version as people read it: a git tree id of a skill gets cut to the
+/// usual seven characters.
+pub(super) fn version_label(version: &str) -> String {
+    if version.len() == 40 && version.bytes().all(|c| c.is_ascii_hexdigit()) {
+        version[..7].to_string()
+    } else {
+        version.to_string()
+    }
+}
+
 /// Short plural for the type filter.
 pub(super) fn kind_filter(kind: Kind) -> &'static str {
     match kind {

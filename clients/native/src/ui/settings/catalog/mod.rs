@@ -12,6 +12,8 @@ mod zip;
 
 pub(in crate::ui) use keys::bind_keys;
 
+use std::{cell::Cell, rc::Rc};
+
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::component::text::TextViewState;
 use gpui_kit::*;
@@ -48,6 +50,9 @@ pub(super) struct State {
     pub focus: FocusHandle,
     pub scroll: UniformListScrollHandle,
     pub overview: ScrollHandle,
+    /// Width of the list with the details as last laid out, in the units
+    /// of `prefs::scaled`; 0 before the first layout.
+    pub width: Rc<Cell<f32>>,
 }
 
 /// Which entries the list shows. The overview gives way to the list as
@@ -105,6 +110,7 @@ impl State {
                 focus: cx.focus_handle().tab_stop(true),
                 scroll: UniformListScrollHandle::new(),
                 overview: ScrollHandle::new(),
+                width: Rc::default(),
             },
             changes,
         )
