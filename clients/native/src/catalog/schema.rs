@@ -2,7 +2,7 @@
 //! hide the rest of a catalog. Paths are always relative to the checkout.
 
 use std::{
-    collections::HashSet,
+    collections::{BTreeMap, HashSet},
     path::{Component, Path, PathBuf},
 };
 
@@ -105,10 +105,11 @@ pub fn directory(root: &Path, entry: &Entry) -> Result<PathBuf> {
 }
 
 /// A repository without the index is read as an Agent Skills repository;
-/// `name` titles it then.
-pub fn read(root: &Path, name: &str) -> Result<Catalog> {
+/// `name` titles it then and `trees` versions its folders: a git tree id by
+/// the folder path relative to `root`, the root itself being empty.
+pub fn read(root: &Path, name: &str, trees: &BTreeMap<String, String>) -> Result<Catalog> {
     if !root.join(INDEX).exists() {
-        return super::skills::read(root, name.to_owned());
+        return super::skills::read(root, name.to_owned(), trees);
     }
     let text = std::fs::read_to_string(root.join(INDEX))
         .context("Не удалось прочитать proteus-catalog.json")?;

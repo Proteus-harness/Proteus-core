@@ -1,6 +1,8 @@
 //! Agent Skills repositories without a Proteus index. Every folder with a
 //! SKILL.md is one entry, checked like the agent's own skill discovery. The
-//! whole folder is installed, so folders nested in a skill belong to it.
+//! whole folder is installed, so folders nested in a skill belong to it;
+//! only SKILL.md has to be present to list it, the folder's git tree id
+//! versions it.
 
 use std::{
     collections::BTreeMap,
@@ -11,7 +13,6 @@ use anyhow::{Context, Result, bail, ensure};
 use serde::Deserialize;
 
 use super::schema::{Catalog, Category, Entry, INDEX, Kind};
-use crate::packages::Contents;
 
 const FILE: &str = "SKILL.md";
 const MAX_DEPTH: usize = 8;
@@ -27,7 +28,7 @@ struct Frontmatter {
     description: String,
 }
 
-pub fn read(root: &Path, title: String) -> Result<Catalog> {
+pub fn read(root: &Path, title: String, trees: &BTreeMap<String, String>) -> Result<Catalog> {
     let mut found = Vec::new();
     find(root, Path::new(""), 0, &mut found)?;
     ensure!(
@@ -37,7 +38,7 @@ pub fn read(root: &Path, title: String) -> Result<Catalog> {
     let mut entries = Vec::new();
     let mut problems = Vec::new();
     for dir in found {
-        match entry(root, &dir) {
+        match entry(root, &dir, trees) {
             Ok(entry) => entries.push(entry),
             Err(error) => problems.push(format!("{}: {error:#}", dir.join(FILE).display())),
         }
@@ -105,14 +106,23 @@ fn find(root: &Path, dir: &Path, depth: usize, found: &mut Vec<PathBuf>) -> Resu
     Ok(())
 }
 
-fn entry(root: &Path, dir: &Path) -> Result<Entry> {
-    let folder = root.join(dir);
+fn entry(root: &Path, dir: &Path, trees: &BTreeMap<String, String>) -> Result<Entry> {
+    let file = root.join(dir).join(FILE);
     ensure!(
-        std::fs::metadata(folder.join(FILE))?.len() <= MAX_FILE_BYTES,
+        std::fs::symlink_metadata(&file)?.is_file(),
+        "{FILE} должен быть обычным файлом"
+    );
+    ensure!(
+        std::fs::metadata(&file)?.len() <= MAX_FILE_BYTES,
         "{FILE} больше 256 КиБ"
     );
-    let files = Contents::folder(&folder)?;
-    let (yaml, _) = split(files.text(FILE)?)?;
+    let version = dir
+        .to_str()
+        .and_then(|dir| trees.get(dir))
+        .context("Папка не найдена в дереве репозитория")?
+        .clone();
+    let content = std::fs::read_to_string(&file).with_context(|| format!("{FILE} не в UTF-8"))?;
+    let (yaml, _) = split(&content)?;
     let front: Frontmatter = serde_yaml::from_str(yaml).context("Неверный YAML frontmatter")?;
     ensure!(name(&front.name), "Неверное имя skill: {}", front.name);
     if let Some(folder) = dir.file_name() {
@@ -139,7 +149,7 @@ fn entry(root: &Path, dir: &Path) -> Result<Entry> {
         title: front.name,
         description: description.to_owned(),
         category,
-        version: files.fingerprint(),
+        version,
         path: if dir.as_os_str().is_empty() {
             PathBuf::from(ROOT)
         } else {

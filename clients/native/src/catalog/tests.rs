@@ -83,6 +83,14 @@ fn git_refresh_keeps_last_good_checkout_and_reports_bad_entries() {
     let cache = fixture.locations().cache;
     let first = git::refresh(&cache, &source).unwrap();
     assert_eq!(first.entries.len(), 4);
+    // Only the index is downloaded; an entry's files come when asked for.
+    let demo = first.entries[0].path.join("README.md");
+    assert!(!first.root.join(&demo).exists());
+    let readme = git::with_files(&cache, &source, &[demo.clone()], || {
+        schema::readme(&first, &first.entries[0])
+    })
+    .unwrap();
+    assert!(readme.is_some());
     let mut index: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(repo.join(schema::INDEX)).unwrap()).unwrap();
     index["entries"]
@@ -98,9 +106,12 @@ fn git_refresh_keeps_last_good_checkout_and_reports_bad_entries() {
     assert_eq!(second.entries[0].version, "2.0.0");
     assert_eq!(second.problems.len(), 1);
     assert!(
-        schema::readme(&second, &second.entries[0])
-            .unwrap()
-            .is_none()
+        git::with_files(&cache, &source, &[demo], || schema::readme(
+            &second,
+            &second.entries[0]
+        ))
+        .unwrap()
+        .is_none()
     );
     fs::write(repo.join(schema::INDEX), "{bad").unwrap();
     commit(&repo);
@@ -120,7 +131,7 @@ fn git_refresh_keeps_last_good_checkout_and_reports_bad_entries() {
 fn installation_binding_update_and_removal_use_the_existing_formats() {
     let fixture = Fixture::new();
     let locations = fixture.locations();
-    let catalog = schema::read(&example(), "example").unwrap();
+    let catalog = schema::read(&example(), "example", &Default::default()).unwrap();
     let source = source(&example());
     let profile = fixture.0.join("profile.toml");
     let mut draft = Draft::default();
@@ -199,7 +210,7 @@ fn installation_binding_update_and_removal_use_the_existing_formats() {
 #[test]
 fn mcp_conflicts_dont_overwrite_manual_edits_and_receipts_are_profile_scoped() {
     let fixture = Fixture::new();
-    let catalog = schema::read(&example(), "example").unwrap();
+    let catalog = schema::read(&example(), "example", &Default::default()).unwrap();
     let entry = catalog
         .entries
         .iter()
@@ -258,7 +269,7 @@ fn plugin_zip_and_invalid_catalog_paths_share_checked_package_io() {
     assert!(schema::relative(Path::new("../outside")).is_err());
     assert!(schema::relative(Path::new("/absolute")).is_err());
     assert!(schema::relative(Path::new("a/.git/config")).is_err());
-    let mut catalog = schema::read(&example(), "example").unwrap();
+    let mut catalog = schema::read(&example(), "example", &Default::default()).unwrap();
     catalog.entries[0].path = "../outside".into();
     assert!(schema::directory(&catalog.root, &catalog.entries[0]).is_err());
     let mut broken = Source {
@@ -294,8 +305,14 @@ fn repository_without_index_lists_agent_skills_as_installable_entries() {
     skill("skills/.system/docs", "name: docs\ndescription: System");
     skill("template", "name: template-skill\ndescription: Mismatch");
     skill("tools/lint", "name: lint\ndescription: >\n  Folded\n  text");
-    let catalog = schema::read(&root, "owner/skills").unwrap();
-    assert_eq!(catalog.title, "owner/skills");
+    fs::write(root.join("skills/.curated/pdf/forms/form.txt"), "form").unwrap();
+    git_at(&root, &["init", "-q", "-b", "main"]);
+    commit(&root);
+    let source = source(&root);
+    let locations = fixture.locations();
+    let cache = &locations.cache;
+    let catalog = git::refresh(cache, &source).unwrap();
+    assert_eq!(catalog.title, source.name());
     let ids = catalog
         .entries
         .iter()
@@ -314,29 +331,37 @@ fn repository_without_index_lists_agent_skills_as_installable_entries() {
         (pdf.kind, lint.description.as_str()),
         (Kind::Skill, "Folded text")
     );
+    // Listing takes SKILL.md files only.
+    assert!(!catalog.root.join(&pdf.path).join("forms/form.txt").exists());
+    let files = [pdf.path.join("README.md"), pdf.path.join("SKILL.md")];
     assert_eq!(
-        schema::readme(&catalog, pdf).unwrap().as_deref(),
+        git::with_files(cache, &source, &files, || schema::readme(&catalog, pdf))
+            .unwrap()
+            .as_deref(),
         Some("# Body")
     );
 
-    let locations = fixture.locations();
-    let installed = install::prepare(
-        &locations,
-        &source(&root),
-        &catalog,
-        pdf,
-        None,
-        &fixture.0,
-        &[],
-    )
+    let installed = git::with_files(cache, &source, &[pdf.path.clone()], || {
+        install::prepare(&locations, &source, &catalog, pdf, None, &fixture.0, &[])
+    })
     .unwrap();
-    assert!(locations.skills.join("pdf/forms/SKILL.md").is_file());
+    assert!(locations.skills.join("pdf/forms/form.txt").is_file());
     fs::write(root.join("skills/.curated/pdf/forms/extra.md"), "more").unwrap();
-    let changed = schema::read(&root, "owner/skills").unwrap();
+    commit(&root);
+    let changed = git::refresh(cache, &source).unwrap();
     assert_ne!(changed.entries[0].version, installed.version);
-    fs::remove_dir_all(&root).unwrap();
-    fs::create_dir_all(&root).unwrap();
-    assert!(schema::read(&root, "owner/skills").is_err());
+    assert_eq!(changed.entries[1].version, lint.version);
+    for entry in fs::read_dir(&root).unwrap() {
+        let path = entry.unwrap().path();
+        if path.file_name().unwrap() != ".git" {
+            fs::remove_dir_all(&path)
+                .or_else(|_| fs::remove_file(&path))
+                .unwrap();
+        }
+    }
+    fs::write(root.join("README.md"), "nothing").unwrap();
+    commit(&root);
+    assert!(git::refresh(cache, &source).is_err());
 
     for url in [
         "https://github.com/owner/skills.git/",

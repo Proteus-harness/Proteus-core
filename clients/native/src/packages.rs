@@ -111,24 +111,6 @@ impl Contents {
         std::str::from_utf8(&file.content).with_context(|| format!("{name} не в UTF-8"))
     }
 
-    /// Stable across client builds; detects changed files, not tampering.
-    pub fn fingerprint(&self) -> String {
-        let mut hash = 0xcbf29ce484222325u64;
-        for (path, file) in &self.0 {
-            let path = path.to_string_lossy();
-            let len = (file.content.len() as u64).to_le_bytes();
-            for byte in path
-                .bytes()
-                .chain([0])
-                .chain(len)
-                .chain(file.content.iter().copied())
-            {
-                hash = (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3);
-            }
-        }
-        format!("{:012x}", hash >> 16)
-    }
-
     /// Validated contents are written to a hidden sibling before publication.
     pub fn install(&self, root: &Path, id: &str, replace: bool) -> Result<PathBuf> {
         ensure!(

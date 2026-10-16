@@ -10,7 +10,7 @@ use gpui_kit::*;
 use super::super::{SettingsEvent, SettingsView};
 use super::in_profile;
 use crate::catalog::{
-    Installed, Locations, Source, install,
+    Installed, Locations, Source, git, install,
     schema::{Entry, Kind},
 };
 use crate::settings::Draft;
@@ -92,15 +92,19 @@ impl SettingsView {
             let result = cx
                 .background_executor()
                 .spawn(async move {
-                    install::prepare(
-                        &Locations::local()?,
-                        &source,
-                        &catalog,
-                        &entry,
-                        old.as_ref(),
-                        &profile,
-                        &taken,
-                    )
+                    let locations = Locations::local()?;
+                    let folder = [entry.path.clone()];
+                    git::with_files(&locations.cache, &source, &folder, || {
+                        install::prepare(
+                            &locations,
+                            &source,
+                            &catalog,
+                            &entry,
+                            old.as_ref(),
+                            &profile,
+                            &taken,
+                        )
+                    })
                 })
                 .await;
             this.update(cx, |this, cx| {

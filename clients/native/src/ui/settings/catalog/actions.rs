@@ -36,13 +36,20 @@ impl SettingsView {
                 this.catalogs.busy = false;
                 match result {
                     Ok(catalogs) => {
+                        let mut absent = Vec::new();
                         for (source, catalog) in catalogs {
                             let fresh = this.catalogs.loaded.iter().any(|(old, _)| *old == source);
-                            if let (Ok(catalog), false) = (catalog, fresh) {
-                                this.catalogs.loaded.push((source, catalog));
+                            match (catalog, fresh) {
+                                (Ok(catalog), false) => {
+                                    this.catalogs.loaded.push((source, catalog))
+                                }
+                                (Err(_), false) => absent.push(source),
+                                (_, true) => {}
                             }
                         }
                         this.order_catalogs(cx);
+                        // Lists that were never downloaded come without a click.
+                        this.refresh_catalogs(absent, cx);
                     }
                     Err(error) => this.catalog_message(Err(error)),
                 }
@@ -185,9 +192,15 @@ impl SettingsView {
         cx.notify();
         cx.spawn(async move |this, cx| {
             let id = entry.id.clone();
+            let task = source.clone();
             let result = cx
                 .background_executor()
-                .spawn(async move { schema::readme(&catalog, &entry) })
+                .spawn(async move {
+                    let files = [entry.path.join("README.md"), entry.path.join("SKILL.md")];
+                    git::with_files(&Locations::local()?.cache, &task, &files, || {
+                        schema::readme(&catalog, &entry)
+                    })
+                })
                 .await;
             this.update(cx, |this, cx| {
                 if this.catalogs.selected.as_ref() != Some(&(source, id)) {
