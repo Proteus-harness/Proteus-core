@@ -92,11 +92,11 @@ impl SettingsView {
         }
     }
 
-    /// Entries as the list shows them.
+    /// Entries as the list or the overview shows them.
     fn catalog_shown(&self, cx: &App) -> Vec<(Source, Entry)> {
-        self.catalog_items(&prefs::current(cx).catalogs.installed)
+        let items = self.catalog_items(&prefs::current(cx).catalogs.installed);
+        self.catalog_listed(&items)
             .into_iter()
-            .filter(|item| self.catalog_item_shown(item))
             .map(|item| (item.source.clone(), item.entry.clone()))
             .collect()
     }

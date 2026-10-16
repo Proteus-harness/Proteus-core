@@ -5,6 +5,7 @@ mod apply;
 mod details;
 mod items;
 mod keys;
+mod overview;
 mod sources;
 mod view;
 mod zip;
@@ -28,6 +29,8 @@ pub(super) struct State {
     pub query: String,
     pub show: Show,
     pub kind: Option<Kind>,
+    /// One catalog, or one category of it, picked on the overview.
+    pub scope: Option<Scope>,
     pub loaded: Vec<(Source, Catalog)>,
     pub selected: Option<(Source, String)>,
     pub readme: Option<Entity<TextViewState>>,
@@ -44,14 +47,23 @@ pub(super) struct State {
     /// The entry list; the arrows work while focus is on the page.
     pub focus: FocusHandle,
     pub scroll: UniformListScrollHandle,
+    pub overview: ScrollHandle,
 }
 
-/// Which entries the list shows.
+/// Which entries the list shows. The overview gives way to the list as
+/// soon as a search, a type or a scope narrows it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Show {
+    Overview,
     All,
     Installed,
     Updates,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct Scope {
+    pub source: Source,
+    pub category: Option<String>,
 }
 
 impl State {
@@ -77,8 +89,9 @@ impl State {
                 branch,
                 search,
                 query: String::new(),
-                show: Show::All,
+                show: Show::Overview,
                 kind: None,
+                scope: None,
                 loaded: Vec::new(),
                 selected: None,
                 readme: None,
@@ -91,6 +104,7 @@ impl State {
                 message: None,
                 focus: cx.focus_handle().tab_stop(true),
                 scroll: UniformListScrollHandle::new(),
+                overview: ScrollHandle::new(),
             },
             changes,
         )

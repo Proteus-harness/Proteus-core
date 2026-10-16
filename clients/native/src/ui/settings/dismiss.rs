@@ -29,6 +29,9 @@ impl SettingsView {
             self.deselect_catalog_entry(cx);
             return;
         }
+        if self.page == PageId::Catalog && self.catalog_back(window, cx) {
+            return;
+        }
         if !self.search.read(cx).value().is_empty() {
             self.search
                 .update(cx, |search, cx| search.set_value("", window, cx));

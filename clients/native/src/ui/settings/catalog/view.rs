@@ -59,6 +59,8 @@ impl SettingsView {
                 false,
                 cx,
             )
+        } else if !self.catalog_browsing() && !items.is_empty() {
+            self.catalog_overview(&items, selected.is_some(), cx)
         } else if shown.is_empty() {
             self.catalog_empty(
                 if items.is_empty() {
@@ -263,6 +265,11 @@ impl SettingsView {
                         h_flex()
                             .flex_none()
                             .gap_1()
+                            .child(show(
+                                "catalog-show-overview",
+                                Show::Overview,
+                                "Обзор".into(),
+                            ))
                             .child(show("catalog-show-all", Show::All, "Все".into()))
                             .child(show(
                                 "catalog-show-installed",
@@ -291,11 +298,24 @@ impl SettingsView {
                             Some(item),
                             kind_filter(item),
                         )
+                    }))
+                    .children(self.catalogs.scope.as_ref().map(|scope| {
+                        kit::button("catalog-scope")
+                            .label(self.catalog_scope_title(scope))
+                            .icon(Icon::new(IconName::Close))
+                            .outline()
+                            .xsmall()
+                            .ml_2()
+                            .hint("Показать все источники", cx)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.catalogs.scope = None;
+                                cx.notify();
+                            }))
                     })),
             )
     }
 
-    fn catalog_row(
+    pub(super) fn catalog_row(
         &self,
         item: &Item,
         narrow: bool,

@@ -165,6 +165,7 @@ impl SettingsView {
         });
         self.catalogs.loaded.retain(|(old, _)| old != source);
         self.catalogs.loading.retain(|old| old != source);
+        self.forget_catalog_scope(source);
         if self
             .catalogs
             .selected
