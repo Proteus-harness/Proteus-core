@@ -25,7 +25,7 @@ use crate::ui::prefs;
 
 /// A row shows one line, so the rest of a long description never comes
 /// into view there.
-const ROW_TEXT: usize = 200;
+const ROW_TEXT: usize = 400;
 
 impl SettingsView {
     pub(in crate::ui::settings) fn catalog_page(&self, cx: &Context<Self>) -> AnyElement {
@@ -349,6 +349,9 @@ impl SettingsView {
         let (source, entry) = (item.source.clone(), item.entry.clone());
         h_flex()
             .id(hashed_id("catalog-row", &item.key()))
+            // The list lays each row out on its own: without a width it
+            // shrinks to its text.
+            .w_full()
             .px_8()
             .when(narrow, |row| row.pr_4())
             .py_2p5()
