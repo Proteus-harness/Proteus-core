@@ -95,7 +95,7 @@ token отклоняется до запуска runtime и bind.
 строки stdout остаются диагностикой; credential в readiness не входит.
 Supervisor передаёт `--token` и нужные `--allow-origin` явно; для проверки
 и завершения есть `/bootstrap` и authenticated `POST /shutdown`.
-[Приложение](../../clients/native/README.md) запускает сервер с собственным
+[Приложение](https://github.com/Qweasd123tg/Proteus-desktop/blob/main/README.md) запускает сервер с собственным
 token и завершает его сигналом группе процессов; при аварийном выходе клиента
 сервер получает `SIGTERM` через `PR_SET_PDEATHSIG`.
 
@@ -652,7 +652,7 @@ sessions не выдаются за запросы текущего журнал
 Чтение cold session заново валидирует журнал, не захватывает write ownership,
 не исправляет хвост и не меняет файлы. Проекция не содержит prompts, ответов и
 аргументов tools. Цены и суммирование по выбранному периоду принадлежат клиенту:
-[страница «Расход и контекст»](../../clients/native/README.md) клиента использует
+[страница «Расход и контекст»](https://github.com/Qweasd123tg/Proteus-desktop/blob/main/README.md) клиента использует
 один публичный snapshot. Тарифы не входят в Core или model contract.
 
 `GET /context?session_dir=<path>` возвращает diagnostic context map для
@@ -683,7 +683,7 @@ system-строку в transcript.
 `crates/proteus-core/src/app_server.rs` отделяет UI-клиенты от `AgentRuntime`. Клиент работает с `AppServerHandle`, подписывается на `AppServerEvent` и отправляет команды через transport. Сейчас реализованы локальный `stdio` transport в `crates/proteus-core/src/app_server/stdio.rs` и HTTP/SSE transport в `crates/proteus-core/src/app_server/http.rs`; DTO лежат в `proteus-contracts::app_protocol` и re-export'ятся через `crates/proteus-core/src/app_server.rs`. Будущие socket/ACP-клиенты должны использовать ту же app-server границу.
 
 Устройство окна клиента — вкладки, панели и расширения — описано в
-[руководстве приложения](../../clients/native/README.md).
+[руководстве приложения](https://github.com/Qweasd123tg/Proteus-desktop/blob/main/README.md).
 
 События app-server:
 

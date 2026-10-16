@@ -10,10 +10,13 @@
 `docs/archive/` и `examples/research/` исключайте из обычного поиска
 контекста; они нужны только по явному запросу истории конкретного решения.
 
-Основной пользовательский клиент — нативное приложение на GPUI в
-`clients/native`. Диагностика (расход, анализ ходов, архитектура сборки)
-поставляется отдельными процессными расширениями клиента из `clients/extensions`. Прежнее веб-приложение на
-Tauri/Leptos удалено; его исходники сохранены в git-теге `archive/web-app`.
+Этот репозиторий — Proteus harness: Core, contracts, process protocol/host,
+CLI и app-server. Реализации находятся в соседнем `../Modules` / репозитории
+[Proteus-modules](https://github.com/Qweasd123tg/Proteus-modules).
+Приложение GPUI и его процессные расширения — отдельные репозитории
+[Proteus-desktop](https://github.com/Qweasd123tg/Proteus-desktop) и
+[Proteus-desktop-extensions](https://github.com/Qweasd123tg/Proteus-desktop-extensions).
+Прежнее веб-приложение сохранено в git-теге `archive/web-app`.
 
 Текущий сценарий — локальная работа владельца с собственными доверенными
 модулями. Sandbox и hardening для недоверенных сторонних модулей не являются
@@ -128,13 +131,11 @@ rendering, UI state, tests и provider/module-specific детали.
   `proteus-core` — runtime, wiring, process adapters и app-server;
   `proteus-module-protocol` — component-v3 broker и conformance;
   `proteus-process-host` — lifecycle stdio процессных модулей.
-- `clients/native` — приложение на GPUI: окно, чаты, настройки и расширения
-  клиента; `clients/common` — общие правила подключения и сессий клиента.
-  Пользовательские дополнения окна называются расширениями клиента; модули
-  агента реализуют слоты и запускаются во внешних процессах.
-- `modules/reference` — reference implementations; каталог slots и exports
-  описан в `docs/architecture/modules.md`. `modules/research` — эксперименты
-  вне production path.
+- Proteus-modules группирует реализации по `model`, `workflow`, `context`,
+  `policy`, `hook`, `tool`, `context_provider`; executable с несколькими
+  exports находится в `components/process-module`, эксперименты — в `research`.
+- Proteus-desktop и Proteus-desktop-extensions имеют собственные workspace,
+  документацию и проверки; не возвращайте их исходники в harness.
 - `configs` — поставляемые profiles и prompts, источник для `install.sh`.
 - `examples/configs`, `examples/modules`, `examples/mcp` — примеры config,
   внешних модулей и локального MCP server.
@@ -155,7 +156,7 @@ Reference crates линкуются только внутрь `proteus-reference
 - Не выдавать implementation дополнительные права из-за того, что она
   зарегистрировала tool через broad extension/hook path; одинаковая behavior
   surface должна проходить один contract и safety path.
-- Не импортировать provider-specific типы OpenAI, Anthropic или локальных API за пределами provider implementation в `modules/reference/model-pack/src/adapters`. Core model shaping остаётся provider-neutral.
+- Не импортировать provider-specific типы OpenAI, Anthropic или локальных API за пределами provider implementation в `Proteus-modules/model/model-pack/src/adapters`. Core model shaping остаётся provider-neutral.
 - Не добавлять runtime-логику в CLI, если она принадлежит `core` или `workflow`.
 - Не обходить `ToolRegistry`, `ApprovalPolicy` и `ToolSafety` при исполнении tools.
 - Не менять DTO на границах модулей без обновления документации и тестов.
@@ -210,7 +211,7 @@ Reference crates линкуются только внутрь `proteus-reference
 4. Если нет — сначала реализовать общий process adapter для всего slot. Не
    добавлять временный native/builtin путь для одной implementation.
 5. Добавить explicit component export и config/profile selection; reference implementation при
-   необходимости разместить в `modules/reference/<name>`, не присваивая ей
+   необходимости разместить в Proteus-modules: `<slot>/<name>`, не присваивая ей
    default/standard статус.
 6. Добавить protocol и runtime swap evidence, затем обновить
    `docs/architecture/modules.md` и `docs/guides/configuration.md`.
@@ -327,16 +328,14 @@ implementation. Сначала расширяйте существующий bou
 
 Для архитектурных правок проверьте, что `tests/module_swap.rs` продолжает подтверждать заменяемость slots и canonical model contract.
 
-Клиент (`clients/native`) и `clients/common` исключены из root workspace;
-клиент собирается своим toolchain из `rust-toolchain.toml`. Валидируйте их
-`cargo test --manifest-path clients/native/Cargo.toml` (при правке общих
-правил — ещё `clients/common/Cargo.toml`).
+Связанные репозитории проверяйте их собственными runners:
+`python3 scripts/test.py full` в Proteus-modules, `python3 scripts/test.py`
+в Proteus-desktop, `python3 -m unittest discover -s tests` в расширениях.
+Runner harness готовит отдельный process fixture через `scripts/build_module.py`;
+не добавляйте реализации модулей обратно в Cargo workspace.
 
-Когда правка приложения (клиент или backend) завершена и закоммичена, а также
-по запросу владельца, сразу пересобирайте portable через
-`python3 clients/native/scripts/portable.py --fast`, чтобы
-`clients/native/build/Proteus/proteus-native` был актуален. Полную release
-сборку с архивом (без `--fast`) запускайте только для проверки упаковки,
-раздачи или по запросу владельца. Промежуточные
-правки внутри одной задачи отдельной пересборки не требуют. Не удаляйте
-`target` ради обычной проверки: сборка инкрементальная.
+После завершённой и закоммиченной правки приложения/backend пересобирайте
+portable из Proteus-desktop: `python3 scripts/portable.py --fast`.
+Для локальной раскладки приложение находится в `../../GPUI/Client`.
+Полную сборку с архивом запускайте только при проверке упаковки или по запросу.
+Сохраняйте `target`: сборка инкрементальная.

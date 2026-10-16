@@ -1,6 +1,6 @@
-# Proteus
+# Proteus Harness
 
-<img src="clients/native/assets/proteus-logo.svg" width="112" height="112" alt="Логотип Proteus">
+<img src="https://raw.githubusercontent.com/Qweasd123tg/Proteus-desktop/main/assets/proteus-logo.svg" width="112" height="112" alt="Логотип Proteus">
 
 Proteus — конструктор ИИ-агентов на Rust. Агент собирается из модулей,
 подключённых к слотам: можно выбрать алгоритм выполнения задач, модель,
@@ -52,43 +52,29 @@ Core отвечает за сборку, выполнение запросов, 
 - **Задачи без модели:** отдельные алгоритмы, например проверка проекта,
   могут выполняться без обращения к языковой модели.
 
-## Запуск
+## Репозитории И Запуск
 
-### Приложение
+| Репозиторий | Ответственность |
+|---|---|
+| **Proteus-harness** (этот) | Core, публичные контракты, process host, HTTP/SSE и CLI |
+| [Proteus-modules](https://github.com/Qweasd123tg/Proteus-modules) | Реализации по слотам, reference executable и DCP |
+| [Proteus-desktop](https://github.com/Qweasd123tg/Proteus-desktop) | Приложение GPUI и общие правила клиента |
+| [Proteus-desktop-extensions](https://github.com/Qweasd123tg/Proteus-desktop-extensions) | Поставляемые по умолчанию процессные расширения приложения |
 
-Нативное приложение на GPUI работает под Linux. Для сборки из исходников нужны
-Rust и Git; версия Rust задаётся `clients/native/rust-toolchain.toml`.
-
-Из корня репозитория:
-
-```bash
-python3 clients/native/scripts/portable.py
-./clients/native/build/Proteus/proteus-native /path/to/project
-```
-
-Полученную папку `clients/native/build/Proteus` можно перенести целиком;
-`install-shortcut` из неё добавляет ярлык в меню приложений. Приложение само
-запускает сервер для выбранного проекта; профиль задаётся `--config`
-(по умолчанию — основной `config.toml`).
-Подробности — в [описании приложения](clients/native/README.md).
-
-### Команды Для Терминала
-
-Для установки CLI и команд авторизации из исходников нужны Rust и Git:
+Для CLI нужны Rust, Git и Python 3:
 
 ```bash
+git clone https://github.com/Qweasd123tg/Proteus-harness.git
+cd Proteus-harness
 ./install.sh
 ```
 
-Установщик размещает `proteus` и `proteus-reference-module` в
-`~/.proteus/current`, а команды запуска — в `~/.local/bin`.
-Добавьте `~/.local/bin` в `PATH`, если этот каталог ещё не используется.
-Установщик использует `CARGO_TARGET_DIR`, если он задан: установленные
-executable берутся из того же каталога, в котором прошла release-сборка.
-
-Выберите поставщика модели и настройте доступ по
-[руководству конфигурации](docs/guides/configuration.md).
-Например, для профиля с подпиской ChatGPT:
+Установщик собирает harness и отдельный `proteus-reference-module` из
+Proteus-modules, затем атомарно публикует их в `~/.proteus/current` и команды
+в `~/.local/bin`. Исходники модулей выбираются через `repositories.json`:
+соседний checkout `../Modules`, явный `PROTEUS_MODULES_SOURCE` или загрузка
+зафиксированной ревизии в `target/sources/modules`. `CARGO_TARGET_DIR`
+поддерживается. Для одной сборки harness достаточно `cargo build --release -p proteus-core`.
 
 ```bash
 proteus-reference-module auth openai_codex login
@@ -96,18 +82,17 @@ cd /path/to/project
 proteus --config codex "Расскажи о структуре этого проекта"
 ```
 
-`proteus` без запроса открывает интерактивный CLI. Приложение запускается
-файлом `proteus-native` из собранной папки.
+Профили и prompts из `configs/` устанавливаются вместе с CLI. Пользовательские
+настройки и авторизация остаются в прежних местах; имя Git-репозитория их не
+меняет. `proteus` без запроса открывает интерактивный CLI.
 
-Профили из `configs/` устанавливаются вместе с программой. Основной
-`config.toml` использует подписку ChatGPT и DCP; `--config codex` выбирает
-ту же подписочную сборку без DCP. Для создания новой
-конфигурации можно использовать `proteus init coding`: команда записывает
-`config.toml` и связанные файлы, **перезаписывая существующие**.
-Рабочий профиль лучше выбрать через `--config` или настроить явно.
+Приложение собирается в репозитории
+[Proteus-desktop](https://github.com/Qweasd123tg/Proteus-desktop#portable):
+`python3 scripts/portable.py --fast`. Готовая папка включает harness, модуль
+и расширения и работает без исходных checkout.
 
-Авторизация, API-ключи, собственные профили и параметры запуска:
-[configuration.md](docs/guides/configuration.md).
+Авторизация и собственные профили — в
+[руководстве конфигурации](docs/guides/configuration.md).
 
 ## Подключение Своего Модуля
 
@@ -188,7 +173,8 @@ proteus --config codex server acp
 Для работы непосредственно из исходников можно собрать сервер и модуль:
 
 ```bash
-cargo build -p proteus-core -p proteus-reference-module
+cargo build -p proteus-core
+python3 scripts/build_module.py --target-dir target
 PATH="$PWD/target/debug:$PATH" ./target/debug/proteus --config examples/configs/proteus.example.toml "Покажи пример ответа"
 ```
 
@@ -199,10 +185,6 @@ PATH="$PWD/target/debug:$PATH" ./target/debug/proteus --config examples/configs/
 | Каталог | Содержимое |
 |---|---|
 | `crates/` | Core, контракты модулей, протокол обмена и управление процессами |
-| `modules/reference/` | Поставляемые реализации и `proteus-reference-module` |
-| `modules/research/` | Экспериментальные реализации |
-| `clients/native/` | Основное приложение на GPUI |
-| `clients/common/` | Общие правила подключения и сессий клиента |
 | `configs/` | Профили, их общие фрагменты и инструкции |
 | `examples/` | Примеры конфигурации, внешних модулей и сервера MCP |
 | `docs/` | Руководства, архитектура и описание проекта |
@@ -212,7 +194,7 @@ PATH="$PWD/target/debug:$PATH" ./target/debug/proteus --config examples/configs/
 - [Замысел проекта](docs/product/spec.md), [текущее состояние](docs/product/scope.md)
   и [план развития](docs/product/roadmap.md).
 - [Настройка моделей и профилей](docs/guides/configuration.md).
-- [Приложение и расширения клиента](clients/native/README.md).
+- [Приложение и расширения клиента](https://github.com/Qweasd123tg/Proteus-desktop/blob/main/README.md).
 - [Слоты и модули](docs/architecture/modules.md),
   [архитектура](docs/architecture/architecture.md) и
   [протокол модулей](docs/architecture/process-module-architecture.md).

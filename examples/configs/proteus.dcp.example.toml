@@ -21,7 +21,7 @@ hooks = ["hook.dcp"]
 [components.dcp]
 command = "node"
 # Замените абсолютным путём вашей сборки; install.sh DCP не устанавливает.
-args = ["/absolute/path/to/Agent/modules/reference/dcp/dist/worker.js"]
+args = ["/absolute/path/to/Proteus-modules/hook/dcp/dist/worker.js"]
 env_allowlist = ["HOME", "XDG_DATA_HOME"]
 
 [components.dcp.exports.hook."hook.dcp"]

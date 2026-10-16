@@ -235,7 +235,7 @@ handlers и PreToolUse/Stop commands Codex/Claude. Он экспортирует
 `hook/v6` с тем же contract и общими model/tool callbacks. Upstream lifecycle
 или неподдержанные actions не эмулируются; различия описаны рядом с примерами.
 
-[`DCP`](../../modules/reference/dcp/README.md) — независимый Node component
+[`DCP`](https://github.com/Qweasd123tg/Proteus-modules/blob/main/hook/dcp/README.md) — независимый Node component
 с exports `hook/hook.dcp` и `tool/dcp.tools` (tool `compress`). Алгоритмы и prompts
 из pinned upstream DCP 3.2.0 применяются к model context view, не переписывают
 canonical history. Hook получает immutable conversation snapshot в input;
@@ -459,7 +459,7 @@ Tool implementation проверяет `workdir` относительно worksp
 `codex_patch` повторяет parser, context matching и последовательное применение
 pinned Codex. Синтаксис задают profile instructions; Core его не разбирает.
 Граница и provenance — в
-[UPSTREAM.md](../../modules/reference/codex-patch/UPSTREAM.md).
+[UPSTREAM.md](https://github.com/Qweasd123tg/Proteus-modules/blob/main/tool/codex-patch/UPSTREAM.md).
 Поиск и память также не имеют собственных слотов:
 
 `rg_search`, `jsonl_memory` и `sqlite_memory` ниже — имена implementations,
@@ -520,7 +520,7 @@ provider streaming. Дельты доставляются через acknowledge
 полный response/error — отдельным terminal result. Порядок, backpressure и
 отмена принадлежат host adapter, provider HTTP/SDK — реализации.
 
-Reference implementations находятся в `modules/reference/model-pack` и
+Reference implementations находятся в `Proteus-modules/model/model-pack` и
 линкуются в процессный модуль, не в Core. `providers.<name>.provider` выбирает
 export id,
 `module_config.model.<id>` передаётся реализации без разбора provider schema.
@@ -537,7 +537,7 @@ Credentials, browser/device login и refresh принадлежат model-pack; 
 или slot. Core, workflow и tool authority не различают способ оплаты модели.
 `stream=false` собирает один provider SSE в terminal response. Хранилище,
 конкурентный refresh и отличия от upstream описаны в
-[model-pack/UPSTREAM.md](../../modules/reference/model-pack/UPSTREAM.md).
+[model-pack/UPSTREAM.md](https://github.com/Qweasd123tg/Proteus-modules/blob/main/model/model-pack/UPSTREAM.md).
 
 ### Agent Control
 
@@ -668,8 +668,8 @@ hook и tool в JSON и восстанавливает `ModelFailure` из да�
 | Контракт слота | [tool.rs](../../crates/proteus-contracts/src/contracts/tool.rs) и [process_slots.rs](../../crates/proteus-contracts/src/contracts/process_slots.rs) | Общий `tool/v6` принимает `ToolCall` и возвращает `ToolResult`; canonical `SearchQuery` принадлежит [domain/search.rs](../../crates/proteus-contracts/src/domain/search.rs), не отдельному slot. |
 | Подключение выбранного export | [components.rs](../../crates/proteus-core/src/core/module_catalog/components.rs) и [tool.rs](../../crates/proteus-core/src/process_adapters/tool.rs) | Catalog регистрирует process tool provider; `list` обнаруживает `search`, `tools.enabled` включает его. Generic adapter вызывает `invoke`. |
 | Вызов компонента | [client.rs](../../crates/proteus-core/src/process_adapters/client.rs) и [broker.rs](../../crates/proteus-module-protocol/src/v3/broker.rs) | `ProcessExportClient` передаёт typed запрос и ссылку на export в `ComponentBroker`; broker управляет вызовом и общим process lifecycle компонента. |
-| Выбор export внутри модуля | [dispatch.rs](../../modules/reference/process-module/src/dispatch.rs) и [exports.rs](../../modules/reference/process-module/src/exports.rs) | Процессный модуль находит export по `slot/module_id`, проверяет метод и выбирает tool по `call.name`; результат упаковывается в `ProcessToolInvokeResponse`. |
-| Алгоритм reference-модуля | [rg-search/src/tool.rs](../../modules/reference/rg-search/src/tool.rs) и [lib.rs](../../modules/reference/rg-search/src/lib.rs) | Adapter формирует `SearchQuery` из args/cwd; `run_rg` выполняет поиск. [provider.rs](../../modules/reference/rg-search/src/provider.rs) использует тот же локальный алгоритм для чтения контекста. |
+| Выбор export внутри модуля | [dispatch.rs](https://github.com/Qweasd123tg/Proteus-modules/blob/main/components/process-module/src/dispatch.rs) и [exports.rs](https://github.com/Qweasd123tg/Proteus-modules/blob/main/components/process-module/src/exports.rs) | Процессный модуль находит export по `slot/module_id`, проверяет метод и выбирает tool по `call.name`; результат упаковывается в `ProcessToolInvokeResponse`. |
+| Алгоритм reference-модуля | [rg-search/src/tool.rs](https://github.com/Qweasd123tg/Proteus-modules/blob/main/context_provider/rg-search/src/tool.rs) и [lib.rs](https://github.com/Qweasd123tg/Proteus-modules/blob/main/context_provider/rg-search/src/lib.rs) | Adapter формирует `SearchQuery` из args/cwd; `run_rg` выполняет поиск. [provider.rs](https://github.com/Qweasd123tg/Proteus-modules/blob/main/context_provider/rg-search/src/provider.rs) использует тот же локальный алгоритм для чтения контекста. |
 
 Один configured component может содержать несколько exports и общий процесс,
 но каждый вызов указывает конкретный export. Алгоритм `rg` можно заменить

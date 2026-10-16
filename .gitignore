@@ -1,5 +1,4 @@
 target/
-/clients/native/build/
 /.proteus/
 /.playwright-mcp/
 /.agent/
@@ -11,3 +10,6 @@ target/
 .env
 secrets.json
 config.local.json
+
+__pycache__/
+*.pyc

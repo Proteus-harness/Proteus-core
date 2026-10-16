@@ -11,11 +11,11 @@ config_home="${PROTEUS_CONFIG_HOME:-${HOME}/.config/Proteus-agent}"
 configs_dir="${config_home}/configs"
 build_target="${CARGO_TARGET_DIR:-${project_dir}/target}"
 
-cargo build --release --manifest-path "${project_dir}/Cargo.toml" \
+cargo build --locked --release --manifest-path "${project_dir}/Cargo.toml" \
   --target-dir "${build_target}" \
-  -p proteus-core \
-  -p proteus-reference-module
+  -p proteus-core
 build_target=$(CDPATH= cd -- "${build_target}" && pwd)
+module_binary=$(python3 "${project_dir}/scripts/build_module.py" --profile release --target-dir "${build_target}")
 
 mkdir -p "${bin_dir}"
 bin_tmp="${bin_path}.tmp.$$"
@@ -66,7 +66,7 @@ chmod 755 "${module_tmp}"
 # build snapshot visible.
 mkdir -p "${release_tmp}"
 cp "${build_target}/release/proteus" "${release_tmp}/proteus"
-cp "${build_target}/release/proteus-reference-module" "${release_tmp}/proteus-reference-module"
+cp "${module_binary}" "${release_tmp}/proteus-reference-module"
 chmod 755 "${release_tmp}/proteus"
 chmod 755 "${release_tmp}/proteus-reference-module"
 

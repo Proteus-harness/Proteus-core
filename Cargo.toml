@@ -1,37 +1,11 @@
 [workspace]
 resolver = "2"
-exclude = [
-    "clients/common",
-    "clients/native",
-    "modules/research/tool-output-artifacts",
-]
 members = [
     "crates/proteus-contracts",
     "crates/proteus-core",
     "crates/proteus-module-protocol",
     "crates/proteus-process-host",
-    "modules/reference/file-tools",
-    "modules/reference/git-tools",
-    "modules/reference/sqlite-memory",
-    "modules/reference/shell-tool",
-    "modules/reference/plan-tool",
-    "modules/reference/rg-search",
-    "modules/reference/direct-patch",
-    "modules/reference/codex-patch",
-    "modules/reference/coding-workflow",
-    "modules/reference/context-pack",
-    "modules/reference/skill-pack",
-    "modules/reference/rust-lsp",
-    "modules/reference/codex-context-preparation",
-    "modules/reference/tool-selection-hook",
-    "modules/reference/memory-pack",
-    "modules/reference/policy-pack",
-    "modules/reference/process-module",
-    "modules/reference/hook-pack",
-    "modules/reference/model-pack",
 ]
 
-# Keep file/line backtraces without the large variable/type debug sections.
-# The test profile inherits dev so both commands reuse the same artifacts.
 [profile.dev]
 debug = "line-tables-only"

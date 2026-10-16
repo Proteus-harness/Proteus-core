@@ -44,7 +44,7 @@ CI отключён; проверки выполняются локально. M
 | Изменение | Достаточная проверка |
 |---|---|
 | Документация, комментарии | Содержание, локальные ссылки, `git diff --check` |
-| Скрипт portable-сборки | Реальный `python3 clients/native/scripts/portable.py --debug`; launcher и `install-shortcut` из собранной папки |
+| Скрипт portable-сборки | Реальный `python3 scripts/portable.py --debug в Proteus-desktop`; launcher и `install-shortcut` из собранной папки |
 | Prompt/config без schema change | Загрузка профиля; при подключении готового модуля — один целевой invocation; init/install только при изменении упаковки |
 | Чистка tests | Изменённые test targets и сохранённые behavior checks |
 | Локальный helper | Затронутый test target |
@@ -57,8 +57,8 @@ CI отключён; проверки выполняются локально. M
 | Agent control | Real process peers, адресная доставка/отмена и независимые child configs |
 | HTTP/session | Затронутые handlers; reconnect/cold history/auth/SSE при изменении этих границ |
 | MCP/ACP | Реальный stdio peer; prompt/tools/approval/cancel и cold history по изменению |
-| Клиент | `cargo test --manifest-path clients/native/Cargo.toml`; при UX change — ручной запуск окна |
-| Расширения клиента | Tests `declarative`/`extensions`; пример `clients/native/examples/extensions` в живом окне при изменении протокола |
+| Клиент | `python3 scripts/test.py` в Proteus-desktop; при UX change — ручной запуск окна |
+| Расширения клиента | Tests `declarative`/`extensions`; пример `Proteus-desktop/examples/extensions` в живом окне при изменении протокола |
 | Запуск приложения и portable | Запуск backend, завершение вместе с окном, portable build и запуск собранной папки |
 
 Для небольшой правки профиля используйте уже собранный актуальный executable.
@@ -88,16 +88,18 @@ git diff --check
 выбирает весь workspace. Для локального module/helper выбирайте package или
 filter из матрицы; полный прогон не нужен после каждого изменения.
 
-Runner один раз готовит свежий reference-модуль и передаёт его path через
-`PROTEUS_TEST_REFERENCE_MODULE`. Core fixtures не запускают Cargo и не угадывают
-старый binary в `target/`. Full использует executable из того же `cargo test
---no-run`; focused Core использует отдельный cache `target/test-module`, чтобы
-узкий feature graph не перезаписывал workspace artifacts. Обычные package
-tests без Core не собирают модуль.
-Для installed smoke или явно подготовленного модуля можно задать его path в
-`PROTEUS_TEST_REFERENCE_MODULE`: focused runner использует этот executable без
-сборки. Свежесть такой явной привязки обеспечивает вызывающий сценарий; missing
-file — ошибка. Full всегда получает модуль из своего Cargo artifact stream.
+Runner готовит reference-модуль из отдельного Proteus-modules через
+`scripts/build_module.py` и передаёт его фактический Cargo artifact path в
+`PROTEUS_TEST_REFERENCE_MODULE`. Core fixtures не запускают Cargo и не
+угадывают binary в target. Явный `PROTEUS_TEST_REFERENCE_MODULE` используется
+и в полном gate; его свежесть обеспечивает вызывающий сценарий. Отсутствующий
+файл — ошибка. При подготовке JS fixture используются `hook/dcp` отдельного
+репозитория и переменная `PROTEUS_TEST_DCP_MODULE`.
+
+`full` теперь выбирает только четыре crates harness. Реализации проверяются
+своим `python3 scripts/test.py full` в Proteus-modules. В приложении используется
+`python3 scripts/test.py` из Proteus-desktop: он подготавливает отдельный набор
+расширений, затем проверяет GPUI workspace и client-common.
 
 Defaults runner-а: два build jobs, четыре test threads, loopback в `NO_PROXY`
 и отключённые Python bytecode caches. Явные environment settings сохраняются.
@@ -131,7 +133,7 @@ error, pending и cold read после interruption. Process wire/authority не
 | Framing, child lifecycle, bounded transport | `proteus-process-host`, включая собственный runner `tests/session.rs` |
 | RPC envelope, wire ID, handshake, export identity, callback authority, multiplexing | `proteus-module-protocol` (`v3::frame`, `v3::wire_id`), `tests/broker_v3.rs` |
 | Подмена implementation, structural absence, shared component и failure/restart | [`proteus-core --test module_swap`](../../crates/proteus-core/tests/module_swap.rs) |
-| Reference exports, descriptors, tools и callbacks | [`proteus-reference-module --test conformance`](../../modules/reference/process-module/tests/conformance.rs) |
+| Reference exports, descriptors, tools и callbacks | [`proteus-reference-module --test conformance`](https://github.com/Qweasd123tg/Proteus-modules/blob/main/components/process-module/tests/conformance.rs) |
 | Ordered hooks, actual effect и следующий живой turn после interruption, replay Success/Error | [`proteus-core --test hook_runtime`](../../crates/proteus-core/tests/hook_runtime.rs) |
 | JS/TS hook SDK, перенос handlers, multiplexing и targeted cancel | `node --test examples/modules/hook-process/tests/*.test.mjs`; настоящие slot/journal/replay — `hook_runtime::js_ports` и `hook_runtime::review` |
 | Model process, catalog/quota и cancellation | `proteus-core --test model_process`, `proteus-reference-module --test model_exports` |
@@ -229,18 +231,18 @@ Core на reference crates. Shell fixtures разбирают JSON-RPC id JSON-�
 
 ### Клиенты И Установка
 
-Клиент и `clients/common` исключены из root workspace; клиент собирается
-своим toolchain из `clients/native/rust-toolchain.toml`:
+Клиент и `Proteus-desktop/crates/client-common` исключены из root workspace; клиент собирается
+своим toolchain из `Proteus-desktop/rust-toolchain.toml`:
 
 ```bash
-cargo test --manifest-path clients/native/Cargo.toml
-cargo test --manifest-path clients/common/Cargo.toml
+cargo test --manifest-path Proteus-desktop/Cargo.toml
+cargo test --manifest-path Proteus-desktop/crates/client-common/Cargo.toml
 ```
 
 Второй target нужен только при правке общих правил. При изменении shared
 client DTO в `proteus-contracts` клиент проверяется вместе с producers.
 
-Новая переносимая сборка (`python3 clients/native/scripts/portable.py`) нужна
+Новая переносимая сборка (`python3 Proteus-desktop/scripts/portable.py`) нужна
 при проверке упаковки, запуска или по запросу владельца. Не запускайте её
 после каждой правки окна. Общие Rust gates выбирайте по затронутой границе,
 а не по факту запуска приложения.
@@ -262,7 +264,7 @@ client DTO в `proteus-contracts` клиент проверяется вмест
 ## Ordered Hook Evidence
 
 Самостоятельный DCP Node component проверяется `npm test` в
-`modules/reference/dcp`. Runner перед `full`, общим core integration scope и
+`Proteus-modules/hook/dcp`. Runner перед `full`, общим core integration scope и
 целевыми `hook_runtime`/`module_swap`/`context_profile_swap` выполняет locked
 `npm ci --ignore-scripts` и build,
 передаёт свежий путь через `PROTEUS_TEST_DCP_MODULE`; сборок внутри Rust tests нет.

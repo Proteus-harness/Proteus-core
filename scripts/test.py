@@ -1,36 +1,13 @@
 #!/usr/bin/env python3
-"""Run a selected Cargo test scope with an explicitly prepared process fixture."""
-import json
+"""Run harness tests with independently built process-module fixtures."""
 import os
 from pathlib import Path
 import subprocess
 import sys
 import time
 
-ROOT = Path(__file__).resolve().parent.parent
-REFERENCE_MODULE = "proteus-reference-module"
-
-
-def cargo_artifact(args, env):
-    """Read Cargo's executable path; never guess an old binary from target/."""
-    command = ["cargo", *args, "--message-format=json-render-diagnostics"]
-    child = subprocess.Popen(command, cwd=ROOT, env=env, stdout=subprocess.PIPE, text=True)
-    module_path = None
-    for line in child.stdout:
-        message = json.loads(line)
-        if message.get("reason") == "compiler-message":
-            rendered = message["message"].get("rendered")
-            if rendered:
-                print(rendered, end="", file=sys.stderr)
-        elif (message.get("reason") == "compiler-artifact"
-              and message["target"]["name"] == REFERENCE_MODULE
-              and not message["profile"]["test"]
-              and message.get("executable")):
-            module_path = message["executable"]
-    status = child.wait()
-    if status:
-        raise SystemExit(status)
-    return module_path
+from build_module import build
+from sources import ROOT, resolve
 
 
 def test_env():
@@ -39,8 +16,8 @@ def test_env():
     env.setdefault("RUST_TEST_THREADS", "4")
     env.setdefault("PYTHONDONTWRITEBYTECODE", "1")
     for key in ("NO_PROXY", "no_proxy"):
-        entries = [value for value in env.get(key, "").split(",") if value]
-        env[key] = ",".join(dict.fromkeys([*entries, "localhost", "127.0.0.1", "::1"]))
+        values = [value for value in env.get(key, "").split(",") if value]
+        env[key] = ",".join(dict.fromkeys([*values, "localhost", "127.0.0.1", "::1"]))
     return env
 
 
@@ -60,60 +37,36 @@ def main(args):
     if not args or args == ["--help"]:
         print("Usage: scripts/test.py full [Cargo options]\n"
               "       scripts/test.py -p PACKAGE [Cargo test options]\n\n"
-              "Examples:\n"
-              "  scripts/test.py -p proteus-core --test module_swap\n"
-              "  scripts/test.py -p proteus-core --lib core::session_journal\n"
-              "  scripts/test.py -p rg-search --lib\n"
-              "  scripts/test.py full\n\n"
-              "Build jobs and test threads respect CARGO_BUILD_JOBS/RUST_TEST_THREADS.")
+              "Module implementations have their own test runner in Proteus-modules.\n"
+              "Use PROTEUS_MODULES_SOURCE or PROTEUS_TEST_REFERENCE_MODULE to override fixtures.")
         return 0 if args else 2
     full = args[0] == "full"
     if full:
         args = ["--workspace", "--no-fail-fast", *args[1:]]
     elif not selected_packages(args):
-        raise SystemExit("Select -p PACKAGE, or use full for the complete workspace gate.")
+        raise SystemExit("Select -p PACKAGE, or full for the harness workspace gate")
     env = test_env()
     start = time.monotonic()
-    packages = selected_packages(args)
-    if full or ("--lib" not in args and (
-            ("proteus-core" in packages
-             and ("--test" not in args or "hook_runtime" in args or "module_swap" in args))
-            or (REFERENCE_MODULE in packages
-                and ("--test" not in args or "context_profile_swap" in args)))):
-        # Prepare the independent JS process fixture before Rust tests, never
-        # install/build another implementation from inside a test invocation.
-        dcp = ROOT / "modules/reference/dcp"
-        for command in (["npm", "ci", "--ignore-scripts"], ["npm", "run", "build"]):
-            subprocess.run(command, cwd=dcp, env=env, check=True)
-        env["PROTEUS_TEST_DCP_MODULE"] = str(dcp / "dist/worker.js")
-    if full:
-        # Exact same selection/features/profile for compilation and execution.
-        build_args = args[:args.index("--")] if "--" in args else args
-        module_path = cargo_artifact(["test", *build_args, "--no-run"], env)
-        if not module_path:
-            raise SystemExit("Full gate did not build a reference module executable.")
-        env["PROTEUS_TEST_REFERENCE_MODULE"] = module_path
-    elif any(package.split("@", 1)[0] == "proteus-core" for package in selected_packages(args)):
+    core = full or "proteus-core" in selected_packages(args)
+    if core:
         if env.get("PROTEUS_TEST_REFERENCE_MODULE"):
-            module_path = Path(env["PROTEUS_TEST_REFERENCE_MODULE"]).resolve()
-            if not module_path.is_file():
-                raise SystemExit(f"Explicit reference module is missing: {module_path}")
-            env["PROTEUS_TEST_REFERENCE_MODULE"] = str(module_path)
+            path = Path(env["PROTEUS_TEST_REFERENCE_MODULE"]).resolve()
+            if not path.is_file():
+                raise SystemExit(f"Missing process fixture: {path}")
+            env["PROTEUS_TEST_REFERENCE_MODULE"] = str(path)
         else:
-            metadata = json.loads(subprocess.check_output(
-                ["cargo", "metadata", "--format-version=1", "--no-deps"], cwd=ROOT, env=env, text=True))
-            # A narrow fixture build must not rewrite the workspace feature cache.
-            fixture_dir = Path(metadata["target_directory"]) / "test-module"
-            module_path = cargo_artifact(["build", "--locked", "-p", REFERENCE_MODULE, "--bin", REFERENCE_MODULE,
-                                     "--target-dir", str(fixture_dir)], env)
-            if not module_path:
-                raise SystemExit("Reference module build did not emit an executable.")
-            env["PROTEUS_TEST_REFERENCE_MODULE"] = module_path
+            env["PROTEUS_TEST_REFERENCE_MODULE"] = build(env=env)
+    if core and (full or ("--lib" not in args and
+                         ("--test" not in args or any(name in args for name in ("module_swap", "hook_runtime"))))):
+        if not env.get("PROTEUS_TEST_DCP_MODULE"):
+            dcp = resolve("modules") / "hook/dcp"
+            for command in (["npm", "ci", "--ignore-scripts"], ["npm", "run", "build"]):
+                subprocess.run(command, cwd=dcp, env=env, check=True)
+            env["PROTEUS_TEST_DCP_MODULE"] = str(dcp / "dist/worker.js")
     prepared = time.monotonic()
     print(f"Preparation: {prepared-start:.2f}s", file=sys.stderr, flush=True)
-    status = subprocess.call(["cargo", "test", *args], cwd=ROOT, env=env)
-    print(f"Test phase: {time.monotonic()-prepared:.2f}s; total: {time.monotonic()-start:.2f}s",
-          file=sys.stderr)
+    status = subprocess.call(["cargo", "test", "--locked", *args], cwd=ROOT, env=env)
+    print(f"Test phase: {time.monotonic()-prepared:.2f}s; total: {time.monotonic()-start:.2f}s", file=sys.stderr)
     return status
 
 

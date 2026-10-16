@@ -722,7 +722,7 @@ Read-only `catalog` принимает `{ cwd, skills }`, возвращает `
 
 ## Reference Module И Внешние Примеры
 
-`modules/reference/process-module` связывает tracked Rust implementations в
+`Proteus-modules/components/process-module` связывает tracked Rust implementations в
 один executable, но initialize создаёт все exports, запрошенные конкретным
 component binding. Reference-модуль не является standard/default pack и не
 получает особых прав.

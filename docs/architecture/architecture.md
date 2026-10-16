@@ -117,17 +117,12 @@ crates/
   proteus-module-protocol/ handshake, authority table, JSON-RPC session
   proteus-process-host/    bounded duplex stdio + lifecycle без знания slots
   proteus-core/            runtime, wiring, adapters, CLI, app-server
-modules/
-  reference/               test/dogfood implementations + process module
-  research/                нестабилизированные experiments
-clients/
-  native/                  основной клиент на GPUI и упаковка приложения
-  common/                  общие правила подключения и сессий клиента
 configs/                   packaged profiles
 examples/                  configs, external modules, MCP smoke
 ```
 
-`modules/reference` — source organization, а не runtime trust tier.
+Реализации вынесены в отдельный Proteus-modules и расположены по слотам;
+это source organization, а не runtime trust tier.
 `proteus-reference-module` линкует эти Rust crates в один executable для
 удобства dogfood. На host boundary он ничем не отличается от модуля на Python.
 
@@ -136,7 +131,7 @@ Portable-сборка клиента поставляет согласованн
 Он владеет только окном, выбором проекта,
 готовностью и завершением дочернего app-server. HTTP/SSE, session store,
 approvals и process-module authority остаются за существующими границами.
-Запуск и сборка: [clients/native](../../clients/native/README.md).
+Запуск и сборка: [Proteus-desktop](https://github.com/Qweasd123tg/Proteus-desktop/blob/main/README.md).
 
 HTTP app-server владеет живыми sessions и выполнением, а каждое окно клиента
 владеет выбором показываемого чата. Сессионные чтения, команды и SSE имеют
@@ -170,7 +165,7 @@ Admission, cancellation и terminal execution находятся в `app_server/
 `proteus-contracts::app_protocol`. Core формирует эти типы, клиент использует
 их напрямую, включая typed IDs, права и статусы; от Core клиент не зависит.
 Клиент оставляет собственные модели представления, подписи и форматирование.
-`clients/common` содержит независимые от UI-фреймворка правила подключения,
+`Proteus-desktop/crates/client-common` содержит независимые от UI-фреймворка правила подключения,
 декодирование ответов, `PendingCursor` и `SessionCursor`: новый stream и lag
 требуют полного baseline; устаревшие snapshots и чужая session отклоняются.
 Настройки отображения принадлежат клиенту и не входят в AppConfig или journal.
@@ -180,10 +175,10 @@ Admission, cancellation и terminal execution находятся в `app_server/
 обмениваются с окном JSON-строками через stdin/stdout. Они получают данные агента
 через публичный HTTP API, а состояние активного чата — через проекцию протокола
 клиента. GPUI-клиент содержит общий рендерер виджетов и адаптер `Host`, без
-регистраций конкретных расширений. Исходники пакетов — `clients/extensions`.
+регистраций конкретных расширений. Исходники пакетов — `Proteus-desktop-extensions`.
 Расширения не зависят от backend modules.
 Установка расширения не меняет profiles, slots, process exports или authority.
-Контракт и пример: [clients/native](../../clients/native/README.md#расширения-без-пересборки).
+Контракт и пример: [Proteus-desktop](https://github.com/Qweasd123tg/Proteus-desktop/blob/main/README.md#расширения-без-пересборки).
 
 ## Фактический Путь Одного Turn
 
@@ -261,7 +256,7 @@ cancel, invalid response или смерть process классифицирую�
 
 | Переход | File / type / method | Owner и lifetime |
 |---|---|---|
-| Отправка из приложения | `clients/native/src/api/mod.rs`, `Api::send` → `/send-async` | Client request |
+| Отправка из приложения | `Proteus-desktop/src/api/mod.rs`, `Api::send` → `/send-async` | Client request |
 | HTTP/stdio dispatch | `crates/proteus-core/src/app_server/runs.rs`, `dispatch_user_message` | Session-owned run; active до settlement, включая `cancel_requested` |
 | Reservation/queue | `crates/proteus-core/src/core/runtime/steering.rs`, `SessionSteering::reserve` | Session lifetime; создаёт domain `TurnId`/`MessageId` |
 | Serialized root chain | `crates/proteus-core/src/core/runtime/turn.rs`, `run_reserved_completion`, `run_reserved_chain` | `AgentRuntime`; один `run_lock`, один или несколько sequential Turns |
@@ -636,7 +631,7 @@ sandbox policy.
 
 Core владеет provider-neutral `ModelService` и execution-bound `BoundModel`:
 canonical shaping/validation, deadline, attribution и journal. Provider
-HTTP adapters и secrets находятся в `modules/reference/model-pack`; runtime
+HTTP adapters и secrets находятся в `Proteus-modules/model/model-pack`; runtime
 вызывает их через тот же `model/v12` contract, что и внешний модуль.
 `describe({ model: ModelRef })` возвращает capabilities и hosted tools конкретной
 модели. Host кэширует описание по `(provider, model)` в пределах snapshot и

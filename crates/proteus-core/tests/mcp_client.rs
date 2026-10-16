@@ -336,19 +336,21 @@ async fn dropping_an_in_flight_call_stops_its_generation_without_a_late_side_eff
 
 #[tokio::test]
 async fn timeout_and_bounded_response_invalidate_the_generation_without_replay() {
-    let fixture = Fixture::new(120, Some(4_096));
+    // The same deadline covers Python startup/discovery; keep the delayed
+    // side effect well beyond it even on a machine compiling other crates.
+    let fixture = Fixture::new(1_000, Some(4_096));
     let registry = fixture.registry().expect("discover fixture MCP tools");
     let marker = fixture.dir.path().join("timed-out-side-effect");
     let error = fixture
         .tool(&registry, "delay_write")
         .invoke(
-            &call("delay_write", json!({"marker":marker,"delay_ms":700})),
+            &call("delay_write", json!({"marker":marker,"delay_ms":2_000})),
             context(CancellationToken::new(), fixture.dir.path()),
         )
         .await
         .expect_err("MCP call must honor configured timeout");
-    assert!(error.to_string().contains("120ms"), "{error:#}");
-    tokio::time::sleep(Duration::from_millis(800)).await;
+    assert!(error.to_string().contains("1000ms"), "{error:#}");
+    tokio::time::sleep(Duration::from_millis(2_200)).await;
     assert!(
         !marker.exists(),
         "timed-out call was replayed or completed late"
