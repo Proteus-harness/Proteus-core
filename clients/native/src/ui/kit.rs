@@ -81,6 +81,29 @@ pub(crate) fn cycle_focus(
     }
 }
 
+/// Moves focus to the next or the previous stop inside `container`; at its
+/// end the focus stays where it was, and the result says whether it moved.
+pub(crate) fn step_focus(
+    container: &gpui_kit::FocusHandle,
+    forward: bool,
+    window: &mut gpui_kit::Window,
+    cx: &mut App,
+) -> bool {
+    let start = window.focused(cx);
+    if forward {
+        window.focus_next(cx);
+    } else {
+        window.focus_prev(cx);
+    }
+    if container.contains_focused(window, cx) && window.focused(cx) != start {
+        return true;
+    }
+    if let Some(start) = start {
+        window.focus(&start, cx);
+    }
+    false
+}
+
 /// Tooltip text of a control as the hints preference asks: what it does,
 /// its shortcut, both or nothing.
 pub(crate) fn hint_text(text: &str, keys: Option<&str>, cx: &App) -> Option<SharedString> {

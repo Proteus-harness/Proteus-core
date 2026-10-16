@@ -95,7 +95,7 @@ pub(super) fn card(rows: impl IntoIterator<Item = AnyElement>, cx: &App) -> Div 
         .bg(theme.group_box)
         .overflow_hidden()
         .children(rows.into_iter().enumerate().map(|(ix, row)| {
-            div()
+            super::reveal::cell(cx)
                 .when(ix > 0, |cell| cell.border_t_1().border_color(theme.border))
                 .child(row)
         }))

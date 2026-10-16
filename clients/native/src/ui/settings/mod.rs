@@ -20,6 +20,7 @@ mod modules;
 mod nav;
 mod packages;
 mod params;
+mod reveal;
 mod revisions;
 mod search;
 mod shortcuts;
@@ -111,6 +112,8 @@ pub struct SettingsView {
     focus_handle: FocusHandle,
     /// The page list, a single stop for Tab walked with the arrows.
     nav_focus: FocusHandle,
+    /// The open page, holding focus between its controls.
+    page_focus: FocusHandle,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -192,6 +195,7 @@ impl SettingsView {
             recording: None,
             focus_handle,
             nav_focus,
+            page_focus: cx.focus_handle(),
             _subscriptions: subscriptions,
         };
         view.load(cx);

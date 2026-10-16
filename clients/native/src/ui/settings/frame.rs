@@ -59,12 +59,15 @@ impl SettingsView {
             && extensions::is_enabled(id, cx)
             && let Some(page) = extensions::find(id).and_then(|manifest| manifest.page)
         {
-            return div()
-                .size_full()
-                .px_8()
-                .pt_6()
-                .pb_4()
-                .child(self.overview.view(page))
+            return self
+                .page_keys(
+                    div()
+                        .size_full()
+                        .px_8()
+                        .pt_6()
+                        .pb_4()
+                        .child(self.overview.view(page)),
+                )
                 .into_any_element();
         }
         if self.page == PageId::Catalog {
@@ -72,6 +75,8 @@ impl SettingsView {
         }
         let theme = cx.theme();
         let snapshot = self.snapshot();
+        let handle = self.page_scroll();
+        super::reveal::begin(handle.clone());
         let body = match &self.page {
             PageId::Model => self.model_page(cx),
             PageId::Slot(slot) => self.slot_page(slot, cx),
@@ -137,7 +142,7 @@ impl SettingsView {
                     .flatten(),
             )
             .children(body);
-        let handle = self.page_scroll();
+        super::reveal::end();
         let content = v_flex()
             .flex_none()
             .w_full()
@@ -171,8 +176,7 @@ impl SettingsView {
                     .child(content),
             )
             .vertical_scrollbar(&handle);
-        v_flex()
-            .size_full()
+        self.page_keys(v_flex().size_full())
             .child(div().flex_1().min_h_0().child(scroll))
             .when(self.page.is_agent(), |frame| {
                 frame.child(self.render_save_bar(cx))
