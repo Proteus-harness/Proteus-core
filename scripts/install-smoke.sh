@@ -99,7 +99,7 @@ require_text "процесс модуля" "${output_dir}/doctor.txt"
 
 run_and_capture assembly-plan "${output_dir}/assembly-plan.txt" \
   "${proteus}" inspect plan
-require_text "План сборки v3" "${output_dir}/assembly-plan.txt"
+require_text "План сборки v4" "${output_dir}/assembly-plan.txt"
 require_text "состояние: готов к запуску" "${output_dir}/assembly-plan.txt"
 require_text "workflow: coding.single_loop" "${output_dir}/assembly-plan.txt"
 
