@@ -269,7 +269,9 @@ async fn interruption_during_after_hook_preserves_already_completed_effect() {
         })).unwrap());
             config.tools.enabled = vec!["apply_patch".into()];
             config.runtime.workflow_timeout_ms = if expected == HookTurnStatus::Timeout {
-                500
+                // Also applies to the successful follow-up turn below: leave
+                // room for debug builds while the after-hook keeps waiting.
+                2000
             } else {
                 5000
             };
