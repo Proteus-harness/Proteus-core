@@ -1,7 +1,7 @@
 {
   "modules": {
     "url": "https://github.com/Qweasd123tg/Proteus-modules.git",
-    "rev": "3cb0b8ac807d7ffa311c267fe8630358aa1beb7d",
+    "rev": "3ca483a089ee5094f80b6bcf86903f3403353ee6",
     "env": "PROTEUS_MODULES_SOURCE",
     "local": "../Modules",
     "marker": "Cargo.toml"
