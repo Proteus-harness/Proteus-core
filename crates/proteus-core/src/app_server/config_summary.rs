@@ -1,8 +1,12 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde_json::Value;
 
-use crate::{contracts::ToolSource, core::AppConfig, domain::PermissionMode};
+use crate::{
+    contracts::ToolSource,
+    core::{AppConfig, config_files},
+    domain::PermissionMode,
+};
 
 pub(super) fn render_config_summary(
     config: &AppConfig,
@@ -139,31 +143,6 @@ fn push_unique(options: &mut Vec<String>, value: &str) {
         return;
     }
     options.push(value.to_owned());
-}
-
-pub(super) fn config_files(config_path: Option<&Path>) -> Vec<PathBuf> {
-    let Some(path) = config_path else {
-        return Vec::new();
-    };
-    if path.is_file() {
-        return vec![path.to_path_buf()];
-    }
-    let mut files = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(path) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_file()
-                && path
-                    .extension()
-                    .and_then(|extension| extension.to_str())
-                    .is_some_and(|extension| matches!(extension, "toml" | "json"))
-            {
-                files.push(path);
-            }
-        }
-    }
-    files.sort();
-    files
 }
 
 impl super::AppServerHandle {

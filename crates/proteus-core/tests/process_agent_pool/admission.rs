@@ -1,6 +1,9 @@
 use super::*;
 use async_trait::async_trait;
-use proteus_contracts::{contracts::EventSink, domain::EventEnvelope};
+use proteus_contracts::{
+    contracts::{EventEmitter, EventSink},
+    domain::EventEnvelope,
+};
 use std::{
     sync::atomic::{AtomicBool, Ordering},
     time::Duration,

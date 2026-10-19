@@ -7,7 +7,7 @@ mod bound_model;
 mod bound_tools;
 mod config;
 mod context_preparation;
-pub(crate) use config::CONFIG_BUILDER_OVERLAY;
+pub(crate) use config::{CONFIG_BUILDER_OVERLAY, config_files};
 mod config_snapshot;
 mod context_provider;
 pub(crate) mod core_slots;

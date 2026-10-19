@@ -35,17 +35,21 @@ fn process_search_config(command: &str) -> AppConfig {
 
 #[test]
 fn plan_resolves_exact_component_export_without_starting_it() {
+    let configs = tempfile::tempdir().expect("config dir");
+    for name in ["20-model.json", "10-runtime.toml", "notes.md"] {
+        std::fs::write(configs.path().join(name), "").expect("config fixture");
+    }
+    std::fs::create_dir(configs.path().join("00-directory.toml")).expect("ignored directory");
     let config = process_search_config("definitely-missing-plan-worker");
     let catalog = ModuleCatalog::from_config(&config).expect("declaration-only catalog");
-    let plan = AssemblyPlan::resolve(
-        config,
-        Some(std::path::Path::new("config.toml")),
-        PathBuf::from("."),
-        &catalog,
-    )
-    .expect("assembly plan");
+    let plan = AssemblyPlan::resolve(config, Some(configs.path()), PathBuf::from("."), &catalog)
+        .expect("assembly plan");
 
     assert!(plan.is_valid());
+    assert_eq!(
+        plan.config_files,
+        ["10-runtime.toml", "20-model.json"].map(|name| configs.path().join(name))
+    );
     let search = plan
         .slots
         .iter()

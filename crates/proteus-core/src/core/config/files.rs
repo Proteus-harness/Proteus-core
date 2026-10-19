@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
-pub(super) fn assembly_config_files(config_path: Option<&Path>) -> Vec<PathBuf> {
+/// Top-level files for diagnostics; loading handles includes and errors separately.
+pub(crate) fn config_files(config_path: Option<&Path>) -> Vec<PathBuf> {
     let Some(path) = config_path else {
         return Vec::new();
     };

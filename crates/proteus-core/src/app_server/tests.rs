@@ -865,6 +865,10 @@ enabled = []
         .await
         .expect("app server");
     let initial_summary = handle.config_summary().await;
+    assert_eq!(
+        initial_summary["config_files"],
+        serde_json::json!([config_path])
+    );
     assert_eq!(initial_summary["module_epoch"].as_u64(), Some(0));
     assert!(
         initial_summary["registered_tools"]

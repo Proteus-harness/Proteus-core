@@ -6,6 +6,9 @@
 #[path = "support/model.rs"]
 mod test_model;
 
+#[path = "support/agent_context.rs"]
+mod agent_context;
+
 #[path = "process_agent_pool/admission.rs"]
 mod admission;
 #[path = "process_agent_pool/collaboration.rs"]
@@ -14,60 +17,13 @@ mod collaboration;
 use std::{path::PathBuf, sync::Arc};
 
 use proteus_contracts::{
-    contracts::{
-        AgentControl, AgentControlRequest, AgentLifecycleStatus, AgentWorkflowContext,
-        ApprovalPolicy, CancellationToken, EventEmitter, ExecutionScope, PolicyContext,
-        PolicyVisibilityContext,
-    },
-    domain::{
-        AgentTask, Event, ModelRef, PermissionMode, PolicyDecision, ReasoningConfig, ToolCall,
-        new_session_id, new_thread_id, new_turn_id,
-    },
+    contracts::{AgentControl, AgentControlRequest, AgentLifecycleStatus},
+    domain::{AgentTask, Event, new_thread_id},
 };
-use proteus_core::core::{
-    AgentControlConfig, AgentControlRuntime, HeadlessApprovalTransport, HeadlessUserInputTransport,
-    InMemoryEventStore, ModelExecutionBinding, RuntimeRegistry,
-};
+use proteus_core::core::{AgentControlConfig, AgentControlRuntime, InMemoryEventStore};
 use serde_json::json;
 
-struct AllowAllPolicy;
-
-impl ApprovalPolicy for AllowAllPolicy {
-    fn evaluate(&self, _call: &ToolCall, _ctx: &PolicyContext) -> PolicyDecision {
-        PolicyDecision::Allow
-    }
-
-    fn evaluate_visibility(&self, _ctx: &PolicyVisibilityContext) -> PolicyDecision {
-        PolicyDecision::Allow
-    }
-}
-
-fn test_runtime_context(events: Arc<InMemoryEventStore>) -> AgentWorkflowContext {
-    let registry = RuntimeRegistry::from_config(&test_model::config(), PathBuf::from("."))
-        .expect("default runtime registry");
-    let mut execution = registry
-        .execution_context(
-            ModelExecutionBinding::detached(ExecutionScope::fresh(CancellationToken::new())),
-            Arc::new(HeadlessApprovalTransport),
-            PermissionMode::Normal,
-        )
-        .unwrap();
-    execution.policy = Arc::new(AllowAllPolicy);
-    AgentWorkflowContext::new(
-        execution,
-        new_session_id(),
-        new_thread_id(),
-        new_turn_id(),
-        Some(ModelRef::new("fake", "fake-tool-model")),
-        ReasoningConfig::default(),
-        30_000,
-        Arc::new(EventEmitter::new(events)),
-        registry.context.clone(),
-        Arc::new(HeadlessUserInputTransport),
-        test_model::no_context_preparation(),
-        None,
-    )
-}
+use agent_context::test_runtime_context;
 
 /// Конфиг ребёнка: fake model (без сети), workflow selection отсутствует
 /// (мгновенный structural ответ), event log внутри tempdir.

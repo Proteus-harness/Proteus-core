@@ -14,8 +14,10 @@ use super::core_slots::{CORE_SLOT_DESCRIPTORS, CoreSlotSelection, core_slot_desc
 pub(crate) const CONFIG_BUILDER_OVERLAY: &str = "config-builder.toml";
 
 mod commands;
+mod files;
 mod loading;
 pub use commands::PromptCommandConfig;
+pub(crate) use files::config_files;
 
 pub use crate::domain::{ConfiguredMcpServerConfig, ProcessEnvironmentConfig};
 pub use loading::expand_user_path;

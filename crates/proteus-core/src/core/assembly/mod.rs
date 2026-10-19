@@ -8,17 +8,15 @@ use proteus_module_protocol::current_process_contract_authority;
 
 use crate::{
     core::{
-        AppConfig, ModuleCatalog, ModuleCatalogEntrySummary, RuntimeRegistry,
+        AppConfig, ModuleCatalog, ModuleCatalogEntrySummary, RuntimeRegistry, config_files,
         core_slots::CORE_SLOT_DESCRIPTORS,
     },
     domain::ModuleKind,
 };
 
-mod config_files;
 mod render;
 mod types;
 
-use config_files::assembly_config_files;
 pub use render::render_assembly_plan;
 pub use types::*;
 
@@ -122,7 +120,7 @@ impl AssemblyPlan {
             }
         }
         check_duplicate_requested_tools(&config, &mut checks);
-        let config_files = assembly_config_files(config_path);
+        let config_files = config_files(config_path);
         if config_files.len() > 1 {
             checks.push(AssemblyCheck::warning(
                 "multiple_config_files",

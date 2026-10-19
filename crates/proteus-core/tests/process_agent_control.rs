@@ -4,6 +4,9 @@
 #[path = "support/model.rs"]
 mod test_model;
 
+#[path = "support/agent_context.rs"]
+mod agent_context;
+
 #[cfg(unix)]
 #[path = "process_agent_control/output_limits.rs"]
 mod output_limits;
@@ -13,57 +16,15 @@ use std::{path::PathBuf, sync::Arc};
 use proteus_contracts::{
     contracts::{
         AgentAddress, AgentControl, AgentControlMessage, AgentControlRequest, AgentLifecycleStatus,
-        AgentWorkflowContext, ApprovalPolicy, CancellationToken, EventEmitter, ExecutionScope,
-        PolicyContext, PolicyVisibilityContext,
+        AgentWorkflowContext, CancellationToken,
     },
-    domain::{
-        AgentTask, ModelRef, PermissionMode, PolicyDecision, ReasoningConfig, ToolCall,
-        new_session_id, new_thread_id, new_turn_id,
-    },
+    domain::AgentTask,
 };
-use proteus_core::core::{
-    AgentControlConfig, AgentControlRuntime, HeadlessApprovalTransport, HeadlessUserInputTransport,
-    InMemoryEventStore, ModelExecutionBinding, RuntimeRegistry,
-};
+use proteus_core::core::{AgentControlConfig, AgentControlRuntime, InMemoryEventStore};
 use serde_json::json;
 
-struct AllowAllPolicy;
-
-impl ApprovalPolicy for AllowAllPolicy {
-    fn evaluate(&self, _call: &ToolCall, _ctx: &PolicyContext) -> PolicyDecision {
-        PolicyDecision::Allow
-    }
-
-    fn evaluate_visibility(&self, _ctx: &PolicyVisibilityContext) -> PolicyDecision {
-        PolicyDecision::Allow
-    }
-}
-
 fn test_runtime_context() -> AgentWorkflowContext {
-    let registry = RuntimeRegistry::from_config(&test_model::config(), PathBuf::from("."))
-        .expect("default runtime registry");
-    let mut execution = registry
-        .execution_context(
-            ModelExecutionBinding::detached(ExecutionScope::fresh(CancellationToken::new())),
-            Arc::new(HeadlessApprovalTransport),
-            PermissionMode::Normal,
-        )
-        .unwrap();
-    execution.policy = Arc::new(AllowAllPolicy);
-    AgentWorkflowContext::new(
-        execution,
-        new_session_id(),
-        new_thread_id(),
-        new_turn_id(),
-        Some(ModelRef::new("fake", "fake-tool-model")),
-        ReasoningConfig::default(),
-        30_000,
-        Arc::new(EventEmitter::new(Arc::new(InMemoryEventStore::new()))),
-        registry.context.clone(),
-        Arc::new(HeadlessUserInputTransport),
-        test_model::no_context_preparation(),
-        None,
-    )
+    agent_context::test_runtime_context(Arc::new(InMemoryEventStore::new()))
 }
 
 #[test]
