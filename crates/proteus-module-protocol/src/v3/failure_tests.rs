@@ -70,6 +70,7 @@ fn cancel_tree_defers_admission_failure_and_next_generation_remains_usable() -> 
             protocol_version: "v3".into(),
             component_id: binding.component_id.clone(),
             exports: vec![],
+            metadata: Default::default(),
         },
     });
     let (mut parent, parent_result) = pending(&binding, &options, "h:1:1", None, 1, json!({}))?;

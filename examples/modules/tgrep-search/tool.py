@@ -9,7 +9,8 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from component_runtime import (  # noqa: E402
+from component_runtime import (
+    require_initialize, require_features,  # noqa: E402
     PROTOCOL_VERSION, InvocationContext, ProtocolError, require_object, run_component,
 )
 from backend import search, stop_all, validate_args  # noqa: E402
@@ -21,7 +22,7 @@ config: dict[str, str] = {}
 
 def initialize(params: Any) -> dict[str, Any]:
     global config
-    params = require_object(params, {"protocol_version", "component_id", "exports"}, "initialize")
+    params = require_initialize(params)
     if params["protocol_version"] != PROTOCOL_VERSION:
         raise ProtocolError("unsupported component protocol")
     if not isinstance(params["component_id"], str) or not params["component_id"].strip():
@@ -34,8 +35,7 @@ def initialize(params: Any) -> dict[str, Any]:
     if (export["slot"] != "tool" or export["module_id"] != MODULE_ID
             or export["contract_version"] != "v6" or export["composition"] != "ordered_many"):
         raise ProtocolError("expected tool/tgrep_search v6 ordered_many")
-    if export["host_features"] != []:
-        raise ProtocolError("tgrep tool does not use host features")
+    require_features(export["host_features"])
     supplied = export["module_config"]
     if not isinstance(supplied, dict) or set(supplied) - {"binary", "index_path"}:
         raise ProtocolError("tgrep config accepts only binary and index_path")

@@ -15,7 +15,8 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from component_runtime import (  # noqa: E402
+from component_runtime import (
+    require_initialize, require_features,  # noqa: E402
     PROTOCOL_VERSION,
     HostError,
     InvocationCanceled,
@@ -31,11 +32,6 @@ SLOT = "workflow"
 MODULE_ID = "python_agent_loop"
 CONTRACT_VERSION = "v20"
 
-INITIALIZE_FIELDS = {
-    "protocol_version",
-    "component_id",
-    "exports",
-}
 EXPORT_INITIALIZE_FIELDS = {
     "slot",
     "module_id",
@@ -441,7 +437,7 @@ component_config: dict[str, Any] = {}
 
 def initialize(raw: Any) -> dict[str, Any]:
     global component_config
-    params = require_object(raw, INITIALIZE_FIELDS, "initialize params")
+    params = require_initialize(raw)
     if params["protocol_version"] != PROTOCOL_VERSION:
         raise ProtocolError(f"unsupported component protocol: {params['protocol_version']!r}")
     component_id = params["component_id"]
@@ -462,8 +458,7 @@ def initialize(raw: Any) -> dict[str, Any]:
     )
     if actual != expected:
         raise ProtocolError(f"unsupported initialize identity: {actual!r}")
-    if require_string_list(export["host_features"], "host_features"):
-        raise ProtocolError("workflow v20 has no negotiated optional features")
+    require_features(export["host_features"])
     component_config = parse_config(export["module_config"])
     return {
         "protocol_version": PROTOCOL_VERSION,

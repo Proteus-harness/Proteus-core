@@ -87,7 +87,10 @@ pub const PROCESS_CONTRACT_AUTHORITIES: &[ProcessContractAuthority] = &[
             PROCESS_MODEL_STREAM_METHOD,
         ],
         host_methods: &[MODEL_HOST_EMIT_METHOD],
-        host_features: NO_PROTOCOL_FEATURES,
+        host_features: &[
+            proteus_contracts::contracts::MODEL_CATALOG_FEATURE,
+            proteus_contracts::contracts::MODEL_QUOTA_FEATURE,
+        ],
         required_features: NO_PROTOCOL_FEATURES,
     },
     ProcessContractAuthority {

@@ -39,6 +39,7 @@ pub mod config;
 pub mod config_builder;
 pub mod http;
 mod live;
+pub mod settings;
 pub mod topology;
 mod transcript;
 pub use live::{AppExecutionState, AppRun, AppRunStatus, AppSessionSnapshot};

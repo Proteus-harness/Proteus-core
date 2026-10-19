@@ -753,6 +753,27 @@ cargo run -p proteus-module-protocol --bin proteus-component-conformance -- \
 `--export` повторяется для multi-export component. Conformance требует exact
 handshake всего набора, даже если probe направлен только в один export.
 
+## Необязательные возможности и metadata
+
+Host предлагает `host_features` отдельно каждому export. Worker подтверждает
+только поддерживаемое пересечение в `module_features`; отсутствие optional
+feature допустимо, неизвестное или повторное подтверждение — ошибка handshake.
+Функция не добавляет callbacks: authority по-прежнему задаёт slot и invocation.
+В `model/v12` `describe` и `stream` составляют обязательное ядро;
+`model.catalog.v1` и `model.quota.v1` разрешают соответствующие optional вызовы.
+Без подтверждения host не вызывает метод и возвращает отсутствие данных.
+Подтверждённый метод может вернуть `null`, если сейчас данных нет; его ошибка
+или неверный DTO остаются ошибкой и не превращаются в отсутствие поддержки.
+Reference module подтверждает только предложенные ему возможности.
+
+Корневые `initialize` params и component manifest допускают необязательный
+`_meta: {"org.example/build": {...}}`. Ключи имеют форму `namespace/name`;
+неизвестные значения сохраняются и не влияют на обязательное поведение,
+routing или authority. Другие неизвестные поля по-прежнему отвергаются.
+Добавлять обязательную семантику через `_meta` нельзя: ей нужен typed contract
+либо согласованная optional feature. Это точки расширения текущего формата,
+а не reader старых контрактов.
+
 ## Model Streaming
 
 `model/v12` использует canonical DTO из `proteus-contracts::contracts::process_model`:

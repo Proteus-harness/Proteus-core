@@ -26,7 +26,8 @@ def initialize(params):
             with Path(export["module_config"]["pid_marker"]).open("a") as file:
                 file.write(str(os.getpid()) + "\n")
         exports.append({key: export[key] for key in ("slot", "module_id", "contract_version", "composition")})
-        exports[-1]["module_features"] = []
+        exports[-1]["module_features"] = [feature for feature in export["host_features"]
+                                        if feature in export["module_config"].get("features", ["model.catalog.v1", "model.quota.v1"])]
         exports[-1]["config_schema"] = None
     return {"protocol_version": "v3", "component_id": params["component_id"], "exports": exports}
 

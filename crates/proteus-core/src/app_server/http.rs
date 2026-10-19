@@ -39,13 +39,15 @@ use commands::spawn_send_run;
 use commands::{
     command_response, execute_app_request, execute_send, execute_send_async, execute_set_model,
     execute_set_permission_mode, execute_set_reasoning_effort, execute_set_reasoning_enabled,
+    execute_set_session_setting,
 };
 pub use config::HttpServerConfig;
 use lifecycle::{execute_delete_session, execute_new_session, execute_resume};
 use requests::{
     ApprovalRequest, CancelRequest, DeleteSessionRequest, NewSessionRequest, ResumeSessionRequest,
     SendRequest, SetConfigBuilderRequest, SetModelRequest, SetPermissionModeRequest,
-    SetReasoningEffortRequest, SetReasoningEnabledRequest, UserInputRequest,
+    SetReasoningEffortRequest, SetReasoningEnabledRequest, SetSessionSettingRequest,
+    UserInputRequest,
 };
 use responses::{add_cors_headers, error_response, json_response, options_response};
 use security::{
@@ -290,6 +292,15 @@ where
             }
             Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),
         },
+        (Method::POST, "/session/setting") => {
+            match read_json::<SetSessionSettingRequest, _>(request).await {
+                Ok(command) => {
+                    let output = execute_set_session_setting(&state, command).await;
+                    json_response(StatusCode::OK, &output)
+                }
+                Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),
+            }
+        }
         (Method::POST, "/mode") => match read_json::<SetPermissionModeRequest, _>(request).await {
             Ok(command) => {
                 let output = execute_set_permission_mode(

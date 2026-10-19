@@ -19,8 +19,10 @@ let generation;
 let ready = false;
 
 async function initialize(request) {
-  object(request.params, ["protocol_version", "component_id", "exports"], [], "initialize");
+  object(request.params, ["protocol_version", "component_id", "exports"], ["_meta"], "initialize");
   const params = request.params;
+  if ("_meta" in params && (!params._meta || typeof params._meta !== "object" || Array.isArray(params._meta) ||
+    Object.keys(params._meta).some((key) => !/^[^/\s]+\/[^\s]+$/.test(key)))) throw new Error("invalid _meta");
   if (params.protocol_version !== "v3") throw new Error("only component protocol v3 is supported");
   nonblank(params.component_id, "component id");
   if (!Array.isArray(params.exports) || !params.exports.length) throw new Error("at least one hook export is required");
@@ -34,7 +36,8 @@ async function initialize(request) {
     }
     nonblank(binding.module_id, "module id");
     if (exports.has(binding.module_id)) throw new Error("duplicate export module id");
-    if (!Array.isArray(binding.host_features) || binding.host_features.length) throw new Error("hook export has no host features");
+    if (!Array.isArray(binding.host_features) || binding.host_features.some((feature) => typeof feature !== "string" || !feature.trim()) ||
+      new Set(binding.host_features).size !== binding.host_features.length) throw new Error("invalid host features");
     const config = object(binding.module_config, ["entry"], ["settings"], "hook module config");
     nonblank(config.entry, "hook entry");
     const hooks = createHooks(config.settings === undefined ? {} : config.settings);

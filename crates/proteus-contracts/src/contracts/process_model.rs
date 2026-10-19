@@ -13,6 +13,10 @@ use crate::{
 };
 
 pub const PROCESS_MODEL_CONTRACT_VERSION: &str = "v12";
+
+/// Optional module methods, acknowledged per export during initialization.
+pub const MODEL_CATALOG_FEATURE: &str = "model.catalog.v1";
+pub const MODEL_QUOTA_FEATURE: &str = "model.quota.v1";
 pub const PROCESS_MODEL_DESCRIBE_METHOD: &str = "describe";
 pub const PROCESS_MODEL_CATALOG_METHOD: &str = "catalog";
 pub const PROCESS_MODEL_QUOTA_METHOD: &str = "quota";

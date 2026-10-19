@@ -51,7 +51,7 @@ test("real TS worker multiplexes exports, redirects logs and cancels only the ad
     replies.set(id, resolve);
     child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`);
   });
-   const binding = (id) => ({ slot: "hook", module_id: id, contract_version: "v6", composition: "ordered_many", module_config: { entry, settings: { tag: id } }, host_features: [] });
+   const binding = (id) => ({ slot: "hook", module_id: id, contract_version: "v6", composition: "ordered_many", module_config: { entry, settings: { tag: id } }, host_features: ["org.example/future.v1"] });
   const invocation = (id, module, name) => ({
     export: { slot: "hook", module_id: module },
     lineage: { root_invocation_id: id, parent_invocation_id: null, depth: 0 },
@@ -59,7 +59,7 @@ test("real TS worker multiplexes exports, redirects logs and cancels only the ad
       event: { event: "before_tool", call: { id: "c", name, args: {} }, spec: null, blocked: null } },
   });
   try {
-    const initialized = await send("h:1:0", "initialize", { protocol_version: "v3", component_id: "js", exports: [binding("a"), binding("b")] });
+    const initialized = await send("h:1:0", "initialize", { protocol_version: "v3", component_id: "js", _meta: { "org.example/build": { future: true } }, exports: [binding("a"), binding("b")] });
     assert.equal(initialized.result.exports.length, 2);
     const slow = send("h:1:1", "hook.invoke", invocation("h:1:1", "a", "wait"));
     const fast = await send("h:1:2", "hook.invoke", invocation("h:1:2", "b", "read"));

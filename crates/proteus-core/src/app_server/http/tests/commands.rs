@@ -1,6 +1,59 @@
 use super::*;
 
 #[tokio::test]
+async fn session_settings_are_validated_and_return_the_complete_updated_config() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut config = crate::test_model::config();
+    for provider in config.providers.values_mut() {
+        provider.reasoning_efforts = vec!["low".into(), "high".into()];
+    }
+    let config_path = directory.path().join("config.toml");
+    let server = AgentAppServer::launch(config, directory.path().to_path_buf(), Some(&config_path))
+        .await
+        .unwrap();
+    let (shutdown, _) = broadcast::channel(1);
+    let state = HttpAppState::new(server.clone(), shutdown, test_security()).await;
+    let session = server.session_dir_path().unwrap();
+    for (setting, ok) in [
+        (json!({"id":"mode", "value":"plan"}), true),
+        (json!({"id":"mode", "value":"invented"}), false),
+        (json!({"id":"mode", "value":true}), false),
+        (json!({"id":"org.example/unknown", "value":"normal"}), false),
+        (
+            json!({"id":"reasoning_effort", "value":"effort:high"}),
+            true,
+        ),
+        (json!({"id":"reasoning_effort", "value":"_default"}), true),
+    ] {
+        let response = route_request(
+            state.clone(),
+            authed_json_request(
+                "/session/setting",
+                json!({
+                    "id":"setting-test", "session_dir":session, "setting":setting,
+                }),
+            ),
+        )
+        .await
+        .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let response: Value = serde_json::from_slice(&response_bytes(response).await).unwrap();
+        assert_eq!(response["id"], "setting-test");
+        assert_eq!(response["ok"], ok, "{response}");
+        if ok {
+            let config: proteus_contracts::app_protocol::config::ConfigSummary =
+                serde_json::from_value(response["output"]["config"].clone()).unwrap();
+            assert!(!config.session_settings.is_empty());
+            assert_eq!(config.permission_mode, "Plan");
+        } else {
+            assert!(response["error"].is_string());
+        }
+    }
+    assert_eq!(server.permission_mode().await, PermissionMode::Plan);
+    server.shutdown().await;
+}
+
+#[tokio::test]
 async fn request_dispatch_sets_permission_mode() {
     let cwd = tempfile::tempdir().expect("cwd");
     let config_dir = tempfile::tempdir().expect("config dir");

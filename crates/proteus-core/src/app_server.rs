@@ -42,6 +42,7 @@ mod model_selection;
 mod path_utils;
 mod queued_messages;
 mod runs;
+mod session_settings;
 pub mod stdio;
 mod transcript;
 mod turn_progress;

@@ -14,6 +14,7 @@ pub struct ConfigSummary {
     pub profile: String,
     pub model: Option<ConfigModel>,
     pub model_options: Vec<ModelOption>,
+    pub session_settings: Vec<super::settings::SessionSetting>,
     pub reasoning: ConfigReasoning,
     pub permission_mode: String,
     pub modules: Vec<ConfigModule>,

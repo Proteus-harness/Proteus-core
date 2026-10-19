@@ -503,7 +503,9 @@ composition. Discovery и загрузка навыка принадлежат i
 
 ### Model
 
-Живой `catalog` возвращает provider-neutral список моделей и допустимых effort
+`model.catalog.v1` и `model.quota.v1` согласуются per-export через handshake;
+без подтверждения Core не вызывает optional метод. Feature не расширяет
+callback authority. Живой `catalog` возвращает provider-neutral список моделей и допустимых effort
 для каждой модели. Отсутствие discovery (`null`) отличается от пустого каталога
 и ошибки. `openai_codex` получает его самостоятельно через ChatGPT OAuth;
 Core не обращается к provider HTTP и не знает имён моделей.

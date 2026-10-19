@@ -254,6 +254,19 @@ pub(super) async fn execute_set_permission_mode(
     command_response(id, result)
 }
 
+pub(super) async fn execute_set_session_setting(
+    state: &HttpAppState,
+    command: proteus_contracts::app_protocol::http::SetSessionSettingRequest,
+) -> StdioOutput {
+    let result = async {
+        let server = server_for_session(state, command.session_dir).await?;
+        server.set_session_setting(command.setting).await?;
+        Ok(Some(json!({ "config": server.config_summary().await })))
+    }
+    .await;
+    command_response(command.id, result)
+}
+
 pub(super) async fn execute_set_model(
     state: &HttpAppState,
     id: Option<String>,

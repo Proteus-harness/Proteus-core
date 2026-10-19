@@ -61,6 +61,14 @@ pub struct SetModelRequest {
 
 #[derive(Debug, serde::Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct SetSessionSettingRequest {
+    pub id: Option<String>,
+    pub session_dir: PathBuf,
+    pub setting: super::settings::SessionSettingUpdate,
+}
+
+#[derive(Debug, serde::Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SetReasoningEffortRequest {
     pub id: Option<String>,
     pub effort: Option<String>,

@@ -27,14 +27,12 @@ fn rendered(active: &str, efforts: &[&str], error: bool) -> Value {
             Ok(Some(catalog))
         },
     );
-    serde_json::to_value(render(
-        ModelSelection {
-            active: Some(active),
-            reasoning,
-            summary,
-        },
-        input::modes(PermissionMode::Normal).unwrap(),
-    ))
+    serde_json::to_value(render(crate::app_server::session_settings::render(
+        PermissionMode::Normal,
+        &Some(active),
+        &reasoning,
+        &summary,
+    )))
     .unwrap()
 }
 

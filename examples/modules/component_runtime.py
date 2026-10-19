@@ -48,6 +48,30 @@ def require_object(value: Any, fields: set[str], label: str) -> dict[str, Any]:
     return value
 
 
+def require_initialize(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ProtocolError("initialize params must be an object")
+    fields = {"protocol_version", "component_id", "exports"}
+    if "_meta" in value:
+        fields.add("_meta")
+        metadata = value["_meta"]
+        if not isinstance(metadata, dict) or any(
+            not isinstance(key, str) or "/" not in key
+            or not all(key.split("/", 1)) or any(char.isspace() for char in key)
+            for key in metadata
+        ):
+            raise ProtocolError("_meta requires namespaced object keys")
+    return require_object(value, fields, "initialize params")
+
+
+def require_features(value: Any) -> list[str]:
+    if (not isinstance(value, list)
+            or any(not isinstance(feature, str) or not feature.strip() for feature in value)
+            or len(set(value)) != len(value)):
+        raise ProtocolError("host_features must contain unique nonempty strings")
+    return value
+
+
 def parse_wire_id(value: Any, direction: str, generation: int, allow_zero: bool) -> int:
     if not isinstance(value, str):
         raise ProtocolError("component wire id must be a string")

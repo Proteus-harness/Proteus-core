@@ -189,6 +189,12 @@ impl Model for ProcessModel {
     }
 
     async fn catalog(&self) -> Result<Option<crate::contracts::ModelCatalog>> {
+        if !self
+            .client
+            .supports_feature(crate::contracts::MODEL_CATALOG_FEATURE)?
+        {
+            return Ok(None);
+        }
         let result: Option<crate::contracts::ModelCatalog> = self
             .client
             .invoke(crate::contracts::PROCESS_MODEL_CATALOG_METHOD, &Value::Null)
@@ -203,6 +209,12 @@ impl Model for ProcessModel {
     }
 
     async fn quota(&self) -> Result<Option<crate::contracts::ModelQuotaSnapshot>> {
+        if !self
+            .client
+            .supports_feature(crate::contracts::MODEL_QUOTA_FEATURE)?
+        {
+            return Ok(None);
+        }
         let method = crate::contracts::PROCESS_MODEL_QUOTA_METHOD;
         let mut handle = self
             .client

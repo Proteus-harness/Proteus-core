@@ -156,6 +156,15 @@ impl ProcessExportClient {
         &self.module_id
     }
 
+    /// Read the acknowledgement of this export in the current process generation.
+    pub fn supports_feature(&self, feature: &str) -> Result<bool> {
+        Ok(self.broker.manifest()?.exports.iter().any(|export| {
+            export.slot == self.target.slot
+                && export.module_id == self.target.module_id
+                && export.module_features.iter().any(|value| value == feature)
+        }))
+    }
+
     pub(super) async fn start(
         &self,
         method: &str,

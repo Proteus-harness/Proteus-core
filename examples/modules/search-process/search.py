@@ -17,7 +17,8 @@ from pathlib import Path, PurePath
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from component_runtime import (  # noqa: E402
+from component_runtime import (
+    require_initialize, require_features,  # noqa: E402
     PROTOCOL_VERSION,
     InvocationContext,
     ProtocolError,
@@ -29,11 +30,6 @@ MODULE_ID = "python_rg"
 CONTRACTS = {"tool": "v6", "context_provider": "v4"}
 active_exports: list[dict[str, Any]] = []
 
-INITIALIZE_FIELDS = {
-    "protocol_version",
-    "component_id",
-    "exports",
-}
 EXPORT_INITIALIZE_FIELDS = {
     "slot",
     "module_id",
@@ -63,7 +59,7 @@ def require_string_list(value: Any, label: str) -> list[str]:
 
 def validate_initialize(params: Any) -> str:
     global active_exports
-    params = require_object(params, INITIALIZE_FIELDS, "initialize params")
+    params = require_initialize(params)
     if params["protocol_version"] != PROTOCOL_VERSION:
         raise ProtocolError(f"unsupported component protocol: {params['protocol_version']!r}")
     component_id = params["component_id"]
@@ -84,8 +80,7 @@ def validate_initialize(params: Any) -> str:
             raise ProtocolError(f"duplicate export: {slot}")
         if not isinstance(export["module_config"], dict):
             raise ProtocolError("initialize module_config must be an object")
-        if require_string_list(export["host_features"], "initialize host_features"):
-            raise ProtocolError("search exports do not use host features")
+        require_features(export["host_features"])
         admitted.append({"slot": slot, "module_id": MODULE_ID,
                          "contract_version": CONTRACTS[slot], "composition": "ordered_many",
                          "module_features": [], "config_schema": None})

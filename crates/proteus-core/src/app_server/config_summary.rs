@@ -158,6 +158,8 @@ impl super::AppServerHandle {
             snapshot.registry.model_catalog().await,
         );
         let tools = snapshot.registry.tools.entries();
+        let session_settings =
+            super::session_settings::render(mode, &model_ref, &reasoning, &selection);
         let summary = ConfigSummary {
             display_text: render_config_summary(
                 &config,
@@ -181,6 +183,7 @@ impl super::AppServerHandle {
                 label: format!("{}/{}", model.provider, model.model),
             }),
             model_options: selection.models,
+            session_settings,
             model_catalog_error: selection.error,
             reasoning: ConfigReasoning {
                 enabled: reasoning.is_enabled(),

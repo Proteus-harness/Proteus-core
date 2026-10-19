@@ -80,6 +80,12 @@ pub struct ProcessComponentInitialize {
     pub protocol_version: String,
     pub component_id: String,
     pub exports: Vec<ProcessComponentExportInitialize>,
+    #[serde(
+        default,
+        rename = "_meta",
+        skip_serializing_if = "crate::extension_metadata::ExtensionMetadata::is_empty"
+    )]
+    pub metadata: crate::extension_metadata::ExtensionMetadata,
 }
 
 impl ProcessComponentInitialize {
@@ -91,6 +97,7 @@ impl ProcessComponentInitialize {
             protocol_version: PROCESS_COMPONENT_PROTOCOL_VERSION.to_owned(),
             component_id: component_id.into(),
             exports: exports.into_iter().collect(),
+            metadata: Default::default(),
         }
     }
 }
@@ -115,6 +122,12 @@ pub struct ProcessComponentManifest {
     pub protocol_version: String,
     pub component_id: String,
     pub exports: Vec<ProcessComponentExportManifest>,
+    #[serde(
+        default,
+        rename = "_meta",
+        skip_serializing_if = "crate::extension_metadata::ExtensionMetadata::is_empty"
+    )]
+    pub metadata: crate::extension_metadata::ExtensionMetadata,
 }
 
 /// Host-owned lineage одного module-method invocation.
@@ -213,6 +226,20 @@ impl ProcessModuleCancel {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn namespaced_metadata_is_optional_without_weakening_required_manifest_fields() {
+        let mut value = serde_json::json!({"protocol_version":"v3", "component_id":"probe", "exports":[],
+            "_meta":{"org.example/build":{"commit":"opaque", "future":[1,2]}}});
+        let manifest: ProcessComponentManifest = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(serde_json::to_value(manifest).unwrap(), value);
+        value["_meta"] = serde_json::json!({"unscoped":true});
+        assert!(serde_json::from_value::<ProcessComponentManifest>(value.clone()).is_err());
+        value.as_object_mut().unwrap().remove("_meta");
+        serde_json::from_value::<ProcessComponentManifest>(value.clone()).unwrap();
+        value["undeclared_behavior"] = serde_json::json!(true);
+        assert!(serde_json::from_value::<ProcessComponentManifest>(value).is_err());
+    }
 
     #[test]
     fn process_component_handshake_is_strict() {

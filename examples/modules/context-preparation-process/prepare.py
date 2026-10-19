@@ -16,7 +16,8 @@ from collections.abc import Mapping
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from component_runtime import (  # noqa: E402
+from component_runtime import (
+    require_initialize, require_features,  # noqa: E402
     PROTOCOL_VERSION,
     InvocationContext,
     ProtocolError,
@@ -28,11 +29,6 @@ SLOT = "hook"
 MODULE_ID = "python_suffix"
 CONTRACT_VERSION = "v6"
 
-INITIALIZE_FIELDS = {
-    "protocol_version",
-    "component_id",
-    "exports",
-}
 EXPORT_INITIALIZE_FIELDS = {
     "slot",
     "module_id",
@@ -72,7 +68,7 @@ def validate_strategy(strategy: Any) -> tuple[int, int]:
 
 
 def validate_initialize(params: Any) -> str:
-    params = require_object(params, INITIALIZE_FIELDS, "initialize params")
+    params = require_initialize(params)
     if params["protocol_version"] != PROTOCOL_VERSION:
         raise ProtocolError(f"unsupported component protocol: {params['protocol_version']!r}")
     component_id = params["component_id"]
@@ -100,8 +96,7 @@ def validate_initialize(params: Any) -> str:
         raise ProtocolError(f"unsupported initialize export: {export!r}")
     if not isinstance(export["module_config"], dict):
         raise ProtocolError("initialize module_config must be an object")
-    if export["host_features"] != []:
-        raise ProtocolError("hook v6 does not negotiate host features")
+    require_features(export["host_features"])
     return component_id
 
 

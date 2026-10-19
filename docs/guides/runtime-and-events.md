@@ -757,6 +757,18 @@ HTTP/SSE transport:
   через `AppServerHandle::usage_snapshot` и stdio/`POST /request` команду
   `usage_summary`. `null` означает runtime без canonical journal.
 
+`GET /config` включает `session_settings`: серверные описания `{id, name,
+category, control}`. У select `control = {type: "select", value, options}`,
+каждый option содержит `{value, name, description}`. `category` — подсказка UI,
+не enum полномочий. Новые id не требуют изменения общего клиента. Неизвестный
+тип контрола пропускают при отображении и сохраняют при передаче данных;
+известные формы и обязательные поля остаются строгими.
+`POST /session/setting` принимает `{id, session_dir, setting: {id, value}}`,
+проверяет значение по актуальному описанию и возвращает обычный command
+response с полным `output.config`. Сейчас доступны `mode`, `model` и
+`reasoning_effort` (`_default` снимает явный effort; остальные value имеют
+форму `effort:<имя>`). ACP проецирует тот же список и использует тот же setter.
+
 HTTP app-server владеет реестром живых sessions, а выбранный чат принадлежит
 конкретному клиентскому окну. Глобальной «текущей session» в HTTP API нет.
 Все сессионные GET, включая `/events`, `/config`, `/model/quota`,
