@@ -357,7 +357,7 @@ Reference `codex-patch` выбран в Codex-family profiles. Он приним
 существующий destination. Применение повторно читает файлы в порядке hunks;
 ошибка записи сохраняет уже сделанные изменения без rollback. Summary группирует
 пути как `A`/`M`/`D`. Подробная граница default file-update mode и provenance:
-[codex-patch/UPSTREAM.md](https://github.com/Qweasd123tg/Proteus-modules/blob/main/tool/codex-patch/UPSTREAM.md).
+[codex-patch/UPSTREAM.md](https://github.com/Proteus-harness/Proteus-modules/blob/main/tool/codex-patch/UPSTREAM.md).
 
 В подписочном профиле `codex` model-facing форма `apply_patch` —
 обычный function tool. Явно настроенный freeform custom tool всё равно проходит

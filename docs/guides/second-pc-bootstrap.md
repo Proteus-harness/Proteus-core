@@ -3,7 +3,7 @@
 Основной клиент — приложение. Готовую папку `Proteus` перенесите целиком
 и запустите `proteus-native /path/to/project`; профиль выбирается флагом
 `--config` (по умолчанию — основной `config.toml`). Сборка из исходников и системные
-зависимости описаны в [руководстве приложения](https://github.com/Qweasd123tg/Proteus-desktop/blob/main/README.md).
+зависимости описаны в [руководстве приложения](https://github.com/Proteus-harness/Proteus-desktop/blob/main/README.md).
 
 ## Профили И Доступ К Модели
 

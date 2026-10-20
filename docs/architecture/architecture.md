@@ -131,7 +131,7 @@ Portable-сборка клиента поставляет согласованн
 Он владеет только окном, выбором проекта,
 готовностью и завершением дочернего app-server. HTTP/SSE, session store,
 approvals и process-module authority остаются за существующими границами.
-Запуск и сборка: [Proteus-desktop](https://github.com/Qweasd123tg/Proteus-desktop/blob/main/README.md).
+Запуск и сборка: [Proteus-desktop](https://github.com/Proteus-harness/Proteus-desktop/blob/main/README.md).
 
 HTTP app-server владеет живыми sessions и выполнением, а каждое окно клиента
 владеет выбором показываемого чата. Сессионные чтения, команды и SSE имеют
@@ -178,7 +178,7 @@ Admission, cancellation и terminal execution находятся в `app_server/
 регистраций конкретных расширений. Исходники пакетов — `Proteus-desktop-extensions`.
 Расширения не зависят от backend modules.
 Установка расширения не меняет profiles, slots, process exports или authority.
-Контракт и пример: [Proteus-desktop](https://github.com/Qweasd123tg/Proteus-desktop/blob/main/README.md#расширения-без-пересборки).
+Контракт и пример: [Proteus-desktop](https://github.com/Proteus-harness/Proteus-desktop/blob/main/README.md#расширения-без-пересборки).
 
 ## Фактический Путь Одного Turn
 

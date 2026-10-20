@@ -1,6 +1,6 @@
 # Proteus Harness
 
-<img src="https://raw.githubusercontent.com/Qweasd123tg/Proteus-desktop/main/assets/proteus-logo.svg" width="112" height="112" alt="Логотип Proteus">
+<img src="https://raw.githubusercontent.com/Proteus-harness/Proteus-desktop/main/assets/proteus-logo.svg" width="112" height="112" alt="Логотип Proteus">
 
 Proteus — конструктор ИИ-агентов на Rust. Агент собирается из модулей,
 подключённых к слотам: можно выбрать алгоритм выполнения задач, модель,
@@ -57,14 +57,14 @@ Core отвечает за сборку, выполнение запросов, 
 | Репозиторий | Ответственность |
 |---|---|
 | **Proteus-harness** (этот) | Core, публичные контракты, process host, HTTP/SSE и CLI |
-| [Proteus-modules](https://github.com/Qweasd123tg/Proteus-modules) | Реализации по слотам, reference executable и DCP |
-| [Proteus-desktop](https://github.com/Qweasd123tg/Proteus-desktop) | Приложение GPUI и общие правила клиента |
-| [Proteus-desktop-extensions](https://github.com/Qweasd123tg/Proteus-desktop-extensions) | Поставляемые по умолчанию процессные расширения приложения |
+| [Proteus-modules](https://github.com/Proteus-harness/Proteus-modules) | Реализации по слотам, reference executable и DCP |
+| [Proteus-desktop](https://github.com/Proteus-harness/Proteus-desktop) | Приложение GPUI и общие правила клиента |
+| [Proteus-desktop-extensions](https://github.com/Proteus-harness/Proteus-desktop-extensions) | Поставляемые по умолчанию процессные расширения приложения |
 
 Для CLI нужны Rust, Git и Python 3:
 
 ```bash
-git clone https://github.com/Qweasd123tg/Proteus-harness.git
+git clone https://github.com/Proteus-harness/Proteus-harness.git
 cd Proteus-harness
 ./install.sh
 ```
@@ -87,7 +87,7 @@ proteus --config codex "Расскажи о структуре этого про
 меняет. `proteus` без запроса открывает интерактивный CLI.
 
 Приложение собирается в репозитории
-[Proteus-desktop](https://github.com/Qweasd123tg/Proteus-desktop#portable):
+[Proteus-desktop](https://github.com/Proteus-harness/Proteus-desktop#portable):
 `python3 scripts/portable.py --fast`. Готовая папка включает harness, модуль
 и расширения и работает без исходных checkout.
 
@@ -194,7 +194,7 @@ PATH="$PWD/target/debug:$PATH" ./target/debug/proteus --config examples/configs/
 - [Замысел проекта](docs/product/spec.md), [текущее состояние](docs/product/scope.md)
   и [план развития](docs/product/roadmap.md).
 - [Настройка моделей и профилей](docs/guides/configuration.md).
-- [Приложение и расширения клиента](https://github.com/Qweasd123tg/Proteus-desktop/blob/main/README.md).
+- [Приложение и расширения клиента](https://github.com/Proteus-harness/Proteus-desktop/blob/main/README.md).
 - [Слоты и модули](docs/architecture/modules.md),
   [архитектура](docs/architecture/architecture.md) и
   [протокол модулей](docs/architecture/process-module-architecture.md).

@@ -2,7 +2,7 @@
 
 В приложении изображения прикрепляются к сообщению кнопкой «+» в поле ввода,
 вставкой из буфера и перетаскиванием файлов в чат; подробности — в
-[руководстве приложения](https://github.com/Qweasd123tg/Proteus-desktop/blob/main/README.md). Изображения также
+[руководстве приложения](https://github.com/Proteus-harness/Proteus-desktop/blob/main/README.md). Изображения также
 передаются через HTTP API и stdio `send` (раздел «Вход И Хранение»).
 
 Host принимает PNG, JPEG, WebP и GIF, до четырёх файлов суммарным размером

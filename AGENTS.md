@@ -12,10 +12,10 @@
 
 Этот репозиторий — Proteus harness: Core, contracts, process protocol/host,
 CLI и app-server. Реализации находятся в соседнем `../Modules` / репозитории
-[Proteus-modules](https://github.com/Qweasd123tg/Proteus-modules).
+[Proteus-modules](https://github.com/Proteus-harness/Proteus-modules).
 Приложение GPUI и его процессные расширения — отдельные репозитории
-[Proteus-desktop](https://github.com/Qweasd123tg/Proteus-desktop) и
-[Proteus-desktop-extensions](https://github.com/Qweasd123tg/Proteus-desktop-extensions).
+[Proteus-desktop](https://github.com/Proteus-harness/Proteus-desktop) и
+[Proteus-desktop-extensions](https://github.com/Proteus-harness/Proteus-desktop-extensions).
 Прежнее веб-приложение сохранено в git-теге `archive/web-app`.
 
 Текущий сценарий — локальная работа владельца с собственными доверенными

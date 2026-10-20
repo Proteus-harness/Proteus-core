@@ -108,7 +108,7 @@ admission, состояния и завершения.
   структурированной задачи через `AgentRuntime`.
 - [execution_boundary](../../crates/proteus-core/tests/execution_boundary.rs)
    проверяет detached tools, включая запись памяти, admission и recording без Turn.
-- [project_check_workflow](https://github.com/Qweasd123tg/Proteus-modules/blob/main/components/process-module/tests/project_check_workflow.rs)
+- [project_check_workflow](https://github.com/Proteus-harness/Proteus-modules/blob/main/components/process-module/tests/project_check_workflow.rs)
   проверяет детерминированный controller и replay без model call на success
   path, но его верхний жизненный цикл по-прежнему является Turn.
 

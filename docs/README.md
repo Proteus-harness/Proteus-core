@@ -16,8 +16,8 @@
 | Задача | Документ |
 |---|---|
 | Установить и запустить Proteus | [Главный README](../README.md), [запуск на другой машине](guides/second-pc-bootstrap.md) |
-| Собрать и использовать приложение | [Приложение и расширения клиента](https://github.com/Qweasd123tg/Proteus-desktop/blob/main/README.md) |
-| Написать или обновить расширение приложения | [Пакеты](https://github.com/Qweasd123tg/Proteus-desktop-extensions/blob/main/README.md), [протокол v2](https://github.com/Qweasd123tg/Proteus-desktop-extensions/blob/main/PROTOCOL.md) |
+| Собрать и использовать приложение | [Приложение и расширения клиента](https://github.com/Proteus-harness/Proteus-desktop/blob/main/README.md) |
+| Написать или обновить расширение приложения | [Пакеты](https://github.com/Proteus-harness/Proteus-desktop-extensions/blob/main/README.md), [протокол v2](https://github.com/Proteus-harness/Proteus-desktop-extensions/blob/main/PROTOCOL.md) |
 | Настроить профиль, модель и инструменты | [Конфигурация](guides/configuration.md) |
 | Отправить изображение и понять его хранение | [Вход с изображениями](guides/images.md) |
 | Разобраться в устройстве и ответственности частей системы | [Архитектура](architecture/architecture.md) |

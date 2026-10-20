@@ -255,7 +255,7 @@ model export, capabilities и консервативный порог конте
 
 Основной `config.toml` включает `codex.config.toml`, сохраняя его model/provider,
 workflow, preparation hook, peers и остальные параметры, и добавляет самостоятельный
-[DCP component](https://github.com/Qweasd123tg/Proteus-modules/blob/main/hook/dcp/README.md): `hook.dcp`, model tool
+[DCP component](https://github.com/Proteus-harness/Proteus-modules/blob/main/hook/dcp/README.md): `hook.dcp`, model tool
 `compress` и пользовательская команда `/dcp`. Для запуска нужен Node.js 22+,
 собранный модуль и executable `proteus-dcp` в `PATH`; portable и `install.sh`
 не устанавливают его автоматически. После сборки в корне checkout Proteus-modules можно
@@ -352,7 +352,7 @@ cancellation продолжают действовать. API-key settings,
 HTTP 401 допускает один refresh и повтор запроса; 429 возвращает ошибку лимита
 без повторов и без переключения на платный API. Расход идёт по подписочному
 доступу/кредитам аккаунта, а не исчезает. Provenance и точные отличия:
-[model-pack/UPSTREAM.md](https://github.com/Qweasd123tg/Proteus-modules/blob/main/model/model-pack/UPSTREAM.md).
+[model-pack/UPSTREAM.md](https://github.com/Proteus-harness/Proteus-modules/blob/main/model/model-pack/UPSTREAM.md).
 
 ### OpenAI Responses Transport
 
@@ -721,7 +721,7 @@ Core не знает алгоритма. При смене export согласу
 `module_config.tool.codex_patch.reject_self_move = true`: перенос на тот же
 нормализованный путь отклоняется до записи любых hunks. Это явное отличие
 от pinned Codex. У export настройка по умолчанию выключена; для точного
-сравнения используйте `false`. [Граница режима](https://github.com/Qweasd123tg/Proteus-modules/blob/main/tool/codex-patch/UPSTREAM.md).
+сравнения используйте `false`. [Граница режима](https://github.com/Proteus-harness/Proteus-modules/blob/main/tool/codex-patch/UPSTREAM.md).
 
 ## Instructions
 
@@ -1136,7 +1136,7 @@ registration или authority surface в Core.
 [`proteus.dcp.example.toml`](../../examples/configs/proteus.dcp.example.toml)
 подключает самостоятельный Node component с `hook.dcp` и tool export `dcp.tools`.
 Сборка, настройки, происхождение и лицензия описаны в
-[`Proteus-modules/hook/dcp/README.md`](https://github.com/Qweasd123tg/Proteus-modules/blob/main/hook/dcp/README.md).
+[`Proteus-modules/hook/dcp/README.md`](https://github.com/Proteus-harness/Proteus-modules/blob/main/hook/dcp/README.md).
 Выбор включает `hook.dcp` в `modules.hooks` и `compress`, `dcp` в `tools.enabled`;
 opaque config двух exports должен совпадать. Пример не устанавливает executable
 автоматически: нужен абсолютный путь к подготовленному `dist/worker.js`.
@@ -1233,7 +1233,7 @@ Agent Plugins, пользовательские skills и готовые MCP-к�
 профиля, но не удаляет файлы, на которые ещё могут ссылаться профили.
 Packages также импортирует ZIP с `plugin.json` в корне. Установка локальная,
 без сборки или установки зависимостей; добавление `components.*` не
-поддерживается. [Формат, пути установки и пример](https://github.com/Qweasd123tg/Proteus-desktop/blob/main/examples/catalog/README.md).
+поддерживается. [Формат, пути установки и пример](https://github.com/Proteus-harness/Proteus-desktop/blob/main/examples/catalog/README.md).
 
 Блок «Агент» в настройках приложения меняет selection, provider, permission
 mode, enabled tools, hooks и `module_config`, затем сначала строит и проверяет

@@ -1,6 +1,6 @@
 {
   "modules": {
-    "url": "https://github.com/Qweasd123tg/Proteus-modules.git",
+    "url": "https://github.com/Proteus-harness/Proteus-modules.git",
     "rev": "3ca483a089ee5094f80b6bcf86903f3403353ee6",
     "env": "PROTEUS_MODULES_SOURCE",
     "local": "../Modules",

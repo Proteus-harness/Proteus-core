@@ -25,7 +25,7 @@
 - Самостоятельный DCP Node component с model-driven `compress` и hook context
   view, package-owned durable state; исходная история сохраняется. Это перенос
   механизма DCP 3.2.0 с явными adaptations, без OpenCode commands/TUI/RPC;
-  [подключение](https://github.com/Qweasd123tg/Proteus-modules/blob/main/hook/dcp/README.md).
+  [подключение](https://github.com/Proteus-harness/Proteus-modules/blob/main/hook/dcp/README.md).
 - Общий tool safety/approval path и execution-bound model/tools/context providers.
 - Canonical journal, history/resume, prompt replay и workflow replay
   в поддержанной границе.
@@ -47,7 +47,7 @@
 - Расширения клиента: значки у поля ввода и в полосах окна, панели и вкладки
   документов; весь поставляемый набор — внешние процессы с `extension.json` без пересборки, установка
   ZIP-архивом или из git-каталога, порядок и места значков; данные агента — через публичный API.
-  [Контракт и границы](https://github.com/Qweasd123tg/Proteus-desktop/blob/main/README.md#расширения-без-пересборки).
+  [Контракт и границы](https://github.com/Proteus-harness/Proteus-desktop/blob/main/README.md#расширения-без-пересборки).
 - OpenAI, OpenAI-compatible, ChatGPT subscription OAuth (`openai_codex`),
   Anthropic и fake implementations в reference
   `model-pack`; Core использует общий `model/v12` process adapter.
