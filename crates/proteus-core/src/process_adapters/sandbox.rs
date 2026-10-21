@@ -170,4 +170,33 @@ mod tests {
         assert_eq!(sandbox.read_write, [PathBuf::from("/workspace/.")]);
         assert!(!sandbox.network);
     }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn relative_workspace_resolves_cwd_and_grants_once_for_doctor_and_launch() {
+        let workspace = tempfile::tempdir_in(std::env::current_dir().unwrap()).unwrap();
+        let relative = Path::new(workspace.path().file_name().unwrap());
+        let canonical = workspace.path().canonicalize().unwrap();
+        std::fs::create_dir(workspace.path().join("child")).unwrap();
+        for restricted in [false, true] {
+            for cwd in [None, Some("child")] {
+                let mut value = json!({"command":"worker", "exports":{"tool":{"fixture":{}}}});
+                if let Some(cwd) = cwd {
+                    value["cwd"] = json!(cwd);
+                }
+                if restricted {
+                    value["sandbox"] = json!({"mode":"restricted", "read_write":["."]});
+                }
+                let config: ProcessComponentConfig = serde_json::from_value(value).unwrap();
+                let spec = config.process_spec(relative).unwrap();
+                assert_eq!(
+                    spec.cwd,
+                    Some(cwd.map_or_else(|| canonical.clone(), |cwd| canonical.join(cwd)))
+                );
+                if let Some(sandbox) = spec.sandbox {
+                    assert_eq!(sandbox.read_write, [canonical.join(".")]);
+                }
+            }
+        }
+    }
 }

@@ -64,14 +64,20 @@ impl ProcessExportLaunchConfig {
 
 impl ProcessComponentConfig {
     pub fn process_spec(&self, workspace: &Path) -> Result<ProcessSpec> {
+        let workspace = std::fs::canonicalize(workspace).with_context(|| {
+            format!(
+                "failed to resolve component workspace {}",
+                workspace.display()
+            )
+        })?;
         let mut spec = ProcessSpec::new(self.command.clone())
             .args(self.args.clone())
             .env_allowlist(self.env_allowlist.clone())
             .envs(self.env.clone())
-            .cwd(resolve_process_cwd(self.cwd.as_deref(), workspace)?);
+            .cwd(resolve_process_cwd(self.cwd.as_deref(), &workspace)?);
         self.sandbox
             .validate(self.exports().count(), "component.sandbox")?;
-        if let Some(sandbox) = self.sandbox.resolve(workspace)? {
+        if let Some(sandbox) = self.sandbox.resolve(&workspace)? {
             spec = spec.sandbox(sandbox);
             spec.validate_launch()?;
         }
