@@ -75,7 +75,7 @@ Reference modules и profiles — поставляемые примеры без
 | Collaboration | Spawn принимает только parallel_safe роли с isolation=none; настроенный coder с worktree в эту surface не входит |
 | Peer recovery | Resume зависит от живого process; durable tree, attach и reconnect отсутствуют |
 | Доверие к модулям | Trusted default сохраняет OS-права владельца. Opt-in Linux `restricted` ограничивает один configured export явными filesystem/network grants и optional executable file grant. Рабочий профиль `restricted` применяет это к шести процессам; model, DCP, skills и writable tools сохраняют прежние права. Stdio MCP server допускает ту же явную policy в `tools.mcp_servers[].sandbox` для всех remote tools процесса. LSP, peers и Desktop extensions сохраняют отдельные launch paths. Нет общей изоляции агента, resource quotas и гарантии очистки OS descendants после cooperative component invocation cancel |
-| Форматы | Config/API/DTO/wire/storage пока не стабилизированы |
+| Форматы | Config/API/DTO/wire/storage и Rust SDK имеют experimental-статус; alpha фиксирует воспроизводимую ревизию, совместимость между alpha-выпусками не обещана |
 
 Состав рабочего Linux-профиля и его prerequisites — в
 [configuration.md](../guides/configuration.md#рабочий-linux-профиль-restricted).
@@ -103,5 +103,7 @@ Process conformance и module swap
 
 ## Разработка
 
-Проект собирается и проверяется локально. CI отключён сознательно.
+Проект собирается и проверяется локально. GitHub Actions запускаются вручную;
+обычные push и PR не запускают CI. Тег общей поставки `v*` в Proteus-desktop
+запускает проверки закреплённого комплекта и сборку Linux-архивов.
 Применимые проверки описаны в [testing.md](../development/testing.md).

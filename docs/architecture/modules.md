@@ -102,6 +102,15 @@ Core сохраняет владельца process tool как typed `ProcessToo
 Builder отдельно показывает обнаруженные выключенные tools; в исполняемый
 `ToolRegistry` и набор кандидатов модели они не попадают.
 
+## Rust SDK
+
+Для внешнего Rust executable доступен experimental
+[`proteus-module-sdk`](../guides/rust-module-sdk.md). Он обслуживает текущий
+wire v3, предоставляет typed tool/v6 adapter и invocation-scoped host bridges.
+[Самостоятельный starter](../../examples/modules/rust-tool/README.md) собирается
+без исходников Proteus-modules. Слоты, authority и конфигурация подключения
+остаются теми же; это worker library, а не второй путь исполнения.
+
 ## Как Подключить Модуль
 
 В примере память предоставляется как tools и источник контекста. Запись

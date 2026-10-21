@@ -33,7 +33,9 @@ prompt или число компонентов в примере. Строгу�
 Если полный прогон завершился с отдельными failures и изменены только эти
 tests/fixtures, повторите упавшие targets. Успешные targets сохраняют evidence;
 повторный workspace нужен при новой общей production-правке.
-CI отключён; проверки выполняются локально. Manual dogfood — добровольная
+GitHub Actions запускаются вручную через `workflow_dispatch`; обычные push и PR
+не запускают CI. Тег `v*` в Proteus-desktop запускает те же gates для
+закреплённых исходников и общую Linux-поставку. Manual dogfood — добровольная
 [диагностика](dogfood-gate.md), без обязательного места в последовательности.
 
 ## Evidence Matrix
@@ -97,7 +99,7 @@ Runner готовит reference-модуль из отдельного Proteus-m
 файл — ошибка. При подготовке JS fixture используются `hook/dcp` отдельного
 репозитория и переменная `PROTEUS_TEST_DCP_MODULE`.
 
-`full` теперь выбирает только четыре crates harness. Реализации проверяются
+`full` выбирает пять crates harness, включая worker SDK. Реализации проверяются
 своим `python3 scripts/test.py full` в Proteus-modules. В приложении используется
 `python3 scripts/test.py` из Proteus-desktop: он подготавливает отдельный набор
 расширений, затем проверяет GPUI workspace и client-common.
@@ -136,6 +138,7 @@ error, pending и cold read после interruption. Process wire/authority не
 | Restricted stdio MCP launch | [`proteus-core --test mcp_client`](../../crates/proteus-core/tests/mcp_client.rs): реальные discovery/invocation, явные filesystem/network grants, общий lifecycle нескольких remote tools, cancel/timeout/restart без trusted fallback |
 | RPC envelope, wire ID, handshake, export identity, callback authority, multiplexing | `proteus-module-protocol` (`v3::frame`, `v3::wire_id`), `tests/broker_v3.rs` |
 | Подмена implementation, structural absence, shared component и failure/restart | [`proteus-core --test module_swap`](../../crates/proteus-core/tests/module_swap.rs) |
+| Rust worker SDK: framing, typed tool, errors, reentrancy, cancellation и закрытие transport | `proteus-module-sdk --test worker`; внешний executable — [rust-tool smoke](../../examples/modules/rust-tool/README.md) |
 | Reference exports, descriptors, tools и callbacks | [`proteus-reference-module --test conformance`](https://github.com/Proteus-harness/Proteus-modules/blob/main/components/process-module/tests/conformance.rs) |
 | Ordered hooks, actual effect и следующий живой turn после interruption, replay Success/Error | [`proteus-core --test hook_runtime`](../../crates/proteus-core/tests/hook_runtime.rs) |
 | JS/TS hook SDK, перенос handlers, multiplexing и targeted cancel | `node --test examples/modules/hook-process/tests/*.test.mjs`; настоящие slot/journal/replay — `hook_runtime::js_ports` и `hook_runtime::review` |

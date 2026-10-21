@@ -1,0 +1,17 @@
+[package]
+name = "proteus-rust-tool-example"
+version = "0.1.0-alpha.2"
+edition = "2024"
+publish = false
+
+# This is a standalone author project, not a Core workspace member.
+[workspace]
+
+[dependencies]
+anyhow = "1"
+proteus-module-sdk = { git = "https://github.com/Proteus-harness/Proteus-core.git", rev = "bee0e409e746e2df9db32748d4f8ea02201bd4af" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.dev]
+debug = "line-tables-only"

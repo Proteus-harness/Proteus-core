@@ -140,6 +140,7 @@ rendering, UI state, tests и provider/module-specific детали.
 - `crates/proteus-contracts` — публичные traits, DTO и canonical model;
   `proteus-core` — runtime, wiring, process adapters и app-server;
   `proteus-module-protocol` — component-v3 broker и conformance;
+  `proteus-module-sdk` — experimental Rust worker SDK внешних модулей;
   `proteus-process-host` — lifecycle stdio процессных модулей.
 - Proteus-modules группирует реализации по `model`, `workflow`, `context`,
   `policy`, `hook`, `tool`, `context_provider`; executable с несколькими
@@ -184,7 +185,7 @@ Reference crates линкуются только внутрь `proteus-reference
 
 ## Совместимость До Стабилизации
 
-Проект находится в черновой pre-release фазе без внешних пользователей. Пока
+Проект находится в experimental alpha-фазе. Пока
 владелец проекта явно не объявит текущие поверхности стабилизированными,
 обратная совместимость для собственных config/API/DTO/wire/storage форматов
 не является целью.

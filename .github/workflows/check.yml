@@ -1,0 +1,68 @@
+name: Manual checks
+
+# Deliberately no branch push, PR, schedule or tag trigger in this repository.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: manual-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_BUILD_JOBS: '2'
+  RUST_TEST_THREADS: '4'
+  CARGO_INCREMENTAL: '0'
+  PYTHONDONTWRITEBYTECODE: '1'
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12.15'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22.23.4'
+          package-manager-cache: false
+      - name: Install Linux build and sandbox dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y build-essential pkg-config clang lld libssl-dev bubblewrap ripgrep
+      - name: Require working bubblewrap namespaces
+        run: |
+          # This is an ephemeral hosted runner. Ubuntu AppArmor otherwise blocks
+          # unprivileged user namespaces before our runtime sandbox can start.
+          if test -f /proc/sys/kernel/apparmor_restrict_unprivileged_userns; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          bwrap --unshare-all --die-with-parent --ro-bind / / --proc /proc --dev /dev -- /usr/bin/true
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup toolchain install 1.95.0 --profile minimal --component rustfmt
+          rustup default 1.95.0
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.npm
+          key: deps-${{ runner.os }}-${{ runner.arch }}-rust1.95-node22-${{ hashFiles('**/Cargo.lock', '**/package-lock.json') }}
+          restore-keys: deps-${{ runner.os }}-${{ runner.arch }}-rust1.95-node22-
+      - name: Formatting
+        run: cargo fmt --all -- --check
+      - name: Workspace gate with real process fixtures
+        run: python3 scripts/test.py full
+      - name: Standalone Rust SDK starter and process conformance
+        run: |
+          export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$PWD/target}"
+          cargo build --locked --manifest-path examples/modules/rust-tool/Cargo.toml
+          cargo build --locked -p proteus-module-protocol --bin proteus-component-conformance
+          python3 examples/modules/rust-tool/smoke.py --module "$CARGO_TARGET_DIR/debug/proteus-rust-tool-example" --conformance "$CARGO_TARGET_DIR/debug/proteus-component-conformance"

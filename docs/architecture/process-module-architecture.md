@@ -983,7 +983,7 @@ Protocol tests, runtime swap и conformance реального модуля пе
 - hot replacement внутри текущего turn;
 - direct component-to-component calls в обход host и authority table;
 - arbitrary hooks или general plugin-to-plugin imports;
-- стабильность draft config/wire schema до публичного релиза.
+- стабильность draft config/wire schema между alpha-выпусками.
 
 Эти возможности могут строиться только поверх slot contracts, явной
 invocation authority и проверяемого lifecycle — без второго native path и без
