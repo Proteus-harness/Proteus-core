@@ -92,6 +92,15 @@ proteus --config codex "Расскажи о структуре этого про
 `python3 scripts/portable.py --fast`. Готовая папка включает harness, модуль
 и расширения и работает без исходных checkout.
 
+Для Linux есть отдельный рабочий профиль `restricted` с частичной изоляцией:
+`proteus --config restricted` или `./proteus-native /path/to/project --config restricted`
+из portable. Он сохраняет подписку, tools, DCP и роли; ограничения применяются
+к шести выбранным процессам, а не ко всему агенту. Нужны рабочий `/usr/bin/bwrap`,
+user namespaces и явные runtime-пути; для DCP — Node.js 22+. CLI installer
+не устанавливает DCP автоматически. Покрытие и подготовка описаны в
+[руководстве конфигурации](docs/guides/configuration.md#рабочий-linux-профиль-restricted).
+Обычный запуск и профиль `codex` сохраняют прежнее поведение.
+
 Авторизация и собственные профили — в
 [руководстве конфигурации](docs/guides/configuration.md).
 

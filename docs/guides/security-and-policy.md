@@ -820,13 +820,20 @@ durable process isolation boundary. Внешний `workdir` допустим т
 ## Ограниченный Запуск Components Под Linux
 
 Первый режим задаётся явно в `components.<id>.sandbox`: `mode = "restricted"`,
-`read_only`, `read_write` и `network`. Без настройки используется `trusted`;
-поставляемые profiles сохраняют доверенный запуск. Полная форма и пример — в
+`read_only`, `read_write`, `network` и optional `read_executable` (по умолчанию
+`false`). Без настройки используется `trusted`; default и `codex` сохраняют
+доверенный запуск. Отдельный рабочий `restricted` ограничивает шесть выбранных
+процессов; его состав и trusted остаток описаны в
+[configuration.md](configuration.md#рабочий-linux-профиль-restricted).
+Полная форма и пример общей launch policy — в
 [configuration.md](configuration.md#ограниченный-запуск-под-linux).
 
 Core проверяет launch policy и exact export set; process host применяет
 OS-ограничения до старта worker через `/usr/bin/bwrap`. Policy slot по-прежнему
-решает `allow/ask/deny` для model-callable операций. Sandbox component не заменяет
+решает `allow/ask/deny` для model-callable операций. Разрешённые callbacks
+могут передать worker данные или выполнить host effect вне его прямых OS-grants;
+process sandbox не ограничивает эти эффекты сверх slot authority и host policy.
+Sandbox component не заменяет
 этот путь и не добавляет worker права на callbacks. Сам module не отвечает
 за обеспечение собственной изоляции. Существующий sandbox `shell-tool`
 сохраняется отдельно.
@@ -842,13 +849,21 @@ authority. Для разных требований к OS-доступу нуж�
 filesystem доступна только через явные writable roots. Private `/tmp` доступен
 для временных данных; pseudo-filesystems сохраняют служебную семантику.
 Нет неявного bind host `/`,
-workspace, `HOME`, executable, script parent или runtime directories.
+workspace, `HOME`, script parent или runtime directories. Только при явном
+`read_executable = true` host добавляет read-only файл выбранной команды:
+точный child `PATH` и canonical `cwd` используются один раз, inode закрепляется,
+запуск идёт по абсолютному пути без повторного PATH lookup. Родительская папка,
+интерпретатор и зависимости не добавляются. Файл может вложиться в явный
+read-only grant; любое пересечение с writable source/destination запрещено.
+Закреплённый inode не является immutable snapshot содержимого и не исключает
+внешнюю запись в тот же файл.
 Относительные paths разрешаются от workspace; `~` раскрывается до запуска.
 Roots должны существовать и быть обычными файлами или каталогами; `cwd` должен
 попадать под grant. Перекрывающиеся destinations и canonical sources с writable
 authority запрещены; roots с `..`, `/`, сам `/tmp`, trees `/proc`, `/dev`, `/sys`
-и `/run` не принимаются. Runtime, worker и его dependencies пользователь разрешает
-явно. Разрешение `/usr` раскрывает содержимое этого дерева; любой filesystem
+и `/run` не принимаются. Runtime и dependencies пользователь разрешает явно;
+без `read_executable` это относится и к worker. Разрешение `/usr` раскрывает
+содержимое этого дерева; любой filesystem
 grant означает доверие worker ко всем доступным внутри данным.
 
 Environment backend очищается до запуска: worker получает сохранённый `PATH`,

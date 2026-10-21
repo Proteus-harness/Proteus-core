@@ -147,6 +147,8 @@ async fn init_codex_writes_loadable_config_with_runtime_fragment() {
     assert!(dir.path().join("prompts/codex-explore.md").exists());
     assert!(dir.path().join("prompts/codex-coder.md").exists());
     assert!(dir.path().join("fragments/codex-runtime.toml").exists());
+    assert!(dir.path().join("fragments/codex-behavior.toml").exists());
+    assert!(dir.path().join("fragments/codex-components.toml").exists());
     assert!(
         dir.path()
             .join("fragments/codex-peer-runtime.toml")

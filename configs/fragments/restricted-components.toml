@@ -1,0 +1,107 @@
+# Только перечисленные одноэкспортные компоненты ограничены на уровне ОС.
+# /usr, /lib, /lib64 и /bin — явные read-only зависимости runtime.
+# read_executable открывает ровно executable из PATH, без соседней директории.
+# Чистые workflow/policy/compact работают в /usr без доступа к workspace.
+
+[components.reference-workflow]
+command = "proteus-reference-module"
+cwd = "/usr"
+
+[components.reference-workflow.sandbox]
+mode = "restricted"
+read_executable = true
+read_only = ["/usr", "/lib", "/lib64", "/bin"]
+read_write = []
+network = false
+
+[components.reference-workflow.exports.workflow."coding.codex_loop"]
+
+[components.reference-context]
+command = "proteus-reference-module"
+
+[components.reference-context.sandbox]
+mode = "restricted"
+read_executable = true
+read_only = ["/usr", "/lib", "/lib64", "/bin", "."]
+read_write = []
+network = false
+
+[components.reference-context.exports.context."codex_context"]
+
+[components.reference-policy]
+command = "proteus-reference-module"
+cwd = "/usr"
+
+[components.reference-policy.sandbox]
+mode = "restricted"
+read_executable = true
+read_only = ["/usr", "/lib", "/lib64", "/bin"]
+read_write = []
+network = false
+
+[components.reference-policy.exports.policy."codex_policy"]
+
+[components.reference-compact]
+command = "proteus-reference-module"
+cwd = "/usr"
+
+[components.reference-compact.sandbox]
+mode = "restricted"
+read_executable = true
+read_only = ["/usr", "/lib", "/lib64", "/bin"]
+read_write = []
+network = false
+
+[components.reference-compact.exports.hook."codex_compact"]
+
+[components.reference-search-tool]
+command = "proteus-reference-module"
+
+[components.reference-search-tool.sandbox]
+mode = "restricted"
+read_executable = true
+read_only = ["/usr", "/lib", "/lib64", "/bin", "."]
+read_write = []
+network = false
+
+[components.reference-search-tool.exports.tool."rg_search"]
+
+[components.reference-search-provider]
+command = "proteus-reference-module"
+
+[components.reference-search-provider.sandbox]
+mode = "restricted"
+read_executable = true
+read_only = ["/usr", "/lib", "/lib64", "/bin", "."]
+read_write = []
+network = false
+
+[components.reference-search-provider.exports.context_provider."rg_search"]
+
+# Этот общий процесс сохраняет user skills, запись файлов/памяти, shell и LSP.
+# Его exports не изолированы друг от друга; HOME/PROTEUS_HOME нужны как прежде.
+[components.reference-capabilities]
+command = "proteus-reference-module"
+env_allowlist = ["HOME", "PROTEUS_HOME"]
+
+[components.reference-capabilities.exports.tool.jsonl_memory]
+
+[components.reference-capabilities.exports.context_provider.skills]
+
+[components.reference-capabilities.exports.tool.codex_patch]
+
+# Отдельные паки tools делят тот же процесс и сохраняют прежнюю tool surface.
+[components.reference-capabilities.exports.tool.file_tools]
+
+[components.reference-capabilities.exports.tool.git_tools]
+
+[components.reference-capabilities.exports.tool.shell_tools]
+
+[components.reference-capabilities.exports.tool.plan_tool]
+
+[components.reference-capabilities.exports.tool.rust_lsp]
+
+[components.reference-capabilities.exports.tool.skill_tool]
+
+[components.reference-capabilities.exports.tool.policy_tools]
+

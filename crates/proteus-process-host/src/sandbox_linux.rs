@@ -17,6 +17,9 @@ use crate::ProcessSpec;
 
 const BACKEND: &str = "/usr/bin/bwrap";
 
+#[path = "sandbox_executable.rs"]
+mod executable;
+
 struct Grant {
     destination: PathBuf,
     source: PathBuf,
@@ -75,7 +78,13 @@ pub(super) fn prepare(spec: &ProcessSpec, sandbox: &ProcessSandbox) -> Result<Co
             });
         }
     }
-    let cwd = normalized(&spec.cwd.clone().unwrap_or(std::env::current_dir()?))?;
+    let environment = spec.resolved_environment()?;
+    let requested_cwd = spec.cwd.clone().unwrap_or(std::env::current_dir()?);
+    let cwd = if sandbox.read_executable {
+        fs::canonicalize(&requested_cwd).context("cannot resolve sandbox cwd")?
+    } else {
+        normalized(&requested_cwd)?
+    };
     ensure!(
         cwd.is_dir(),
         "sandbox cwd is not an existing directory: {}",
@@ -89,6 +98,11 @@ pub(super) fn prepare(spec: &ProcessSpec, sandbox: &ProcessSandbox) -> Result<Co
         cwd.display()
     );
 
+    let executable = if sandbox.read_executable {
+        Some(executable::grant(spec, &cwd, &environment, &mut grants)?)
+    } else {
+        None
+    };
     let mut command = Command::new(BACKEND);
     // The backend itself must not receive caller-controlled loader variables.
     // Payload variables are installed only after namespace/mount setup.
@@ -111,7 +125,7 @@ pub(super) fn prepare(spec: &ProcessSpec, sandbox: &ProcessSandbox) -> Result<Co
     if sandbox.network {
         command.arg("--share-net");
     }
-    for (key, value) in spec.resolved_environment()? {
+    for (key, value) in environment {
         command.arg("--setenv").arg(key).arg(value);
     }
     for grant in &grants {
@@ -129,7 +143,11 @@ pub(super) fn prepare(spec: &ProcessSpec, sandbox: &ProcessSandbox) -> Result<Co
         .arg("--chdir")
         .arg(cwd)
         .arg("--")
-        .arg(&spec.command)
+        .arg(
+            executable
+                .as_deref()
+                .unwrap_or_else(|| Path::new(&spec.command)),
+        )
         .args(&spec.args);
     // Keep O_PATH descriptors alive until fork/exec, without changing their
     // parent-side CLOEXEC flags. bwrap verifies mounted inode/dev against each

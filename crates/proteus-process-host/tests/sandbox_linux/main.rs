@@ -34,6 +34,7 @@ fn base(workspace: &Path) -> Result<ProcessSpec> {
         .arg("__sandbox_fixture")
         .cwd(workspace)
         .sandbox(ProcessSandbox {
+            read_executable: false,
             read_only: vec![
                 "/usr".into(),
                 "/lib64".into(),
@@ -356,6 +357,7 @@ fn fixture(args: &[String]) -> Result<()> {
                 .args(["__sandbox_fixture", "marker", &args[1]])
                 .cwd(std::env::current_dir()?)
                 .sandbox(ProcessSandbox {
+                    read_executable: false,
                     read_only: vec![std::env::current_exe()?],
                     read_write: vec![std::env::current_dir()?],
                     network: false,

@@ -19,6 +19,8 @@ pub(super) enum ComponentSandboxConfig {
         read_write: Vec<PathBuf>,
         #[serde(default)]
         network: bool,
+        #[serde(default)]
+        read_executable: bool,
     },
 }
 
@@ -64,6 +66,7 @@ impl ComponentSandboxConfig {
             read_only,
             read_write,
             network,
+            read_executable,
         } = self
         else {
             return Ok(None);
@@ -88,6 +91,7 @@ impl ComponentSandboxConfig {
             read_only: paths(read_only),
             read_write: paths(read_write),
             network: *network,
+            read_executable: *read_executable,
         }))
     }
 }
@@ -114,6 +118,7 @@ mod tests {
         for sandbox in [
             json!({"mode":"unknown"}),
             json!({"mode":"trusted", "network":true}),
+            json!({"mode":"trusted", "read_executable":true}),
             json!({"mode":"restricted", "unexpected":true}),
         ] {
             value["sandbox"] = sandbox;
@@ -157,6 +162,7 @@ mod tests {
     fn sandbox_paths_are_workspace_relative_without_implicit_grants_or_alias_loss() {
         let config: ComponentSandboxConfig = serde_json::from_value(json!({
             "mode":"restricted", "read_only":["worker.py", "/lib64"], "read_write":["."],
+            "read_executable":true,
         }))
         .unwrap();
         let sandbox = config.resolve(Path::new("/workspace")).unwrap().unwrap();
@@ -169,6 +175,7 @@ mod tests {
         );
         assert_eq!(sandbox.read_write, [PathBuf::from("/workspace/.")]);
         assert!(!sandbox.network);
+        assert!(sandbox.read_executable);
     }
 
     #[cfg(target_os = "linux")]

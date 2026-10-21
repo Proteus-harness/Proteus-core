@@ -25,6 +25,9 @@ CLI и app-server. Реализации находятся в соседнем `
 `docs/guides/security-and-policy.md#ограниченный-запуск-components-под-linux`.
 Это не общая изоляция всех подсистем и не поручение менять существующие
 policy/approval contracts или автоматически ограничивать поставляемые profiles.
+Отдельный opt-in `configs/restricted.config.toml` сохраняет рабочую сборку с
+частичной изоляцией выбранных components. Default и `codex` остаются trusted;
+конкретный состав этой сборки не переносите в constructor/runtime.
 
 ## Главный Инвариант
 

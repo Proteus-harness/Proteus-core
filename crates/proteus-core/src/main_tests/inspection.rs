@@ -137,6 +137,35 @@ fn doctor_rejects_invalid_restricted_launch_without_running_the_component() {
     );
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn doctor_uses_child_path_for_an_explicit_executable_grant() {
+    use std::os::unix::fs::PermissionsExt;
+    let workspace = tempfile::tempdir().unwrap();
+    let binary = workspace.path().join("proteus-child-path-fixture");
+    std::fs::write(&binary, "#!/bin/sh\nexit 99\n").unwrap();
+    std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let mut config = crate::test_model::config();
+    config.components.insert(
+        "child-path-fixture".into(),
+        serde_json::from_value(serde_json::json!({
+            "command":"proteus-child-path-fixture", "env":{"PATH":workspace.path()},
+            "sandbox":{"mode":"restricted", "read_executable":true, "read_only":["."]},
+            "exports":{"context_provider":{"child-path-fixture":{}}},
+        }))
+        .unwrap(),
+    );
+    let mut findings = DoctorFindings::default();
+    check_external_commands(&mut findings, &config, workspace.path());
+    assert!(!findings.has_errors());
+    assert!(
+        findings
+            .entries
+            .iter()
+            .any(|entry| entry.level == "ok" && entry.message.contains("child-path-fixture"))
+    );
+}
+
 #[test]
 fn module_list_output_contains_catalog_rows() {
     let manifests = vec![ModuleManifest::builtin(

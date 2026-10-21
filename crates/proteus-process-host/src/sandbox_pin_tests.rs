@@ -17,6 +17,7 @@ fn fixture() -> Result<(PathBuf, ProcessSpec)> {
         .arg(workspace.join("input").to_string_lossy())
         .cwd(&workspace)
         .sandbox(ProcessSandbox {
+            read_executable: false,
             read_only: vec!["/usr".into(), "/lib64".into(), "/lib".into()],
             read_write: vec![workspace],
             network: false,

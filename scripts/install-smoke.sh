@@ -58,10 +58,14 @@ test -x "${runtime_home}/current/proteus"
 test -x "${runtime_home}/current/proteus-reference-module"
 test -f "${config_home}/configs/config.toml"
 test -f "${config_home}/configs/codex.config.toml"
+test -f "${config_home}/configs/restricted.config.toml"
 test -f "${config_home}/configs/context-search-chatgpt.config.toml"
 test -f "${config_home}/configs/codex-explore.config.toml"
 test -f "${config_home}/configs/codex-coder.config.toml"
 test -f "${config_home}/configs/fragments/openai-chatgpt.toml"
+for fragment in codex-runtime codex-behavior codex-components codex-subscription restricted-components dcp-runtime; do
+  test -f "${config_home}/configs/fragments/${fragment}.toml"
+done
 test -f "${config_home}/configs/fragments/codex-peer-runtime.toml"
 test -f "${config_home}/configs/fragments/codex-explore-peer.toml"
 test -f "${config_home}/configs/fragments/codex-coder-peer.toml"
@@ -86,6 +90,35 @@ require_text "вход не выполнен" "${output_dir}/auth-status.txt"
 run_and_capture subscription-doctor "${output_dir}/subscription-doctor.txt" \
   "${proteus}" --config codex doctor
 require_text "openai_codex" "${output_dir}/subscription-doctor.txt"
+
+# Installer не поставляет Node/DCP. Копируем установленный restricted profile,
+# исключая только DCP overlay: даже выключенный tool export участвует в discovery.
+# Остальные includes и sandbox grants остаются такими же, модель — synthetic fake.
+restricted_config="${config_home}/configs/smoke-restricted.toml"
+printf '%s\n' 'active_provider = "fake"' >"${restricted_config}"
+sed '/"fragments\/dcp-runtime.toml",/d' \
+  "${config_home}/configs/restricted.config.toml" >>"${restricted_config}"
+cat >>"${restricted_config}" <<'EOF'
+
+[providers.fake]
+provider = "fake"
+model = "fake-tool-model"
+stream = true
+
+[components.reference-model.exports.model.fake]
+
+[module_config.model.fake]
+implementation = "fake"
+
+EOF
+restricted_workspace="${smoke_root}/restricted-workspace"
+mkdir -p "${restricted_workspace}"
+if [ "$(uname -s)" = Linux ]; then
+  run_and_capture restricted-profile "${output_dir}/restricted-profile.txt" \
+    "${proteus}" --config "${restricted_config}" --cwd "${restricted_workspace}" \
+    "installed restricted profile smoke"
+  require_text "Fake final answer." "${output_dir}/restricted-profile.txt"
+fi
 
 safe_config="${config_home}/configs/smoke-safe.toml"
 run_and_capture init "${output_dir}/init.txt" \
@@ -149,4 +182,4 @@ run_and_capture process-peer-surfaces "${output_dir}/process-peer-surfaces.txt" 
   process_peers_derive_distinct_tool_surfaces_from_child_configs -- --exact
 require_text "test result: ok" "${output_dir}/process-peer-surfaces.txt"
 
-echo "install smoke passed: isolated install, init, doctor, assembly plan, fake profile, topology, external Python component, process-agent messaging and peer-owned tool surfaces"
+echo "install smoke passed: isolated install, init, doctor, assembly plan, restricted and safe fake profiles, topology, external Python component, process-agent messaging and peer-owned tool surfaces"

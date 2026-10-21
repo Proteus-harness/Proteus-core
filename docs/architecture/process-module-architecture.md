@@ -149,18 +149,27 @@ status или authority. Reference components — обычные явно выб
 Core при validation; runtime не объединяет OS-grants нескольких exports.
 
 Core передаёт process host strict launch spec: `read_only`, `read_write`,
-`network` (`false` по умолчанию). Пути разрешаются от workspace; roots должны
-существовать, а `cwd` — покрываться grant. Process host создаёт отдельный root
+`network` и `read_executable` (оба `false` по умолчанию). Пути разрешаются от
+workspace; roots должны существовать, а `cwd` — покрываться grant. Process host создаёт отдельный root
 с явными grants, `/proc`, `/dev` и временным `/tmp`; корень read-only.
 Запись в host filesystem доступна через явные writable roots, private `/tmp` —
 для временных данных; `/proc` и `/dev` сохраняют служебную семантику. Executable, runtime,
-script/imports и workspace не монтируются автоматически. Environment очищается
+script/imports и workspace не монтируются автоматически. Только явный
+`read_executable = true` разрешает host однократно выбрать executable по child
+`PATH` и canonical `cwd`, закрепить inode и добавить read-only file mount.
+Backend запускает выбранный абсолютный путь без повторного PATH lookup. Parent
+directory, libraries, интерпретатор и resources не выводятся из executable.
+Внутренний mount может вложиться в read-only grant, но любое пересечение с
+writable source/destination запрещено; общая проверка пользовательских grants
+не ослабляется. Pin inode не даёт immutable content snapshot. Environment очищается
 до старта backend, worker получает только минимальный `PATH`, allowlist и
 literal env. Ошибка setup или недоступный backend не допускают trusted fallback.
 
 `network = false` отделяет IP-сеть от host. `true` разрешает host network
 целиком; Unix sockets в разрешённых деревьях не фильтруются этим флагом.
-Policy slot и `host.*` callbacks сохраняют прежнюю семантику. Этот launcher
+Policy slot и `host.*` callbacks сохраняют прежнюю семантику: разрешённый
+callback может выполнить host effect вне прямых OS-grants child. Launcher
+ограничивает generation, а не OS-права отдельного invocation. Этот launcher
 не применяется к MCP, LSP, peers или Desktop extensions и не меняет sandbox
 `shell-tool`. Форма config и пример — в
 [configuration.md](../guides/configuration.md#ограниченный-запуск-под-linux);

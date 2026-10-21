@@ -1,5 +1,7 @@
 #![cfg(target_os = "linux")]
 
+#[path = "component_sandbox/restricted_profile.rs"]
+mod restricted_profile;
 #[path = "support/model.rs"]
 mod test_model;
 

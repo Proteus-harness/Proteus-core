@@ -27,7 +27,7 @@ directory файлы `.toml` / `.json` merge-ятся лексикографич
 
 Directory mode предназначен для одного profile, разложенного на fragments.
 Каталог `configs/` в репозитории содержит альтернативные named profiles
-(`codex`, `context-search-chatgpt`, `opencode`) и потому не должен передаваться
+(`codex`, `restricted`, `context-search-chatgpt`, `opencode`) и потому не должен передаваться
 целиком через `--config configs`: выбирайте конкретный файл или named config.
 
 ```toml
@@ -44,9 +44,15 @@ config file. Includes merge-ятся слева направо, затем те�
 ```text
 configs/config.toml                 codex.config.toml + DCP overlay
 configs/codex.config.toml           подписочная сборка без DCP
+configs/restricted.config.toml      рабочая Linux-сборка с частичной изоляцией
+configs/fragments/dcp-runtime.toml  общий DCP overlay
+configs/fragments/codex-behavior.toml общий выбор modules/tools и peer routing
+configs/fragments/codex-components.toml доверенная process-композиция
+configs/fragments/restricted-components.toml частично ограниченная композиция
 configs/fragments/openai-chatgpt.toml OAuth provider launch/capabilities
-configs/fragments/codex-runtime.toml parent modules/tools и peer lifecycle/routing
+configs/fragments/codex-runtime.toml behavior + trusted components
 configs/fragments/codex-profile.toml strict Codex policy/context overlay
+configs/fragments/codex-subscription.toml общие provider/policy/roles подписки
 configs/fragments/codex-peer-runtime.toml общий workflow/components/runtime peers
 configs/fragments/codex-{explore,coder}-peer.toml prompt/tools/policy конкретного peer
 configs/codex-{explore,coder}.config.toml подписочные named child configs
@@ -62,6 +68,66 @@ Root `codex` и основной `config.toml` используют подпис
 Отдельные API/proxy-профили не поставляются.
 
 `~`, `$HOME` и `${HOME}` раскрываются в path fields.
+
+## Рабочий Linux-Профиль Restricted
+
+[restricted.config.toml](../../configs/restricted.config.toml) — отдельная
+рабочая сборка с частичной OS-изоляцией. Она сохраняет подписочную модель,
+обычный набор tools, DCP, роли и поведение основного `config.toml` через общие
+fragments. Основной профиль и `codex` автоматически не переключаются.
+
+После установки CLI и подготовки DCP, описанной [ниже](#chatgpt-subscription-через-oauth):
+
+```bash
+cd /path/to/project
+proteus --config restricted doctor
+proteus --config restricted
+```
+
+В готовом Desktop portable профиль выбирается тем же named key:
+
+```bash
+./proteus-native /path/to/project --config restricted
+```
+
+В checkout без установки profiles используйте явный путь:
+`proteus --config /absolute/path/to/Proteus-core/configs/restricted.config.toml`.
+`--config restricted` ищет установленный `restricted.config.toml` в config-dir,
+а не произвольный файл в текущей папке. Installer и portable поставляют этот
+profile и его fragments; существующий пользовательский named config сохраняется.
+
+Нужны Linux, исполняемый `/usr/bin/bwrap` и разрешённые user namespaces.
+Профиль явно разрешает чтение `/usr`, `/lib`, `/lib64` и `/bin`: все эти пути
+должны существовать. На другой раскладке runtime измените grants в собственной
+копии profile. Для reference search нужен ripgrep, для DCP — Node.js 22+ и
+`proteus-dcp` в `PATH`. Portable включает DCP, но использует системный Node.js;
+CLI `install.sh` требует отдельной подготовки DCP. Для расширений Desktop
+по-прежнему нужен Python 3. Недоступный backend или неверный grant приводят
+к ошибке запуска, без trusted fallback.
+
+| Component / export | Прямой OS-доступ |
+|---|---|
+| `workflow/coding.codex_loop`, `policy/codex_policy`, `hook/codex_compact` | Только read-only runtime и файл executable; `cwd = "/usr"`, workspace не смонтирован |
+| `context/codex_context`, `tool/rg_search`, `context_provider/rg_search` | Read-only runtime, executable и workspace |
+
+Это шесть отдельных одноэкспортных процессов. У всех `network = false`,
+нет `read_write` grants и передачи `HOME` через environment. Доступ к самому
+executable задаёт `read_executable = true`; соседний каталог не открывается.
+Разрешение workspace на чтение включает все данные внутри него.
+
+Model credentials, пользовательские/plugin skills, запись файлов/patch/памяти,
+`shell`, `exec_command`, `write_stdin`, LSP и peers сохраняют прежние доверенные
+пути. У shell/exec остаётся собственная изоляция отдельной команды. DCP остаётся
+trusted: его hook и tool делят process state. Desktop extensions не ограничены
+этим profile. Дочерние роли используют прежние child profiles, а не наследуют
+OS-grants родителя автоматически.
+
+OS-ограничения относятся к persistent process generation, а не к каждому
+вызову. Workflow, policy и compact обращаются к данным и действиям через
+разрешённые slot callbacks. Host policy по-прежнему может разрешить callback,
+который читает данные или выполняет эффект за пределами прямых OS-grants worker.
+Этот профиль не обещает изоляцию всего агента или скрытие данных callback-а
+от его получателя. Общий контракт — [ниже](#ограниченный-запуск-под-linux).
 
 ## Личные Настройки В Checkout
 
@@ -626,10 +692,12 @@ profile. Наличие active provider пока обязательно для �
 от protocol authority его export. Это strict tagged object:
 
 - `{ mode = "trusted" }` — запуск с OS-правами пользователя; это же поведение
-  при отсутствии `sandbox`. Поля путей и сети в этом варианте запрещены.
-- `{ mode = "restricted", read_only = [...], read_write = [...], network = false }`
+  при отсутствии `sandbox`. Поля `read_only`, `read_write`, `network` и
+  `read_executable` в этом варианте запрещены.
+- `{ mode = "restricted", read_only = [...], read_write = [...], network = false, read_executable = false }`
   — явный запуск через `/usr/bin/bwrap` под Linux. Массивы путей по умолчанию
-  пусты, `network` по умолчанию `false`. Допустим ровно один configured export;
+  пусты, `network` и `read_executable` по умолчанию `false`. Допустим ровно один
+  configured export;
   второй export — ошибка config validation, даже если он не выбран в профиле.
 
 Пример блока component для запуска из workspace, равного checkout Proteus-core.
@@ -669,13 +737,43 @@ Parent traversal (`..`) в sandbox roots запрещён.
 
 Относительные roots отсчитываются от workspace, а не от config file или `cwd`;
 `~` раскрывается до запуска. Рабочий каталог должен попадать под явный grant.
-Нет автоматического доступа к workspace, `HOME`, runtime libraries, executable,
-script или родительскому каталогу script. Команда и все её зависимости должны
-быть доступны внутри grants. Backend создаёт отдельный root с `/proc`, `/dev`
+Нет автоматического доступа к workspace, `HOME`, runtime libraries, script
+или родительскому каталогу script. Без `read_executable` команда также должна
+быть доступна внутри явных grants. Все зависимости worker разрешаются явно.
+Backend создаёт отдельный root с `/proc`, `/dev`
 и временным `/tmp`; корень read-only, запись в host filesystem доступна
 только через явные `read_write` roots. Private `/tmp` доступен для временных
 данных; `/proc` и `/dev` имеют собственную служебную семантику. Весь host `/`
 внутрь не монтируется.
+
+`read_executable = true` добавляет только read-only файл выбранной команды.
+Например, для уже объявленного одноэкспортного worker:
+
+```toml
+[components.worker]
+command = "/opt/my-worker/bin/worker"
+cwd = "/usr"
+
+[components.worker.sandbox]
+mode = "restricted"
+read_executable = true
+read_only = ["/usr", "/lib", "/lib64", "/bin"]
+network = false
+```
+
+Host выбирает executable один раз по точному child `PATH` и canonical `cwd`,
+закрепляет inode файла и передаёт backend абсолютный путь. Внутри sandbox
+повторного поиска по `PATH` нет. Родительский каталог executable, его libraries,
+интерпретатор script и resource files не добавляются: они требуют своих grants.
+Проверка команды в `doctor` использует тот же child `PATH`.
+
+Внутренний file mount executable может находиться внутри явного read-only root;
+это не разрешает пересечение пользовательских roots между собой. Любое
+пересечение executable с writable source/destination запрещено, в том числе
+если binary находится внутри `read_write` workspace. В таком случае перенесите
+binary за пределы writable tree. Закрепление inode защищает выбор файла при
+замене directory entry, но не является неизменяемым snapshot его содержимого:
+внешняя запись в тот же inode не блокируется.
 
 Host очищает environment до запуска backend; внутри worker доступны только
 обычный `PATH`, поля `env_allowlist` и `env`. Разрешённое имя `HOME` не даёт

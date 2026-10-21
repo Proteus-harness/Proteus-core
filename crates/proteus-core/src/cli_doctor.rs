@@ -265,16 +265,33 @@ pub(crate) fn check_external_commands(
             Ok(spec)
         });
         match process {
-            Ok(spec) => check_command(
-                findings,
-                &spec.command,
-                spec.cwd.as_deref().unwrap_or(cwd),
-                &format!(
+            Ok(spec) => {
+                let label = format!(
                     "процесс модуля {} (реализаций слотов: {})",
                     component_id,
                     component.exports().count()
-                ),
-            ),
+                );
+                if spec
+                    .sandbox
+                    .as_ref()
+                    .is_some_and(|sandbox| sandbox.read_executable)
+                {
+                    // validate_launch already resolved and pinned the executable
+                    // against this child's exact environment and cwd. Checking
+                    // the parent's PATH again can reject a valid explicit PATH.
+                    findings.ok(format!(
+                        "{label}: command available in child environment ({})",
+                        spec.command
+                    ));
+                } else {
+                    check_command(
+                        findings,
+                        &spec.command,
+                        spec.cwd.as_deref().unwrap_or(cwd),
+                        &label,
+                    );
+                }
+            }
             Err(error) => findings.error(format!(
                 "настройки запуска модуля {component_id}: {error:#}"
             )),

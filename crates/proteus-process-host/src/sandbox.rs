@@ -11,6 +11,8 @@ use crate::ProcessSpec;
 /// still usable: this setting is not a general IPC firewall.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ProcessSandbox {
+    /// Grant only the resolved executable file; no adjacent files or runtime dependencies.
+    pub read_executable: bool,
     pub read_only: Vec<PathBuf>,
     pub read_write: Vec<PathBuf>,
     pub network: bool,

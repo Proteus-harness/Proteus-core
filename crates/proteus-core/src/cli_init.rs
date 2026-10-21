@@ -10,6 +10,9 @@ const CODING_PROFILE_CONFIG: &str =
     include_str!("../../../examples/configs/proteus.coding.example.toml");
 const CODEX_PROFILE_CONFIG: &str = include_str!("../../../configs/fragments/codex-profile.toml");
 const CODEX_RUNTIME_CONFIG: &str = include_str!("../../../configs/fragments/codex-runtime.toml");
+const CODEX_BEHAVIOR_CONFIG: &str = include_str!("../../../configs/fragments/codex-behavior.toml");
+const CODEX_COMPONENTS_CONFIG: &str =
+    include_str!("../../../configs/fragments/codex-components.toml");
 const CODEX_PEER_RUNTIME_CONFIG: &str =
     include_str!("../../../configs/fragments/codex-peer-runtime.toml");
 const CODEX_EXPLORE_PEER_CONFIG: &str =
@@ -30,6 +33,8 @@ const CODEX_PROMPT_FILE: &str = "prompts/codex-default.md";
 const CODEX_EXPLORE_PROMPT_FILE: &str = "prompts/codex-explore.md";
 const CODEX_CODER_PROMPT_FILE: &str = "prompts/codex-coder.md";
 const CODEX_RUNTIME_FILE: &str = "fragments/codex-runtime.toml";
+const CODEX_BEHAVIOR_FILE: &str = "fragments/codex-behavior.toml";
+const CODEX_COMPONENTS_FILE: &str = "fragments/codex-components.toml";
 const CODEX_PEER_RUNTIME_FILE: &str = "fragments/codex-peer-runtime.toml";
 const CODEX_EXPLORE_PEER_FILE: &str = "fragments/codex-explore-peer.toml";
 const CODEX_CODER_PEER_FILE: &str = "fragments/codex-coder-peer.toml";
@@ -87,7 +92,9 @@ impl InitProfile {
     fn support_files(self, config_dir: &Path) -> Result<Vec<(&'static str, String)>> {
         Ok(match self {
             Self::Codex => vec![
-                (CODEX_RUNTIME_FILE, codex_runtime_for_init(config_dir)?),
+                (CODEX_RUNTIME_FILE, CODEX_RUNTIME_CONFIG.to_owned()),
+                (CODEX_BEHAVIOR_FILE, codex_behavior_for_init(config_dir)?),
+                (CODEX_COMPONENTS_FILE, CODEX_COMPONENTS_CONFIG.to_owned()),
                 (
                     CODEX_PEER_RUNTIME_FILE,
                     CODEX_PEER_RUNTIME_CONFIG.to_owned(),
@@ -124,9 +131,9 @@ fn codex_child_config_for_init(role_fragment: &str) -> String {
     )
 }
 
-fn codex_runtime_for_init(config_dir: &Path) -> Result<String> {
+fn codex_behavior_for_init(config_dir: &Path) -> Result<String> {
     let root = fs::canonicalize(config_dir)?;
-    let mut doc = CODEX_RUNTIME_CONFIG.parse::<toml_edit::DocumentMut>()?;
+    let mut doc = CODEX_BEHAVIOR_CONFIG.parse::<toml_edit::DocumentMut>()?;
     let roles = doc["agent_control"]["roles"]
         .as_array_of_tables_mut()
         .context("generated Codex runtime requires peer roles")?;

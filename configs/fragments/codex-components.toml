@@ -1,0 +1,45 @@
+# Доверенная process-композиция общего Codex runtime.
+
+[components.reference-workflow]
+command = "proteus-reference-module"
+
+[components.reference-workflow.exports.workflow."coding.codex_loop"]
+
+[components.reference-context]
+command = "proteus-reference-module"
+
+[components.reference-context.exports.context.codex_context]
+
+[components.reference-capabilities]
+command = "proteus-reference-module"
+env_allowlist = ["HOME", "PROTEUS_HOME"]
+
+[components.reference-capabilities.exports.tool.rg_search]
+
+[components.reference-capabilities.exports.context_provider.rg_search]
+
+[components.reference-capabilities.exports.tool.jsonl_memory]
+
+[components.reference-capabilities.exports.context_provider.skills]
+
+[components.reference-capabilities.exports.policy.codex_policy]
+
+[components.reference-capabilities.exports.tool.codex_patch]
+
+[components.reference-capabilities.exports.hook.codex_compact]
+
+# Отдельные паки tools делят тот же процесс и сохраняют прежнюю tool surface.
+[components.reference-capabilities.exports.tool.file_tools]
+
+[components.reference-capabilities.exports.tool.git_tools]
+
+[components.reference-capabilities.exports.tool.shell_tools]
+
+[components.reference-capabilities.exports.tool.plan_tool]
+
+[components.reference-capabilities.exports.tool.rust_lsp]
+
+[components.reference-capabilities.exports.tool.skill_tool]
+
+[components.reference-capabilities.exports.tool.policy_tools]
+

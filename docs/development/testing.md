@@ -146,12 +146,30 @@ error, pending и cold read после interruption. Process wire/authority не
 
 Для изменения restricted launcher Linux gate использует настоящий `/usr/bin/bwrap`;
 недоступный backend или запрещённые user namespaces — failure, а не успешный skip.
+При изменении `read_executable` дополнительно проверяются точный child `PATH`,
+relative/absolute command и canonical `cwd`, отсутствие parent-directory grant,
+отсутствие повторного PATH lookup, executable внутри read-only runtime и отказ
+при пересечении с writable tree. Pin файла не доказывает неизменность его bytes
+при внешней записи в тот же inode. `doctor` должен проверять команду с тем же
+child environment.
+
+Рабочий `restricted` проверяется как конкретная сборка: шесть single-export
+components и их OS-grants, сохранённые tools/DCP/роли, assets установленного
+CLI и перенесённого portable. Runtime smoke использует синтетическую модель и
+временные каталоги личного состояния. CLI installer не поставляет DCP, поэтому
+его smoke исключает DCP overlay; полный runtime test и portable проверяют оба
+DCP exports вместе с restricted components. Успешный fake turn не является
+проверкой живого provider или оценкой качества/стоимости. Default и `codex`
+проверяются отдельно на сохранение прежней композиции.
+
 Fixture содержит только синтетические данные. Targeted cooperative cancel
 проверяется отдельно от teardown generation: он не обещает очистку OS descendants.
 Команды для focused запуска:
 
 ```bash
 ./scripts/test.py -p proteus-process-host --test sandbox
+./scripts/test.py -p proteus-process-host --lib
+./scripts/test.py -p proteus-core --test config_profiles
 ./scripts/test.py -p proteus-core --test component_sandbox
 ./scripts/test.py -p proteus-core --lib process_adapters::sandbox
 ```

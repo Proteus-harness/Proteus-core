@@ -1,0 +1,13 @@
+# Рабочая Linux-сборка с частичной изоляцией process components.
+# Остальные capabilities, model, DCP и peers сохраняют доверенный запуск.
+include = [
+  "fragments/openai-chatgpt.toml",
+  "fragments/codex-behavior.toml",
+  "fragments/codex-profile.toml",
+  "fragments/restricted-components.toml",
+  "fragments/codex-subscription.toml",
+  "fragments/dcp-runtime.toml",
+]
+
+[profile]
+name = "restricted"

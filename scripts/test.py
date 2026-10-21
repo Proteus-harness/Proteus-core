@@ -57,7 +57,7 @@ def main(args):
         else:
             env["PROTEUS_TEST_REFERENCE_MODULE"] = build(env=env)
     if core and (full or ("--lib" not in args and
-                         ("--test" not in args or any(name in args for name in ("module_swap", "hook_runtime"))))):
+                         ("--test" not in args or any(name in args for name in ("module_swap", "hook_runtime", "component_sandbox"))))):
         if not env.get("PROTEUS_TEST_DCP_MODULE"):
             dcp = resolve("modules") / "hook/dcp"
             for command in (["npm", "ci", "--ignore-scripts"], ["npm", "run", "build"]):
