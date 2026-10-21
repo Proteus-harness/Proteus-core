@@ -14,3 +14,8 @@ libc = "0.2"
 name = "session"
 path = "tests/session.rs"
 harness = false
+
+[[test]]
+name = "sandbox"
+path = "tests/sandbox.rs"
+harness = false

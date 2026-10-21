@@ -51,6 +51,7 @@ CI отключён; проверки выполняются локально. M
 | Общий DTO/contract | Producers/consumers и полный Rust gate; затронутые клиенты отдельно |
 | Assembly/config wiring | Plan → registry/topology, atomic reload, `module_swap`, `doctor` |
 | Process protocol/slot adapter | Protocol/conformance, реальный модуль, `module_swap`; failure/restart/cancel по изменению |
+| Component sandbox/OS launch | Реальные Rust/Python workers: grants, protected fixture вне grants, network deny, teardown descendants и fail-closed; config → registry/tool в `component_sandbox` |
 | Module implementation | Module target; реальный invocation при изменении process boundary или side effects |
 | Tool/policy | Поведение tool и общий registry/policy/approval path по изменённой ветке |
 | Workflow/runtime | Canonical journal и replay в поддержанной границе; cold history/terminal при изменении recovery |
@@ -131,6 +132,7 @@ error, pending и cold read после interruption. Process wire/authority не
 | Граница | Target / исходники |
 |---|---|
 | Framing, child lifecycle, bounded transport | `proteus-process-host`, включая собственный runner `tests/session.rs` |
+| Restricted Linux component launch | [`proteus-process-host --test sandbox`](../../crates/proteus-process-host/tests/sandbox.rs), [`proteus-core --test component_sandbox`](../../crates/proteus-core/tests/component_sandbox.rs); strict config — `proteus-core --lib process_adapters::sandbox` |
 | RPC envelope, wire ID, handshake, export identity, callback authority, multiplexing | `proteus-module-protocol` (`v3::frame`, `v3::wire_id`), `tests/broker_v3.rs` |
 | Подмена implementation, structural absence, shared component и failure/restart | [`proteus-core --test module_swap`](../../crates/proteus-core/tests/module_swap.rs) |
 | Reference exports, descriptors, tools и callbacks | [`proteus-reference-module --test conformance`](https://github.com/Proteus-harness/Proteus-modules/blob/main/components/process-module/tests/conformance.rs) |
@@ -141,6 +143,18 @@ error, pending и cold read после interruption. Process wire/authority не
 | Execution attribution и операции без chat identity | `proteus-core --test execution_boundary`, `core::runtime::tests::execution`, `core::bound_model`, `core::bound_tools` |
 | Один process с callback-связанными exports и journal/replay | `proteus-reference-module --test topology_journal` |
 | Patch transaction через заменяемые process tools | `proteus-reference-module --test patch_transaction`; runtime workdir/freeform — `module_swap::patch` |
+
+Для изменения restricted launcher Linux gate использует настоящий `/usr/bin/bwrap`;
+недоступный backend или запрещённые user namespaces — failure, а не успешный skip.
+Fixture содержит только синтетические данные. Targeted cooperative cancel
+проверяется отдельно от teardown generation: он не обещает очистку OS descendants.
+Команды для focused запуска:
+
+```bash
+./scripts/test.py -p proteus-process-host --test sandbox
+./scripts/test.py -p proteus-core --test component_sandbox
+./scripts/test.py -p proteus-core --lib process_adapters::sandbox
+```
 
 Новый callback проходит единую authority table и dispatcher всего slot.
 Проверяются разрешённый вызов и отказ из другого slot; привилегия конкретного

@@ -69,7 +69,7 @@ AppConfig.components
   -> module stdin/stdout
 ```
 
-- `proteus-process-host` знает только child lifecycle, framing и
+- `proteus-process-host` знает child lifecycle, OS launch policy, framing и
   protocol-neutral duplex transport; slot, module id, callbacks и authority в
   нём отсутствуют.
 - `proteus-module-protocol` знает component handshake, exact export set,
@@ -139,6 +139,33 @@ unknown field и выбранный id без exact export являются buil
 
 `component_id` задаёт topology и failure domain, но не priority, default
 status или authority. Reference components — обычные явно выбранные образцы.
+
+## OS Launch Policy
+
+`components.<id>.sandbox` ограничивает OS-права всего child process отдельно
+от slot-owned callback authority. Отсутствие поля означает `trusted`: процесс
+работает с правами владельца. Opt-in `restricted` поддержан под Linux через
+`/usr/bin/bwrap` и допускает ровно один configured export. Это проверяется
+Core при validation; runtime не объединяет OS-grants нескольких exports.
+
+Core передаёт process host strict launch spec: `read_only`, `read_write`,
+`network` (`false` по умолчанию). Пути разрешаются от workspace; roots должны
+существовать, а `cwd` — покрываться grant. Process host создаёт отдельный root
+с явными grants, `/proc`, `/dev` и временным `/tmp`; корень read-only.
+Запись в host filesystem доступна через явные writable roots, private `/tmp` —
+для временных данных; `/proc` и `/dev` сохраняют служебную семантику. Executable, runtime,
+script/imports и workspace не монтируются автоматически. Environment очищается
+до старта backend, worker получает только минимальный `PATH`, allowlist и
+literal env. Ошибка setup или недоступный backend не допускают trusted fallback.
+
+`network = false` отделяет IP-сеть от host. `true` разрешает host network
+целиком; Unix sockets в разрешённых деревьях не фильтруются этим флагом.
+Policy slot и `host.*` callbacks сохраняют прежнюю семантику. Этот launcher
+не применяется к MCP, LSP, peers или Desktop extensions и не меняет sandbox
+`shell-tool`. Форма config и пример — в
+[configuration.md](../guides/configuration.md#ограниченный-запуск-под-linux);
+границы — в
+[security-and-policy.md](../guides/security-and-policy.md#ограниченный-запуск-components-под-linux).
 
 ## Composition
 
@@ -663,7 +690,11 @@ descendants). Если grace истёк, reset-ится **весь component**, 
 неотвечающий trusted process является общим failure domain. Transport,
 protocol и resource failure делают то же.
 Следующая invocation любого export lazily запускает новый child и повторяет
-полный exact-set handshake.
+полный exact-set handshake. В restricted режиме teardown/reset всей generation
+завершает также её OS descendants, включая `setsid` descendants. Cooperative
+terminal сохраняет generation: отмена target invocation и её nested protocol
+invocations не доказывает завершение дочерних OS-процессов module. Sandbox
+действует на generation целиком, а не на каждый invocation.
 
 Текущий вызов никогда автоматически не retry-ится и не переключается на
 другой module. Выбранная implementation также не fallback-ится к structural
@@ -927,7 +958,8 @@ Protocol tests, runtime swap и conformance реального модуля пе
 
 ## Не-Цели Component Runtime v2
 
-- OS sandbox, cgroups или resource quotas;
+- общая OS-изоляция всех launch paths, cgroups или resource quotas;
+- independent OS authority нескольких exports в общем process;
 - package manager/marketplace/signatures;
 - remote/network transport;
 - hot replacement внутри текущего turn;

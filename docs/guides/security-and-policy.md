@@ -30,13 +30,15 @@ ApprovalPolicy -> Tool::invoke`;
 worktree для пишущей роли создаётся только после разрешения. Остальные current
 gaps перечислены в разделе «Известные Ограничения Текущей Реализации».
 
-Этот документ описывает текущую реализацию. Более гибкая config-editable
-модель прав остаётся planned и кратко описана в конце.
+Этот документ описывает текущую реализацию и её границы. Более гибкая общая
+модель прав остаётся отдельной работой; opt-in launch policy components
+не заменяет остальные уровни защиты.
 
 Для reporting, поддерживаемой линии и короткой trust-boundary сводки
-используйте корневой [SECURITY.md](../../SECURITY.md). Process component считается
-доверенным executable: strict protocol ограничивает его callbacks в host, но
-не ограничивает прямые OS-действия самого процесса.
+используйте корневой [SECURITY.md](../../SECURITY.md). По умолчанию process component
+считается доверенным executable: strict protocol ограничивает его callbacks в
+host, но не прямые OS-действия процесса. Opt-in Linux launch policy описана в
+[«Ограниченный Запуск Components Под Linux»](#ограниченный-запуск-components-под-linux).
 
 У Proteus нет универсального OS sandbox для всех tools. Текущая защита держится на
 workspace boundary, safety classes, permission mode и approval policy; для
@@ -50,8 +52,10 @@ protected paths и secrets policy являются следующими слоя
 Каждый `[components.<id>]`, у которого snapshot строит используемый export,
 запускает настроенный локальный executable. Его exports реализуют module slots, но component сам
 не является model-callable tool: `ToolSafety`, approval policy и shell sandbox
-не оборачивают child process. Worker работает с правами самого Proteus,
-поэтому в config нельзя подключать недоверенную команду. Выбор делается
+не оборачивают child process. Без явного `sandbox.mode = "restricted"` worker
+работает с правами самого Proteus; в таком режиме нельзя подключать недоверенную
+команду. Ограниченный запуск требует отдельно настроенных OS-grants и не меняет
+callback authority. Выбор делается
 реальным `module_id`, а не служебным id `process`.
 
 Несколько exports одного component делят те же ambient OS-права и process
@@ -813,39 +817,80 @@ durable process isolation boundary. Внешний `workdir` допустим т
 Целевая Proteus-to-Proteus граница описана в
 [subagents.md](../architecture/subagents.md).
 
-## Следующий Этап Изоляции — Planned
+## Ограниченный Запуск Components Под Linux
 
-Первая целевая граница — явно выбранный ограниченный запуск process component
-под Linux. Это отдельный этап после проверки четырёхрепозиторной поставки;
-описание ниже не меняет текущий режим доверенных собственных модулей и не
-означает, что такая изоляция уже реализована.
+Первый режим задаётся явно в `components.<id>.sandbox`: `mode = "restricted"`,
+`read_only`, `read_write` и `network`. Без настройки используется `trusted`;
+поставляемые profiles сохраняют доверенный запуск. Полная форма и пример — в
+[configuration.md](configuration.md#ограниченный-запуск-под-linux).
 
-Core определяет разрешённые операции и связывает решение с invocation context;
-`proteus-process-host` применяет OS-ограничения при запуске. Заменяемый policy
-module продолжает выбирать `allow`/`ask`/`deny`, а реализация behavior slot
-не получает обязанности самостоятельно обеспечивать собственную изоляцию.
-Существующий sandbox `shell-tool` сохраняется до проверки общего пути.
+Core проверяет launch policy и exact export set; process host применяет
+OS-ограничения до старта worker через `/usr/bin/bwrap`. Policy slot по-прежнему
+решает `allow/ask/deny` для model-callable операций. Sandbox component не заменяет
+этот путь и не добавляет worker права на callbacks. Сам module не отвечает
+за обеспечение собственной изоляции. Существующий sandbox `shell-tool`
+сохраняется отдельно.
 
-Минимальный launch contract должен явно задавать доступные для чтения и записи
-пути, доступ к сети, передаваемый environment и завершение потомков при отмене.
-Недоступный backend изоляции должен завершать ограниченный запуск ошибкой;
-запуск с OS-правами пользователя остаётся явно выбранным режимом с применимым
-approval path. Read-only bind всего корня не считается защитой секретов:
-проверка чтения использует отдельный синтетический закрытый файл вне workspace.
+Restricted component имеет ровно один configured export. OS-права принадлежат
+процессу: exports общего executable нельзя изолировать одной лишь callback
+authority. Для разных требований к OS-доступу нужны отдельные components либо
+выполнение соответствующего эффекта через host. Разрешённые roots не выводятся
+из module id, языка или slot. Режим одинаков для Rust и Python workers.
 
-OS-права принадлежат процессу, поэтому разные exports одного executable нельзя
-изолировать одной лишь callback authority. Для exports с разными требованиями
-нужны раздельные процессы либо выполнение соответствующего эффекта через host.
-Объединять права exports и объявлять это соблюдением slot authority нельзя.
+Внутри отдельного root доступны только явные read-only/read-write grants,
+служебные `/proc`, `/dev` и временный `/tmp`. Корень read-only; запись в host
+filesystem доступна только через явные writable roots. Private `/tmp` доступен
+для временных данных; pseudo-filesystems сохраняют служебную семантику.
+Нет неявного bind host `/`,
+workspace, `HOME`, executable, script parent или runtime directories.
+Относительные paths разрешаются от workspace; `~` раскрывается до запуска.
+Roots должны существовать и быть обычными файлами или каталогами; `cwd` должен
+попадать под grant. Перекрывающиеся destinations и canonical sources с writable
+authority запрещены; roots с `..`, `/`, сам `/tmp`, trees `/proc`, `/dev`, `/sys`
+и `/run` не принимаются. Runtime, worker и его dependencies пользователь разрешает
+явно. Разрешение `/usr` раскрывает содержимое этого дерева; любой filesystem
+grant означает доверие worker ко всем доступным внутри данным.
 
-Критерий готовности первого режима — одинаковые реальные отказы для Rust и
-Python components: запись вне разрешённых путей, чтение закрытого fixture,
-сеть без разрешения; отдельно проверяются допустимая работа в workspace,
-отмена с завершением потомков и отсутствие тихого unsandboxed fallback.
-Для components, MCP, LSP и peers явно фиксируется, какие пути покрывает
-первый режим, а какие остаются вне него. Расширения GPUI запускает
-Desktop; изменение Core само по себе не изолирует эти процессы. Контейнеры,
-VM и resource quotas не входят автоматически в первый режим.
+Environment backend очищается до запуска: worker получает сохранённый `PATH`,
+явные `env_allowlist` и `env`. Разрешённый environment или `module_config`
+может содержать credentials; sandbox не скрывает данные, которые пользователь
+явно передал worker. Unix sockets в разрешённых filesystem trees также могут
+давать доступ к host services. Не передавайте такие trees или credentials
+без необходимости.
+
+`network = false` по умолчанию создаёт private network namespace: worker не
+получает host IP-сеть и host loopback. `network = true` открывает host network
+целиком, без domain allowlist. Это не ограничение всех IPC-каналов.
+Неподдерживаемая ОС, отсутствующий backend, неверные roots или ошибка setup
+завершают restricted launch ошибкой. Тихого unsandboxed fallback нет.
+
+Sandbox ограничивает persistent process generation, а не каждый invocation.
+Teardown/reset или timeout, который уничтожает generation, завершает её OS
+потомков, включая потомков с отдельной session (`setsid`). Targeted cooperative
+cancel продолжает работать через broker: он не уничтожает generation и сам
+по себе не доказывает, что module завершил дочерние OS-процессы.
+
+При проверке этого режима используйте синтетический закрытый файл вне grants,
+а не реальные секреты; read-only bind всего host root не считается защитой
+чтения. Проверяемые отказы: чтение вне grants, запись вне writable roots,
+сеть без разрешения. Дополнительно нужны допустимая работа внутри grants,
+завершение descendants при teardown и явный отказ без backend. Команды и
+фактические результаты проверок фиксируются отдельно от описания контракта.
+
+### Покрытие И Оставшаяся Работа
+
+Режим покрывает configured process components. MCP servers, LSP, Proteus peers
+и расширения Desktop используют отдельные launch paths и не наследуют
+`components.*.sandbox`. Desktop самостоятельно запускает GPUI extensions;
+изменение Core не ограничивает их OS-права. Sandbox `shell-tool` также не
+становится общим launcher-ом этих процессов.
+
+Общая изоляция всех подсистем остаётся отдельной работой. Первый режим не
+предоставляет syscall filter, CPU/RAM/resource quotas, контейнерную поставку
+или VM; не обещает независимые OS-права нескольких exports одного процесса
+и не гарантирует очистку descendants после cooperative invocation cancel.
+Универсальная secret policy и фильтрация сети по доменам также не входят
+в этот контракт.
 
 ## Правила Для Новых Tools
 

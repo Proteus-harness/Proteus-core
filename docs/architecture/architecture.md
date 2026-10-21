@@ -621,11 +621,15 @@ Production conformance и topology/journal suites проверяют один co
 concurrent sibling, targeted cancel и canonical workflow replay.
 Подробнее: [process-module-architecture.md](process-module-architecture.md).
 
-Process boundary даёт lifecycle isolation, но пока не OS sandbox. Модуль
-остаётся доверенным executable с правами текущего пользователя. Config
-очищает environment и копирует только `PATH` плюс явный `env_allowlist` /
-`env`, однако filesystem/network/process права не ограничены отдельной
-sandbox policy.
+Process boundary задаёт общий lifecycle; по умолчанию module остаётся
+доверенным executable с правами пользователя. Config очищает environment и
+копирует только `PATH` плюс явный `env_allowlist` / `env`. Opt-in
+`components.<id>.sandbox.mode = "restricted"` добавляет Linux launch policy
+для одного configured export: явные filesystem grants, IP-сеть закрыта по
+умолчанию, ошибки setup без trusted fallback. Process host применяет эту
+границу ко всей generation; остальные launch paths её не наследуют.
+Точная семантика и ограничения — в
+[process-module-architecture.md](process-module-architecture.md#os-launch-policy).
 
 ## Core-Owned Границы
 

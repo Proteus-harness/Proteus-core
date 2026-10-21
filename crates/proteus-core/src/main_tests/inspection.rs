@@ -109,6 +109,35 @@ fn read_only_cli_paths_do_not_start_unrelated_process_components() {
 }
 
 #[test]
+fn doctor_rejects_invalid_restricted_launch_without_running_the_component() {
+    let workspace = tempfile::tempdir().expect("workspace");
+    let marker = workspace.path().join("must-not-run");
+    let mut config = crate::test_model::config();
+    config.components.insert(
+        "restricted-fixture".into(),
+        serde_json::from_value(serde_json::json!({
+            "command":"/bin/sh", "args":["-c", format!("touch {}", marker.display())],
+            "sandbox":{"mode":"restricted", "read_only":["/"], "read_write":["."]},
+            "exports":{"context_provider":{"restricted-fixture":{}}},
+        }))
+        .expect("component shape"),
+    );
+    let mut findings = DoctorFindings::default();
+    check_external_commands(&mut findings, &config, workspace.path());
+    assert!(findings.has_errors());
+    assert!(
+        findings
+            .entries
+            .iter()
+            .any(|entry| entry.level == "error" && entry.message.contains("restricted-fixture"))
+    );
+    assert!(
+        !marker.exists(),
+        "doctor must not execute a restricted component"
+    );
+}
+
+#[test]
 fn module_list_output_contains_catalog_rows() {
     let manifests = vec![ModuleManifest::builtin(
         "rg",

@@ -10,8 +10,10 @@
 
 mod framing;
 mod host;
+mod launch;
 mod lifecycle;
 mod receive;
+mod sandbox;
 mod session;
 mod spec;
 mod transport;
@@ -23,6 +25,7 @@ pub use lifecycle::{ProcessExit, ProcessLifecycle};
 pub use receive::{
     DEFAULT_MAX_BUFFERED_BYTES, DEFAULT_MAX_BUFFERED_FRAMES, ReceiveFrameError, ReceiveLimits,
 };
+pub use sandbox::ProcessSandbox;
 pub use session::ProcessSession;
 pub use spec::{DEFAULT_ENV_ALLOWLIST, ProcessSpec};
 pub use transport::{ProcessFrameReader, ProcessTransport, ProcessTransportLimits};

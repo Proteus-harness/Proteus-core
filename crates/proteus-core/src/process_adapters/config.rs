@@ -15,6 +15,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{contracts::ProcessComponentExportRef, core::expand_user_path};
 
+use super::sandbox::ComponentSandboxConfig;
+
 const DEFAULT_HANDSHAKE_TIMEOUT_MS: u64 = 30_000;
 
 /// Host-owned launch description for one persistent process component.
@@ -33,6 +35,8 @@ pub struct ProcessComponentConfig {
     env_allowlist: Vec<String>,
     #[serde(default)]
     env: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "ComponentSandboxConfig::is_trusted")]
+    sandbox: ComponentSandboxConfig,
     #[serde(default)]
     handshake_timeout_ms: Option<u64>,
     #[serde(default)]
@@ -60,11 +64,18 @@ impl ProcessExportLaunchConfig {
 
 impl ProcessComponentConfig {
     pub fn process_spec(&self, workspace: &Path) -> Result<ProcessSpec> {
-        Ok(ProcessSpec::new(self.command.clone())
+        let mut spec = ProcessSpec::new(self.command.clone())
             .args(self.args.clone())
             .env_allowlist(self.env_allowlist.clone())
             .envs(self.env.clone())
-            .cwd(resolve_process_cwd(self.cwd.as_deref(), workspace)?))
+            .cwd(resolve_process_cwd(self.cwd.as_deref(), workspace)?);
+        self.sandbox
+            .validate(self.exports().count(), "component.sandbox")?;
+        if let Some(sandbox) = self.sandbox.resolve(workspace)? {
+            spec = spec.sandbox(sandbox);
+            spec.validate_launch()?;
+        }
+        Ok(spec)
     }
 
     pub fn command(&self) -> &str {
@@ -112,6 +123,8 @@ impl ProcessComponentConfig {
                 }
             }
         }
+        self.sandbox
+            .validate(self.exports().count(), &format!("{path}.sandbox"))?;
         Ok(())
     }
 

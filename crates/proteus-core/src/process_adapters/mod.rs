@@ -1,4 +1,4 @@
-//! Adapters that expose trusted config-defined stdio processes as module slots.
+//! Adapters that expose host-configured stdio processes as module slots.
 
 mod client;
 mod config;
@@ -9,6 +9,7 @@ mod invocation_error;
 mod invocation_scope;
 mod model;
 mod policy;
+mod sandbox;
 mod tool;
 mod workflow;
 

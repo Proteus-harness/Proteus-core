@@ -257,8 +257,10 @@ model export, capabilities и консервативный порог конте
 workflow, preparation hook, peers и остальные параметры, и добавляет самостоятельный
 [DCP component](https://github.com/Proteus-harness/Proteus-modules/blob/main/hook/dcp/README.md): `hook.dcp`, model tool
 `compress` и пользовательская команда `/dcp`. Для запуска нужен Node.js 22+,
-собранный модуль и executable `proteus-dcp` в `PATH`; portable и `install.sh`
-не устанавливают его автоматически. После сборки в корне checkout Proteus-modules можно
+собранный модуль и executable `proteus-dcp` в `PATH`. Desktop portable включает
+модуль, его runtime dependencies и relocatable launcher; Node.js остаётся
+системной зависимостью. CLI `install.sh` не устанавливает DCP автоматически.
+После сборки в корне checkout Proteus-modules можно
 подключить entry:
 
 ```bash
@@ -560,6 +562,7 @@ timeout_ms = 60000
 | `handshake_timeout_ms` | единый initialize timeout: подготовка, запись и ответ |
 | `description` | fallback observability text для exports |
 | `exports.<slot>.<module_id>` | непустая exact export map, обязательно |
+| `sandbox` | strict launch policy; без поля используется `mode = "trusted"` |
 
 Поля export:
 
@@ -616,6 +619,85 @@ Fake provider в примере не вызывается на success/unsupport
 для содержательного объяснения failed test его можно заменить обычным provider
 profile. Наличие active provider пока обязательно для всего `AppConfig` и
 является одним из зафиксированных результатов probe-а.
+
+### Ограниченный Запуск Под Linux
+
+`components.<id>.sandbox` задаёт OS-права всего процесса component, отдельно
+от protocol authority его export. Это strict tagged object:
+
+- `{ mode = "trusted" }` — запуск с OS-правами пользователя; это же поведение
+  при отсутствии `sandbox`. Поля путей и сети в этом варианте запрещены.
+- `{ mode = "restricted", read_only = [...], read_write = [...], network = false }`
+  — явный запуск через `/usr/bin/bwrap` под Linux. Массивы путей по умолчанию
+  пусты, `network` по умолчанию `false`. Допустим ровно один configured export;
+  второй export — ошибка config validation, даже если он не выбран в профиле.
+
+Пример блока component для запуска из workspace, равного checkout Proteus-core.
+Он использует существующий Python example и только один `tool/python_rg` export.
+Требуются установленный `bubblewrap`, Python 3 и ripgrep. На системе с указанными
+runtime directories блок можно добавить в профиль без другого `python_rg`
+export; в `tools.enabled` выберите `search`:
+
+```toml
+[components.python-search]
+command = "/usr/bin/python3"
+args = ["-B", "examples/modules/search-process/search.py"]
+cwd = "."
+
+[components.python-search.sandbox]
+mode = "restricted"
+read_only = ["/usr", "/lib", "/lib64", "/bin", "."]
+read_write = []
+network = false
+
+[components.python-search.exports.tool.python_rg]
+timeout_ms = 60000
+```
+
+Здесь `.` явно разрешает чтение workspace, включая script и его imports.
+Если tool требуется запись, перенесите нужный root из `read_only` в
+`read_write`. Если worker находится вне workspace, добавьте его
+файл и каталоги нужных imports отдельными grants. Runtime-пути зависят от
+системы: удалите отсутствующие aliases и явно разрешите другие необходимые
+библиотеки. Каждый root должен существовать и быть обычным файлом или каталогом;
+неизвестные поля и неверные paths завершают подготовку ошибкой. Grants не могут
+перекрываться по destination; пересечение canonical sources также запрещено,
+если хотя бы один grant writable. Несколько read-only aliases одного runtime
+допустимы. Root `/`, сам `/tmp`, а также trees `/proc`, `/dev`, `/sys` и `/run`
+зарезервированы; grant ниже `/tmp`, например `/tmp/my-workspace`, допустим.
+Parent traversal (`..`) в sandbox roots запрещён.
+
+Относительные roots отсчитываются от workspace, а не от config file или `cwd`;
+`~` раскрывается до запуска. Рабочий каталог должен попадать под явный grant.
+Нет автоматического доступа к workspace, `HOME`, runtime libraries, executable,
+script или родительскому каталогу script. Команда и все её зависимости должны
+быть доступны внутри grants. Backend создаёт отдельный root с `/proc`, `/dev`
+и временным `/tmp`; корень read-only, запись в host filesystem доступна
+только через явные `read_write` roots. Private `/tmp` доступен для временных
+данных; `/proc` и `/dev` имеют собственную служебную семантику. Весь host `/`
+внутрь не монтируется.
+
+Host очищает environment до запуска backend; внутри worker доступны только
+обычный `PATH`, поля `env_allowlist` и `env`. Разрешённое имя `HOME` не даёт
+доступа к соответствующему каталогу без filesystem grant. Credentials в env
+или `module_config` передаются worker как явные полномочия пользователя.
+
+`network = false` создаёт private network namespace и закрывает host IP-сеть,
+включая host loopback. `true` разрешает всю host network, без domain filter.
+Unix sockets, доступные через явно разрешённое filesystem tree, остаются
+возможным каналом взаимодействия. Не разрешайте дерево с сокетами, если такой
+доступ не нужен.
+
+Неподдерживаемая ОС, недоступный backend или ошибка подготовки ограниченного
+запуска возвращают ошибку без запуска с правами пользователя. Режим действует
+на всю persistent generation, а не на отдельный tool call. Завершение/reset
+всей generation завершает её descendants; targeted cooperative cancel сохраняет
+broker semantics и сам по себе не доказывает очистку дочерних OS-процессов.
+Это не syscall filter, CPU/RAM quota или VM. MCP, LSP, peers и Desktop extensions
+имеют отдельные launch paths и не наследуют эту настройку.
+
+Подробная граница и оставшаяся работа — в
+[security-and-policy.md](security-and-policy.md#ограниченный-запуск-components-под-linux).
 
 ## Ordered-Many Modules
 

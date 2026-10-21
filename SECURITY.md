@@ -23,12 +23,18 @@ wire/config/storage форматов не гарантируются.
 
 ## Текущая Граница Доверия
 
-Configured process component — доверенный локальный executable, а не sandbox.
-Он запускается с OS-правами пользователя Proteus и может напрямую обращаться к
-доступным этому пользователю файлам, сети и процессам. Очищенный environment,
-strict handshake и callback authority ограничивают protocol surface, но не
-делают вредоносный worker безопасным. Не подключайте команду, которой не
-доверяете.
+Configured process component по умолчанию — доверенный локальный executable.
+Он работает с OS-правами пользователя Proteus. Очищенный environment, strict
+handshake и callback authority ограничивают protocol surface, но не прямые
+OS-действия worker. Не подключайте недоверенную команду в trusted режиме.
+
+Opt-in `components.<id>.sandbox.mode = "restricted"` ограничивает один configured
+export под Linux через `/usr/bin/bwrap`: явные filesystem grants, сеть закрыта
+по умолчанию, без unsandboxed fallback. Режим действует на persistent process
+generation; cooperative invocation cancel не доказывает завершение её OS
+descendants. MCP, LSP, Proteus peers и расширения Desktop этот режим не
+наследуют. Подробные условия и пример — в
+[security-and-policy.md](docs/guides/security-and-policy.md#ограниченный-запуск-components-под-linux).
 
 Вызовы model-visible tools из process workflow возвращаются в core и проходят
 общий путь `ToolRegistry -> ApprovalPolicy -> ToolSafety -> Tool`. Это защищает

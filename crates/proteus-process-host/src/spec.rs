@@ -40,6 +40,8 @@ pub struct ProcessSpec {
     /// Explicit child values. These override allowlisted parent values.
     pub env: BTreeMap<String, String>,
     pub cwd: Option<PathBuf>,
+    /// Explicit OS confinement; omitted processes retain trusted launch behavior.
+    pub sandbox: Option<crate::ProcessSandbox>,
 }
 
 impl ProcessSpec {
@@ -53,6 +55,7 @@ impl ProcessSpec {
                 .collect(),
             env: BTreeMap::new(),
             cwd: None,
+            sandbox: None,
         }
     }
 
@@ -91,6 +94,17 @@ impl ProcessSpec {
     pub fn cwd(mut self, cwd: impl Into<PathBuf>) -> Self {
         self.cwd = Some(cwd.into());
         self
+    }
+
+    pub fn sandbox(mut self, sandbox: crate::ProcessSandbox) -> Self {
+        self.sandbox = Some(sandbox);
+        self
+    }
+
+    /// Validates launch policy without starting a process.
+    pub fn validate_launch(&self) -> Result<()> {
+        self.resolved_environment()?;
+        crate::launch::prepare(self).map(|_| ())
     }
 
     /// Resolves the exact child environment after validating configured names

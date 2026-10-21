@@ -261,6 +261,7 @@ pub(crate) fn check_external_commands(
     for (component_id, component) in &config.components {
         let process = component.process_spec(cwd).and_then(|spec| {
             spec.resolved_environment()?;
+            spec.validate_launch()?;
             Ok(spec)
         });
         match process {

@@ -74,7 +74,7 @@ Reference modules и profiles — поставляемые примеры без
 | Replay | Model-free Turn поддержан. Context build воспроизводится по точным input/outcome records, включая ошибки до модели; отбор tools и preparation — по typed hook trace, включая failure и unchanged. Owner/parent tree связывает дочерние model/tool records с hook/tool invocation; алгоритмы и effects повторно не исполняются. Root steering и внешние Canceled/Timeout не эмулируются |
 | Collaboration | Spawn принимает только parallel_safe роли с isolation=none; настроенный coder с worktree в эту surface не входит |
 | Peer recovery | Resume зависит от живого process; durable tree, attach и reconnect отсутствуют |
-| Доверие к модулям | Собственные процессные модули доверенные и работают с OS-правами владельца; принятый локальный режим, sandbox не является задачей этапа |
+| Доверие к модулям | Trusted default сохраняет OS-права владельца. Opt-in Linux `restricted` ограничивает один configured export явными filesystem/network grants; MCP, LSP, peers и Desktop extensions не покрыты. Нет resource quotas и гарантии очистки OS descendants после cooperative invocation cancel |
 | Форматы | Config/API/DTO/wire/storage пока не стабилизированы |
 
 Точные границы: [modules.md](../architecture/modules.md),

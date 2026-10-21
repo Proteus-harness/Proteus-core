@@ -1,7 +1,7 @@
 use std::{
     fmt,
     io::{self, BufReader, Read},
-    process::{Child, Command, Stdio},
+    process::{Child, Stdio},
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -246,9 +246,8 @@ impl<F: Framing> ProcessTransport<F> {
         limits: ProcessTransportLimits,
     ) -> Result<Self> {
         limits.validate()?;
-        let mut command = Command::new(&spec.command);
+        let mut command = crate::launch::prepare(spec)?;
         command
-            .args(&spec.args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -257,10 +256,6 @@ impl<F: Framing> ProcessTransport<F> {
         // pipe owners, rather than only the direct child.
         #[cfg(unix)]
         command.process_group(0);
-        spec.apply_environment(&mut command)?;
-        if let Some(cwd) = &spec.cwd {
-            command.current_dir(cwd);
-        }
 
         let mut child = command.spawn()?;
         let stdin = match child.stdin.take() {

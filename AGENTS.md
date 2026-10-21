@@ -18,11 +18,13 @@ CLI и app-server. Реализации находятся в соседнем `
 [Proteus-desktop-extensions](https://github.com/Proteus-harness/Proteus-desktop-extensions).
 Прежнее веб-приложение сохранено в git-теге `archive/web-app`.
 
-Текущий сценарий — локальная работа владельца с собственными доверенными
-модулями. Sandbox и hardening для недоверенных сторонних модулей не являются
-целью или блокером этого этапа. Не возвращайте их в обзор рисков, roadmap или
-ответ «что дальше» без отдельного запроса владельца на эту тему. Это решение
-о приоритетах, а не поручение отключать существующие policy/approval contracts.
+Текущий сценарий — локальная работа владельца с собственными модулями.
+Доверенный запуск остаётся default. По запросу владельца добавлен первый
+явно включаемый режим `components.<id>.sandbox.mode = "restricted"`: Linux,
+один export, явные filesystem grants и доступ к сети. Точная граница — в
+`docs/guides/security-and-policy.md#ограниченный-запуск-components-под-linux`.
+Это не общая изоляция всех подсистем и не поручение менять существующие
+policy/approval contracts или автоматически ограничивать поставляемые profiles.
 
 ## Главный Инвариант
 
@@ -86,11 +88,13 @@ typed chain surface с одинаковой authority всех участник�
 повторной validation и отдельным slot-governance evidence. Module не может
 сам объявить новый hook или изменить composition mode.
 
-Process boundary сам по себе не sandbox. Пока нет uniform launch policy,
-таблица slot authority доказывает равенство protocol-visible `host.*` прав, но
-модули остаются доверенными executable с OS-правами пользователя. Полный
-инвариант включает одинаковый класс filesystem/network/env/process/resource
-ограничений, когда такая sandbox surface появится.
+Process boundary сам по себе не sandbox. Таблица slot authority задаёт
+protocol-visible `host.*` права, а OS-права процесса задаёт отдельный launch
+режим. При отсутствии `sandbox` component остаётся доверенным executable
+с OS-правами пользователя. Opt-in `restricted` допускает ровно один export
+и применяет явные ограничения через process host; ни имя модуля, ни язык
+не дают исключений. Этот режим не добавляет resource quotas и не изолирует
+разные exports внутри одного процесса.
 
 ## Модульность Кода
 
@@ -226,8 +230,9 @@ schema-driven `app_protocol::settings`. Новые id настроек и metada
 Model provider implementations проходят общий `model/v12` process contract.
 Core владеет canonical shaping/validation, execution binding и journal, но не HTTP provider adapters. `AgentControl` — отдельный root-owned service для полных Proteus
 peers, а не behavior slot или основание возвращать общий native loader.
-Marketplace, package manager, hot reload и sandbox не входят в текущий process
-runtime.
+Marketplace, package manager и hot reload не входят в текущий process runtime.
+Linux sandbox — отдельный opt-in launch режим с одним export; не расширяйте
+его до общей изоляции MCP, LSP, peers или расширений клиента без отдельной задачи.
 
 ## Как Добавлять И Проверять Фичу
 
