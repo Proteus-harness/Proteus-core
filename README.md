@@ -56,7 +56,7 @@ Core отвечает за сборку, выполнение запросов, 
 
 | Репозиторий | Ответственность |
 |---|---|
-| **Proteus-harness** (этот) | Core, публичные контракты, process host, HTTP/SSE и CLI |
+| **Proteus-core** (этот) | Core, публичные контракты, process host, HTTP/SSE и CLI |
 | [Proteus-modules](https://github.com/Proteus-harness/Proteus-modules) | Реализации по слотам, reference executable и DCP |
 | [Proteus-desktop](https://github.com/Proteus-harness/Proteus-desktop) | Приложение GPUI и общие правила клиента |
 | [Proteus-desktop-extensions](https://github.com/Proteus-harness/Proteus-desktop-extensions) | Поставляемые по умолчанию процессные расширения приложения |
@@ -64,16 +64,17 @@ Core отвечает за сборку, выполнение запросов, 
 Для CLI нужны Rust, Git и Python 3:
 
 ```bash
-git clone https://github.com/Proteus-harness/Proteus-harness.git
-cd Proteus-harness
+git clone https://github.com/Proteus-harness/Proteus-core.git
+cd Proteus-core
 ./install.sh
 ```
 
 Установщик собирает harness и отдельный `proteus-reference-module` из
 Proteus-modules, затем атомарно публикует их в `~/.proteus/current` и команды
 в `~/.local/bin`. Исходники модулей выбираются через `repositories.json`:
-соседний checkout `../Modules`, явный `PROTEUS_MODULES_SOURCE` или загрузка
-зафиксированной ревизии в `target/sources/modules`. `CARGO_TARGET_DIR`
+сначала явный `PROTEUS_MODULES_SOURCE`, затем соседний checkout
+`../Proteus-modules` или загрузка зафиксированной ревизии в
+`target/sources/modules`. `CARGO_TARGET_DIR`
 поддерживается. Для одной сборки harness достаточно `cargo build --release -p proteus-core`.
 
 ```bash

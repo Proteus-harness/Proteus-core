@@ -10,8 +10,8 @@
 `docs/archive/` и `examples/research/` исключайте из обычного поиска
 контекста; они нужны только по явному запросу истории конкретного решения.
 
-Этот репозиторий — Proteus harness: Core, contracts, process protocol/host,
-CLI и app-server. Реализации находятся в соседнем `../Modules` / репозитории
+Этот репозиторий — Proteus-core: Core, contracts, process protocol/host,
+CLI и app-server. Реализации находятся в соседнем `../Proteus-modules` / репозитории
 [Proteus-modules](https://github.com/Proteus-harness/Proteus-modules).
 Приложение GPUI и его процессные расширения — отдельные репозитории
 [Proteus-desktop](https://github.com/Proteus-harness/Proteus-desktop) и
@@ -343,6 +343,6 @@ Runner harness готовит отдельный process fixture через `scr
 
 После завершённой и закоммиченной правки приложения/backend пересобирайте
 portable из Proteus-desktop: `python3 scripts/portable.py --fast`.
-Для локальной раскладки приложение находится в `../../GPUI/Client`.
+Для локальной раскладки приложение находится в `../Proteus-desktop`.
 Полную сборку с архивом запускайте только при проверке упаковки или по запросу.
 Сохраняйте `target`: сборка инкрементальная.
