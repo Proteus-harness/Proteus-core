@@ -40,7 +40,9 @@ async fn restricted_config_enforces_os_access_through_the_registered_tool() -> R
         "env":{"SANDBOX_VISIBLE":"yes"},
         "sandbox":{
             "mode":"restricted",
-            "read_only":["/usr", "/lib64", worker, helpers],
+            // Ubuntu's loader and Python dependencies use /lib paths, while
+            // Fedora resolves them under /usr/lib64. Grant both runtime roots.
+            "read_only":["/usr", "/lib64", "/lib", worker, helpers],
             "read_write":["."],
         },
         "handshake_timeout_ms":3000,

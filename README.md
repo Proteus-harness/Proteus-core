@@ -30,7 +30,7 @@ SDK не требует зависимости от Core runtime или referenc
 конкретную потребность; задел и ограничения описаны в
 [execution-runtime.md](docs/architecture/execution-runtime.md).
 
-Текущая поставка — `0.1.0-alpha.2`, experimental. Версия фиксирует исходники
+Текущая поставка — `0.1.0-alpha.3`, experimental. Версия фиксирует исходники
 и состав поставки; форматы конфигурации, API, SDK и истории могут меняться
 между alpha-выпусками. Подробное состояние и ограничения
 собраны в [scope.md](docs/product/scope.md).
