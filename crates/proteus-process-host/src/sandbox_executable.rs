@@ -2,14 +2,19 @@ use std::{collections::BTreeMap, ffi::OsString};
 
 use super::*;
 
+pub(super) struct Executable {
+    pub(super) path: PathBuf,
+    pub(super) argv0: PathBuf,
+}
+
 /// Resolve once against the exact payload environment, then mount the pinned
-/// regular file at that logical absolute path. No PATH lookup occurs in bwrap.
+/// regular file. No PATH lookup occurs in bwrap.
 pub(super) fn grant(
     spec: &ProcessSpec,
     cwd: &Path,
     environment: &BTreeMap<String, OsString>,
     grants: &mut Vec<Grant>,
-) -> Result<PathBuf> {
+) -> Result<Executable> {
     let command = Path::new(&spec.command);
     ensure!(
         !spec.command.is_empty(),
@@ -37,8 +42,8 @@ pub(super) fn grant(
                 )
             })?
     };
-    let destination = lexical_absolute(&candidate);
-    check_reserved(&destination)?;
+    let logical = lexical_absolute(&candidate);
+    check_reserved(&logical)?;
     let source = fs::canonicalize(&candidate).context("cannot resolve sandbox executable")?;
     check_reserved(&source)?;
     let fd = pin_path(&source).context("cannot pin sandbox executable")?;
@@ -48,10 +53,34 @@ pub(super) fn grant(
         "sandbox executable changed to a non-executable file"
     );
     let identity = (metadata.dev(), metadata.ino());
+    // bwrap refuses a bind on a symlink already visible inside a granted
+    // directory. Pin its canonical target instead, retaining the selected
+    // invocation name for native multicall and interpreter startup behavior.
+    // File-only grants have no pre-existing symlink and keep their old path.
+    let destination = if fs::symlink_metadata(&candidate)?.file_type().is_symlink()
+        && grants.iter().any(|grant| {
+            !grant.writable && grant.directory && logical.starts_with(&grant.destination)
+        }) {
+        use std::io::Read;
+        let mut magic = [0; 4];
+        File::open(format!("/proc/self/fd/{}", fd.as_raw_fd()))
+            .context("cannot inspect pinned executable format")?
+            .read_exact(&mut magic)
+            .context("cannot inspect pinned executable format")?;
+        ensure!(
+            magic == *b"\x7fELF",
+            "sandbox symlink executable under a read-only directory must be ELF; a shebang or interpreted executable cannot preserve its invocation path: {}",
+            logical.display()
+        );
+        source.clone()
+    } else {
+        logical.clone()
+    };
     for prior in grants.iter() {
         ensure!(
             !prior.writable
-                || (!overlaps(&destination, &prior.destination)
+                || (!overlaps(&logical, &prior.destination)
+                    && !overlaps(&destination, &prior.destination)
                     && !overlaps(&source, &prior.source)
                     && identity != prior.identity),
             "sandbox executable overlaps writable authority: {} and {}",
@@ -79,7 +108,10 @@ pub(super) fn grant(
         directory: false,
         identity,
     });
-    Ok(destination)
+    Ok(Executable {
+        path: destination,
+        argv0: logical,
+    })
 }
 
 fn is_executable(path: &Path) -> bool {

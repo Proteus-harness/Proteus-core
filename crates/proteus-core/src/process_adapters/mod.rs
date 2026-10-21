@@ -7,6 +7,7 @@ mod hook;
 mod host_rpc;
 mod invocation_error;
 mod invocation_scope;
+mod mcp;
 mod model;
 mod policy;
 mod sandbox;
@@ -14,6 +15,7 @@ mod tool;
 mod workflow;
 
 pub use config::{ProcessComponentConfig, ProcessExportLaunchConfig};
+pub use mcp::mcp_server_process_spec;
 
 pub(crate) use client::*;
 pub(crate) use config::{ProcessComponentLauncher, ProcessExportConfig};

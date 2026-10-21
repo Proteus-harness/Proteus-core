@@ -100,6 +100,9 @@ user namespaces и явные runtime-пути; для DCP — Node.js 22+. CLI 
 не устанавливает DCP автоматически. Покрытие и подготовка описаны в
 [руководстве конфигурации](docs/guides/configuration.md#рабочий-linux-профиль-restricted).
 Обычный запуск и профиль `codex` сохраняют прежнее поведение.
+Для stdio MCP ограничения включаются отдельно в `tools.mcp_servers[].sandbox`:
+весь сервер получает явные filesystem/network grants, независимо от количества
+его tools. Пример — в [разделе MCP](docs/guides/configuration.md#mcp).
 
 Авторизация и собственные профили — в
 [руководстве конфигурации](docs/guides/configuration.md).

@@ -28,6 +28,9 @@ policy/approval contracts или автоматически ограничива
 Отдельный opt-in `configs/restricted.config.toml` сохраняет рабочую сборку с
 частичной изоляцией выбранных components. Default и `codex` остаются trusted;
 конкретный состав этой сборки не переносите в constructor/runtime.
+Для stdio MCP доступна та же явная launch policy в
+`tools.mcp_servers[].sandbox`; отсутствие настройки сохраняет trusted default.
+Ограничение одного export относится к components, а не к числу tools MCP-сервера.
 
 ## Главный Инвариант
 
@@ -234,8 +237,10 @@ Model provider implementations проходят общий `model/v12` process c
 Core владеет canonical shaping/validation, execution binding и journal, но не HTTP provider adapters. `AgentControl` — отдельный root-owned service для полных Proteus
 peers, а не behavior slot или основание возвращать общий native loader.
 Marketplace, package manager и hot reload не входят в текущий process runtime.
-Linux sandbox — отдельный opt-in launch режим с одним export; не расширяйте
-его до общей изоляции MCP, LSP, peers или расширений клиента без отдельной задачи.
+Linux sandbox — отдельный opt-in launch режим: component допускает один export,
+stdio MCP server — несколько remote tools в одной process generation.
+LSP, peers и расширения клиента используют отдельные launch paths; не объявляйте
+их изолированными вследствие настройки component или MCP server.
 
 ## Как Добавлять И Проверять Фичу
 

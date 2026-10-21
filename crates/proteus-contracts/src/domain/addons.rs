@@ -5,7 +5,7 @@ use std::{collections::BTreeMap, path::PathBuf};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::ToolSafety;
+use super::{ProcessSandboxConfig, ToolSafety};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -98,6 +98,8 @@ pub struct ConfiguredMcpServerConfig {
     pub args: Vec<String>,
     #[serde(flatten)]
     pub environment: ProcessEnvironmentConfig,
+    #[serde(default, skip_serializing_if = "ProcessSandboxConfig::is_trusted")]
+    pub sandbox: ProcessSandboxConfig,
     #[serde(default = "mcp_protocol_version")]
     pub protocol_version: String,
     #[serde(default = "mcp_safety")]

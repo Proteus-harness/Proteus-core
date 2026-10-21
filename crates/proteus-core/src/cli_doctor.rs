@@ -299,12 +299,32 @@ pub(crate) fn check_external_commands(
     }
 
     for server in &config.tools.mcp_servers {
-        check_command(
-            findings,
-            &server.command,
-            cwd,
-            &format!("MCP server '{}'", server.name),
-        );
+        if !server.enabled {
+            continue;
+        }
+        let label = format!("MCP server '{}'", server.name);
+        match proteus_core::process_adapters::mcp_server_process_spec(server, cwd) {
+            Ok(spec) => {
+                if spec
+                    .sandbox
+                    .as_ref()
+                    .is_some_and(|sandbox| sandbox.read_executable)
+                {
+                    findings.ok(format!(
+                        "{label}: command available in child environment ({})",
+                        spec.command
+                    ));
+                } else {
+                    check_command(
+                        findings,
+                        &spec.command,
+                        spec.cwd.as_deref().unwrap_or(cwd),
+                        &label,
+                    );
+                }
+            }
+            Err(error) => findings.error(format!("настройки запуска {label}: {error:#}")),
+        }
     }
 }
 

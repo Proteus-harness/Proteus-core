@@ -6,6 +6,8 @@ import os
 import sys
 import threading
 import time
+import socket
+import subprocess
 
 
 EVENT_LOG = os.environ["MCP_FIXTURE_EVENT_LOG"]
@@ -14,6 +16,7 @@ INIT_MODE = os.environ.get("MCP_FIXTURE_INIT_MODE", "ok")
 WRITE_LOCK = threading.Lock()
 CANCEL_LOCK = threading.Lock()
 CANCELLED = {}
+SANDBOX = os.environ.get("MCP_FIXTURE_SANDBOX") == "1"
 
 
 def append(path, line):
@@ -112,6 +115,52 @@ def call_tool(request_id, params):
             time.sleep(0.01)
         append(arguments["marker"], f"generation:{GENERATION}")
         result(request_id, {"content": [{"type": "text", "text": "written"}], "isError": False})
+    elif SANDBOX and name == "sandbox_probe":
+        def denied(operation):
+            try:
+                operation()
+            except OSError:
+                return True
+            return False
+
+        def write(path):
+            with open(path, "w", encoding="utf-8") as file:
+                file.write("sandbox effect\n")
+
+        with open("allowed.txt", encoding="utf-8") as file:
+            readable = file.read() == "synthetic workspace\n"
+        write(arguments["allowed_write"])
+        with socket.socket() as connection:
+            connection.settimeout(0.3)
+            connected = connection.connect_ex(("127.0.0.1", arguments["port"])) == 0
+        checks = {
+            "workspace_read": readable,
+            "workspace_readonly": denied(lambda: write("denied-write.txt")),
+            "private_read_denied": denied(lambda: open(arguments["private_read"]).close()),
+            "symlink_read_denied": denied(lambda: open("secret-link").close()),
+            "private_write_denied": denied(lambda: write(arguments["private_write"])),
+            "network_connected": connected,
+            "home_absent": "HOME" not in os.environ,
+            "literal_env": os.environ.get("MCP_LITERAL_ENV"),
+            "cwd": os.getcwd(),
+        }
+        result(request_id, {"content": [], "structuredContent": checks, "isError": False})
+    elif SANDBOX and name == "spawn_descendant":
+        # Deliberately ignore request cancellation. A setsid child continues
+        # independently unless the owning MCP generation is actually torn down.
+        code = '''import os,sys,time
+ready,heartbeat,marker=sys.argv[1:]
+with open(heartbeat,"w") as output: output.write("started\\n")
+open(ready,"w").write("ready")
+for _ in range(40):
+    with open(heartbeat,"a") as output: output.write("tick\\n")
+    time.sleep(0.05)
+open(marker,"w").write("late effect")
+'''
+        subprocess.Popen([sys.executable, "-B", "-c", code, arguments["ready"],
+                          arguments["heartbeat"], arguments["marker"]],
+                         start_new_session=True)
+        time.sleep(30)
     elif name == "oversize":
         result(request_id, {"content": [{"type": "text", "text": "x" * 100000}], "isError": False})
     else:
@@ -159,13 +208,17 @@ for raw_line in sys.stdin:
                 "nextCursor": "page-2",
             })
         else:
-            result(request_id, {"tools": [
+            tools = [
                 tool("delay_write", "write after a delay", {
                     "marker": {"type": "string"},
                     "delay_ms": {"type": "integer"},
                 }),
                 tool("oversize", "return a response over the configured bound"),
-            ]})
+            ]
+            if SANDBOX:
+                tools.extend([tool("sandbox_probe", "probe explicit OS grants"),
+                              tool("spawn_descendant", "spawn a cancellation-resistant child")])
+            result(request_id, {"tools": tools})
     elif method == "tools/call":
         thread = threading.Thread(target=call_tool, args=(request_id, params), daemon=True)
         thread.start()

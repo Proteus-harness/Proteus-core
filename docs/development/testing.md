@@ -133,6 +133,7 @@ error, pending и cold read после interruption. Process wire/authority не
 |---|---|
 | Framing, child lifecycle, bounded transport | `proteus-process-host`, включая собственный runner `tests/session.rs` |
 | Restricted Linux component launch | [`proteus-process-host --test sandbox`](../../crates/proteus-process-host/tests/sandbox.rs), [`proteus-core --test component_sandbox`](../../crates/proteus-core/tests/component_sandbox.rs); strict config — `proteus-core --lib process_adapters::sandbox` |
+| Restricted stdio MCP launch | [`proteus-core --test mcp_client`](../../crates/proteus-core/tests/mcp_client.rs): реальные discovery/invocation, явные filesystem/network grants, общий lifecycle нескольких remote tools, cancel/timeout/restart без trusted fallback |
 | RPC envelope, wire ID, handshake, export identity, callback authority, multiplexing | `proteus-module-protocol` (`v3::frame`, `v3::wire_id`), `tests/broker_v3.rs` |
 | Подмена implementation, structural absence, shared component и failure/restart | [`proteus-core --test module_swap`](../../crates/proteus-core/tests/module_swap.rs) |
 | Reference exports, descriptors, tools и callbacks | [`proteus-reference-module --test conformance`](https://github.com/Proteus-harness/Proteus-modules/blob/main/components/process-module/tests/conformance.rs) |
@@ -149,7 +150,10 @@ error, pending и cold read после interruption. Process wire/authority не
 При изменении `read_executable` дополнительно проверяются точный child `PATH`,
 relative/absolute command и canonical `cwd`, отсутствие parent-directory grant,
 отсутствие повторного PATH lookup, executable внутри read-only runtime и отказ
-при пересечении с writable tree. Pin файла не доказывает неизменность его bytes
+при пересечении с writable tree. Для конечного symlink внутри read-only
+directory нужны настоящий системный interpreter, сохранение logical `argv[0]`,
+pin canonical ELF target и явный отказ для shebang script; file-only grant и
+обычные script commands проверяются отдельно. Pin файла не доказывает неизменность его bytes
 при внешней записи в тот же inode. `doctor` должен проверять команду с тем же
 child environment.
 
@@ -164,6 +168,13 @@ DCP exports вместе с restricted components. Успешный fake turn н
 
 Fixture содержит только синтетические данные. Targeted cooperative cancel
 проверяется отдельно от teardown generation: он не обещает очистку OS descendants.
+Для MCP cancel/timeout завершает всю server generation: отдельно проверяются
+очистка descendants, ошибки concurrent calls и новый handshake при следующем
+явном вызове. Sandbox MCP не должен менять effective `RunsCommands`, policy
+или approval. Trusted MCP path проверяется прежними cases; наличие нового поля
+не переключает его автоматически. Неверные mode/fields проверяются на общей
+strict config boundary; runtime setup failure должен оставлять server без
+зарегистрированных tools с диагностикой вместо запуска без sandbox.
 Команды для focused запуска:
 
 ```bash
@@ -171,6 +182,7 @@ Fixture содержит только синтетические данные. T
 ./scripts/test.py -p proteus-process-host --lib
 ./scripts/test.py -p proteus-core --test config_profiles
 ./scripts/test.py -p proteus-core --test component_sandbox
+./scripts/test.py -p proteus-core --test mcp_client
 ./scripts/test.py -p proteus-core --lib process_adapters::sandbox
 ```
 

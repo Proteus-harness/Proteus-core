@@ -32,8 +32,11 @@ Opt-in `components.<id>.sandbox.mode = "restricted"` ограничивает о
 export под Linux через `/usr/bin/bwrap`: явные filesystem grants, сеть закрыта
 по умолчанию, без unsandboxed fallback. Режим действует на persistent process
 generation; cooperative invocation cancel не доказывает завершение её OS
-descendants. MCP, LSP, Proteus peers и расширения Desktop этот режим не
-наследуют. Подробные условия и пример — в
+descendants. Для stdio MCP server та же launch policy включается отдельно через
+`tools.mcp_servers[].sandbox`; она ограничивает весь процесс сервера и все его
+remote tools. При отмене или timeout MCP-вызова завершается вся generation
+сервера. LSP, Proteus peers и расширения Desktop сохраняют отдельные launch paths.
+Подробные условия и пример — в
 [security-and-policy.md](docs/guides/security-and-policy.md#ограниченный-запуск-components-под-linux).
 
 Вызовы model-visible tools из process workflow возвращаются в core и проходят
@@ -41,9 +44,11 @@ descendants. MCP, LSP, Proteus peers и расширения Desktop этот р
 tool execution path, но не перехватывает произвольные OS-действия самого
 worker-а.
 
-HTTP app-server предназначен для loopback. Установленный wrapper включает
-ephemeral session token по умолчанию; не публикуйте его порт в сеть и не
-сохраняйте token в логах или `localStorage`.
+HTTP app-server предназначен для loopback. Прямой `proteus server http` и
+установленный CLI wrapper не включают token auth для loopback по умолчанию;
+используйте `--token`, если он нужен. Non-loopback bind требует непустой token.
+Desktop обычно запускает сервер со случайным session token. Не сохраняйте token
+в логах или `localStorage`.
 
 Полная текущая модель, exec sandbox и известные ограничения описаны в
 [docs/guides/security-and-policy.md](docs/guides/security-and-policy.md).

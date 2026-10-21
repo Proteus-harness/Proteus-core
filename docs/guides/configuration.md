@@ -689,15 +689,17 @@ profile. Наличие active provider пока обязательно для �
 ### Ограниченный Запуск Под Linux
 
 `components.<id>.sandbox` задаёт OS-права всего процесса component, отдельно
-от protocol authority его export. Это strict tagged object:
+от protocol authority его export. Stdio MCP принимает ту же launch policy в
+`tools.mcp_servers[].sandbox`; пример — в [разделе MCP](#mcp).
+Это strict tagged object:
 
 - `{ mode = "trusted" }` — запуск с OS-правами пользователя; это же поведение
   при отсутствии `sandbox`. Поля `read_only`, `read_write`, `network` и
   `read_executable` в этом варианте запрещены.
 - `{ mode = "restricted", read_only = [...], read_write = [...], network = false, read_executable = false }`
   — явный запуск через `/usr/bin/bwrap` под Linux. Массивы путей по умолчанию
-  пусты, `network` и `read_executable` по умолчанию `false`. Допустим ровно один
-  configured export;
+  пусты, `network` и `read_executable` по умолчанию `false`. Для component
+  допустим ровно один configured export;
   второй export — ошибка config validation, даже если он не выбран в профиле.
 
 Пример блока component для запуска из workspace, равного checkout Proteus-core.
@@ -767,6 +769,15 @@ Host выбирает executable один раз по точному child `PATH
 интерпретатор script и resource files не добавляются: они требуют своих grants.
 Проверка команды в `doctor` использует тот же child `PATH`.
 
+Если конечное имя команды — symlink внутри уже разрешённого read-only каталога,
+ELF executable монтируется и запускается по canonical target, а исходный
+логический путь передаётся через `argv[0]`. Это позволяет запускать, например,
+системный `python3` без file bind поверх symlink. Для shebang script такой
+случай отклоняется: задайте явную команду интерпретатора и grants для script
+и runtime. Обычный файл команды и отдельный file-only grant сохраняют прежний
+логический путь запуска. При `read_executable = true` host использует canonical
+`cwd`; без executable pinning сохраняется configured логический путь.
+
 Внутренний file mount executable может находиться внутри явного read-only root;
 это не разрешает пересечение пользовательских roots между собой. Любое
 пересечение executable с writable source/destination запрещено, в том числе
@@ -791,8 +802,10 @@ Unix sockets, доступные через явно разрешённое file
 на всю persistent generation, а не на отдельный tool call. Завершение/reset
 всей generation завершает её descendants; targeted cooperative cancel сохраняет
 broker semantics и сам по себе не доказывает очистку дочерних OS-процессов.
-Это не syscall filter, CPU/RAM quota или VM. MCP, LSP, peers и Desktop extensions
-имеют отдельные launch paths и не наследуют эту настройку.
+Это не syscall filter, CPU/RAM quota или VM. MCP server требует собственной
+настройки `sandbox`: он не наследует `components.*.sandbox` или выбор рабочего
+профиля `restricted`. LSP, peers и Desktop extensions сохраняют отдельные
+launch paths без этой настройки.
 
 Подробная граница и оставшаяся работа — в
 [security-and-policy.md](security-and-policy.md#ограниченный-запуск-components-под-linux).
@@ -1084,6 +1097,51 @@ max_response_bytes = 20000
 metadata = { scope = "local-smoke-test" }
 ```
 
+По умолчанию сервер работает в `trusted` режиме с OS-правами пользователя.
+Для stdio server под Linux можно явно задать `sandbox` той же strict формы,
+что и у [components](#ограниченный-запуск-под-linux). Например, вместо блока
+выше для workspace, равного checkout Proteus-core:
+
+```toml
+[[tools.mcp_servers]]
+name = "local_echo"
+enabled = true
+command = "sh"
+args = ["examples/mcp/echo_server.sh"]
+cwd = "."
+safety = "RunsCommands"
+timeout_ms = 30000
+
+[tools.mcp_servers.sandbox]
+mode = "restricted"
+read_executable = true
+read_only = ["/usr", "/lib", "/lib64", "/bin", "."]
+read_write = []
+network = false
+```
+
+Нужны рабочий `/usr/bin/bwrap`, user namespaces и существующие runtime paths.
+Относительные grants отсчитываются от workspace, независимо от config file
+и `cwd`; относительный `cwd` также отсчитывается от workspace и разрешается
+один раз. `.` в примере раскрывает весь workspace на чтение, включая server
+script; разрешайте только необходимые деревья. `read_executable` добавляет
+лишь выбранный файл команды, а runtime, interpreter, imports и данные требуют
+явных grants. `env_allowlist`/`env` работают как у trusted server, но переданный
+`HOME` не монтирует каталог автоматически. Сеть закрыта по умолчанию;
+`network = true` разрешает host network целиком. Ошибка sandbox setup не
+приводит к запуску без ограничений.
+Неизвестные mode/fields отклоняются при чтении config. Неверные grants,
+недоступный backend или другая ошибка подготовки запуска оставляют этот server
+без зарегистрированных tools с диагностикой в `/addons`; остальные servers
+продолжают подготовку.
+
+Sandbox принадлежит всему MCP server generation и всем обнаруженным у него
+tools. Требование одного component export здесь не применяется: один MCP
+server может предоставить несколько remote tools, разделяющих OS-права и
+lifecycle. Изоляция процесса не снижает `ToolSafety` и не отменяет policy
+или approval для вызова. LSP, peers и Desktop extensions не получают эти
+ограничения вследствие настройки MCP.
+
 MCP client использует официальный Rust SDK `rmcp` 3.3.0 поверх общего
 `ProcessTransport`: SDK отвечает за handshake, typed tool discovery/invocation
 и pagination `tools/list`; host сохраняет framing, receive limits и lifecycle
@@ -1117,6 +1175,9 @@ continuations не выполняются; иной вид результата 
 вызов запускает новый процесс и повторяет handshake, но завершившийся ошибкой
 вызов автоматически не переигрывается. Обычный tool result с `isError = true`
 становится failed `ToolResult` и не требует restart сервера.
+При restricted launch завершение generation очищает её OS descendants,
+включая потомков с отдельной session. Это отличается от cooperative cancel
+отдельного component invocation, который сохраняет его process generation.
 
 Если `structuredContent` присутствует и не равно `null`, оно сериализуется в JSON
 как текст результата для модели и имеет приоритет над `content`; `{}` тоже

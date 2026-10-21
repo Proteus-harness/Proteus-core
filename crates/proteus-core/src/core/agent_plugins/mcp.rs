@@ -120,6 +120,7 @@ pub(super) fn server(
                     env_allowlist: vec!["PATH".into()],
                     env,
                 },
+                sandbox: Default::default(),
                 protocol_version: crate::domain::mcp_protocol_version(),
                 safety: ToolSafety::RunsCommands,
                 supports_parallel_tool_calls: false,

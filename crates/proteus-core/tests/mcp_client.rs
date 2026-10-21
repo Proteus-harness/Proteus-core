@@ -14,6 +14,9 @@ use proteus_core::core::{
 };
 use serde_json::{Value, json};
 
+#[cfg(target_os = "linux")]
+#[path = "mcp_client/sandbox.rs"]
+mod sandbox;
 #[path = "support/model.rs"]
 mod test_model;
 
@@ -39,6 +42,7 @@ impl Fixture {
         config.tools.mcp_servers.push(ConfiguredMcpServerConfig {
             enabled: true,
             cwd: None,
+            sandbox: Default::default(),
             name: "fixture".into(),
             command: "python3".into(),
             args: vec![server_path().display().to_string()],

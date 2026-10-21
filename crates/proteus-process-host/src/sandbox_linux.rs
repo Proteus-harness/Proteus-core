@@ -138,6 +138,9 @@ pub(super) fn prepare(spec: &ProcessSpec, sandbox: &ProcessSandbox) -> Result<Co
             .arg(grant.fd.as_raw_fd().to_string())
             .arg(&grant.destination);
     }
+    if let Some(executable) = &executable {
+        command.arg("--argv0").arg(&executable.argv0);
+    }
     command
         .args(["--remount-ro", "/"])
         .arg("--chdir")
@@ -145,7 +148,8 @@ pub(super) fn prepare(spec: &ProcessSpec, sandbox: &ProcessSandbox) -> Result<Co
         .arg("--")
         .arg(
             executable
-                .as_deref()
+                .as_ref()
+                .map(|executable| executable.path.as_path())
                 .unwrap_or_else(|| Path::new(&spec.command)),
         )
         .args(&spec.args);

@@ -2,14 +2,14 @@ use std::{path::Path, sync::Arc, time::Duration};
 
 use anyhow::{Result, bail};
 use async_trait::async_trait;
-use proteus_process_host::ProcessSpec;
 use rmcp::model::ContentBlock;
 use serde_json::{Value, json};
 
 use crate::{
     contracts::{Tool, ToolContext, ToolRegistry, ToolSource},
-    core::{ConfiguredMcpServerConfig, ProcessEnvironmentConfig},
+    core::ConfiguredMcpServerConfig,
     domain::{ToolCall, ToolResult, ToolSpec},
+    process_adapters::mcp_server_process_spec,
 };
 
 mod client;
@@ -148,16 +148,7 @@ pub fn register_mcp_tools(
 }
 
 fn mcp_server_host(server: &ConfiguredMcpServerConfig, cwd: &Path) -> Result<Arc<McpStdioHost>> {
-    let spec = process_spec(
-        server.command.clone(),
-        server.args.clone(),
-        server.environment.clone(),
-        &server
-            .cwd
-            .as_ref()
-            .map(|path| cwd.join(crate::core::expand_user_path(path)))
-            .unwrap_or_else(|| cwd.to_path_buf()),
-    );
+    let spec = mcp_server_process_spec(server, cwd)?;
     Ok(Arc::new(McpStdioHost::new(
         spec,
         server.protocol_version.clone(),
@@ -166,19 +157,6 @@ fn mcp_server_host(server: &ConfiguredMcpServerConfig, cwd: &Path) -> Result<Arc
             .max_response_bytes
             .unwrap_or(DEFAULT_MCP_RESPONSE_LIMIT_BYTES),
     )?))
-}
-
-fn process_spec(
-    command: String,
-    args: Vec<String>,
-    environment: ProcessEnvironmentConfig,
-    cwd: &Path,
-) -> ProcessSpec {
-    ProcessSpec::new(command)
-        .args(args)
-        .env_allowlist(environment.env_allowlist)
-        .envs(environment.env)
-        .cwd(cwd)
 }
 
 fn render_mcp_content(items: &[ContentBlock]) -> Result<String> {
@@ -204,7 +182,7 @@ fn discover_mcp_tools(
 mod tests {
     use serde_json::Value;
 
-    use crate::domain::ToolSafety;
+    use crate::domain::{ProcessEnvironmentConfig, ToolSafety};
 
     use super::*;
 
@@ -219,6 +197,7 @@ mod tests {
             command: "sh".to_owned(),
             args: vec!["-c".to_owned(), "sleep 5".to_owned()],
             environment: ProcessEnvironmentConfig::default(),
+            sandbox: Default::default(),
             protocol_version: "2024-11-05".to_owned(),
             safety: ToolSafety::ReadOnly,
             supports_parallel_tool_calls: false,

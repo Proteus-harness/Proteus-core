@@ -281,6 +281,13 @@ MCP handshake и multiplexed request routing выполняет `rmcp`; запу
 framing и receive limits остаются в protocol-neutral `ProcessTransport`.
 При отмене, timeout или drop invocation future текущая generation configured
 MCP server завершается целиком, включая остальные незавершённые запросы к ней.
+При явном `tools.mcp_servers[].sandbox.mode = "restricted"` сервер запускается
+через общий process host с filesystem/network grants, а teardown generation
+завершает её OS descendants. Несколько remote tools одного MCP server делят
+этот OS-доступ; ограничение одного component export на них не распространяется.
+Без `sandbox` сервер остаётся trusted. Пример и поля — в
+[configuration.md](configuration.md#mcp). Sandbox не понижает effective safety
+MCP tools и не заменяет approval path.
 Перед завершением client ограниченно по времени пытается отправить
 `notifications/cancelled`; доставка не гарантируется. Новый процесс с новым
 handshake создаётся только при следующем явном вызове, без автоматического
@@ -855,6 +862,11 @@ workspace, `HOME`, script parent или runtime directories. Только при
 запуск идёт по абсолютному пути без повторного PATH lookup. Родительская папка,
 интерпретатор и зависимости не добавляются. Файл может вложиться в явный
 read-only grant; любое пересечение с writable source/destination запрещено.
+Если конечный symlink команды находится внутри такого read-only directory,
+для ELF используется pinned canonical target с исходным логическим `argv[0]`.
+Shebang script в этом случае отклоняется; задайте явную команду интерпретатора
+и необходимые grants. При обычном file destination или file-only grant
+сохраняется логический путь запуска.
 Закреплённый inode не является immutable snapshot содержимого и не исключает
 внешнюю запись в тот же файл.
 Относительные paths разрешаются от workspace; `~` раскрывается до запуска.
@@ -894,9 +906,13 @@ cancel продолжает работать через broker: он не уни
 
 ### Покрытие И Оставшаяся Работа
 
-Режим покрывает configured process components. MCP servers, LSP, Proteus peers
-и расширения Desktop используют отдельные launch paths и не наследуют
-`components.*.sandbox`. Desktop самостоятельно запускает GPUI extensions;
+Режим покрывает configured process components и явно настроенные stdio MCP
+servers. MCP не наследует `components.*.sandbox` или выбор профиля `restricted`:
+ему нужен собственный блок `tools.mcp_servers[].sandbox`. Его OS-права
+относятся ко всему серверу с любым числом remote tools, а cancel/timeout
+завершает всю generation, а не только один invocation.
+LSP, Proteus peers и расширения Desktop сохраняют отдельные launch paths.
+Desktop самостоятельно запускает GPUI extensions;
 изменение Core не ограничивает их OS-права. Sandbox `shell-tool` также не
 становится общим launcher-ом этих процессов.
 

@@ -100,6 +100,8 @@ history примерно восемь раз.
 сеть закрыта по умолчанию и отказ без unsandboxed fallback. Ответственность
 Core/process host, lifetime и оставшиеся границы описаны в
 [security-and-policy.md](../guides/security-and-policy.md#ограниченный-запуск-components-под-linux).
-Поставляемые profiles сохраняют trusted default. MCP, LSP, peers и расширения
-Desktop этот режим не наследуют; общая OS-изоляция, quotas и контейнеризация
+Поставляемые profiles сохраняют trusted default. Для stdio MCP server та же
+launch policy включается отдельно в `tools.mcp_servers[].sandbox` и действует
+на все remote tools одного процесса. LSP, peers и расширения Desktop сохраняют
+отдельные launch paths; общая OS-изоляция, quotas и контейнеризация
 не объявляются завершёнными и требуют отдельного следующего этапа.

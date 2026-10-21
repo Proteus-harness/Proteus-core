@@ -159,6 +159,11 @@ script/imports и workspace не монтируются автоматическ
 `PATH` и canonical `cwd`, закрепить inode и добавить read-only file mount.
 Backend запускает выбранный абсолютный путь без повторного PATH lookup. Parent
 directory, libraries, интерпретатор и resources не выводятся из executable.
+Конечный symlink под явным read-only directory grant обрабатывается для ELF
+через pinned canonical target с исходным логическим `argv[0]`; shebang script
+в таком положении отклоняется. Для обычного destination и file-only grant
+сохраняется логический путь. При `read_executable = true` host использует
+canonical `cwd`; без pinning сохраняется configured логический путь.
 Внутренний mount может вложиться в read-only grant, но любое пересечение с
 writable source/destination запрещено; общая проверка пользовательских grants
 не ослабляется. Pin inode не даёт immutable content snapshot. Environment очищается
@@ -169,9 +174,13 @@ literal env. Ошибка setup или недоступный backend не до�
 целиком; Unix sockets в разрешённых деревьях не фильтруются этим флагом.
 Policy slot и `host.*` callbacks сохраняют прежнюю семантику: разрешённый
 callback может выполнить host effect вне прямых OS-grants child. Launcher
-ограничивает generation, а не OS-права отдельного invocation. Этот launcher
-не применяется к MCP, LSP, peers или Desktop extensions и не меняет sandbox
-`shell-tool`. Форма config и пример — в
+ограничивает generation, а не OS-права отдельного invocation. Stdio MCP
+использует тот же launcher при явном `tools.mcp_servers[].sandbox`: remote
+tools сервера делят OS-права одной generation; требование одного component
+export к ним не относится. MCP cancel/timeout завершает generation; component targeted cancel
+сохраняет cooperative broker semantics. LSP, peers и Desktop extensions
+сохраняют отдельные launch paths. Sandbox `shell-tool` не меняется.
+Форма config и пример — в
 [configuration.md](../guides/configuration.md#ограниченный-запуск-под-linux);
 границы — в
 [security-and-policy.md](../guides/security-and-policy.md#ограниченный-запуск-components-под-linux).

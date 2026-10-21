@@ -245,6 +245,76 @@ fn explicit_readonly_parent_and_duplicate_file_are_supported() -> Result<()> {
 }
 
 #[test]
+fn final_symlink_under_readonly_parent_preserves_native_argv0() -> Result<()> {
+    let fixture = Fixture::new()?;
+    fs::copy("/usr/bin/sh", fixture.bin.join("payload"))?;
+    let link = fixture.bin.join("sh");
+    symlink("payload", &link)?;
+    let mut spec = fixture.spec();
+    spec.command = link.to_string_lossy().into();
+    spec.args = vec!["-c".into(), "printf '%s' \"$0\"".into()];
+    spec.sandbox
+        .as_mut()
+        .unwrap()
+        .read_only
+        .push(fixture.bin.clone());
+    fixture.success(&spec, link.as_os_str().as_bytes())?;
+    // The canonical filename is deliberately "payload", so retaining sh as
+    // argv[0] also exercises the native shell's invocation-name dispatch.
+    Ok(())
+}
+
+#[test]
+fn system_python_final_symlink_runs_under_readonly_usr() -> Result<()> {
+    let fixture = Fixture::new()?;
+    let mut spec = fixture.spec();
+    spec.command = "/usr/bin/python3".into();
+    spec.args = vec![
+        "-c".into(),
+        "import sys; print(sys.executable, end='')".into(),
+    ];
+    spec.sandbox.as_mut().unwrap().read_only = vec!["/usr".into(), "/lib64".into(), "/lib".into()];
+    fixture.success(&spec, b"/usr/bin/python3")
+}
+
+#[test]
+fn script_with_regular_final_name_under_ancestor_alias_keeps_logical_path() -> Result<()> {
+    let fixture = Fixture::new()?;
+    let script = fixture.bin.join("script");
+    fs::write(&script, "#!/usr/bin/sh\nprintf '%s' \"$0\"\n")?;
+    fs::set_permissions(&script, fs::Permissions::from_mode(0o700))?;
+    let alias = fixture.root.join("bin-alias");
+    symlink(&fixture.bin, &alias)?;
+    let logical = alias.join("script");
+    let mut spec = fixture.spec();
+    spec.command = logical.to_string_lossy().into();
+    spec.args.clear();
+    spec.sandbox.as_mut().unwrap().read_only =
+        vec!["/usr".into(), "/lib64".into(), "/lib".into(), alias];
+    fixture.success(&spec, logical.as_os_str().as_bytes())
+}
+
+#[test]
+fn final_symlink_script_under_readonly_parent_fails_before_launch() -> Result<()> {
+    let fixture = Fixture::new()?;
+    let script = fixture.bin.join("script");
+    fs::write(&script, "#!/usr/bin/sh\nprintf 'must not run'\n")?;
+    fs::set_permissions(&script, fs::Permissions::from_mode(0o700))?;
+    let link = fixture.bin.join("script-link");
+    symlink("script", &link)?;
+    let mut spec = fixture.spec();
+    spec.command = link.to_string_lossy().into();
+    spec.sandbox
+        .as_mut()
+        .unwrap()
+        .read_only
+        .push(fixture.bin.clone());
+    let error = prepare(&spec, spec.sandbox.as_ref().unwrap()).unwrap_err();
+    ensure!(error.to_string().contains("must be ELF"), "{error:#}");
+    Ok(())
+}
+
+#[test]
 fn prepared_executable_survives_file_symlink_and_ancestor_replacement() -> Result<()> {
     for replacement in ["file", "symlink", "ancestor"] {
         let fixture = Fixture::new()?;

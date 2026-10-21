@@ -1,99 +1,59 @@
 use std::path::{Path, PathBuf};
 
-use anyhow::{Result, bail};
+use anyhow::Result;
+use proteus_contracts::domain::ProcessSandboxConfig;
 use proteus_process_host::ProcessSandbox;
-use serde::{Deserialize, Serialize};
 
 use crate::core::expand_user_path;
 
-/// Host-owned launch policy. This is deliberately outside the component's
-/// opaque module_config and initialize payload: the child cannot choose it.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "mode", rename_all = "snake_case", deny_unknown_fields)]
-pub(super) enum ComponentSandboxConfig {
-    Trusted {},
-    Restricted {
-        #[serde(default)]
-        read_only: Vec<PathBuf>,
-        #[serde(default)]
-        read_write: Vec<PathBuf>,
-        #[serde(default)]
-        network: bool,
-        #[serde(default)]
-        read_executable: bool,
-    },
+/// Resolves grants against the canonical workspace while preserving logical
+/// destinations such as /lib64. The process host pins their canonical sources.
+pub(crate) fn resolve_sandbox(
+    config: &ProcessSandboxConfig,
+    workspace: &Path,
+) -> Result<Option<ProcessSandbox>> {
+    config.validate("process.sandbox")?;
+    let ProcessSandboxConfig::Restricted {
+        read_only,
+        read_write,
+        network,
+        read_executable,
+    } = config
+    else {
+        return Ok(None);
+    };
+    let paths = |configured: &[PathBuf]| {
+        configured
+            .iter()
+            .map(|path| {
+                let path = expand_user_path(path);
+                if path.is_absolute() {
+                    path
+                } else {
+                    workspace.join(path)
+                }
+            })
+            .collect()
+    };
+    Ok(Some(ProcessSandbox {
+        read_only: paths(read_only),
+        read_write: paths(read_write),
+        network: *network,
+        read_executable: *read_executable,
+    }))
 }
 
-impl Default for ComponentSandboxConfig {
-    fn default() -> Self {
-        Self::Trusted {}
-    }
-}
-
-impl ComponentSandboxConfig {
-    pub(super) fn is_trusted(&self) -> bool {
-        matches!(self, Self::Trusted {})
-    }
-
-    pub(super) fn validate(&self, exports: usize, path: &str) -> Result<()> {
-        if let Self::Restricted {
-            read_only,
-            read_write,
-            ..
-        } = self
-        {
-            // The first mode deliberately avoids giving a multi-export process
-            // a union of OS privileges and mistaking callback authority for
-            // isolation between its exports.
-            if exports != 1 {
-                bail!(
-                    "{path}: restricted components require exactly one export; split exports into separate components"
-                );
-            }
-            if read_only
-                .iter()
-                .chain(read_write)
-                .any(|p| p.as_os_str().is_empty())
-            {
-                bail!("{path}: sandbox grant paths must not be empty");
-            }
-        }
-        Ok(())
-    }
-
-    pub(super) fn resolve(&self, workspace: &Path) -> Result<Option<ProcessSandbox>> {
-        let Self::Restricted {
-            read_only,
-            read_write,
-            network,
-            read_executable,
-        } = self
-        else {
-            return Ok(None);
-        };
-        // Preserve logical destinations such as /lib64. The host separately
-        // canonicalizes and pins mount sources; erasing aliases here would
-        // remove the executable's dynamic-loader path inside the empty root.
-        let paths = |configured: &[PathBuf]| {
-            configured
-                .iter()
-                .map(|path| {
-                    let path = expand_user_path(path);
-                    if path.is_absolute() {
-                        path
-                    } else {
-                        workspace.join(path)
-                    }
-                })
-                .collect()
-        };
-        Ok(Some(ProcessSandbox {
-            read_only: paths(read_only),
-            read_write: paths(read_write),
-            network: *network,
-            read_executable: *read_executable,
-        }))
-    }
+pub(crate) fn resolve_process_cwd(configured: Option<&Path>, workspace: &Path) -> Result<PathBuf> {
+    let path = configured.map_or_else(|| workspace.to_path_buf(), expand_user_path);
+    let path = if path.is_relative() {
+        workspace.join(path)
+    } else {
+        path
+    };
+    // Workspace is canonicalized once by the caller. Keep explicit aliases:
+    // read_executable=false grants retain their logical mount destinations.
+    // The process host canonicalizes cwd only when executable pinning needs it.
+    Ok(path)
 }
 
 #[cfg(test)]
@@ -160,12 +120,14 @@ mod tests {
 
     #[test]
     fn sandbox_paths_are_workspace_relative_without_implicit_grants_or_alias_loss() {
-        let config: ComponentSandboxConfig = serde_json::from_value(json!({
+        let config: ProcessSandboxConfig = serde_json::from_value(json!({
             "mode":"restricted", "read_only":["worker.py", "/lib64"], "read_write":["."],
             "read_executable":true,
         }))
         .unwrap();
-        let sandbox = config.resolve(Path::new("/workspace")).unwrap().unwrap();
+        let sandbox = resolve_sandbox(&config, Path::new("/workspace"))
+            .unwrap()
+            .unwrap();
         assert_eq!(
             sandbox.read_only,
             [
@@ -205,5 +167,31 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn logical_alias_cwd_remains_reachable_without_executable_grant() {
+        let workspace = tempfile::tempdir().unwrap();
+        let actual = tempfile::tempdir().unwrap();
+        let alias = workspace.path().join("alias");
+        std::os::unix::fs::symlink(actual.path(), &alias).unwrap();
+        let component: ProcessComponentConfig = serde_json::from_value(json!({
+            "command":"worker", "cwd":"alias", "exports":{"tool":{"fixture":{}}},
+            "sandbox":{"mode":"restricted", "read_only":["alias"]},
+        }))
+        .unwrap();
+        let spec = component.process_spec(workspace.path()).unwrap();
+        assert_eq!(spec.cwd, Some(alias.clone()));
+        assert_eq!(spec.sandbox.unwrap().read_only, [alias.clone()]);
+        let server: proteus_contracts::domain::ConfiguredMcpServerConfig =
+            serde_json::from_value(json!({
+                "name":"fixture", "command":"worker", "cwd":"alias",
+                "sandbox":{"mode":"restricted", "read_only":["alias"]},
+            }))
+            .unwrap();
+        let spec =
+            crate::process_adapters::mcp_server_process_spec(&server, workspace.path()).unwrap();
+        assert_eq!(spec.cwd, Some(alias));
     }
 }

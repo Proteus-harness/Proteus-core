@@ -13,9 +13,10 @@ use proteus_module_protocol::{
 use proteus_process_host::ProcessSpec;
 use serde::{Deserialize, Serialize};
 
-use crate::{contracts::ProcessComponentExportRef, core::expand_user_path};
+use crate::contracts::ProcessComponentExportRef;
+use proteus_contracts::domain::ProcessSandboxConfig;
 
-use super::sandbox::ComponentSandboxConfig;
+use super::sandbox::{resolve_process_cwd, resolve_sandbox};
 
 const DEFAULT_HANDSHAKE_TIMEOUT_MS: u64 = 30_000;
 
@@ -35,8 +36,8 @@ pub struct ProcessComponentConfig {
     env_allowlist: Vec<String>,
     #[serde(default)]
     env: BTreeMap<String, String>,
-    #[serde(default, skip_serializing_if = "ComponentSandboxConfig::is_trusted")]
-    sandbox: ComponentSandboxConfig,
+    #[serde(default, skip_serializing_if = "ProcessSandboxConfig::is_trusted")]
+    sandbox: ProcessSandboxConfig,
     #[serde(default)]
     handshake_timeout_ms: Option<u64>,
     #[serde(default)]
@@ -75,9 +76,8 @@ impl ProcessComponentConfig {
             .env_allowlist(self.env_allowlist.clone())
             .envs(self.env.clone())
             .cwd(resolve_process_cwd(self.cwd.as_deref(), &workspace)?);
-        self.sandbox
-            .validate(self.exports().count(), "component.sandbox")?;
-        if let Some(sandbox) = self.sandbox.resolve(&workspace)? {
+        self.validate_sandbox("component.sandbox")?;
+        if let Some(sandbox) = resolve_sandbox(&self.sandbox, &workspace)? {
             spec = spec.sandbox(sandbox);
             spec.validate_launch()?;
         }
@@ -129,9 +129,17 @@ impl ProcessComponentConfig {
                 }
             }
         }
-        self.sandbox
-            .validate(self.exports().count(), &format!("{path}.sandbox"))?;
+        self.validate_sandbox(&format!("{path}.sandbox"))?;
         Ok(())
+    }
+
+    fn validate_sandbox(&self, path: &str) -> Result<()> {
+        if !self.sandbox.is_trusted() && self.exports().count() != 1 {
+            bail!(
+                "{path}: restricted components require exactly one export; split exports into separate components"
+            );
+        }
+        self.sandbox.validate(path)
     }
 
     fn handshake_timeout(&self) -> Duration {
@@ -299,17 +307,6 @@ impl ProcessExportConfig {
     pub(crate) fn connect(&self, workspace: &Path) -> Result<Arc<ComponentBroker>> {
         self.launcher.connect(workspace)
     }
-}
-
-fn resolve_process_cwd(configured: Option<&Path>, workspace: &Path) -> Result<PathBuf> {
-    let path = configured.map_or_else(|| workspace.to_path_buf(), expand_user_path);
-    let path = if path.is_relative() {
-        workspace.join(path)
-    } else {
-        path
-    };
-    std::fs::canonicalize(&path)
-        .with_context(|| format!("failed to resolve process component cwd {}", path.display()))
 }
 
 #[cfg(test)]
