@@ -56,6 +56,7 @@ use std::path::Path;
     name = "proteus",
     author,
     version,
+    long_version = concat!(env!("CARGO_PKG_VERSION"), " (", env!("PROTEUS_BUILD_COMMIT"), ")"),
     about = "CLI-first Proteus skeleton"
 )]
 struct Cli {

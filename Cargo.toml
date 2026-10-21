@@ -4,6 +4,7 @@ members = [
     "crates/proteus-contracts",
     "crates/proteus-core",
     "crates/proteus-module-protocol",
+    "crates/proteus-module-sdk",
     "crates/proteus-process-host",
 ]
 

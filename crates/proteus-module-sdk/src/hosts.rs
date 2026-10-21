@@ -1,0 +1,400 @@
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
+
+use proteus_contracts::{
+    contracts::{
+        CONTEXT_HOST_PROVIDER_METHOD, OPERATION_HOST_COMPLETE_MODEL_METHOD,
+        OPERATION_HOST_EXECUTE_TOOL_METHOD, WORKFLOW_HOST_BUILD_CONTEXT_METHOD,
+        WORKFLOW_HOST_COMPLETE_MODEL_METHOD, WORKFLOW_HOST_EMIT_EVENT_METHOD,
+        WORKFLOW_HOST_EXECUTE_TOOL_METHOD, WORKFLOW_HOST_EXECUTE_TOOLS_METHOD,
+        WORKFLOW_HOST_PREPARE_CONTEXT_METHOD, WORKFLOW_HOST_RUNTIME_STATUS_METHOD,
+        WORKFLOW_HOST_SELECT_TOOLS_METHOD, WORKFLOW_HOST_VISIBLE_TOOLS_METHOD,
+    },
+    process_module::{
+        ContextBuilderModuleHost, HookModuleHost, ProcessModuleError, ToolModuleHost,
+        WorkflowModuleHost,
+    },
+};
+use serde_json::{Value, json};
+
+use crate::transport::ModuleTransport;
+
+#[derive(Clone)]
+pub struct HostBridge {
+    transport: Arc<ModuleTransport>,
+    invocation_id: String,
+    canceled: Arc<AtomicBool>,
+}
+
+impl HostBridge {
+    pub(crate) fn new(
+        transport: Arc<ModuleTransport>,
+        invocation_id: String,
+        canceled: Arc<AtomicBool>,
+    ) -> Self {
+        Self {
+            transport,
+            invocation_id,
+            canceled,
+        }
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.canceled.load(Ordering::SeqCst)
+    }
+
+    fn call(&self, method: &str, params: Value) -> anyhow::Result<Value> {
+        self.transport
+            .call_host(&self.invocation_id, method, params)
+    }
+}
+
+pub struct ToolHostBridge(pub HostBridge);
+
+pub struct ModelHostBridge(pub HostBridge);
+
+impl proteus_contracts::process_module::ModelModuleHost for ModelHostBridge {
+    fn is_cancelled(&self) -> bool {
+        self.0.is_cancelled()
+    }
+
+    fn emit(
+        &self,
+        event: proteus_contracts::contracts::ProcessModelEvent,
+    ) -> Result<(), ProcessModuleError> {
+        let params = serde_json::to_value(event)
+            .map_err(|error| ProcessModuleError::new(error.to_string()))?;
+        let result = self
+            .0
+            .call(proteus_contracts::contracts::MODEL_HOST_EMIT_METHOD, params)
+            .map_err(|error| ProcessModuleError::new(format!("{error:#}")))?;
+        if !result.is_null() {
+            return Err(ProcessModuleError::new(
+                "model event acknowledgement must be null",
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl ToolModuleHost for ToolHostBridge {
+    fn execute_tool_json(&self, call_json: String) -> Result<String, ProcessModuleError> {
+        model_aware_call(
+            &self.0,
+            OPERATION_HOST_EXECUTE_TOOL_METHOD,
+            "call",
+            call_json,
+        )
+    }
+
+    fn complete_model_json(&self, request_json: String) -> Result<String, ProcessModuleError> {
+        model_aware_call(
+            &self.0,
+            OPERATION_HOST_COMPLETE_MODEL_METHOD,
+            "request",
+            request_json,
+        )
+    }
+
+    fn conversation_snapshot_json(&self) -> Result<String, ProcessModuleError> {
+        let value = self
+            .0
+            .call(
+                proteus_contracts::contracts::TOOL_HOST_CONVERSATION_SNAPSHOT_METHOD,
+                serde_json::json!({}),
+            )
+            .map_err(|error| ProcessModuleError::new(format!("{error:#}")))?;
+        serde_json::to_string(&value).map_err(|error| ProcessModuleError::new(error.to_string()))
+    }
+    fn is_cancelled(&self) -> Result<bool, ProcessModuleError> {
+        Ok(self.0.is_cancelled())
+    }
+    fn read_conversation_json(&self) -> Result<String, ProcessModuleError> {
+        let value = self
+            .0
+            .call(
+                proteus_contracts::contracts::TOOL_HOST_READ_CONVERSATION_METHOD,
+                serde_json::json!({}),
+            )
+            .map_err(|error| ProcessModuleError::new(format!("{error:#}")))?;
+        serde_json::to_string(&value).map_err(|error| ProcessModuleError::new(error.to_string()))
+    }
+}
+
+pub struct ContextHostBridge(pub HostBridge);
+
+impl ContextBuilderModuleHost for ContextHostBridge {
+    fn context_provider_json(
+        &self,
+        provider_id: String,
+        input_json: String,
+    ) -> Result<String, ProcessModuleError> {
+        let mut input: Value = match serde_json::from_str(input_json.as_str()) {
+            Ok(input) => input,
+            Err(error) => {
+                return Err(ProcessModuleError::new(error.to_string()));
+            }
+        };
+        let Some(object) = input.as_object_mut() else {
+            return Err(ProcessModuleError::new(
+                "context provider input must be an object",
+            ));
+        };
+        object.insert("provider_id".to_owned(), Value::String(provider_id));
+        match self.0.call(CONTEXT_HOST_PROVIDER_METHOD, input) {
+            Ok(value) => {
+                json_string(value).map_or_else(|error| Err(ProcessModuleError::new(error)), Ok)
+            }
+            Err(error) => Err(ProcessModuleError::new(format!("{error:#}"))),
+        }
+    }
+}
+
+pub struct HookHostBridge(pub HostBridge);
+
+impl HookModuleHost for HookHostBridge {
+    fn execute_tool_json(&self, call_json: String) -> Result<String, ProcessModuleError> {
+        model_aware_call(
+            &self.0,
+            OPERATION_HOST_EXECUTE_TOOL_METHOD,
+            "call",
+            call_json,
+        )
+    }
+
+    fn is_cancelled(&self) -> Result<bool, ProcessModuleError> {
+        Ok(self.0.is_cancelled())
+    }
+
+    fn complete_model_json(&self, request_json: String) -> Result<String, ProcessModuleError> {
+        model_aware_call(
+            &self.0,
+            OPERATION_HOST_COMPLETE_MODEL_METHOD,
+            "request",
+            request_json,
+        )
+    }
+}
+
+fn model_callback_error(error: anyhow::Error) -> ProcessModuleError {
+    if let Some(rpc) = error.downcast_ref::<proteus_module_protocol::ProcessModuleRpcError>()
+        && let Some(data) = rpc.data.clone()
+    {
+        return match serde_json::from_value::<proteus_contracts::model_standard::ModelFailure>(data)
+        {
+            Ok(failure) => ProcessModuleError::from_model_failure(failure),
+            Err(error) => {
+                ProcessModuleError::new(format!("invalid model callback failure: {error}"))
+            }
+        };
+    }
+    ProcessModuleError::new(format!("{error:#}"))
+}
+
+pub struct WorkflowHostBridge(pub HostBridge);
+
+impl WorkflowModuleHost for WorkflowHostBridge {
+    fn checkpoint_history_json(
+        &self,
+        checkpoint_json: String,
+    ) -> Result<String, ProcessModuleError> {
+        let checkpoint = parse_value(checkpoint_json).map_err(ProcessModuleError::new)?;
+        match self.0.call(
+            proteus_contracts::contracts::WORKFLOW_HOST_CHECKPOINT_HISTORY_METHOD,
+            checkpoint,
+        ) {
+            Ok(value) => workflow_json(value),
+            Err(error) => workflow_error(error),
+        }
+    }
+    fn is_cancelled(&self) -> Result<bool, ProcessModuleError> {
+        Ok(self.0.is_cancelled())
+    }
+
+    fn queued_user_messages(&self) -> Result<u32, ProcessModuleError> {
+        match self.0.call(WORKFLOW_HOST_RUNTIME_STATUS_METHOD, json!({})) {
+            Ok(value) => value
+                .get("queued_user_messages")
+                .and_then(Value::as_u64)
+                .and_then(|value| u32::try_from(value).ok())
+                .map_or_else(
+                    || {
+                        Err(ProcessModuleError::new(
+                            "runtime status omitted queued_user_messages",
+                        ))
+                    },
+                    Ok,
+                ),
+            Err(error) => workflow_error(error),
+        }
+    }
+
+    fn build_context_json(&self, task_json: String) -> Result<String, ProcessModuleError> {
+        model_aware_call(
+            &self.0,
+            WORKFLOW_HOST_BUILD_CONTEXT_METHOD,
+            "task",
+            task_json,
+        )
+    }
+
+    fn start_model_stream_json(&self, request_json: String) -> Result<String, ProcessModuleError> {
+        model_aware_call(
+            &self.0,
+            proteus_contracts::contracts::WORKFLOW_HOST_START_MODEL_STREAM_METHOD,
+            "request",
+            request_json,
+        )
+    }
+
+    fn next_model_stream_json(&self, cursor_json: String) -> Result<String, ProcessModuleError> {
+        let cursor = parse_value(cursor_json).map_err(ProcessModuleError::new)?;
+        match self.0.call(
+            proteus_contracts::contracts::WORKFLOW_HOST_NEXT_MODEL_STREAM_METHOD,
+            cursor,
+        ) {
+            Ok(value) => workflow_json(value),
+            Err(error) => workflow_error(error),
+        }
+    }
+
+    fn complete_model_json(&self, request_json: String) -> Result<String, ProcessModuleError> {
+        model_aware_call(
+            &self.0,
+            WORKFLOW_HOST_COMPLETE_MODEL_METHOD,
+            "request",
+            request_json,
+        )
+    }
+
+    fn prepare_context_json(&self, input_json: String) -> Result<String, ProcessModuleError> {
+        model_aware_call(
+            &self.0,
+            WORKFLOW_HOST_PREPARE_CONTEXT_METHOD,
+            "input",
+            input_json,
+        )
+    }
+
+    fn visible_tools_json(&self, cwd: String) -> Result<String, ProcessModuleError> {
+        match self.0.call(
+            WORKFLOW_HOST_VISIBLE_TOOLS_METHOD,
+            json!({ "cwd": cwd.as_str() }),
+        ) {
+            Ok(value) => workflow_json(value),
+            Err(error) => workflow_error(error),
+        }
+    }
+
+    fn select_tools_json(&self, request_json: String) -> Result<String, ProcessModuleError> {
+        model_aware_call(
+            &self.0,
+            WORKFLOW_HOST_SELECT_TOOLS_METHOD,
+            "request",
+            request_json,
+        )
+    }
+
+    fn execute_tool_json(
+        &self,
+        task_json: String,
+        call_json: String,
+    ) -> Result<String, ProcessModuleError> {
+        workflow_call_two(
+            &self.0,
+            WORKFLOW_HOST_EXECUTE_TOOL_METHOD,
+            ("task", task_json),
+            ("call", call_json),
+        )
+    }
+
+    fn emit_event_json(&self, event_json: String) -> Result<(), ProcessModuleError> {
+        let event = match parse_value(event_json) {
+            Ok(event) => event,
+            Err(error) => return Err(ProcessModuleError::new(error)),
+        };
+        match self
+            .0
+            .call(WORKFLOW_HOST_EMIT_EVENT_METHOD, json!({ "event": event }))
+        {
+            Ok(_) => Ok(()),
+            Err(error) => workflow_error(error),
+        }
+    }
+
+    fn execute_tools_json(
+        &self,
+        task_json: String,
+        calls_json: String,
+    ) -> Result<String, ProcessModuleError> {
+        workflow_call_two(
+            &self.0,
+            WORKFLOW_HOST_EXECUTE_TOOLS_METHOD,
+            ("task", task_json),
+            ("calls", calls_json),
+        )
+    }
+}
+
+/// JSON host callbacks with typed model failures shared by workflow, hook and tool slots.
+fn model_aware_call(
+    bridge: &HostBridge,
+    method: &str,
+    field: &str,
+    payload: String,
+) -> Result<String, ProcessModuleError> {
+    let value = parse_value(payload).map_err(ProcessModuleError::new)?;
+    match bridge.call(method, single_param(field, value)) {
+        Ok(value) => json_string(value).map_err(ProcessModuleError::new),
+        Err(error) => Err(model_callback_error(error)),
+    }
+}
+
+fn workflow_call_two(
+    bridge: &HostBridge,
+    method: &str,
+    left: (&str, String),
+    right: (&str, String),
+) -> Result<String, ProcessModuleError> {
+    let left_value = match parse_value(left.1) {
+        Ok(value) => value,
+        Err(error) => return Err(ProcessModuleError::new(error)),
+    };
+    let right_value = match parse_value(right.1) {
+        Ok(value) => value,
+        Err(error) => return Err(ProcessModuleError::new(error)),
+    };
+    let mut params = serde_json::Map::new();
+    params.insert(left.0.to_owned(), left_value);
+    params.insert(right.0.to_owned(), right_value);
+    match bridge.call(method, Value::Object(params)) {
+        Ok(value) => workflow_json(value),
+        Err(error) => workflow_error(error),
+    }
+}
+
+fn single_param(field: &str, value: Value) -> Value {
+    let mut params = serde_json::Map::new();
+    params.insert(field.to_owned(), value);
+    Value::Object(params)
+}
+
+fn parse_value(value: String) -> Result<Value, String> {
+    serde_json::from_str(value.as_str()).map_err(|error| error.to_string())
+}
+
+fn json_string(value: Value) -> Result<String, String> {
+    serde_json::to_string(&value)
+        .map(String::from)
+        .map_err(|error| error.to_string())
+}
+
+fn workflow_json(value: Value) -> Result<String, ProcessModuleError> {
+    json_string(value).map_or_else(|error| Err(ProcessModuleError::new(error)), Ok)
+}
+
+fn workflow_error<T>(error: anyhow::Error) -> Result<T, ProcessModuleError> {
+    Err(model_callback_error(error))
+}

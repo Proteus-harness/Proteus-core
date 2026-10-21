@@ -1427,7 +1427,7 @@ dependencies = [
 
 [[package]]
 name = "proteus-contracts"
-version = "0.0.0-dev"
+version = "0.1.0-alpha.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1445,7 +1445,7 @@ dependencies = [
 
 [[package]]
 name = "proteus-core"
-version = "0.0.0-dev"
+version = "0.1.0-alpha.2"
 dependencies = [
  "agent-client-protocol",
  "anyhow",
@@ -1474,7 +1474,7 @@ dependencies = [
 
 [[package]]
 name = "proteus-module-protocol"
-version = "0.0.0-dev"
+version = "0.1.0-alpha.2"
 dependencies = [
  "anyhow",
  "clap",
@@ -1486,8 +1486,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "proteus-module-sdk"
+version = "0.1.0-alpha.2"
+dependencies = [
+ "anyhow",
+ "proteus-contracts",
+ "proteus-module-protocol",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "proteus-process-host"
-version = "0.0.0-dev"
+version = "0.1.0-alpha.2"
 dependencies = [
  "anyhow",
  "libc",
