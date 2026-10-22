@@ -803,10 +803,12 @@ store; stdio остаётся привязанным к одной session пр�
   `file`, `symlink`, `special`.
 - `GET /workspace/file?session_dir=<path>&path=<relative>` — предпросмотр:
   `path`, размер `size` в байтах, `kind: text | binary | too_large`, `text` либо
-  `null`. Текст — UTF-8 без NUL, максимум 512 КиБ. Оба чтения требуют обычной
-  HTTP-аутентификации и явного `session_dir`; абсолютные пути, `..`, неизвестные
-  query fields и выход через ссылку за пределы проекта отклоняются. Это
-  read-only API клиента; запись и запуск agent tools здесь отсутствуют.
+  `null`. Текст — UTF-8 без NUL, максимум 512 КиБ. Все `/workspace/*`
+  endpoints требуют обычной HTTP-аутентификации и явного `session_dir`
+  (в query у GET, в JSON body у POST) живой сессии; корень — её cwd.
+  Абсолютные пути, `..`, неизвестные query/body fields и выход через ссылку
+  за пределы проекта отклоняются с HTTP 400 `{ok: false, error}`. Это API
+  клиента, а не agent tools: ToolRegistry и approval здесь не участвуют.
 - `GET /workspace/search?session_dir=<path>&q=<text>` — нечёткий поиск по
   путям файлов и каталогов всего проекта. В Git-репозитории кандидаты —
   отслеживаемые и неигнорируемые неотслеживаемые файлы (`git ls-files`
@@ -815,6 +817,61 @@ store; stdio остаётся привязанным к одной session пр�
   совпасть с путём; совпадение в имени ранжируется выше. Ответ: `query`,
   до 200 `entries` (`name`, `path`, `kind: file | directory`) по убыванию
   релевантности и `truncated`. Пустой `q` и лишние поля отклоняются.
+- Git-панель клиента. Git запускается как `git` CLI в cwd сессии с
+  `--literal-pathspecs`, без унаследованных `GIT_DIR`/`GIT_WORK_TREE`/
+  `GIT_INDEX_FILE`, с `GIT_OPTIONAL_LOCKS=0`, пустым stdin, `core.editor=true`/
+  `GIT_EDITOR=true`, `GIT_TERMINAL_PROMPT=0` и непереведёнными сообщениями
+  (`LANGUAGE=C`). Stdout ограничен 512 КиБ, stderr — 4 КиБ. Ошибка Git
+  возвращается как HTTP 400 с обрезанным stderr в `error`. Hooks не
+  отключаются. Запросы адресуют только cwd сессии; область репозитория
+  выше cwd не показывается, но `commit`, `log` и ветки относятся ко всему
+  репозиторию.
+  - `GET /workspace/changes?session_dir=<path>` — `{repository, branch,
+    head, upstream, ahead, behind, entries, truncated}`. `branch` — имя
+    текущей ветки или `null` при detached HEAD и вне репозитория; `head` —
+    `{short, summary}` или `null` без коммитов; `upstream` — upstream ветки
+    или `null`; `ahead`/`behind` — 0 без upstream. Каждая запись:
+    `{path, original, status, staged, unstaged}`; `path` относительно cwd,
+    `original` — источник staged rename внутри cwd или `null`. `staged`
+    (индекс против HEAD) и `unstaged` (рабочее дерево против индекса) —
+    `null | added | modified | deleted | renamed | untracked | conflict`:
+    неотслеживаемый файл даёт `staged: null, unstaged: "untracked"`, конфликт —
+    `conflict` с обеих сторон. `status` сводит обе стороны в одно значение
+    с приоритетом `conflict`, `untracked`, `renamed`, `deleted`, `added`,
+    `modified`. Источник — `git status --porcelain=v2 --branch -z
+    --untracked-files=all --ignore-submodules=all`; максимум 1000 записей.
+  - `GET /workspace/diff?session_dir=<path>&path=<relative>` — `{path, kind,
+    patch}`: рабочее дерево против HEAD (без коммитов и для неотслеживаемых —
+    против пустого файла), `kind: text | binary | too_large | unavailable`,
+    `patch` — unified diff либо `null`.
+  - `POST /workspace/stage`, `/workspace/unstage`, `/workspace/discard` с body
+    `{session_dir, paths: [<relative>], all?: bool}`: либо непустой `paths`,
+    либо `all: true` (все изменения под cwd), но не оба. Пути проверяются
+    как у `diff`, удалённые файлы допустимы. `stage` — `git add -A -- <paths>`.
+    `unstage` возвращает индекс к HEAD (`git restore --staged`, без коммитов —
+    `git rm --cached`) для выбранных записей со staged-стороной, вместе с
+    источником rename. `discard` восстанавливает индекс и рабочее дерево
+    отслеживаемых записей из HEAD (новые staged-файлы удаляются; без коммитов —
+    `git rm -f`) и удаляет файлы, которые status сообщает неотслеживаемыми;
+    игнорируемые файлы, вложенные репозитории и цели ссылок не трогаются.
+    `unstage`/`discard` отказываются работать по усечённому списку изменений.
+    Ответ — свежий снимок как у `GET /workspace/changes`.
+  - `POST /workspace/commit` с body `{session_dir, message, amend?: bool}` —
+    `git commit -m` (с `--amend` при `amend: true`) по содержимому индекса.
+    Пустое после trim сообщение и коммит без staged изменений (не amend)
+    отклоняются (`nothing is staged to commit`). Ответ:
+    `{commit: {short, summary}, changes: <как GET /workspace/changes>}`.
+  - `GET /workspace/branches?session_dir=<path>` — `{current, branches,
+    truncated}`: `current` — текущая локальная ветка или `null`, `branches` —
+    до 1000 локальных веток `{name, upstream, last_commit_time}` (unix seconds)
+    от недавних коммитов к старым.
+  - `POST /workspace/checkout` с body `{session_dir, branch}` — `git switch`
+    на существующую локальную ветку; неизвестная ветка или отказ Git из-за
+    локальных изменений — HTTP 400. Ответ — снимок `changes`.
+  - `GET /workspace/log?session_dir=<path>&limit=<1..100>` — `{entries}`:
+    последние `limit` (по умолчанию 20) коммитов от HEAD, каждый
+    `{hash, short, summary, author, time}` (`time` — unix seconds коммита);
+    без коммитов и вне репозитория `entries` пуст.
 - `GET /model/quota` — provider-neutral `ModelQuotaSnapshot` текущего model
   export или JSON `null`, если чтение квоты не поддержано. Требует обычной
   авторизации app-server. Ошибка lookup/validation возвращает HTTP 502 с

@@ -1,105 +1,52 @@
-//! Bounded, read-only Git views of the live session workspace.
+//! Bounded Git views and actions on the live session workspace.
+mod command;
+mod diff;
+mod history;
+mod status;
+mod write;
+
 use std::{
-    ffi::OsStr,
     fs,
-    io::Read,
     path::{Component, Path, PathBuf},
-    process::{Command, Stdio},
 };
 
-use anyhow::{Context, Result, bail, ensure};
-use serde::Serialize;
+use anyhow::{Result, bail, ensure};
 
-use super::{MAX_BYTES, MAX_ENTRIES};
+pub(crate) use diff::diff;
+pub(crate) use history::{branches, log};
+pub(crate) use status::changes;
+pub(crate) use write::{Selection, checkout, commit, discard, stage, unstage};
 
-#[derive(Serialize)]
-pub(crate) struct Changes {
-    repository: bool,
-    entries: Vec<Change>,
-    truncated: bool,
-}
-
-#[derive(Serialize)]
-struct Change {
-    path: String,
-    status: &'static str,
-}
-
-#[derive(Serialize)]
-pub(crate) struct Diff {
-    path: String,
-    kind: &'static str,
-    patch: Option<String>,
-}
-
-struct Output {
-    success: bool,
-    different: bool,
-    bytes: Vec<u8>,
-    truncated: bool,
-}
-
-fn git(root: &Path, args: &[&OsStr]) -> Result<Output> {
-    git_bounded(root, args, MAX_BYTES)
-}
-
-fn git_bounded(root: &Path, args: &[&OsStr], limit: usize) -> Result<Output> {
-    let mut command = Command::new("git");
-    command.current_dir(root).args([
-        "--no-pager",
-        "--literal-pathspecs",
-        "-c",
-        "core.fsmonitor=false",
-        "-c",
-        "status.renames=true",
-    ]);
-    // The session cwd, rather than the server's inherited Git environment, owns scope.
-    for name in [
-        "GIT_DIR",
-        "GIT_WORK_TREE",
-        "GIT_INDEX_FILE",
-        "GIT_COMMON_DIR",
-        "GIT_PREFIX",
-    ] {
-        command.env_remove(name);
-    }
-    let mut child = command
-        .env("GIT_OPTIONAL_LOCKS", "0")
-        .args(args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .context("cannot start Git")?;
-    let mut bytes = Vec::new();
-    let read = child
-        .stdout
-        .take()
-        .expect("piped stdout")
-        .take((limit + 1) as u64)
-        .read_to_end(&mut bytes);
-    let truncated = bytes.len() > limit;
-    if truncated || read.is_err() {
-        let _ = child.kill();
-    }
-    let status = child.wait()?;
-    read?;
-    bytes.truncate(limit);
-    Ok(Output {
-        success: status.success(),
-        different: status.code() == Some(1),
-        bytes,
-        truncated,
-    })
-}
-
-fn run(root: &Path, args: &[&str]) -> Result<Output> {
-    git(root, &args.iter().map(OsStr::new).collect::<Vec<_>>())
-}
+use command::{os, read, run};
 
 fn repository(root: &Path) -> Result<bool> {
     let result = run(root, &["rev-parse", "--is-inside-work-tree"])?;
     Ok(result.success && result.bytes == b"true\n")
+}
+
+fn require_repository(root: &Path) -> Result<()> {
+    ensure!(
+        repository(root)?,
+        "session workspace is not a Git repository"
+    );
+    Ok(())
+}
+
+fn has_head(root: &Path) -> Result<bool> {
+    Ok(run(root, &["rev-parse", "--verify", "--quiet", "HEAD"])?.success)
+}
+
+/// Location of the session cwd inside the repository, with a trailing `/`.
+fn prefix(root: &Path) -> Result<String> {
+    let prefix = run(root, &["rev-parse", "--show-prefix"])?;
+    ensure!(
+        prefix.success && !prefix.truncated,
+        "cannot resolve Git workspace prefix"
+    );
+    Ok(std::str::from_utf8(&prefix.bytes)?
+        .strip_suffix('\n')
+        .unwrap_or_default()
+        .to_owned())
 }
 
 /// Files of the workspace that Git does not ignore, relative to `root`:
@@ -109,124 +56,42 @@ pub(super) fn visible_files(root: &Path, limit: usize) -> Result<Option<(Vec<Str
     if !repository(root)? {
         return Ok(None);
     }
-    let args = [
-        "ls-files",
-        "-z",
-        "--cached",
-        "--others",
-        "--exclude-standard",
-        "--deduplicate",
-        "--",
-        ".",
-    ];
-    let output = git_bounded(
+    let output = read(
         root,
-        &args.iter().map(OsStr::new).collect::<Vec<_>>(),
+        &os(&[
+            "ls-files",
+            "-z",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+            "--deduplicate",
+            "--",
+            ".",
+        ]),
         limit,
     )?;
     ensure!(
         output.success || output.truncated,
         "cannot list workspace files"
     );
-    let complete = output
-        .bytes
-        .iter()
-        .rposition(|b| *b == 0)
-        .map_or(0, |i| i + 1);
-    let files = output.bytes[..complete]
-        .split(|b| *b == 0)
-        .filter(|s| !s.is_empty())
+    let files = complete_records(&output.bytes)
         .filter_map(|path| std::str::from_utf8(path).ok().map(str::to_owned))
         .collect();
     Ok(Some((files, output.truncated)))
 }
 
-pub(crate) fn changes(root: &Path) -> Result<Changes> {
-    let mut result = Changes {
-        repository: repository(root)?,
-        entries: Vec::new(),
-        truncated: false,
-    };
-    if !result.repository {
-        return Ok(result);
-    }
-    let prefix = run(root, &["rev-parse", "--show-prefix"])?;
-    ensure!(
-        prefix.success && !prefix.truncated,
-        "cannot resolve Git workspace prefix"
-    );
-    let prefix = std::str::from_utf8(&prefix.bytes)?
-        .strip_suffix('\n')
-        .unwrap_or_default();
-    let output = run(
-        root,
-        &[
-            "status",
-            "--porcelain=v1",
-            "-z",
-            "--untracked-files=all",
-            "--ignore-submodules=all",
-            "--",
-            ".",
-        ],
-    )?;
-    ensure!(
-        output.success || output.truncated,
-        "cannot read Git changes"
-    );
-    result.truncated = output.truncated;
-    // split_terminator alone would accept an incomplete final pathname at the cap.
-    let complete = output
-        .bytes
-        .iter()
-        .rposition(|b| *b == 0)
-        .map_or(0, |i| i + 1);
-    let mut records = output.bytes[..complete]
+/// NUL-terminated records; an incomplete final record cut at the cap is dropped.
+fn complete_records(bytes: &[u8]) -> impl Iterator<Item = &[u8]> {
+    let complete = bytes.iter().rposition(|b| *b == 0).map_or(0, |i| i + 1);
+    bytes[..complete]
         .split(|b| *b == 0)
-        .filter(|s| !s.is_empty());
-    while let Some(record) = records.next() {
-        ensure!(
-            record.len() >= 4 && record[2] == b' ',
-            "invalid Git status record"
-        );
-        let xy = &record[..2];
-        if (xy.contains(&b'R') || xy.contains(&b'C')) && records.next().is_none() {
-            ensure!(output.truncated, "incomplete Git rename record");
-            break;
-        }
-        let path = std::str::from_utf8(&record[3..]).context("Git path is not UTF-8")?;
-        let Some(path) = path.strip_prefix(prefix) else {
-            continue;
-        };
-        if result.entries.len() == MAX_ENTRIES {
-            result.truncated = true;
-            break;
-        }
-        let status = if xy.contains(&b'U') || xy == b"AA" || xy == b"DD" {
-            "conflict"
-        } else if xy == b"??" {
-            "untracked"
-        } else if xy.contains(&b'R') {
-            "renamed"
-        } else if xy.contains(&b'D') {
-            "deleted"
-        } else if xy.contains(&b'A') || xy.contains(&b'C') {
-            "added"
-        } else {
-            "modified"
-        };
-        result.entries.push(Change {
-            path: path.to_owned(),
-            status,
-        });
-    }
-    Ok(result)
+        .filter(|s| !s.is_empty())
 }
 
 // Deleted files have no canonical leaf. Check every existing ancestor and reject
 // lexical traversal before Git receives the original, literal workspace path.
 fn validate(root: &Path, relative: &str) -> Result<PathBuf> {
-    ensure!(!relative.is_empty(), "diff requires a file path");
+    ensure!(!relative.is_empty(), "a workspace path is required");
     let root = root.canonicalize()?;
     let mut path = root.clone();
     for part in Path::new(relative).components() {
@@ -244,96 +109,22 @@ fn validate(root: &Path, relative: &str) -> Result<PathBuf> {
             Err(error) => return Err(error.into()),
         }
     }
-    ensure!(path != root, "diff requires a file path");
+    ensure!(
+        path != root,
+        "a workspace path below the session root is required"
+    );
     Ok(path)
 }
 
-pub(crate) fn diff(root: &Path, relative: String) -> Result<Diff> {
-    let path = validate(root, &relative)?;
-    let mut result = Diff {
-        path: relative,
-        kind: "unavailable",
-        patch: None,
-    };
-    if !repository(root)? {
-        return Ok(result);
-    }
-    let metadata = match fs::metadata(&path) {
-        Ok(metadata) => {
-            if !metadata.is_file() {
-                return Ok(result);
-            }
-            if metadata.len() > MAX_BYTES as u64 {
-                result.kind = "too_large";
-                return Ok(result);
-            }
-            Some(metadata)
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-        Err(error) => return Err(error.into()),
-    };
-    let head = run(root, &["rev-parse", "--verify", "HEAD"])?;
-    let tracked = run(root, &["ls-files", "--error-unmatch", "--", &result.path])?.success;
-    let in_head = if head.success {
-        !run(
-            root,
-            &["ls-tree", "--name-only", "HEAD", "--", &result.path],
-        )?
-        .bytes
-        .is_empty()
-    } else {
-        false
-    };
-    let output = if head.success && (tracked || in_head) {
-        run(
-            root,
-            &[
-                "diff",
-                "--no-ext-diff",
-                "--no-textconv",
-                "--no-color",
-                "--no-renames",
-                "--relative",
-                "HEAD",
-                "--",
-                &result.path,
-            ],
-        )?
-    } else if metadata.is_some() {
-        #[cfg(unix)]
-        let null = "/dev/null";
-        #[cfg(windows)]
-        let null = "NUL";
-        run(
-            root,
-            &[
-                "diff",
-                "--no-index",
-                "--no-ext-diff",
-                "--no-textconv",
-                "--no-color",
-                "--",
-                null,
-                &format!("./{}", result.path),
-            ],
-        )?
-    } else {
-        return Ok(result);
-    };
-    if output.truncated {
-        result.kind = "too_large";
-        return Ok(result);
-    }
-    ensure!(output.success || output.different, "cannot read Git diff");
-    result.kind = "binary";
-    if let Ok(patch) = String::from_utf8(output.bytes)
-        && !patch.contains('\0')
-        && !patch
-            .lines()
-            .any(|line| line.starts_with("Binary files ") && line.ends_with(" differ"))
-    {
-        result.kind = "text";
-        result.patch = Some(patch);
-    }
-    Ok(result)
+/// A validated path in the normalized form passed to Git as a literal pathspec.
+fn pathspec(root: &Path, relative: &str) -> Result<String> {
+    validate(root, relative)?;
+    Ok(Path::new(relative)
+        .components()
+        .filter_map(|part| match part {
+            Component::Normal(name) => name.to_str(),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("/"))
 }

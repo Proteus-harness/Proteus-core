@@ -422,6 +422,9 @@ where
             .await;
             json_response(StatusCode::OK, &output)
         }
+        (Method::POST, path) if path.starts_with("/workspace/") => {
+            workspace::routes::post(&state, path, request).await
+        }
         (Method::POST, "/shutdown") => {
             let output =
                 execute_app_request(&state, StdioRequest::Shutdown { id: None }, None).await;

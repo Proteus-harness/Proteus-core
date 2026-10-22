@@ -150,7 +150,13 @@ fn workspace_git_subdirectory_scope_and_deleted_path_validation() {
     let sub = root.path().join("sub");
     assert_eq!(
         changes(&sub)["entries"],
-        json!([{"path":"inside", "status":"deleted"}])
+        json!([{
+            "path": "inside",
+            "original": null,
+            "status": "deleted",
+            "staged": null,
+            "unstaged": "deleted",
+        }])
     );
     let patch = diff(&sub, "inside")["patch"].as_str().unwrap().to_owned();
     assert!(patch.contains("-before\n") && !patch.contains("outside"));

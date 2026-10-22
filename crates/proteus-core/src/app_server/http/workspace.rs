@@ -1,5 +1,6 @@
-//! Read-only workspace browsing for clients; independent of agent tool execution.
+//! Workspace browsing and the Git panel actions of clients; independent of agent tool execution.
 pub(super) mod git;
+pub(super) mod routes;
 pub(super) mod search;
 
 use std::{
@@ -37,7 +38,13 @@ pub(super) struct WorkspaceFile {
 }
 
 pub(super) fn query_path(query: Option<&str>) -> Result<String> {
-    let mut path = None;
+    Ok(query_param(query, Some("path"))?.unwrap_or_default())
+}
+
+/// The single optional parameter `name` of a workspace query; any other key
+/// except addressing and auth is rejected.
+fn query_param(query: Option<&str>, name: Option<&str>) -> Result<Option<String>> {
+    let mut found = None;
     for pair in query
         .unwrap_or_default()
         .split('&')
@@ -45,14 +52,14 @@ pub(super) fn query_path(query: Option<&str>) -> Result<String> {
     {
         let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
         match key {
-            "path" if path.is_none() => {
-                path = Some(super::sessions::percent_decode_query_value(value)?)
-            }
             "session_dir" | "token" => {}
+            key if Some(key) == name && found.is_none() => {
+                found = Some(super::sessions::percent_decode_query_value(value)?)
+            }
             _ => bail!("unknown or duplicate workspace query parameter: {key}"),
         }
     }
-    Ok(path.unwrap_or_default())
+    Ok(found)
 }
 
 fn resolve(root: &Path, relative: &str) -> Result<PathBuf> {

@@ -47,41 +47,8 @@ async fn read(state: &HttpAppState, path: &str, query: Option<&str>) -> Result<H
         "/context" => json_response(StatusCode::OK, &context_map_json(state, query).await?),
         "/usage" => json_response(StatusCode::OK, &usage_json(state, query).await?),
         "/analysis" => json_response(StatusCode::OK, &super::analysis::read(state, query).await?),
-        "/workspace/search" => {
-            let server = server_for_query(state, query).await?;
-            let root = server.cwd_path().to_path_buf();
-            let text = super::workspace::search::query_text(query)?;
-            let value =
-                tokio::task::spawn_blocking(move || super::workspace::search::search(&root, text))
-                    .await??;
-            json_response(StatusCode::OK, &value)
-        }
-        "/workspace/list" | "/workspace/file" | "/workspace/changes" | "/workspace/diff" => {
-            let server = server_for_query(state, query).await?;
-            let root = server.cwd_path().to_path_buf();
-            let relative = super::workspace::query_path(query)?;
-            let endpoint = path.to_owned();
-            let value = tokio::task::spawn_blocking(move || -> Result<serde_json::Value> {
-                match endpoint.as_str() {
-                    "/workspace/list" => Ok(serde_json::to_value(super::workspace::list(
-                        &root, relative,
-                    )?)?),
-                    "/workspace/file" => Ok(serde_json::to_value(super::workspace::read(
-                        &root, relative,
-                    )?)?),
-                    "/workspace/changes" => {
-                        anyhow::ensure!(relative.is_empty(), "changes does not accept a path");
-                        Ok(serde_json::to_value(super::workspace::git::changes(
-                            &root,
-                        )?)?)
-                    }
-                    _ => Ok(serde_json::to_value(super::workspace::git::diff(
-                        &root, relative,
-                    )?)?),
-                }
-            })
-            .await??;
-            json_response(StatusCode::OK, &value)
+        path if path.starts_with("/workspace/") => {
+            super::workspace::routes::get(state, path, query).await?
         }
         "/events"
         | "/config"
