@@ -1,7 +1,7 @@
 use super::*;
 use std::{fs, path::Path, process::Command};
 
-use super::super::workspace::git::{self as workspace_git, Selection};
+use super::super::workspace::git::{self as workspace_git, CommitOptions, LogQuery, Selection};
 
 fn git(root: &Path, args: &[&str]) -> String {
     let output = Command::new("git")
@@ -41,6 +41,14 @@ fn entry(changes: &Value, path: &str) -> Value {
         .find(|entry| entry["path"] == path)
         .cloned()
         .unwrap_or_else(|| panic!("{path} missing in {changes}"))
+}
+
+fn log_query(limit: usize) -> LogQuery {
+    LogQuery {
+        limit,
+        skip: 0,
+        all: false,
+    }
 }
 
 fn paths(list: &[&str]) -> Selection {
@@ -237,22 +245,34 @@ fn workspace_git_commit_log_branches_and_checkout() {
     let root = root.path();
     init(root);
     fs::write(root.join("file.txt"), "one\n").unwrap();
-    let error = workspace_git::commit(root, "first", false).err().unwrap();
+    let error = workspace_git::commit(root, "first", CommitOptions::default())
+        .err()
+        .unwrap();
     assert_eq!(error.to_string(), "nothing is staged to commit");
-    assert!(workspace_git::commit(root, "  \n", false).is_err());
+    assert!(workspace_git::commit(root, "  \n", CommitOptions::default()).is_err());
     workspace_git::stage(root, paths(&["file.txt"])).unwrap();
-    let first = json(workspace_git::commit(root, "  first\n", false).unwrap());
+    let first = json(workspace_git::commit(root, "  first\n", CommitOptions::default()).unwrap());
     assert_eq!(first["commit"]["summary"], "first");
     assert_eq!(first["changes"]["entries"], json!([]));
     assert_eq!(first["changes"]["head"], first["commit"]);
-    let amended = json(workspace_git::commit(root, "first, amended", true).unwrap());
+    let amended = json(
+        workspace_git::commit(
+            root,
+            "first, amended",
+            CommitOptions {
+                amend: true,
+                ..CommitOptions::default()
+            },
+        )
+        .unwrap(),
+    );
     assert_eq!(amended["commit"]["summary"], "first, amended");
 
     git(root, &["switch", "-q", "-c", "topic"]);
     fs::write(root.join("file.txt"), "two\n").unwrap();
     commit_all(root, "second");
     git(root, &["branch", "-q", "-u", "main"]);
-    let log = json(workspace_git::log(root, 20).unwrap());
+    let log = json(workspace_git::log(root, log_query(20)).unwrap());
     let entries = log["entries"].as_array().unwrap();
     assert_eq!(entries.len(), 2);
     assert_eq!(entries[0]["summary"], "second");
@@ -261,14 +281,14 @@ fn workspace_git_commit_log_branches_and_checkout() {
     assert!(entries[0]["short"].as_str().unwrap().len() < 40);
     assert!(entries[0]["time"].as_i64().unwrap() > 0);
     assert_eq!(
-        json(workspace_git::log(root, 1).unwrap())["entries"]
+        json(workspace_git::log(root, log_query(1)).unwrap())["entries"]
             .as_array()
             .unwrap()
             .len(),
         1
     );
-    for limit in [0, 101] {
-        assert!(workspace_git::log(root, limit).is_err());
+    for limit in [0, 501] {
+        assert!(workspace_git::log(root, log_query(limit)).is_err());
     }
 
     let branches = json(workspace_git::branches(root).unwrap());
@@ -285,14 +305,17 @@ fn workspace_git_commit_log_branches_and_checkout() {
     assert_eq!(topic["upstream"], "main");
     assert!(topic["last_commit_time"].as_i64().unwrap() > 0);
 
-    let switched = json(workspace_git::checkout(root, "main").unwrap());
+    let switched = json(workspace_git::checkout(root, "main", false).unwrap());
     assert_eq!(switched["branch"], "main");
     assert_eq!(fs::read_to_string(root.join("file.txt")).unwrap(), "one\n");
     for branch in ["missing", "-f", ""] {
-        assert!(workspace_git::checkout(root, branch).is_err(), "{branch}");
+        assert!(
+            workspace_git::checkout(root, branch, false).is_err(),
+            "{branch}"
+        );
     }
     fs::write(root.join("file.txt"), "dirty\n").unwrap();
-    let error = workspace_git::checkout(root, "topic")
+    let error = workspace_git::checkout(root, "topic", false)
         .err()
         .unwrap()
         .to_string();

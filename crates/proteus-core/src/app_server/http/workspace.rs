@@ -1,5 +1,7 @@
 //! Workspace browsing and the Git panel actions of clients; independent of agent tool execution.
+pub(super) mod files;
 pub(super) mod git;
+mod requests;
 pub(super) mod routes;
 pub(super) mod search;
 
@@ -44,17 +46,30 @@ pub(super) fn query_path(query: Option<&str>) -> Result<String> {
 /// The single optional parameter `name` of a workspace query; any other key
 /// except addressing and auth is rejected.
 fn query_param(query: Option<&str>, name: Option<&str>) -> Result<Option<String>> {
-    let mut found = None;
+    match name {
+        Some(name) => Ok(query_params(query, [name])?.into_iter().next().flatten()),
+        None => query_params(query, []).map(|_| None),
+    }
+}
+
+/// Optional parameters `names` of a workspace query, each at most once.
+fn query_params<const N: usize>(
+    query: Option<&str>,
+    names: [&str; N],
+) -> Result<[Option<String>; N]> {
+    let mut found = [const { None }; N];
     for pair in query
         .unwrap_or_default()
         .split('&')
         .filter(|s| !s.is_empty())
     {
         let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
-        match key {
-            "session_dir" | "token" => {}
-            key if Some(key) == name && found.is_none() => {
-                found = Some(super::sessions::percent_decode_query_value(value)?)
+        if matches!(key, "session_dir" | "token") {
+            continue;
+        }
+        match names.iter().position(|name| *name == key) {
+            Some(index) if found[index].is_none() => {
+                found[index] = Some(super::sessions::percent_decode_query_value(value)?)
             }
             _ => bail!("unknown or duplicate workspace query parameter: {key}"),
         }

@@ -283,5 +283,9 @@ mod turns;
 
 mod workspace;
 
+mod workspace_files;
+mod workspace_fixture;
 mod workspace_git;
+mod workspace_git_history;
+mod workspace_git_sync;
 mod workspace_git_write;

@@ -1,10 +1,10 @@
 //! HTTP endpoints `/workspace/*` of an explicitly addressed live session.
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::{Context, Result};
 use bytes::Bytes;
 use hyper::{Request, StatusCode, body::Body};
-use serde::{Deserialize, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 
 use super::{
     super::{
@@ -13,36 +13,13 @@ use super::{
         sessions::{server_for_query, server_for_session},
         state::HttpAppState,
     },
-    git, query_param, query_path, search,
+    files, git, query_param, query_params, query_path,
+    requests::{
+        Addressed, CheckoutRequest, CommitRequest, CreateRequest, DeleteRequest, IgnoreRequest,
+        PathsRequest, PullRequest, PushRequest, RenameRequest, SessionRequest, StashRequest,
+    },
+    search,
 };
-
-const DEFAULT_LOG_ENTRIES: usize = 20;
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct PathsRequest {
-    session_dir: PathBuf,
-    #[serde(default)]
-    paths: Vec<String>,
-    #[serde(default)]
-    all: bool,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct CommitRequest {
-    session_dir: PathBuf,
-    message: String,
-    #[serde(default)]
-    amend: bool,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct CheckoutRequest {
-    session_dir: PathBuf,
-    branch: String,
-}
 
 pub(crate) async fn get(
     state: &HttpAppState,
@@ -88,12 +65,26 @@ pub(crate) async fn get(
             }
         }
         "/workspace/log" => {
-            let limit = match query_param(query, Some("limit"))? {
-                Some(limit) => limit.parse().context("log limit must be an integer")?,
-                None => DEFAULT_LOG_ENTRIES,
-            };
+            let log = log_query(query)?;
             in_session_root(server_for_query(state, query).await?, move |root| {
-                git::log(root, limit)
+                git::log(root, log)
+            })
+            .await?
+        }
+        "/workspace/commit" => {
+            let [hash] = query_params(query, ["hash"])?;
+            let hash = hash.context("hash is required")?;
+            in_session_root(server_for_query(state, query).await?, move |root| {
+                git::commit_details(root, &hash)
+            })
+            .await?
+        }
+        "/workspace/commit/diff" => {
+            let [hash, path] = query_params(query, ["hash", "path"])?;
+            let hash = hash.context("hash is required")?;
+            let path = path.context("path is required")?;
+            in_session_root(server_for_query(state, query).await?, move |root| {
+                git::commit_diff(root, &hash, path)
             })
             .await?
         }
@@ -107,6 +98,25 @@ pub(crate) async fn get(
     Ok(json_response(StatusCode::OK, &value))
 }
 
+fn log_query(query: Option<&str>) -> Result<git::LogQuery> {
+    let [limit, skip, all] = query_params(query, ["limit", "skip", "all"])?;
+    Ok(git::LogQuery {
+        limit: match limit {
+            Some(limit) => limit.parse().context("log limit must be an integer")?,
+            None => git::DEFAULT_LOG_ENTRIES,
+        },
+        skip: match skip {
+            Some(skip) => skip.parse().context("log skip must be an integer")?,
+            None => 0,
+        },
+        all: match all.as_deref() {
+            None | Some("false") => false,
+            Some("true") => true,
+            Some(_) => anyhow::bail!("log all must be true or false"),
+        },
+    })
+}
+
 pub(crate) async fn post<B>(state: &HttpAppState, path: &str, request: Request<B>) -> HttpResponse
 where
     B: Body<Data = Bytes> + Send + 'static,
@@ -114,10 +124,89 @@ where
 {
     let result = match path {
         "/workspace/stage" | "/workspace/unstage" | "/workspace/discard" => {
-            paths_action(state, path, request).await
+            let action = match path {
+                "/workspace/stage" => git::stage,
+                "/workspace/unstage" => git::unstage,
+                _ => git::discard,
+            };
+            act(state, request, move |root, body: PathsRequest| {
+                action(root, git::Selection::new(body.paths, body.all)?)
+            })
+            .await
         }
-        "/workspace/commit" => commit(state, request).await,
-        "/workspace/checkout" => checkout(state, request).await,
+        "/workspace/commit" => {
+            act(state, request, |root, body: CommitRequest| {
+                let options = git::CommitOptions {
+                    amend: body.amend,
+                    signoff: body.signoff,
+                    no_verify: body.no_verify,
+                    all_tracked: body.all_tracked,
+                };
+                git::commit(root, &body.message, options)
+            })
+            .await
+        }
+        "/workspace/checkout" => {
+            act(state, request, |root, body: CheckoutRequest| {
+                git::checkout(root, &body.branch, body.create)
+            })
+            .await
+        }
+        "/workspace/fetch" => act(state, request, |root, _: SessionRequest| git::fetch(root)).await,
+        "/workspace/pull" => {
+            act(state, request, |root, body: PullRequest| {
+                git::pull(root, body.rebase)
+            })
+            .await
+        }
+        "/workspace/push" => {
+            act(state, request, |root, body: PushRequest| {
+                git::push(root, body.force, body.set_upstream)
+            })
+            .await
+        }
+        "/workspace/uncommit" => {
+            act(state, request, |root, _: SessionRequest| {
+                git::uncommit(root)
+            })
+            .await
+        }
+        "/workspace/stash" => {
+            act(state, request, |root, body: StashRequest| {
+                git::stash(root, body.message.as_deref(), body.staged_only)
+            })
+            .await
+        }
+        "/workspace/stash/pop" => {
+            act(state, request, |root, _: SessionRequest| {
+                git::stash_pop(root)
+            })
+            .await
+        }
+        "/workspace/ignore" => {
+            act(state, request, |root, body: IgnoreRequest| {
+                git::ignore(root, &body.paths, body.target)
+            })
+            .await
+        }
+        "/workspace/create" => {
+            act(state, request, |root, body: CreateRequest| {
+                files::create(root, &body.path, body.kind)
+            })
+            .await
+        }
+        "/workspace/rename" => {
+            act(state, request, |root, body: RenameRequest| {
+                files::rename(root, &body.from, &body.to)
+            })
+            .await
+        }
+        "/workspace/delete" => {
+            act(state, request, |root, body: DeleteRequest| {
+                files::delete(root, &body.paths)
+            })
+            .await
+        }
         _ => return error_response(StatusCode::NOT_FOUND, "unknown app-server HTTP endpoint"),
     };
     match result {
@@ -126,47 +215,22 @@ where
     }
 }
 
-async fn paths_action<B>(
+/// Parses a strict body, resolves its live session and runs `work` in its cwd.
+async fn act<R, T, B, F>(
     state: &HttpAppState,
-    path: &str,
     request: Request<B>,
+    work: F,
 ) -> Result<serde_json::Value>
 where
+    R: DeserializeOwned + Addressed + Send + 'static,
+    T: Serialize,
     B: Body<Data = Bytes> + Send + 'static,
     B::Error: std::error::Error + Send + Sync + 'static,
+    F: FnOnce(&Path, R) -> Result<T> + Send + 'static,
 {
-    let command = read_json::<PathsRequest, _>(request).await?;
-    let selection = git::Selection::new(command.paths, command.all)?;
-    let server = server_for_session(state, command.session_dir).await?;
-    let action = match path {
-        "/workspace/stage" => git::stage,
-        "/workspace/unstage" => git::unstage,
-        _ => git::discard,
-    };
-    in_session_root(server, move |root| action(root, selection)).await
-}
-
-async fn commit<B>(state: &HttpAppState, request: Request<B>) -> Result<serde_json::Value>
-where
-    B: Body<Data = Bytes> + Send + 'static,
-    B::Error: std::error::Error + Send + Sync + 'static,
-{
-    let command = read_json::<CommitRequest, _>(request).await?;
-    let server = server_for_session(state, command.session_dir).await?;
-    in_session_root(server, move |root| {
-        git::commit(root, &command.message, command.amend)
-    })
-    .await
-}
-
-async fn checkout<B>(state: &HttpAppState, request: Request<B>) -> Result<serde_json::Value>
-where
-    B: Body<Data = Bytes> + Send + 'static,
-    B::Error: std::error::Error + Send + Sync + 'static,
-{
-    let command = read_json::<CheckoutRequest, _>(request).await?;
-    let server = server_for_session(state, command.session_dir).await?;
-    in_session_root(server, move |root| git::checkout(root, &command.branch)).await
+    let body = read_json::<R, _>(request).await?;
+    let server = server_for_session(state, body.session_dir()).await?;
+    in_session_root(server, move |root| work(root, body)).await
 }
 
 /// Runs blocking filesystem/Git work against the live session cwd.

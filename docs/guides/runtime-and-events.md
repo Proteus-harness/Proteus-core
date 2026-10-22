@@ -823,23 +823,30 @@ store; stdio остаётся привязанным к одной session пр�
   `GIT_EDITOR=true`, `GIT_TERMINAL_PROMPT=0` и непереведёнными сообщениями
   (`LANGUAGE=C`). Stdout ограничен 512 КиБ, stderr — 4 КиБ. Ошибка Git
   возвращается как HTTP 400 с обрезанным stderr в `error`. Hooks не
-  отключаются. Запросы адресуют только cwd сессии; область репозитория
-  выше cwd не показывается, но `commit`, `log` и ветки относятся ко всему
-  репозиторию.
+  отключаются (кроме явного `no_verify` у commit). Запросы адресуют только
+  cwd сессии; область репозитория выше cwd не показывается, но коммиты,
+  история, ветки и синхронизация с remote относятся ко всему репозиторию.
   - `GET /workspace/changes?session_dir=<path>` — `{repository, branch,
-    head, upstream, ahead, behind, entries, truncated}`. `branch` — имя
-    текущей ветки или `null` при detached HEAD и вне репозитория; `head` —
-    `{short, summary}` или `null` без коммитов; `upstream` — upstream ветки
-    или `null`; `ahead`/`behind` — 0 без upstream. Каждая запись:
-    `{path, original, status, staged, unstaged}`; `path` относительно cwd,
-    `original` — источник staged rename внутри cwd или `null`. `staged`
-    (индекс против HEAD) и `unstaged` (рабочее дерево против индекса) —
-    `null | added | modified | deleted | renamed | untracked | conflict`:
-    неотслеживаемый файл даёт `staged: null, unstaged: "untracked"`, конфликт —
-    `conflict` с обеих сторон. `status` сводит обе стороны в одно значение
-    с приоритетом `conflict`, `untracked`, `renamed`, `deleted`, `added`,
-    `modified`. Источник — `git status --porcelain=v2 --branch -z
-    --untracked-files=all --ignore-submodules=all`; максимум 1000 записей.
+    head, upstream, ahead, behind, added, deleted, entries, truncated}`.
+    `branch` — имя текущей ветки или `null` при detached HEAD и вне
+    репозитория; `head` — `{short, summary}` или `null` без коммитов;
+    `upstream` — upstream ветки или `null`; `ahead`/`behind` — 0 без upstream.
+    Каждая запись: `{path, original, status, staged, unstaged, added,
+    deleted}`; `path` относительно cwd, `original` — источник staged rename
+    внутри cwd или `null`. `staged` (индекс против HEAD) и `unstaged` (рабочее
+    дерево против индекса) — `null | added | modified | deleted | renamed |
+    untracked | conflict`: неотслеживаемый файл даёт `staged: null, unstaged:
+    "untracked"`, конфликт — `conflict` с обеих сторон. `status` сводит обе
+    стороны в одно значение с приоритетом `conflict`, `untracked`, `renamed`,
+    `deleted`, `added`, `modified`. Источник — `git status --porcelain=v2
+    --branch -z --untracked-files=all --ignore-submodules=all`; максимум 1000
+    записей. `added`/`deleted` записи — число добавленных/удалённых строк
+    рабочего дерева против HEAD (staged и unstaged вместе; без коммитов —
+    против пустого дерева) по одному `git diff --numstat -M HEAD`;
+    у неотслеживаемого текстового файла все строки считаются добавленными
+    (файл до 512 КиБ, суммарно до 4 МиБ на снимок). Бинарный или
+    непосчитанный файл даёт `null`. Верхние `added`/`deleted` — суммы
+    непустых значений записей.
   - `GET /workspace/diff?session_dir=<path>&path=<relative>` — `{path, kind,
     patch}`: рабочее дерево против HEAD (без коммитов и для неотслеживаемых —
     против пустого файла), `kind: text | binary | too_large | unavailable`,
@@ -856,22 +863,96 @@ store; stdio остаётся привязанным к одной session пр�
     игнорируемые файлы, вложенные репозитории и цели ссылок не трогаются.
     `unstage`/`discard` отказываются работать по усечённому списку изменений.
     Ответ — свежий снимок как у `GET /workspace/changes`.
-  - `POST /workspace/commit` с body `{session_dir, message, amend?: bool}` —
-    `git commit -m` (с `--amend` при `amend: true`) по содержимому индекса.
-    Пустое после trim сообщение и коммит без staged изменений (не amend)
-    отклоняются (`nothing is staged to commit`). Ответ:
+  - `POST /workspace/commit` с body `{session_dir, message, amend?: bool,
+    signoff?: bool, no_verify?: bool, all_tracked?: bool}` — `git commit -m`
+    по содержимому индекса; `amend` добавляет `--amend`, `signoff` —
+    `--signoff`, `no_verify` — `--no-verify` (hooks `pre-commit`/`commit-msg`
+    пропускаются). `all_tracked` сначала индексирует все изменения
+    отслеживаемых файлов под cwd (`git add -u -- .`); при отказе коммита
+    индекс остаётся таким. Пустое после trim сообщение и коммит без staged
+    изменений (не amend) отклоняются (`nothing is staged to commit`). Ответ:
     `{commit: {short, summary}, changes: <как GET /workspace/changes>}`.
+  - `POST /workspace/uncommit` с body `{session_dir}` — `git reset --soft
+    HEAD~1`: изменения последнего коммита возвращаются в индекс. Без
+    родителя у HEAD — HTTP 400. Ответ — снимок `changes`.
   - `GET /workspace/branches?session_dir=<path>` — `{current, branches,
     truncated}`: `current` — текущая локальная ветка или `null`, `branches` —
-    до 1000 локальных веток `{name, upstream, last_commit_time}` (unix seconds)
-    от недавних коммитов к старым.
-  - `POST /workspace/checkout` с body `{session_dir, branch}` — `git switch`
-    на существующую локальную ветку; неизвестная ветка или отказ Git из-за
-    локальных изменений — HTTP 400. Ответ — снимок `changes`.
-  - `GET /workspace/log?session_dir=<path>&limit=<1..100>` — `{entries}`:
-    последние `limit` (по умолчанию 20) коммитов от HEAD, каждый
-    `{hash, short, summary, author, time}` (`time` — unix seconds коммита);
-    без коммитов и вне репозитория `entries` пуст.
+    до 1000 локальных веток `{name, upstream, last_commit_time,
+    last_commit_summary, author}` (время — unix seconds, `author` — автор
+    последнего коммита) от недавних коммитов к старым; один `for-each-ref`.
+  - `POST /workspace/checkout` с body `{session_dir, branch, create?: bool}` —
+    `git switch` на существующую локальную ветку; с `create: true` — новая
+    ветка от HEAD (`git switch -c`), уже существующая ветка или имя, не
+    прошедшее `git check-ref-format --branch`, отклоняются. Неизвестная
+    ветка или отказ Git из-за локальных изменений — HTTP 400. Ответ — снимок
+    `changes`.
+  - `GET /workspace/log?session_dir=<path>&limit=<1..500>&skip=<n>&all=<true|false>`
+    — `{head, entries, has_more}`: `head` — полный hash HEAD или `null`;
+    `entries` — до `limit` (по умолчанию 50) коммитов после пропуска `skip`
+    (по умолчанию 0), каждый `{hash, short, parents, summary, author, email,
+    time, refs}`: `parents` — полные hash родителей по порядку, `time` —
+    unix seconds коммита, `refs` — `[{name, kind}]` с `kind: head | branch |
+    remote | tag` (`HEAD` идёт как `{name: "HEAD", kind: "head"}`, имена без
+    префиксов `refs/heads/`, `refs/remotes/`, `refs/tags/`). По умолчанию
+    обходится история HEAD; `all=true` добавляет все локальные и удалённые
+    ветки и теги в порядке `--date-order` (родители после потомков) для
+    графа коммитов. `has_more` сообщает, что за страницей есть ещё коммиты;
+    следующая страница — `skip + entries.length`. Без коммитов и вне
+    репозитория `entries` пуст.
+  - `GET /workspace/commit?session_dir=<path>&hash=<hex>` — `{hash, short,
+    summary, body, author, email, time, parents, prefix, files,
+    files_truncated, patch, truncated}`: `hash` — 4–64 шестнадцатеричных
+    символа (сокращение должно быть однозначным), иначе HTTP 400. Diff
+    строится против первого родителя (корневой коммит — против пустого
+    дерева), с поиском rename. Пути `files` и `patch` относятся к корню
+    репозитория, а не к cwd; `prefix` — положение cwd в репозитории (`""`
+    или `sub/`). `files` — до 1000 записей `{path, original, status, added,
+    deleted}`, `status: added | modified | deleted | renamed`, `original` —
+    источник rename или `null`, бинарные файлы дают `added`/`deleted: null`.
+    `patch` — unified diff не более 512 КиБ, обрезанный по границе строки с
+    `truncated: true`.
+  - `GET /workspace/commit/diff?session_dir=<path>&hash=<hex>&path=<repo-relative>`
+    — `{path, kind, patch}` как у `/workspace/diff` для одного файла
+    коммита (против первого родителя); `path` относительно корня репозитория,
+    без `..`. Файл, не изменённый в коммите, даёт `kind: "unavailable"`.
+  - `POST /workspace/fetch` `{session_dir}`, `/workspace/pull`
+    `{session_dir, rebase?: bool}` и `/workspace/push` `{session_dir,
+    force?: bool, set_upstream?: bool}` — сетевой обмен с remote. `fetch` —
+    `git fetch`; `pull` — `git pull --no-edit`, с `--rebase` при
+    `rebase: true`, `--no-rebase` при `false` и по настройке репозитория
+    без поля. `push` — `git push` текущей ветки, `force` добавляет
+    `--force-with-lease`; `set_upstream` для ветки без upstream публикует её
+    `git push --set-upstream <remote> HEAD`, где remote — `remote.pushDefault`,
+    иначе `origin`, иначе единственный remote. Git не задаёт вопросов
+    (`GIT_TERMINAL_PROMPT=0`); если ни `GIT_SSH_COMMAND`/`GIT_SSH`, ни
+    `core.sshCommand` не заданы, используется `ssh -o BatchMode=yes`.
+    Остальное окружение сервера (включая `SSH_AUTH_SOCK`) сохраняется.
+    Процесс прерывается через 120 с. Ошибка — HTTP 400 со stderr Git.
+    Ответ — снимок `changes` (с обновлёнными `ahead`/`behind`).
+  - `POST /workspace/stash` с body `{session_dir, message?: string,
+    staged_only?: bool}` — `git stash push -- .` для изменений под cwd:
+    по умолчанию с неотслеживаемыми файлами (`--include-untracked`), при
+    `staged_only: true` — только индекс (`--staged`). Если stash не создан —
+    HTTP 400 `no local changes to stash`. `POST /workspace/stash/pop`
+    `{session_dir}` — `git stash pop`; без stash или при конфликте —
+    HTTP 400. Ответ обоих — снимок `changes`.
+  - `POST /workspace/ignore` с body `{session_dir, paths: [<relative>],
+    target: "gitignore" | "exclude"}` — дописывает для каждого пути
+    шаблон `/<путь от корня репозитория>` (с экранированием `*?[\` и
+    конечного пробела) в `.gitignore` корня рабочего дерева или в
+    `.git/info/exclude` (`git rev-parse --git-path info/exclude`). Уже
+    присутствующие строки не дублируются. Ответ — снимок `changes`.
+- Файловые операции панели проекта (без Git): `POST /workspace/create`
+  `{session_dir, path, kind: "file" | "directory"}` создаёт пустой файл или
+  каталог вместе с недостающими родителями; существующий путь — HTTP 400.
+  `POST /workspace/rename` `{session_dir, from, to}` перемещает элемент,
+  существующий `to` не заменяется, каталог нельзя переместить в себя.
+  `POST /workspace/delete` `{session_dir, paths: [<relative>]}` удаляет
+  файлы, ссылки и каталоги рекурсивно; все пути проверяются до удаления,
+  несуществующий путь — HTTP 400. Пути относительны cwd сессии: корень,
+  `..`, абсолютные пути и выход через ссылку в родительском каталоге
+  отклоняются; сама конечная ссылка удаляется или переименовывается как
+  ссылка, без перехода по ней. Ответ — `{ok: true}`.
 - `GET /model/quota` — provider-neutral `ModelQuotaSnapshot` текущего model
   export или JSON `null`, если чтение квоты не поддержано. Требует обычной
   авторизации app-server. Ошибка lookup/validation возвращает HTTP 502 с

@@ -2,6 +2,12 @@
 mod command;
 mod diff;
 mod history;
+mod ignore;
+mod log;
+mod remote;
+mod show;
+mod stash;
+mod stats;
 mod status;
 mod write;
 
@@ -13,9 +19,14 @@ use std::{
 use anyhow::{Result, bail, ensure};
 
 pub(crate) use diff::diff;
-pub(crate) use history::{branches, log};
+pub(crate) use history::branches;
+pub(crate) use ignore::{IgnoreTarget, ignore};
+pub(crate) use log::{DEFAULT_LOG_ENTRIES, LogQuery, log};
+pub(crate) use remote::{fetch, pull, push};
+pub(crate) use show::{commit_details, commit_diff};
+pub(crate) use stash::{stash, stash_pop, uncommit};
 pub(crate) use status::changes;
-pub(crate) use write::{Selection, checkout, commit, discard, stage, unstage};
+pub(crate) use write::{CommitOptions, Selection, checkout, commit, discard, stage, unstage};
 
 use command::{os, read, run};
 
@@ -34,6 +45,20 @@ fn require_repository(root: &Path) -> Result<()> {
 
 fn has_head(root: &Path) -> Result<bool> {
     Ok(run(root, &["rev-parse", "--verify", "--quiet", "HEAD"])?.success)
+}
+
+/// Absolute root of the working tree that contains the session cwd.
+fn toplevel(root: &Path) -> Result<PathBuf> {
+    let output = run(root, &["rev-parse", "--show-toplevel"])?.checked("rev-parse")?;
+    Ok(PathBuf::from(
+        String::from_utf8(output.bytes)?.trim_end_matches('\n'),
+    ))
+}
+
+/// The empty tree in the repository's object format: the base of a root commit.
+fn empty_tree(root: &Path) -> Result<String> {
+    let output = run(root, &["hash-object", "-t", "tree", "--stdin"])?.checked("hash-object")?;
+    Ok(String::from_utf8(output.bytes)?.trim().to_owned())
 }
 
 /// Location of the session cwd inside the repository, with a trailing `/`.
@@ -90,7 +115,7 @@ fn complete_records(bytes: &[u8]) -> impl Iterator<Item = &[u8]> {
 
 // Deleted files have no canonical leaf. Check every existing ancestor and reject
 // lexical traversal before Git receives the original, literal workspace path.
-fn validate(root: &Path, relative: &str) -> Result<PathBuf> {
+pub(super) fn validate(root: &Path, relative: &str) -> Result<PathBuf> {
     ensure!(!relative.is_empty(), "a workspace path is required");
     let root = root.canonicalize()?;
     let mut path = root.clone();

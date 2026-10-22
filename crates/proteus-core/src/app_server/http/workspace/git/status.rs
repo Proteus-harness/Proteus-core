@@ -8,7 +8,7 @@ use super::{
     command::{os, read},
     complete_records,
     history::{CommitSummary, head_commit},
-    prefix, repository,
+    prefix, repository, stats,
 };
 
 #[derive(Serialize)]
@@ -19,6 +19,8 @@ pub(crate) struct Changes {
     upstream: Option<String>,
     ahead: u64,
     behind: u64,
+    added: u64,
+    deleted: u64,
     entries: Vec<Change>,
     truncated: bool,
 }
@@ -30,6 +32,8 @@ pub(super) struct Change {
     pub(super) status: &'static str,
     pub(super) staged: Option<&'static str>,
     pub(super) unstaged: Option<&'static str>,
+    pub(super) added: Option<u64>,
+    pub(super) deleted: Option<u64>,
 }
 
 impl Change {
@@ -61,11 +65,14 @@ pub(crate) fn changes(root: &Path) -> Result<Changes> {
             upstream: None,
             ahead: 0,
             behind: 0,
+            added: 0,
+            deleted: 0,
             entries: Vec::new(),
             truncated: false,
         });
     }
-    let scan = scan(root, &[".".to_owned()])?;
+    let mut scan = scan(root, &[".".to_owned()])?;
+    stats::annotate(root, &mut scan.entries)?;
     Ok(Changes {
         repository: true,
         head: if scan.head_oid {
@@ -77,6 +84,8 @@ pub(crate) fn changes(root: &Path) -> Result<Changes> {
         upstream: scan.upstream,
         ahead: scan.ahead,
         behind: scan.behind,
+        added: scan.entries.iter().filter_map(|entry| entry.added).sum(),
+        deleted: scan.entries.iter().filter_map(|entry| entry.deleted).sum(),
         entries: scan.entries,
         truncated: scan.truncated,
     })
@@ -161,6 +170,8 @@ pub(super) fn scan(root: &Path, pathspecs: &[String]) -> Result<Scan> {
             status: combined(staged, unstaged),
             staged,
             unstaged,
+            added: None,
+            deleted: None,
         });
     }
     Ok(scan)

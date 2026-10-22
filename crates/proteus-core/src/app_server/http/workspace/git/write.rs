@@ -41,6 +41,15 @@ impl Selection {
     }
 }
 
+#[derive(Default)]
+pub(crate) struct CommitOptions {
+    pub(crate) amend: bool,
+    pub(crate) signoff: bool,
+    pub(crate) no_verify: bool,
+    /// Stage every tracked change under the session cwd first.
+    pub(crate) all_tracked: bool,
+}
+
 #[derive(Serialize)]
 pub(crate) struct Committed {
     commit: CommitSummary,
@@ -94,11 +103,14 @@ pub(crate) fn discard(root: &Path, selection: Selection) -> Result<Changes> {
     changes(root)
 }
 
-pub(crate) fn commit(root: &Path, message: &str, amend: bool) -> Result<Committed> {
+pub(crate) fn commit(root: &Path, message: &str, options: CommitOptions) -> Result<Committed> {
     let message = message.trim();
     ensure!(!message.is_empty(), "commit message must not be empty");
     require_repository(root)?;
-    if !amend {
+    if options.all_tracked {
+        git(root, &["add", "-u", "--"], &[".".to_owned()], "add")?;
+    }
+    if !options.amend {
         let staged = run(root, &["diff", "--cached", "--quiet"])?;
         ensure!(!staged.success, "nothing is staged to commit");
         if !staged.different {
@@ -106,8 +118,14 @@ pub(crate) fn commit(root: &Path, message: &str, amend: bool) -> Result<Committe
         }
     }
     let mut args = vec!["commit", "-q", "-m", message];
-    if amend {
-        args.push("--amend");
+    for (enabled, flag) in [
+        (options.amend, "--amend"),
+        (options.signoff, "--signoff"),
+        (options.no_verify, "--no-verify"),
+    ] {
+        if enabled {
+            args.push(flag);
+        }
     }
     write(root, &os(&args))?.checked("commit")?;
     Ok(Committed {
@@ -116,16 +134,25 @@ pub(crate) fn commit(root: &Path, message: &str, amend: bool) -> Result<Committe
     })
 }
 
-pub(crate) fn checkout(root: &Path, branch: &str) -> Result<Changes> {
+/// Switches to a local branch; `create` makes it from HEAD first.
+pub(crate) fn checkout(root: &Path, branch: &str, create: bool) -> Result<Changes> {
     ensure!(
         !branch.is_empty() && !branch.starts_with('-'),
         "branch must name a local branch"
     );
     require_repository(root)?;
     let reference = format!("refs/heads/{branch}");
-    let exists = run(root, &["rev-parse", "--verify", "--quiet", &reference])?;
-    ensure!(exists.success, "unknown local branch: {branch}");
-    write(root, &os(&["switch", "-q", "--no-guess", "--", branch]))?.checked("switch")?;
+    let exists = run(root, &["rev-parse", "--verify", "--quiet", &reference])?.success;
+    if create {
+        ensure!(!exists, "local branch already exists: {branch}");
+        run(root, &["check-ref-format", "--branch", branch])?
+            .checked("check-ref-format")
+            .map_err(|_| anyhow::anyhow!("invalid branch name: {branch}"))?;
+        write(root, &os(&["switch", "-q", "-c", branch]))?.checked("switch")?;
+    } else {
+        ensure!(exists, "unknown local branch: {branch}");
+        write(root, &os(&["switch", "-q", "--no-guess", "--", branch]))?.checked("switch")?;
+    }
     changes(root)
 }
 

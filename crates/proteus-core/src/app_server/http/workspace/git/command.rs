@@ -5,6 +5,7 @@ use std::{
     path::Path,
     process::{Child, Command, Stdio},
     thread,
+    time::{Duration, Instant},
 };
 
 use anyhow::{Context, Result, bail};
@@ -13,6 +14,8 @@ use super::super::MAX_BYTES;
 
 const MAX_STDERR_BYTES: usize = 4 * 1024;
 const MAX_ERROR_CHARS: usize = 2000;
+const REMOTE_TIMEOUT: Duration = Duration::from_secs(120);
+const BATCH_SSH: &str = "ssh -o BatchMode=yes";
 
 pub(super) struct Output {
     pub(super) success: bool,
@@ -36,6 +39,15 @@ impl Output {
             .map(|text| text.chars().take(MAX_ERROR_CHARS).collect::<String>())
             .unwrap_or_else(|| format!("git {action} failed"));
         bail!("{message}")
+    }
+
+    /// Like [`Self::checked`], but output cut at the cap is accepted as partial.
+    pub(super) fn checked_or_truncated(self, action: &str) -> Result<Self> {
+        if self.truncated {
+            Ok(self)
+        } else {
+            self.checked(action)
+        }
     }
 }
 
@@ -81,6 +93,53 @@ pub(super) fn read(root: &Path, args: &[&OsStr], limit: usize) -> Result<Output>
 /// Mutating invocation: Git always runs to completion; excess stdout is drained.
 pub(super) fn write(root: &Path, args: &[&OsStr]) -> Result<Output> {
     collect(command(root).args(args), MAX_BYTES, false)
+}
+
+/// Network invocation (fetch/pull/push): never prompts and is killed after
+/// [`REMOTE_TIMEOUT`]. A user's own SSH command configuration is kept.
+pub(super) fn remote(root: &Path, args: &[&str]) -> Result<Output> {
+    let mut command = command(root);
+    let configured = std::env::var_os("GIT_SSH_COMMAND").is_some()
+        || std::env::var_os("GIT_SSH").is_some()
+        || run(root, &["config", "--get", "core.sshCommand"])?.success;
+    if !configured {
+        command.env("GIT_SSH_COMMAND", BATCH_SSH);
+    }
+    command.args(args);
+    let mut child = command.spawn().context("cannot start Git")?;
+    let errors = drain_stderr(&mut child);
+    let mut stdout = child.stdout.take().expect("piped stdout");
+    let output = thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let _ = (&mut stdout)
+            .take((MAX_BYTES + 1) as u64)
+            .read_to_end(&mut bytes);
+        let _ = io::copy(&mut stdout, &mut io::sink());
+        bytes
+    });
+    let deadline = Instant::now() + REMOTE_TIMEOUT;
+    let status = loop {
+        if let Some(status) = child.try_wait()? {
+            break status;
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            // Readers are left to finish with any helper still holding the pipes.
+            bail!("git timed out after {} s", REMOTE_TIMEOUT.as_secs());
+        }
+        thread::sleep(Duration::from_millis(50));
+    };
+    let mut bytes = output.join().unwrap_or_default();
+    let truncated = bytes.len() > MAX_BYTES;
+    bytes.truncate(MAX_BYTES);
+    Ok(Output {
+        success: status.success(),
+        different: status.code() == Some(1),
+        bytes,
+        truncated,
+        stderr: errors.join().unwrap_or_default(),
+    })
 }
 
 pub(super) fn run(root: &Path, args: &[&str]) -> Result<Output> {

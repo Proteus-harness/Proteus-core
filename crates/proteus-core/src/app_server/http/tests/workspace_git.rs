@@ -156,6 +156,8 @@ fn workspace_git_subdirectory_scope_and_deleted_path_validation() {
             "status": "deleted",
             "staged": null,
             "unstaged": "deleted",
+            "added": 0,
+            "deleted": 1,
         }])
     );
     let patch = diff(&sub, "inside")["patch"].as_str().unwrap().to_owned();

@@ -3,7 +3,11 @@ use std::{fs, path::Path};
 use anyhow::{Result, ensure};
 use serde::Serialize;
 
-use super::{super::MAX_BYTES, command::run, repository, validate};
+use super::{
+    super::MAX_BYTES,
+    command::{Output, run},
+    repository, validate,
+};
 
 #[derive(Serialize)]
 pub(crate) struct Diff {
@@ -12,13 +16,39 @@ pub(crate) struct Diff {
     patch: Option<String>,
 }
 
+impl Diff {
+    pub(super) fn unavailable(path: String) -> Self {
+        Self {
+            path,
+            kind: "unavailable",
+            patch: None,
+        }
+    }
+
+    /// Classifies the output of a single-file `git diff` as text, binary or too large.
+    pub(super) fn classify(mut self, output: Output) -> Result<Self> {
+        if output.truncated {
+            self.kind = "too_large";
+            return Ok(self);
+        }
+        ensure!(output.success || output.different, "cannot read Git diff");
+        self.kind = "binary";
+        if let Ok(patch) = String::from_utf8(output.bytes)
+            && !patch.contains('\0')
+            && !patch
+                .lines()
+                .any(|line| line.starts_with("Binary files ") && line.ends_with(" differ"))
+        {
+            self.kind = "text";
+            self.patch = Some(patch);
+        }
+        Ok(self)
+    }
+}
+
 pub(crate) fn diff(root: &Path, relative: String) -> Result<Diff> {
     let path = validate(root, &relative)?;
-    let mut result = Diff {
-        path: relative,
-        kind: "unavailable",
-        patch: None,
-    };
+    let mut result = Diff::unavailable(relative);
     if !repository(root)? {
         return Ok(result);
     }
@@ -84,20 +114,5 @@ pub(crate) fn diff(root: &Path, relative: String) -> Result<Diff> {
     } else {
         return Ok(result);
     };
-    if output.truncated {
-        result.kind = "too_large";
-        return Ok(result);
-    }
-    ensure!(output.success || output.different, "cannot read Git diff");
-    result.kind = "binary";
-    if let Ok(patch) = String::from_utf8(output.bytes)
-        && !patch.contains('\0')
-        && !patch
-            .lines()
-            .any(|line| line.starts_with("Binary files ") && line.ends_with(" differ"))
-    {
-        result.kind = "text";
-        result.patch = Some(patch);
-    }
-    Ok(result)
+    result.classify(output)
 }
