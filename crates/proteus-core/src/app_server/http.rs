@@ -388,8 +388,13 @@ where
         },
         (Method::POST, "/new-session") => match read_json::<NewSessionRequest, _>(request).await {
             Ok(command) => {
-                let output =
-                    execute_new_session(&state, command.id, command.source_session_dir).await;
+                let output = execute_new_session(
+                    &state,
+                    command.id,
+                    command.source_session_dir,
+                    command.workspace,
+                )
+                .await;
                 json_response(StatusCode::OK, &output)
             }
             Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),

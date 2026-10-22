@@ -118,6 +118,9 @@ pub struct ResumeSessionRequest {
 pub struct NewSessionRequest {
     pub id: Option<String>,
     pub source_session_dir: Option<PathBuf>,
+    /// Folder the new session works in; an existing directory.
+    #[serde(default)]
+    pub workspace: Option<PathBuf>,
 }
 
 /// Lifecycle acknowledgement; model metadata is read separately through `/config`.

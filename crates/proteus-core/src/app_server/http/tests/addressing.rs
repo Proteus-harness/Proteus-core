@@ -399,6 +399,26 @@ async fn lifecycle_uses_the_explicit_source_workspace_and_keeps_deletion_in_the_
     assert_eq!(config["cwd"], workspace_b.path().to_str().unwrap());
     assert_eq!(config["permission_mode"], "Auto");
     assert!(created_dir.starts_with(config_dir.path()));
+    let elsewhere = tempfile::tempdir().unwrap();
+    let opened = command_value(
+        post_at(
+            &state,
+            "/new-session",
+            json!({"source_session_dir":stored_b.session_dir(),"workspace":elsewhere.path()}),
+        )
+        .await,
+    );
+    let opened_dir = PathBuf::from(opened["session_dir"].as_str().unwrap());
+    let opened_server = state.server_for_session_dir(&opened_dir).await.unwrap();
+    let config = read_json_at(&state, &scoped_path("/config", &opened_server)).await;
+    assert_eq!(
+        config["cwd"],
+        std::fs::canonicalize(elsewhere.path())
+            .unwrap()
+            .to_str()
+            .unwrap()
+    );
+    assert_eq!(config["permission_mode"], "Auto");
     assert!(
         command_value(
             post_at(
@@ -468,6 +488,15 @@ async fn lifecycle_uses_the_explicit_source_workspace_and_keeps_deletion_in_the_
             &state,
             "/new-session",
             json!({"source_session_dir":"/missing-session"})
+        )
+        .await,
+        StdioOutput::Response { ok: false, .. }
+    ));
+    assert!(matches!(
+        post_at(
+            &state,
+            "/new-session",
+            json!({"workspace":"/missing-workspace"})
         )
         .await,
         StdioOutput::Response { ok: false, .. }

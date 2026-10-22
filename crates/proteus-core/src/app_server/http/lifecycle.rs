@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use anyhow::{Result, anyhow};
+use anyhow::{Context as _, Result, anyhow};
 use proteus_contracts::app_protocol::{AppBootstrap, http::SessionOpened};
 use serde_json::{Value, json};
 
@@ -36,9 +36,22 @@ pub(super) async fn execute_new_session(
     state: &HttpAppState,
     id: Option<String>,
     source_session_dir: Option<PathBuf>,
+    workspace: Option<PathBuf>,
 ) -> StdioOutput {
     let result = async {
         let _lifecycle = state.session_lifecycle.lock().await;
+        let workspace = workspace
+            .map(|path| {
+                let path = std::fs::canonicalize(&path)
+                    .with_context(|| format!("workspace {} is unavailable", path.display()))?;
+                anyhow::ensure!(
+                    path.is_dir(),
+                    "workspace {} is not a directory",
+                    path.display()
+                );
+                Ok(path)
+            })
+            .transpose()?;
         let (config, cwd, config_path) = match source_session_dir {
             Some(path) => {
                 let source = super::sessions::server_for_session(state, path).await?;
@@ -51,6 +64,7 @@ pub(super) async fn execute_new_session(
                 state.launch.config_path.clone(),
             ),
         };
+        let cwd = workspace.unwrap_or(cwd);
         let next = AgentAppServer::launch(config, cwd, config_path.as_deref()).await?;
         next.start_session().await?;
         state.remember_server(next.clone()).await;
