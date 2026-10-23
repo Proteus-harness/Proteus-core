@@ -150,4 +150,41 @@ async fn checkpoint_captures_only_declared_root_results_in_binding_order() {
         &[bindings[0].message(first), bindings[1].message(second)]
     );
     assert!(cold.unresolved_tool_calls.is_empty());
+
+    // A streaming ACK has delivered the first result, then the second tool
+    // settles before the workflow checkpoints another completed model item.
+    // Retaining one result must not require its retired binding to be declared
+    // again, and the newly completed result must remain durable across reload.
+    let mut acknowledged = history.clone();
+    acknowledged.push(cold.history[2].clone());
+    acknowledged.push(CanonicalMessage::text(
+        MessageRole::Assistant,
+        "later model item",
+    ));
+    store
+        .checkpoint_history(thread, turn, &acknowledged, None, vec![bindings[1].clone()])
+        .await
+        .unwrap();
+    let mut expected = acknowledged.clone();
+    expected.push(cold.history[3].clone());
+    let reloaded = SessionStore::open(store.session_dir().to_owned()).unwrap();
+    assert_eq!(reloaded.load_messages().unwrap(), expected);
+
+    // The same interleaving cannot drop or alter an acknowledged result.
+    let mut changed = acknowledged.clone();
+    changed[2].parts.clear();
+    assert!(
+        store
+            .checkpoint_history(thread, turn, &changed, None, vec![bindings[1].clone()])
+            .await
+            .is_err()
+    );
+    acknowledged.remove(2);
+    assert!(
+        store
+            .checkpoint_history(thread, turn, &acknowledged, None, vec![bindings[1].clone()])
+            .await
+            .is_err()
+    );
+    assert_eq!(reloaded.load_messages().unwrap(), expected);
 }

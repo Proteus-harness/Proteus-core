@@ -1308,6 +1308,10 @@ calls при открытом stream, после changed compaction и пере�
 stream. Model IO и UI deltas продолжаются во время исполнения tool. Результаты
 добавляются в следующий prompt после model items; промежуточный checkpoint
 расширяет model prefix с прежними bindings, сохраняя durable result suffix.
+Если предыдущий ACK уже вернул часть результатов, следующий checkpoint сохраняет
+их точные canonical messages в своём prefix и объявляет bindings только для ещё
+ожидаемых результатов. Core переносит оставшийся durable suffix отдельно:
+частичный ACK не требует повторной регистрации завершённого вызова.
 Выбранный результат tool попадает
 в history вместе с `tool_result_recorded`; потеря ответа между Core и workflow
 его не удаляет. Подтверждённый результат сохраняется и при Cancel, внешнем

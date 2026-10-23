@@ -62,6 +62,18 @@ impl HistoryCapture {
             .filter(|(_, _, recorded)| *recorded)
             .zip(&current[self.base..])
         {
+            // An earlier ACK can already have delivered some results to the
+            // workflow while other calls settle before this checkpoint. Those
+            // acknowledged messages are now part of the proposed prefix; only
+            // the still-pending suffix needs to be carried over. Keep exact
+            // canonical identities and payloads rather than synthesizing them.
+            if let Some(accepted) = proposed.iter().find(|item| item.id == message.id) {
+                ensure!(
+                    accepted == message,
+                    "checkpoint changed a committed tool result"
+                );
+                continue;
+            }
             ensure!(
                 next.has_binding(binding),
                 "checkpoint discarded a committed tool result"
