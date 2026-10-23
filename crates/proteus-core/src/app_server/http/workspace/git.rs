@@ -5,6 +5,7 @@ mod history;
 mod ignore;
 mod log;
 mod remote;
+mod revision;
 mod show;
 mod stash;
 mod stats;

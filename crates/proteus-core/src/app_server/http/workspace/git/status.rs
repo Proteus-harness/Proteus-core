@@ -8,7 +8,7 @@ use super::{
     command::{os, read},
     complete_records,
     history::{CommitSummary, head_commit},
-    prefix, repository, stats,
+    prefix, repository, revision, stats,
 };
 
 #[derive(Serialize)]
@@ -34,6 +34,9 @@ pub(super) struct Change {
     pub(super) unstaged: Option<&'static str>,
     pub(super) added: Option<u64>,
     pub(super) deleted: Option<u64>,
+    revision: Option<String>,
+    #[serde(skip)]
+    index: String,
 }
 
 impl Change {
@@ -47,7 +50,7 @@ const CONFLICT: &str = "conflict";
 
 /// Status of the given literal pathspecs, relative to the session cwd.
 pub(super) struct Scan {
-    head_oid: bool,
+    head_oid: Option<String>,
     branch: Option<String>,
     upstream: Option<String>,
     ahead: u64,
@@ -73,9 +76,12 @@ pub(crate) fn changes(root: &Path) -> Result<Changes> {
     }
     let mut scan = scan(root, &[".".to_owned()])?;
     stats::annotate(root, &mut scan.entries)?;
+    for entry in &mut scan.entries {
+        entry.revision = revision::token(root, &entry.path, scan.head_oid.as_deref(), &entry.index);
+    }
     Ok(Changes {
         repository: true,
-        head: if scan.head_oid {
+        head: if scan.head_oid.is_some() {
             head_commit(root)?
         } else {
             None
@@ -109,7 +115,7 @@ pub(super) fn scan(root: &Path, pathspecs: &[String]) -> Result<Scan> {
         "cannot read Git changes"
     );
     let mut scan = Scan {
-        head_oid: false,
+        head_oid: None,
         branch: None,
         upstream: None,
         ahead: 0,
@@ -124,12 +130,18 @@ pub(super) fn scan(root: &Path, pathspecs: &[String]) -> Result<Scan> {
             scan.header(header)?;
             continue;
         }
-        let (path, original, staged, unstaged) = match record.as_bytes().first() {
+        let (path, original, staged, unstaged, index) = match record.as_bytes().first() {
             Some(b'1') => {
                 let fields: Vec<_> = record.splitn(9, ' ').collect();
                 ensure!(fields.len() == 9, "invalid Git status record");
                 let (staged, unstaged) = states(fields[1])?;
-                (fields[8], None, staged, unstaged)
+                (
+                    fields[8],
+                    None,
+                    staged,
+                    unstaged,
+                    revision::stage(fields[4], fields[7], 0),
+                )
             }
             Some(b'2') => {
                 let fields: Vec<_> = record.splitn(10, ' ').collect();
@@ -140,18 +152,27 @@ pub(super) fn scan(root: &Path, pathspecs: &[String]) -> Result<Scan> {
                 };
                 let original = std::str::from_utf8(original).context("Git path is not UTF-8")?;
                 let (staged, unstaged) = states(fields[1])?;
-                (fields[9], Some(original), staged, unstaged)
+                (
+                    fields[9],
+                    Some(original),
+                    staged,
+                    unstaged,
+                    revision::stage(fields[4], fields[7], 0),
+                )
             }
             Some(b'u') => {
                 let fields: Vec<_> = record.splitn(11, ' ').collect();
                 ensure!(fields.len() == 11, "invalid Git status record");
-                (fields[10], None, Some(CONFLICT), Some(CONFLICT))
+                let index = (0..3)
+                    .map(|i| revision::stage(fields[3 + i], fields[7 + i], (i + 1) as u8))
+                    .collect::<String>();
+                (fields[10], None, Some(CONFLICT), Some(CONFLICT), index)
             }
             Some(b'?') => {
                 let path = record
                     .strip_prefix("? ")
                     .context("invalid Git status record")?;
-                (path, None, None, Some(UNTRACKED))
+                (path, None, None, Some(UNTRACKED), String::new())
             }
             _ => continue,
         };
@@ -172,6 +193,8 @@ pub(super) fn scan(root: &Path, pathspecs: &[String]) -> Result<Scan> {
             unstaged,
             added: None,
             deleted: None,
+            revision: None,
+            index,
         });
     }
     Ok(scan)
@@ -181,7 +204,7 @@ impl Scan {
     fn header(&mut self, header: &str) -> Result<()> {
         let (key, value) = header.split_once(' ').unwrap_or((header, ""));
         match key {
-            "branch.oid" => self.head_oid = value != "(initial)",
+            "branch.oid" => self.head_oid = (value != "(initial)").then(|| value.to_owned()),
             "branch.head" if value != "(detached)" => self.branch = Some(value.to_owned()),
             "branch.upstream" => self.upstream = Some(value.to_owned()),
             "branch.ab" => {

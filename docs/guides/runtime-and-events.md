@@ -832,7 +832,7 @@ store; stdio остаётся привязанным к одной session пр�
     репозитория; `head` — `{short, summary}` или `null` без коммитов;
     `upstream` — upstream ветки или `null`; `ahead`/`behind` — 0 без upstream.
     Каждая запись: `{path, original, status, staged, unstaged, added,
-    deleted}`; `path` относительно cwd, `original` — источник staged rename
+    deleted, revision}`; `path` относительно cwd, `original` — источник staged rename
     внутри cwd или `null`. `staged` (индекс против HEAD) и `unstaged` (рабочее
     дерево против индекса) — `null | added | modified | deleted | renamed |
     untracked | conflict`: неотслеживаемый файл даёт `staged: null, unstaged:
@@ -846,11 +846,22 @@ store; stdio остаётся привязанным к одной session пр�
     у неотслеживаемого текстового файла все строки считаются добавленными
     (файл до 512 КиБ, суммарно до 4 МиБ на снимок). Бинарный или
     непосчитанный файл даёт `null`. Верхние `added`/`deleted` — суммы
-    непустых значений записей.
+    непустых значений записей. `revision` — непрозрачная строка версии
+    источника diff либо `null`, если metadata недоступна. Она объединяет полный
+    HEAD, mode/OID/stage индекса именно этого пути и filesystem metadata
+    (тип, размер, mtime; на Unix также inode/ctime/mode). Это stat-based ключ
+    инвалидации, не криптографический hash содержимого; гарантии зависят от
+    точности metadata файловой системы. Переиндексация другого файла не меняет
+    эту версию. Клиент сравнивает её только на равенство и сохраняет кэш
+    неизменившихся путей; совпадение status/числа строк само по себе не означает
+    неизменность исходника.
   - `GET /workspace/diff?session_dir=<path>&path=<relative>` — `{path, kind,
-    patch}`: рабочее дерево против HEAD (без коммитов и для неотслеживаемых —
+    patch, revision}`: рабочее дерево против HEAD (без коммитов и для неотслеживаемых —
     против пустого файла), `kind: text | binary | too_large | unavailable`,
-    `patch` — unified diff либо `null`.
+    `patch` — unified diff либо `null`. `revision` использует тот же ключ,
+    что запись `changes`; HEAD, index stages и metadata проверяются до и после
+    построения patch. При изменении источника во время чтения возвращается
+    `revision: null`: результат можно показать, но нельзя сохранить в кэше.
   - `POST /workspace/stage`, `/workspace/unstage`, `/workspace/discard` с body
     `{session_dir, paths: [<relative>], all?: bool}`: либо непустой `paths`,
     либо `all: true` (все изменения под cwd), но не оба. Пути проверяются
@@ -912,7 +923,7 @@ store; stdio остаётся привязанным к одной session пр�
     `patch` — unified diff не более 512 КиБ, обрезанный по границе строки с
     `truncated: true`.
   - `GET /workspace/commit/diff?session_dir=<path>&hash=<hex>&path=<repo-relative>`
-    — `{path, kind, patch}` как у `/workspace/diff` для одного файла
+    — `{path, kind, patch, revision: null}` как у `/workspace/diff` для одного файла
     коммита (против первого родителя); `path` относительно корня репозитория,
     без `..`. Файл, не изменённый в коммите, даёт `kind: "unavailable"`.
   - `POST /workspace/fetch` `{session_dir}`, `/workspace/pull`

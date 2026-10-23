@@ -73,6 +73,23 @@ fn workspace_git_combines_staged_and_unstaged_changes_against_head() {
             "{body}"
         );
     }
+    for path in [
+        "edited.txt",
+        "deleted.txt",
+        "removed-index.txt",
+        "renamed.txt",
+        "new name\nline.txt",
+    ] {
+        let revision = body["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["path"] == path)
+            .unwrap()["revision"]
+            .clone();
+        assert!(revision.is_string(), "{path}");
+        assert_eq!(diff(root.path(), path)["revision"], revision, "{path}");
+    }
     let patch = diff(root.path(), "edited.txt")["patch"]
         .as_str()
         .unwrap()
@@ -148,8 +165,11 @@ fn workspace_git_subdirectory_scope_and_deleted_path_validation() {
     fs::write(root.path().join("outside"), "outside changed\n").unwrap();
     fs::remove_file(root.path().join("sub/inside")).unwrap();
     let sub = root.path().join("sub");
+    let snapshot = changes(&sub);
+    let revision = snapshot["entries"][0]["revision"].clone();
+    assert!(revision.is_string());
     assert_eq!(
-        changes(&sub)["entries"],
+        snapshot["entries"],
         json!([{
             "path": "inside",
             "original": null,
@@ -158,6 +178,7 @@ fn workspace_git_subdirectory_scope_and_deleted_path_validation() {
             "unstaged": "deleted",
             "added": 0,
             "deleted": 1,
+            "revision": revision,
         }])
     );
     let patch = diff(&sub, "inside")["patch"].as_str().unwrap().to_owned();
@@ -265,5 +286,83 @@ fn workspace_search_respects_gitignore_and_skips_deleted_files() {
     assert_eq!(
         search(&root.path().join("src"), "needle"),
         [("deep/needle.rs".to_owned(), "file".to_owned())]
+    );
+}
+
+#[test]
+fn workspace_git_revisions_track_same_size_edits_and_per_path_index_stages() {
+    let root = tempfile::tempdir().unwrap();
+    init(root.path());
+    for name in ["edited.txt", "other.txt"] {
+        fs::write(root.path().join(name), "base\n").unwrap();
+    }
+    git(root.path(), &["add", "."]);
+    git(root.path(), &["commit", "-qm", "base"]);
+    fs::write(root.path().join("edited.txt"), "one!\n").unwrap();
+    fs::write(root.path().join("other.txt"), "stay\n").unwrap();
+    let entry = |snapshot: &Value, path: &str| {
+        snapshot["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["path"] == path)
+            .unwrap()
+            .clone()
+    };
+    let before = changes(root.path());
+    let old_patch = diff(root.path(), "edited.txt");
+    assert_eq!(
+        old_patch["revision"],
+        entry(&before, "edited.txt")["revision"]
+    );
+    let modified = fs::metadata(root.path().join("edited.txt"))
+        .unwrap()
+        .modified()
+        .unwrap();
+    fs::write(root.path().join("edited.txt"), "two!\n").unwrap();
+    // ctime/identity must catch an edit even if a writer restores mtime.
+    #[cfg(unix)]
+    fs::File::options()
+        .write(true)
+        .open(root.path().join("edited.txt"))
+        .unwrap()
+        .set_times(fs::FileTimes::new().set_modified(modified))
+        .unwrap();
+    #[cfg(not(unix))]
+    let _ = modified;
+    let after = changes(root.path());
+    let old_entry = entry(&before, "edited.txt");
+    let new_entry = entry(&after, "edited.txt");
+    let mut comparable = old_entry.clone();
+    comparable["revision"] = new_entry["revision"].clone();
+    assert_eq!(
+        comparable, new_entry,
+        "all old status/count fields are unchanged"
+    );
+    assert_ne!(old_entry["revision"], new_entry["revision"]);
+    assert_eq!(
+        entry(&before, "other.txt")["revision"],
+        entry(&after, "other.txt")["revision"]
+    );
+    let new_patch = diff(root.path(), "edited.txt");
+    assert_ne!(old_patch["patch"], new_patch["patch"]);
+    assert_eq!(new_patch["revision"], new_entry["revision"]);
+
+    // Staging changes only this path's index signature. Other patches stay cached.
+    git(root.path(), &["add", "edited.txt"]);
+    let staged = changes(root.path());
+    assert_ne!(
+        entry(&staged, "edited.txt")["revision"],
+        new_entry["revision"]
+    );
+    assert_eq!(
+        entry(&staged, "other.txt")["revision"],
+        entry(&after, "other.txt")["revision"]
+    );
+    let staged_patch = diff(root.path(), "edited.txt");
+    assert_eq!(staged_patch["patch"], new_patch["patch"]);
+    assert_eq!(
+        staged_patch["revision"],
+        entry(&staged, "edited.txt")["revision"]
     );
 }
