@@ -34,6 +34,7 @@ pub use handle::{AppServerHandle, AppServerState};
 mod config_summary;
 mod context_map;
 mod control_plane;
+mod conversation;
 mod events;
 use events::{AppEventPublisher, RuntimeEventSink};
 pub mod http;

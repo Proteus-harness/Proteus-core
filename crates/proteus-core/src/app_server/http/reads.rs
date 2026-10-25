@@ -6,7 +6,10 @@ use super::{
     HttpResponse,
     lifecycle::{bootstrap, config_summary_with_activity},
     responses::{error_response, json_response, text_response},
-    sessions::{context_map_json, history_json, server_for_query, session_summaries, usage_json},
+    sessions::{
+        context_map_json, conversation_json, history_json, server_for_query, session_summaries,
+        usage_json,
+    },
     sse::sse_response,
     state::HttpAppState,
 };
@@ -44,6 +47,7 @@ async fn read(state: &HttpAppState, path: &str, query: Option<&str>) -> Result<H
         "/bootstrap" => json_response(StatusCode::OK, &bootstrap(state).await),
         "/sessions" => json_response(StatusCode::OK, &session_summaries(state, None).await?),
         "/history" => json_response(StatusCode::OK, &history_json(state, query).await?),
+        "/conversation" => json_response(StatusCode::OK, &conversation_json(state, query).await?),
         "/context" => json_response(StatusCode::OK, &context_map_json(state, query).await?),
         "/usage" => json_response(StatusCode::OK, &usage_json(state, query).await?),
         "/analysis" => json_response(StatusCode::OK, &super::analysis::read(state, query).await?),

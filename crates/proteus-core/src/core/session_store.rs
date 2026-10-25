@@ -103,6 +103,19 @@ impl SessionStore {
         Ok(self.load_projection()?.history)
     }
 
+    /// Read the current canonical conversation, without replay or a writer lease.
+    pub fn conversation_snapshot(&self) -> Result<crate::contracts::ConversationSnapshot> {
+        let projection = self.load_projection()?;
+        let model_context =
+            super::model_context::ModelContextState::from_records(&projection.records, None)
+                .snapshot();
+        Ok(crate::contracts::ConversationSnapshot {
+            revision: projection.history_revision,
+            messages: projection.history,
+            model_context,
+        })
+    }
+
     pub fn load_records(&self) -> Result<Vec<JournalRecord>> {
         load_records(&self.session_dir, self.session_id)
     }

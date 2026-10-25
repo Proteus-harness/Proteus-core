@@ -9,6 +9,9 @@ use crate::{
     model_standard::{CanonicalMessage, ContentPart, MessageRole},
 };
 
+mod view;
+pub use view::*;
+
 pub const TOOL_HOST_READ_CONVERSATION_METHOD: &str = "host.conversation.read";
 pub const TOOL_HOST_CONVERSATION_SNAPSHOT_METHOD: &str = "host.conversation.snapshot";
 

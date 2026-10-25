@@ -371,6 +371,22 @@ async fn compaction_replaces_runtime_and_session_history() {
         .load_messages()
         .expect("load replaced messages");
     assert_eq!(stored, history);
+    let snapshot = runtime.conversation_snapshot().await.unwrap();
+    assert_eq!(snapshot.messages, history);
+    assert_eq!(
+        snapshot.model_context,
+        vec![crate::contracts::ModelContextObservation::HistoryCompacted]
+    );
+    assert_eq!(
+        snapshot,
+        runtime
+            .session
+            .session_store
+            .as_ref()
+            .unwrap()
+            .conversation_snapshot()
+            .unwrap()
+    );
 }
 
 #[tokio::test]

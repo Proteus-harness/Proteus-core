@@ -8,6 +8,21 @@ use async_trait::async_trait;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
+impl super::AgentRuntime {
+    /// The same read capability used by conversation-bound module operations.
+    /// This does not start/resume a turn or mutate durable history.
+    pub async fn conversation_snapshot(&self) -> Result<ConversationSnapshot> {
+        TurnConversation {
+            history: self.session.history.clone(),
+            revision: self.session.history_revision.clone(),
+            store: self.session.session_store.clone(),
+            context: self.session.model_context.clone(),
+        }
+        .read()
+        .await
+    }
+}
+
 pub(super) struct TurnConversation {
     pub history: Arc<Mutex<Vec<CanonicalMessage>>>,
     pub revision: Arc<std::sync::atomic::AtomicU64>,

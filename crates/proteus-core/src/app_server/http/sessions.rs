@@ -176,6 +176,27 @@ pub(super) async fn context_map_json(
     .map_err(|error| anyhow!("cold context task failed: {error}"))?
 }
 
+pub(super) async fn conversation_json(
+    state: &HttpAppState,
+    query: Option<&str>,
+) -> Result<crate::contracts::ConversationView> {
+    let session_dir = canonicalize_session_dir_path(required_session_query(query)?)?;
+    if let Some(server) = state.server_for_session_dir(&session_dir).await {
+        return server.conversation_view().await;
+    }
+
+    tokio::task::spawn_blocking(move || {
+        let store = SessionStore::open(session_dir)?;
+        Ok(crate::contracts::ConversationView::new(
+            store.session_id(),
+            env!("CARGO_PKG_VERSION"),
+            store.conversation_snapshot()?,
+        ))
+    })
+    .await
+    .map_err(|error| anyhow!("cold conversation task failed: {error}"))?
+}
+
 pub(super) async fn usage_json(
     state: &HttpAppState,
     query: Option<&str>,

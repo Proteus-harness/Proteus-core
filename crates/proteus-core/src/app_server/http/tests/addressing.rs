@@ -284,6 +284,7 @@ async fn session_routes_reject_missing_unknown_and_ambiguous_addresses() {
         "/pending",
         "/model/quota",
         "/history",
+        "/conversation",
         "/usage",
         "/context",
         "/sessions/current",

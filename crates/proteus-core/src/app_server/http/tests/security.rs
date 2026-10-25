@@ -18,6 +18,7 @@ fn protected_endpoints_require_session_token_except_health_and_preflight() {
         (Method::GET, "/sessions"),
         (Method::GET, "/sessions/current"),
         (Method::GET, "/history"),
+        (Method::GET, "/conversation"),
         (Method::GET, "/image"),
         (Method::GET, "/analysis"),
         (Method::GET, "/context"),

@@ -772,7 +772,7 @@ response с полным `output.config`. Сейчас доступны `mode`, 
 HTTP app-server владеет реестром живых sessions, а выбранный чат принадлежит
 конкретному клиентскому окну. Глобальной «текущей session» в HTTP API нет.
 Все сессионные GET, включая `/events`, `/config`, `/model/quota`,
-`/config/builder`, `/config/history`, `/inspect/*`, `/pending`, `/history`, `/context`, `/usage`
+`/config/builder`, `/config/history`, `/inspect/*`, `/pending`, `/history`, `/conversation`, `/context`, `/usage`
 и `/sessions/current`, требуют query `?session_dir=<URL-encoded path>`.
 Ниже пути этих endpoint-ов сокращены; отсутствие адреса является ошибкой,
 а не выбором session по умолчанию. HTTP launch требует настроенного session
@@ -994,6 +994,25 @@ store; stdio остаётся привязанным к одной session пр�
   live session, ответом является `StdioOutput::Response`;
 - `GET /history` - transcript указанной live или cold session без обязательного
   cold resume; чтение и проекция журнала cold session выполняются в blocking worker;
+- `GET /conversation` - read-only `ConversationView/v1` указанной live или cold
+  session с полной текущей canonical conversation; не запускает resume или turn.
+  Envelope содержит `schema_version: 1`, `source: {harness: "proteus", version,
+  session_id, revision}`, `projection: "conversation"` и `conversation` —
+  существующий `ConversationSnapshot {revision, messages, model_context}`.
+  `source.version` — версия производителя Core; обе revision взяты из одного
+  snapshot и относятся к изменениям истории, это не SSE cursor и не номер записи
+  журнала. Наблюдения `model_context` могут обновляться без новой revision истории;
+  revision не является ключом кеша всего ответа. `messages` сохраняет
+  порядок, canonical message/part IDs, provenance/scope, phase, мультимодальные
+  ссылки, исходные аргументы tool calls, полный `ToolResult` и metadata.
+  Проекция ограничена текущей историей после compaction: заменённые сообщения,
+  весь execution journal/replay и незакреплённые streaming deltas не включены.
+  Содержимое не усекается и не сводится к тексту. Cold чтение восстанавливает
+  history и model-context observations из одного journal projection в blocking
+  worker; live чтение использует существующий `ConversationReader` snapshot.
+  Endpoint доступен всем HTTP-клиентам через обычные token/origin проверки и
+  обязательный `session_dir`; отдельные права исполнения, hook события и импорт
+  истории этим API не добавляются;
 - `GET /context` - diagnostic context map указанной session с fallback из
   event log/history и без обязательного cold resume; чтение и анализ журнала
   вынесены в blocking worker;
