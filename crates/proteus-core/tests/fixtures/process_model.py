@@ -46,6 +46,11 @@ def invoke(context, method, params):
     if method == "catalog":
         if params is not None:
             raise ProtocolError("catalog expects null")
+        if config.get("catalog_wait"):
+            Path(config["catalog_marker"]).write_text("started")
+            while not Path(config["catalog_release"]).exists():
+                context.ensure_active()
+                time.sleep(0.005)
         return config.get("catalog")
     if method == "quota":
         if params is not None:

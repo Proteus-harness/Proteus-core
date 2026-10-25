@@ -147,6 +147,15 @@ fn push_unique(options: &mut Vec<String>, value: &str) {
 
 impl super::AppServerHandle {
     pub async fn config_summary(&self) -> Value {
+        self.config_summary_with_catalog(true).await
+    }
+
+    /// Selected configuration is local data; remote discovery must not delay it.
+    pub async fn local_config_summary(&self) -> Value {
+        self.config_summary_with_catalog(false).await
+    }
+
+    async fn config_summary_with_catalog(&self, discover: bool) -> Value {
         use proteus_contracts::app_protocol::config::*;
         let (snapshot, model_ref, reasoning, mode) = self.runtime.configuration_view().await;
         let module_epoch = snapshot.epoch;
@@ -155,7 +164,11 @@ impl super::AppServerHandle {
             &config,
             &model_ref,
             &reasoning,
-            snapshot.registry.model_catalog().await,
+            if discover {
+                snapshot.registry.model_catalog().await
+            } else {
+                Ok(None)
+            },
         );
         let tools = snapshot.registry.tools.entries();
         let session_settings =

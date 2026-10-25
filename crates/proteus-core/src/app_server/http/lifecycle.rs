@@ -156,8 +156,13 @@ async fn session_opened(state: &HttpAppState, server: &AppServerHandle) -> Resul
 pub(super) async fn config_summary_with_activity(
     state: &HttpAppState,
     server: &AppServerHandle,
+    discover: bool,
 ) -> Result<Value> {
-    let mut summary = server.config_summary().await;
+    let mut summary = if discover {
+        server.config_summary().await
+    } else {
+        server.local_config_summary().await
+    };
     if let Value::Object(fields) = &mut summary {
         fields.insert(
             "activity".to_owned(),

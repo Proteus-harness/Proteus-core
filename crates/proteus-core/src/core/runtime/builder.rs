@@ -35,6 +35,7 @@ pub struct AgentRuntimeBuilder {
     session_id: Option<SessionId>,
     thread_id: Option<ThreadId>,
     resumed_session: Option<SessionStore>,
+    resumed_history: Option<Vec<crate::model_standard::CanonicalMessage>>,
 }
 
 impl AgentRuntimeBuilder {
@@ -50,6 +51,7 @@ impl AgentRuntimeBuilder {
             session_id: None,
             thread_id: None,
             resumed_session: None,
+            resumed_history: None,
         }
     }
 
@@ -100,7 +102,21 @@ impl AgentRuntimeBuilder {
     ) -> Self {
         self.thread_id = Some(thread_id);
         self.resumed_session = Some(session_store);
+        self.resumed_history = None;
         self
+    }
+
+    /// Reuse history from the same validated journal projection that the
+    /// app server used to build its initial transcript.
+    pub(crate) fn resume_from_session_history(
+        self,
+        session_store: SessionStore,
+        history: Vec<crate::model_standard::CanonicalMessage>,
+        thread_id: ThreadId,
+    ) -> Self {
+        let mut builder = self.resume_from_session_store(session_store, thread_id);
+        builder.resumed_history = Some(history);
+        builder
     }
 
     /// Builds a runtime without running synchronous module factories on a
@@ -124,6 +140,7 @@ impl AgentRuntimeBuilder {
             session_id,
             thread_id,
             resumed_session,
+            resumed_history,
         } = self;
 
         let cwd = match resumed_session.as_ref() {
@@ -192,11 +209,14 @@ impl AgentRuntimeBuilder {
             eprintln!("warning: failed to persist session config snapshot: {error:#}");
         }
         let history = if resume_history {
-            session_store
-                .as_ref()
-                .map(SessionStore::load_messages)
-                .transpose()?
-                .unwrap_or_default()
+            match resumed_history {
+                Some(history) => history,
+                None => session_store
+                    .as_ref()
+                    .map(SessionStore::load_messages)
+                    .transpose()?
+                    .unwrap_or_default(),
+            }
         } else {
             Vec::new()
         };

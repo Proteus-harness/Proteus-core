@@ -56,6 +56,7 @@ async fn read(state: &HttpAppState, path: &str, query: Option<&str>) -> Result<H
         }
         "/events"
         | "/config"
+        | "/config/local"
         | "/config/builder"
         | "/config/history"
         | "/model/quota"
@@ -70,9 +71,9 @@ async fn read(state: &HttpAppState, path: &str, query: Option<&str>) -> Result<H
             let server = server_for_query(state, query).await?;
             match path {
                 "/events" => sse_response(state.clone(), server).await,
-                "/config" => json_response(
+                "/config" | "/config/local" => json_response(
                     StatusCode::OK,
-                    &config_summary_with_activity(state, &server).await?,
+                    &config_summary_with_activity(state, &server, path == "/config").await?,
                 ),
                 "/config/builder" => {
                     json_response(StatusCode::OK, &server.config_builder_snapshot().await)

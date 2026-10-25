@@ -771,7 +771,7 @@ response с полным `output.config`. Сейчас доступны `mode`, 
 
 HTTP app-server владеет реестром живых sessions, а выбранный чат принадлежит
 конкретному клиентскому окну. Глобальной «текущей session» в HTTP API нет.
-Все сессионные GET, включая `/events`, `/config`, `/model/quota`,
+Все сессионные GET, включая `/events`, `/config`, `/config/local`, `/model/quota`,
 `/config/builder`, `/config/history`, `/inspect/*`, `/pending`, `/history`, `/conversation`, `/context`, `/usage`
 и `/sessions/current`, требуют query `?session_dir=<URL-encoded path>`.
 Ниже пути этих endpoint-ов сокращены; отсутствие адреса является ошибкой,
@@ -797,6 +797,8 @@ store; stdio остаётся привязанным к одной session пр�
   Ошибка проекции сохраняется как ошибка снимка. Pending обновляется своей
   версионной подпиской;
 - `GET /config` - config summary явно адресованной session, включая её `session_dir`;
+- `GET /config/local` - тот же summary без обращения к каталогу провайдера:
+  текущие модель, reasoning, права и локально настроенные варианты доступны сразу;
 - `GET /workspace/list?session_dir=<path>&path=<relative>` — каталог проекта
   адресованной live-сессии: `path`, `entries` (`name`, `path`, `kind`) и `truncated`.
   Максимум 1000 элементов, каталоги идут первыми. `kind` различает `directory`,
@@ -1053,9 +1055,16 @@ store; stdio остаётся привязанным к одной session пр�
 `/health`, `/bootstrap`, `/sessions`, `/new-session` и `/shutdown` относятся
 к серверу. `/resume` и `/delete-session` адресуют session через JSON body.
 
-Ответ `SessionOpened` не запрашивает каталог моделей. Конфигурация и каталог
-моделей читаются отдельно через `/config`; ожидание удалённого провайдера
-не задерживает открытие сессии и доступ к `/config/builder`.
+Ответ `SessionOpened` не запрашивает каталог моделей. Для первого отображения
+клиент читает `/config/local`, затем дополняет его результатом `/config`, который
+может ожидать удалённый каталог. Локальный снимок не означает, что discovery
+завершён: его варианты ограничены конфигурацией. При смене настроек клиент
+отбрасывает ответ более раннего запроса. Ожидание провайдера не задерживает
+открытие сессии и доступ к локальным настройкам и `/config/builder`.
+
+При восстановлении live runtime история и начальный UI transcript строятся
+из одной проверенной проекции журнала. Полные записи проекции после этого
+освобождаются; отдельного постоянного кэша журнала runtime не хранит.
 
 `/sessions` и `/sessions/current` сериализуют единый contract DTO
 `AppSessionSummary`.

@@ -413,9 +413,19 @@ impl AgentAppServer {
             .with_event_sink(event_sink)
             .with_approval(Arc::new(approval_transport))
             .with_user_input(Arc::new(user_input_transport));
-        if let Some(session_store) = resumed_session {
-            builder = builder.resume_from_session_store(session_store, new_thread_id());
-        }
+        let initial_transcript = if let Some(session_store) = resumed_session {
+            let (session_store, history, transcript) = tokio::task::spawn_blocking(move || {
+                let projection = session_store.load_projection()?;
+                let transcript = journal_transcript_messages(&projection, None);
+                Ok::<_, anyhow::Error>((session_store, projection.history, transcript))
+            })
+            .await
+            .map_err(|error| anyhow!("session restore task failed: {error}"))??;
+            builder = builder.resume_from_session_history(session_store, history, new_thread_id());
+            Some(transcript)
+        } else {
+            None
+        };
         if let Some(module_catalog) = module_catalog {
             builder = builder.with_module_catalog(module_catalog);
         }
@@ -427,7 +437,11 @@ impl AgentAppServer {
         );
         let pending_approvals = Arc::new(Mutex::new(HashMap::new()));
         let pending_user_inputs = Arc::new(Mutex::new(HashMap::new()));
-        events.attach_runtime(&runtime, completed_transcript(runtime.clone()).await?);
+        let transcript = match initial_transcript {
+            Some(transcript) => transcript,
+            None => completed_transcript(runtime.clone()).await?,
+        };
+        events.attach_runtime(&runtime, transcript);
         assert!(runtime_events.0.set(events.clone()).is_ok());
         approvals::spawn_approval_forwarder(
             approval_rx,

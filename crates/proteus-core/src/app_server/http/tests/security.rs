@@ -6,6 +6,7 @@ fn protected_endpoints_require_session_token_except_health_and_preflight() {
     let protected = [
         (Method::GET, "/events"),
         (Method::GET, "/config"),
+        (Method::GET, "/config/local"),
         (Method::GET, "/model/quota"),
         (Method::GET, "/config/builder"),
         (Method::GET, "/config/history"),

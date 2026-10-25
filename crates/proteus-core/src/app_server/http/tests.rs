@@ -271,6 +271,7 @@ mod addons;
 mod addressing;
 mod commands;
 mod config;
+mod config_loading;
 mod conversation;
 mod inspection;
 mod live;
