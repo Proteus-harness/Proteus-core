@@ -162,6 +162,48 @@ pub enum JournalEntry {
     TurnSettled(TurnSettled),
 }
 
+// Both storage encodings use the same strict payload DTO for each kind.
+macro_rules! decode_entry {
+    ($decode:ident, $kind:expr, $payload:expr) => {
+        match $kind {
+            JournalKind::HookInvoked => {
+                serde_json::$decode($payload).map(JournalEntry::HookInvoked)
+            }
+            JournalKind::TurnOpened => serde_json::$decode($payload).map(JournalEntry::TurnOpened),
+            JournalKind::HistoryMutated => {
+                serde_json::$decode($payload).map(JournalEntry::HistoryMutated)
+            }
+            JournalKind::ContextRequestRecorded => {
+                serde_json::$decode($payload).map(JournalEntry::ContextRequestRecorded)
+            }
+            JournalKind::ContextResponseRecorded => {
+                serde_json::$decode($payload).map(JournalEntry::ContextResponseRecorded)
+            }
+            JournalKind::ModelRequestRecorded => {
+                serde_json::$decode($payload).map(JournalEntry::ModelRequestRecorded)
+            }
+            JournalKind::ModelMessageRecorded => {
+                serde_json::$decode($payload).map(JournalEntry::ModelMessageRecorded)
+            }
+            JournalKind::ModelResponseRecorded => {
+                serde_json::$decode($payload).map(JournalEntry::ModelResponseRecorded)
+            }
+            JournalKind::ToolCallRecorded => {
+                serde_json::$decode($payload).map(JournalEntry::ToolCallRecorded)
+            }
+            JournalKind::ToolResultRecorded => {
+                serde_json::$decode($payload).map(JournalEntry::ToolResultRecorded)
+            }
+            JournalKind::ToolEffectRecorded => {
+                serde_json::$decode($payload).map(JournalEntry::ToolEffectRecorded)
+            }
+            JournalKind::TurnSettled => {
+                serde_json::$decode($payload).map(JournalEntry::TurnSettled)
+            }
+        }
+    };
+}
+
 impl JournalEntry {
     pub fn kind(&self) -> JournalKind {
         match self {
@@ -192,41 +234,14 @@ impl JournalEntry {
         kind: JournalKind,
         payload: serde_json::Value,
     ) -> serde_json::Result<Self> {
-        // The envelope already selected the variant. Rewrapping it in json!
-        // serializes and copies the complete payload, then the tagged enum
-        // buffers it again. Decode directly into the same strict payload DTO.
-        match kind {
-            JournalKind::HookInvoked => serde_json::from_value(payload).map(Self::HookInvoked),
-            JournalKind::TurnOpened => serde_json::from_value(payload).map(Self::TurnOpened),
-            JournalKind::HistoryMutated => {
-                serde_json::from_value(payload).map(Self::HistoryMutated)
-            }
-            JournalKind::ContextRequestRecorded => {
-                serde_json::from_value(payload).map(Self::ContextRequestRecorded)
-            }
-            JournalKind::ContextResponseRecorded => {
-                serde_json::from_value(payload).map(Self::ContextResponseRecorded)
-            }
-            JournalKind::ModelRequestRecorded => {
-                serde_json::from_value(payload).map(Self::ModelRequestRecorded)
-            }
-            JournalKind::ModelMessageRecorded => {
-                serde_json::from_value(payload).map(Self::ModelMessageRecorded)
-            }
-            JournalKind::ModelResponseRecorded => {
-                serde_json::from_value(payload).map(Self::ModelResponseRecorded)
-            }
-            JournalKind::ToolCallRecorded => {
-                serde_json::from_value(payload).map(Self::ToolCallRecorded)
-            }
-            JournalKind::ToolResultRecorded => {
-                serde_json::from_value(payload).map(Self::ToolResultRecorded)
-            }
-            JournalKind::ToolEffectRecorded => {
-                serde_json::from_value(payload).map(Self::ToolEffectRecorded)
-            }
-            JournalKind::TurnSettled => serde_json::from_value(payload).map(Self::TurnSettled),
-        }
+        decode_entry!(from_value, kind, payload)
+    }
+
+    pub(crate) fn from_kind_and_bytes(
+        kind: JournalKind,
+        payload: &[u8],
+    ) -> serde_json::Result<Self> {
+        decode_entry!(from_slice, kind, payload)
     }
 }
 

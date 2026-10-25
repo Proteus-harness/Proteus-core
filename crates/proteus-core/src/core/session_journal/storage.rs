@@ -213,21 +213,13 @@ pub(crate) fn load_records(
                 expected_session_id
             );
         }
-        let payload = hydrate_payload(session_dir, stored.payload).with_context(|| {
+        let entry = hydrate_entry(session_dir, stored.kind, stored.payload).with_context(|| {
             format!(
-                "failed to hydrate journal {} line {}",
+                "invalid journal payload in {} line {}",
                 path.display(),
                 index + 1
             )
         })?;
-        let entry =
-            JournalEntry::from_kind_and_payload(stored.kind, payload).with_context(|| {
-                format!(
-                    "invalid journal payload in {} line {}",
-                    path.display(),
-                    index + 1
-                )
-            })?;
         records.push(JournalRecord {
             schema_version: stored.schema_version,
             record_id: stored.record_id,
@@ -334,7 +326,11 @@ fn write_blob(session_dir: &Path, bytes: &[u8]) -> Result<StoredPayload> {
     })
 }
 
-fn hydrate_payload(session_dir: &Path, payload: StoredPayload) -> Result<serde_json::Value> {
+fn hydrate_entry(
+    session_dir: &Path,
+    kind: JournalKind,
+    payload: StoredPayload,
+) -> Result<JournalEntry> {
     match payload {
         StoredPayload::Inline { value } => {
             let bytes = serde_json::to_vec(&value)?.len();
@@ -343,7 +339,7 @@ fn hydrate_payload(session_dir: &Path, payload: StoredPayload) -> Result<serde_j
                     "inline journal payload is {bytes} bytes, maximum is {MAX_PAYLOAD_BYTES} bytes"
                 );
             }
-            Ok(value)
+            Ok(JournalEntry::from_kind_and_payload(kind, value)?)
         }
         StoredPayload::Blob {
             sha256,
@@ -377,8 +373,8 @@ fn hydrate_payload(session_dir: &Path, payload: StoredPayload) -> Result<serde_j
                     actual
                 );
             }
-            serde_json::from_slice(&content)
-                .with_context(|| format!("journal blob {} is not JSON", path.display()))
+            JournalEntry::from_kind_and_bytes(kind, &content)
+                .with_context(|| format!("journal blob {} has an invalid payload", path.display()))
         }
     }
 }
@@ -417,3 +413,6 @@ fn unix_timestamp_ms() -> i64 {
         .map(|duration| duration.as_millis().try_into().unwrap_or(i64::MAX))
         .unwrap_or(0)
 }
+
+#[cfg(test)]
+mod read_tests;
