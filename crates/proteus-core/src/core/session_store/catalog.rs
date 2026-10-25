@@ -17,6 +17,9 @@ use super::{
 
 #[cfg(unix)]
 mod cache;
+mod prepared;
+
+pub(crate) use prepared::{PreparedSession, prepare_latest_workspace_session};
 
 #[derive(Clone, Copy)]
 enum CatalogMode {
@@ -91,6 +94,22 @@ fn list_workspace(
     workspace_path: &Path,
     mode: CatalogMode,
 ) -> Result<Vec<AppSessionSummary>> {
+    let mut summaries = Vec::new();
+    for session_dir in workspace_session_dirs(config_root, workspace_path)? {
+        if let Some(summary) = catalog_summary(session_dir, mode)? {
+            summaries.push(summary);
+        }
+    }
+    summaries.sort_by(|left, right| {
+        right
+            .updated_at_ms
+            .cmp(&left.updated_at_ms)
+            .then_with(|| right.session_dir.cmp(&left.session_dir))
+    });
+    Ok(summaries)
+}
+
+fn workspace_session_dirs(config_root: &Path, workspace_path: &Path) -> Result<Vec<PathBuf>> {
     let workspace_dir = config_root
         .join("sessions")
         .join(encode_workspace_path(workspace_path)?);
@@ -103,23 +122,15 @@ fn list_workspace(
         }
     };
 
-    let mut summaries = Vec::new();
+    let mut directories = Vec::new();
     for session_entry in session_dirs {
         let session_entry = session_entry?;
         if !session_entry.file_type()?.is_dir() {
             continue;
         }
-        if let Some(summary) = catalog_summary(session_entry.path(), mode)? {
-            summaries.push(summary);
-        }
+        directories.push(session_entry.path());
     }
-    summaries.sort_by(|left, right| {
-        right
-            .updated_at_ms
-            .cmp(&left.updated_at_ms)
-            .then_with(|| right.session_dir.cmp(&left.session_dir))
-    });
-    Ok(summaries)
+    Ok(directories)
 }
 
 fn catalog_summary(session_dir: PathBuf, mode: CatalogMode) -> Result<Option<AppSessionSummary>> {
@@ -135,19 +146,31 @@ fn catalog_summary(session_dir: PathBuf, mode: CatalogMode) -> Result<Option<App
     match result {
         Ok(summary) => Ok((summary.message_count > 0).then_some(summary)),
         Err(error) => {
-            eprintln!(
-                "warning: skipping unusable persisted session {}: {error:#}",
-                session_dir.display()
-            );
+            warn_unusable_session(&session_dir, &error);
             Ok(None)
         }
     }
 }
 
+fn warn_unusable_session(session_dir: &Path, error: &anyhow::Error) {
+    eprintln!(
+        "warning: skipping unusable persisted session {}: {error:#}",
+        session_dir.display()
+    );
+}
+
 fn session_summary_from_dir(session_dir: PathBuf) -> Result<AppSessionSummary> {
     let session_id = resolve_session_identity(&session_dir)?.session_id;
-    let workspace_path = workspace_path_from_session_dir(&session_dir)?;
     let projection = JournalProjection::build(session_id, load_records(&session_dir, session_id)?)?;
+    session_summary_from_projection(session_dir, session_id, &projection)
+}
+
+fn session_summary_from_projection(
+    session_dir: PathBuf,
+    session_id: crate::domain::SessionId,
+    projection: &JournalProjection,
+) -> Result<AppSessionSummary> {
+    let workspace_path = workspace_path_from_session_dir(&session_dir)?;
     let (message_count, preview) = messages_summary(&projection.history);
     let updated_at_ms = session_updated_at_ms(&journal_path(&session_dir));
 

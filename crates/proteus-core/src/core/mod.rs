@@ -77,6 +77,7 @@ pub use session_journal::{
     ToolCallRecordPhase, ToolCallRecorded, ToolResultRecorded, TurnOpened, TurnSettled,
     TurnSettlementStatus,
 };
+pub(crate) use session_store::{PreparedSession, prepare_latest_workspace_session};
 pub use session_store::{
     SessionStore, canonicalize_session_dir_path, decode_workspace_path, delete_workspace_session,
     encode_workspace_path, list_session_summaries, list_session_summaries_for_audit,

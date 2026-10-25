@@ -160,6 +160,42 @@ async fn removed_workspace_is_not_served_from_cache() {
 }
 
 #[tokio::test]
+async fn prepared_resume_primes_catalog_but_never_uses_cached_validation() {
+    let root = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    let store = saved(root.path(), workspace.path(), "prepared").await;
+    let prepared = super::super::PreparedSession::from_dir(store.session_dir().to_owned()).unwrap();
+    let summary = load(shared_cache(), store.session_dir().to_owned(), |_| {
+        panic!("prepared projection must prime the native summary cache")
+    })
+    .unwrap();
+    assert_eq!(summary.preview.as_deref(), Some("prepared"));
+    assert_eq!(prepared.into_parts().1.history.len(), 1);
+    // Even an unchanged warm catalog never substitutes for a startup projection.
+    let second = super::super::PreparedSession::from_dir(store.session_dir().to_owned()).unwrap();
+    assert_eq!(second.into_parts().1.history.len(), 1);
+    fs::write(store.journal_path(), b"{broken}\n").unwrap();
+    assert!(super::super::PreparedSession::from_dir(store.session_dir().to_owned()).is_err());
+    assert!(summary.message_count > 0);
+}
+
+#[tokio::test]
+async fn prepared_read_changed_during_validation_does_not_prime_catalog() {
+    let root = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    let store = saved(root.path(), workspace.path(), "before").await;
+    prime_from_read(store.session_dir(), || {
+        let summary = super::super::session_summary_from_dir(store.session_dir().to_owned())?;
+        fs::write(store.journal_path(), b"{broken}\n")?;
+        Ok(((), summary))
+    })
+    .unwrap();
+    let reads = Cell::new(0);
+    assert!(counted(shared_cache(), store.session_dir(), &reads).is_err());
+    assert_eq!(reads.get(), 1);
+}
+
+#[tokio::test]
 #[ignore = "explicit storage measurement, no timing assertion"]
 async fn catalog_benchmark() {
     let root = tempfile::tempdir().unwrap();

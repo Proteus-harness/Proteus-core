@@ -29,6 +29,7 @@ mod usage;
 mod workspace_dir;
 mod writer;
 
+pub(crate) use catalog::{PreparedSession, prepare_latest_workspace_session};
 pub use catalog::{
     list_session_summaries, list_session_summaries_for_audit, list_workspace_session_summaries,
 };

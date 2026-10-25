@@ -125,12 +125,39 @@ impl SummaryCache {
 }
 
 pub(super) fn summary(dir: PathBuf) -> Result<AppSessionSummary> {
+    load(shared_cache(), dir, super::session_summary_from_dir)
+}
+
+fn shared_cache() -> &'static Mutex<SummaryCache> {
     static CACHE: OnceLock<Mutex<SummaryCache>> = OnceLock::new();
-    load(
-        CACHE.get_or_init(Default::default),
-        dir,
-        super::session_summary_from_dir,
-    )
+    CACHE.get_or_init(Default::default)
+}
+
+/// Reuse an authoritative read for the catalog, without retaining its projection.
+pub(super) fn prime_from_read<T>(
+    dir: &Path,
+    read: impl FnOnce() -> Result<(T, AppSessionSummary)>,
+) -> Result<T> {
+    let before = Fingerprint::read(dir);
+    let (value, summary) = read()?;
+    cache_if_unchanged(shared_cache(), dir, before, summary);
+    Ok(value)
+}
+
+fn cache_if_unchanged(
+    cache: &Mutex<SummaryCache>,
+    dir: &Path,
+    before: Option<Fingerprint>,
+    summary: AppSessionSummary,
+) {
+    if let Some(before) = before {
+        if Fingerprint::read(dir).as_ref() == Some(&before) {
+            cache
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(before, summary);
+        }
+    }
 }
 
 fn load(
@@ -155,14 +182,7 @@ fn load(
     // Full validation stays outside the global cache lock. Never cache errors or
     // a snapshot whose files changed while it was being read.
     let summary = read(dir.clone())?;
-    if let Some(before) = before {
-        if Fingerprint::read(&dir).as_ref() == Some(&before) {
-            cache
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .insert(before, summary.clone());
-        }
-    }
+    cache_if_unchanged(cache, &dir, before, summary.clone());
     Ok(summary)
 }
 

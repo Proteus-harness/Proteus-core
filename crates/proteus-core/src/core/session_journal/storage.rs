@@ -213,7 +213,7 @@ pub(crate) fn load_records(
                 expected_session_id
             );
         }
-        let payload = hydrate_payload(session_dir, &stored.payload).with_context(|| {
+        let payload = hydrate_payload(session_dir, stored.payload).with_context(|| {
             format!(
                 "failed to hydrate journal {} line {}",
                 path.display(),
@@ -334,31 +334,31 @@ fn write_blob(session_dir: &Path, bytes: &[u8]) -> Result<StoredPayload> {
     })
 }
 
-fn hydrate_payload(session_dir: &Path, payload: &StoredPayload) -> Result<serde_json::Value> {
+fn hydrate_payload(session_dir: &Path, payload: StoredPayload) -> Result<serde_json::Value> {
     match payload {
         StoredPayload::Inline { value } => {
-            let bytes = serde_json::to_vec(value)?.len();
+            let bytes = serde_json::to_vec(&value)?.len();
             if bytes > MAX_PAYLOAD_BYTES {
                 bail!(
                     "inline journal payload is {bytes} bytes, maximum is {MAX_PAYLOAD_BYTES} bytes"
                 );
             }
-            Ok(value.clone())
+            Ok(value)
         }
         StoredPayload::Blob {
             sha256,
             bytes,
             relative_path,
         } => {
-            validate_blob_reference(sha256, relative_path)?;
-            if *bytes > MAX_PAYLOAD_BYTES as u64 {
+            validate_blob_reference(&sha256, &relative_path)?;
+            if bytes > MAX_PAYLOAD_BYTES as u64 {
                 bail!("journal blob declares {bytes} bytes, maximum is {MAX_PAYLOAD_BYTES} bytes");
             }
             let path = session_dir.join(relative_path);
             let actual_bytes = std::fs::metadata(&path)
                 .with_context(|| format!("failed to inspect journal blob {}", path.display()))?
                 .len();
-            if actual_bytes != *bytes {
+            if actual_bytes != bytes {
                 bail!(
                     "journal blob {} size mismatch: expected {}, found {}",
                     path.display(),
@@ -369,7 +369,7 @@ fn hydrate_payload(session_dir: &Path, payload: &StoredPayload) -> Result<serde_
             let content = std::fs::read(&path)
                 .with_context(|| format!("failed to read journal blob {}", path.display()))?;
             let actual = sha256_hex(&content);
-            if actual != *sha256 {
+            if actual != sha256 {
                 bail!(
                     "journal blob {} hash mismatch: expected {}, found {}",
                     path.display(),

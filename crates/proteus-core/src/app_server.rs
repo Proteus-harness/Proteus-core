@@ -345,10 +345,18 @@ impl AgentAppServer {
         cwd: PathBuf,
         config_path: Option<&Path>,
     ) -> Result<AppServerHandle> {
-        if let Some(session_dir) = latest_workspace_session_dir(config_path, &cwd)? {
-            return Self::launch_resumed(config, cwd, config_path, session_dir).await;
-        }
-        Self::launch(config, cwd, config_path).await
+        let resumed = if let Some(config_path) = config_path {
+            let root = config_store_root(config_path);
+            let workspace = cwd.clone();
+            tokio::task::spawn_blocking(move || {
+                crate::core::prepare_latest_workspace_session(&root, &workspace)
+            })
+            .await
+            .map_err(|error| anyhow!("session lookup task failed: {error}"))??
+        } else {
+            None
+        };
+        Self::launch_inner(config, cwd, config_path, None, resumed).await
     }
 
     pub async fn launch_resumed(
@@ -357,7 +365,12 @@ impl AgentAppServer {
         config_path: Option<&Path>,
         session_dir: PathBuf,
     ) -> Result<AppServerHandle> {
-        Self::launch_inner(config, cwd, config_path, None, Some(session_dir)).await
+        let resumed = tokio::task::spawn_blocking(move || {
+            crate::core::PreparedSession::from_dir(normalize_session_dir_path(session_dir)?)
+        })
+        .await
+        .map_err(|error| anyhow!("session restore task failed: {error}"))??;
+        Self::launch_inner(config, cwd, config_path, None, Some(resumed)).await
     }
 
     #[cfg(test)]
@@ -375,13 +388,8 @@ impl AgentAppServer {
         mut cwd: PathBuf,
         config_path: Option<&Path>,
         module_catalog: Option<ModuleCatalog>,
-        resume_session_dir: Option<PathBuf>,
+        resumed_session: Option<crate::core::PreparedSession>,
     ) -> Result<AppServerHandle> {
-        let resumed_session = resume_session_dir
-            .map(normalize_session_dir_path)
-            .transpose()?
-            .map(SessionStore::open)
-            .transpose()?;
         if let Some(session_store) = resumed_session.as_ref() {
             cwd = session_store.workspace_path()?;
         }
@@ -413,14 +421,14 @@ impl AgentAppServer {
             .with_event_sink(event_sink)
             .with_approval(Arc::new(approval_transport))
             .with_user_input(Arc::new(user_input_transport));
-        let initial_transcript = if let Some(session_store) = resumed_session {
+        let initial_transcript = if let Some(prepared) = resumed_session {
             let (session_store, history, transcript) = tokio::task::spawn_blocking(move || {
-                let projection = session_store.load_projection()?;
+                let (session_store, projection) = prepared.into_parts();
                 let transcript = journal_transcript_messages(&projection, None);
-                Ok::<_, anyhow::Error>((session_store, projection.history, transcript))
+                (session_store, projection.history, transcript)
             })
             .await
-            .map_err(|error| anyhow!("session restore task failed: {error}"))??;
+            .map_err(|error| anyhow!("session transcript task failed: {error}"))?;
             builder = builder.resume_from_session_history(session_store, history, new_thread_id());
             Some(transcript)
         } else {
@@ -491,18 +499,6 @@ async fn completed_transcript(runtime: Arc<AgentRuntime>) -> Result<Vec<AppTrans
     })
     .await
     .map_err(|error| anyhow!("transcript projection task failed: {error}"))?
-}
-
-fn latest_workspace_session_dir(config_path: Option<&Path>, cwd: &Path) -> Result<Option<PathBuf>> {
-    let Some(config_path) = config_path else {
-        return Ok(None);
-    };
-    Ok(
-        list_workspace_session_summaries(&config_store_root(config_path), cwd)?
-            .into_iter()
-            .next()
-            .map(|session| session.session_dir),
-    )
 }
 
 async fn reload_tools_config(

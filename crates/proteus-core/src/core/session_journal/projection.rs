@@ -89,7 +89,7 @@ impl JournalValidationState {
                     }
                 }
                 for messages in super::hooks::model_messages(trace) {
-                    self.validate_part_id_stability(messages)?;
+                    Self::validate_part_id_stability(&mut self.known_parts, messages)?;
                 }
             }
             JournalEntry::TurnOpened(opened) => {
@@ -149,7 +149,7 @@ impl JournalValidationState {
                     );
                 }
                 validate_conversation_messages(&mutation.messages)?;
-                self.validate_part_id_stability(&mutation.messages)?;
+                Self::validate_part_id_stability(&mut self.known_parts, &mutation.messages)?;
                 if mutation.mutation != HistoryMutationKind::Checkpoint
                     && !mutation.tool_results.is_empty()
                 {
@@ -220,7 +220,7 @@ impl JournalValidationState {
             }
             JournalEntry::ModelRequestRecorded(request) => {
                 let owner = self.require_execution_fact(record)?;
-                self.validate_part_id_stability(&request.request.messages)?;
+                Self::validate_part_id_stability(&mut self.known_parts, &request.request.messages)?;
                 if self
                     .model_requests
                     .insert(request.exchange_id, owner)
@@ -236,7 +236,10 @@ impl JournalValidationState {
                 {
                     bail!("completed model message has no active exchange with the same owner");
                 }
-                self.validate_part_id_stability(std::slice::from_ref(&item.message))?;
+                Self::validate_part_id_stability(
+                    &mut self.known_parts,
+                    std::slice::from_ref(&item.message),
+                )?;
             }
             JournalEntry::ModelResponseRecorded(response) => {
                 let owner = self.require_execution_fact(record)?;
@@ -257,7 +260,7 @@ impl JournalValidationState {
                 }
                 if let super::types::ModelResponseOutcome::Response { response } = &response.outcome
                 {
-                    self.validate_part_id_stability(&response.messages)?;
+                    Self::validate_part_id_stability(&mut self.known_parts, &response.messages)?;
                 }
             }
             JournalEntry::ToolCallRecorded(tool) => {
@@ -387,7 +390,7 @@ impl JournalValidationState {
                 {
                     self.history_revision = self.history_revision.saturating_add(1);
                     validate_active_history_ids(&self.history)?;
-                    self.validate_part_id_stability(&self.history.clone())?;
+                    Self::validate_part_id_stability(&mut self.known_parts, &self.history)?;
                 }
             }
             JournalEntry::TurnSettled(settled) => {
@@ -410,7 +413,7 @@ impl JournalValidationState {
                         if self.capture.record(&mut self.history, &result)? {
                             self.history_revision = self.history_revision.saturating_add(1);
                             validate_active_history_ids(&self.history)?;
-                            self.validate_part_id_stability(&self.history.clone())?;
+                            Self::validate_part_id_stability(&mut self.known_parts, &self.history)?;
                         }
                     }
                 }
@@ -445,18 +448,25 @@ impl JournalValidationState {
         &self.history
     }
 
-    fn validate_part_id_stability(&mut self, messages: &[CanonicalMessage]) -> Result<()> {
+    fn validate_part_id_stability(
+        known_parts: &mut HashMap<PartId, CanonicalPart>,
+        messages: &[CanonicalMessage],
+    ) -> Result<()> {
         for message in messages {
             for part in &message.parts {
-                if let Some(previous) = self.known_parts.get(&part.part_id)
-                    && previous != part
-                {
-                    bail!(
-                        "canonical part {} changed after it was recorded",
-                        part.part_id
-                    );
+                match known_parts.entry(part.part_id) {
+                    std::collections::hash_map::Entry::Occupied(previous) => {
+                        if previous.get() != part {
+                            bail!(
+                                "canonical part {} changed after it was recorded",
+                                part.part_id
+                            );
+                        }
+                    }
+                    std::collections::hash_map::Entry::Vacant(entry) => {
+                        entry.insert(part.clone());
+                    }
                 }
-                self.known_parts.insert(part.part_id, part.clone());
             }
         }
         Ok(())

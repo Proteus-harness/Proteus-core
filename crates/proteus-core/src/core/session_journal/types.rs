@@ -192,10 +192,41 @@ impl JournalEntry {
         kind: JournalKind,
         payload: serde_json::Value,
     ) -> serde_json::Result<Self> {
-        serde_json::from_value(serde_json::json!({
-            "kind": kind,
-            "payload": payload,
-        }))
+        // The envelope already selected the variant. Rewrapping it in json!
+        // serializes and copies the complete payload, then the tagged enum
+        // buffers it again. Decode directly into the same strict payload DTO.
+        match kind {
+            JournalKind::HookInvoked => serde_json::from_value(payload).map(Self::HookInvoked),
+            JournalKind::TurnOpened => serde_json::from_value(payload).map(Self::TurnOpened),
+            JournalKind::HistoryMutated => {
+                serde_json::from_value(payload).map(Self::HistoryMutated)
+            }
+            JournalKind::ContextRequestRecorded => {
+                serde_json::from_value(payload).map(Self::ContextRequestRecorded)
+            }
+            JournalKind::ContextResponseRecorded => {
+                serde_json::from_value(payload).map(Self::ContextResponseRecorded)
+            }
+            JournalKind::ModelRequestRecorded => {
+                serde_json::from_value(payload).map(Self::ModelRequestRecorded)
+            }
+            JournalKind::ModelMessageRecorded => {
+                serde_json::from_value(payload).map(Self::ModelMessageRecorded)
+            }
+            JournalKind::ModelResponseRecorded => {
+                serde_json::from_value(payload).map(Self::ModelResponseRecorded)
+            }
+            JournalKind::ToolCallRecorded => {
+                serde_json::from_value(payload).map(Self::ToolCallRecorded)
+            }
+            JournalKind::ToolResultRecorded => {
+                serde_json::from_value(payload).map(Self::ToolResultRecorded)
+            }
+            JournalKind::ToolEffectRecorded => {
+                serde_json::from_value(payload).map(Self::ToolEffectRecorded)
+            }
+            JournalKind::TurnSettled => serde_json::from_value(payload).map(Self::TurnSettled),
+        }
     }
 }
 

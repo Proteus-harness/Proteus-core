@@ -197,11 +197,110 @@ fn catalog_propagates_root_directory_errors() {
     std::fs::write(&sessions, b"not a directory").unwrap();
     assert!(list_session_summaries(root.path()).is_err());
     assert!(list_workspace_session_summaries(root.path(), workspace.path()).is_err());
+    assert!(prepare_latest_workspace_session(root.path(), workspace.path()).is_err());
     assert!(list_session_summaries_for_audit(root.path(), None).is_err());
     std::fs::remove_file(&sessions).unwrap();
     std::fs::create_dir(&sessions).unwrap();
     let workspace_dir = sessions.join(encode_workspace_path(workspace.path()).unwrap());
     std::fs::write(&workspace_dir, b"not a directory").unwrap();
     assert!(list_workspace_session_summaries(root.path(), workspace.path()).is_err());
+    assert!(prepare_latest_workspace_session(root.path(), workspace.path()).is_err());
     assert!(list_session_summaries_for_audit(root.path(), Some(workspace.path())).is_err());
+}
+
+fn set_journal_time(store: &SessionStore, millis: u64) {
+    let time = UNIX_EPOCH + std::time::Duration::from_millis(millis);
+    std::fs::File::options()
+        .write(true)
+        .open(store.journal_path())
+        .unwrap()
+        .set_times(std::fs::FileTimes::new().set_modified(time))
+        .unwrap();
+}
+
+#[tokio::test]
+async fn prepared_latest_matches_catalog_millisecond_tie_order() {
+    let root = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    let first = saved_store(root.path(), workspace.path(), "first").await;
+    let second = saved_store(root.path(), workspace.path(), "second").await;
+    let older = saved_store(root.path(), workspace.path(), "older").await;
+    set_journal_time(&first, 10_000);
+    set_journal_time(&second, 10_000);
+    set_journal_time(&older, 9_999);
+    let expected = list_workspace_session_summaries(root.path(), workspace.path()).unwrap();
+    assert_eq!(
+        expected[0].session_dir,
+        first.session_dir().max(second.session_dir())
+    );
+    let prepared = prepare_latest_workspace_session(root.path(), workspace.path())
+        .unwrap()
+        .unwrap();
+    assert_eq!(prepared.session_dir(), expected[0].session_dir);
+    assert_eq!(prepared.workspace_path().unwrap(), workspace.path());
+    let (store, projection) = prepared.into_parts();
+    assert_eq!(store.session_id(), expected[0].session_id);
+    assert_eq!(projection.history, store.load_messages().unwrap());
+}
+
+#[tokio::test]
+async fn prepared_latest_skips_newer_unusable_and_empty_sessions_without_writes() {
+    let root = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    let valid = saved_store(root.path(), workspace.path(), "usable").await;
+    let corrupt = saved_store(root.path(), workspace.path(), "corrupt").await;
+    let old = saved_store(root.path(), workspace.path(), "old").await;
+    let empty = saved_store(root.path(), workspace.path(), "cleared").await;
+    empty.clear_history(new_thread_id()).await.unwrap();
+    std::fs::write(corrupt.journal_path(), b"{broken}\n").unwrap();
+    change_metadata(&old, "schema_version", serde_json::json!(3));
+    for (store, millis) in [
+        (&valid, 1_000),
+        (&corrupt, 2_000),
+        (&old, 3_000),
+        (&empty, 4_000),
+    ] {
+        set_journal_time(store, millis);
+    }
+    let before = file_bytes(&root.path().join("sessions"));
+    let prepared = prepare_latest_workspace_session(root.path(), workspace.path())
+        .unwrap()
+        .unwrap();
+    assert_eq!(prepared.session_dir(), valid.session_dir());
+    for invalid in [&corrupt, &old] {
+        assert!(PreparedSession::from_dir(invalid.session_dir().to_owned()).is_err());
+    }
+    assert!(
+        PreparedSession::from_dir(empty.session_dir().to_owned())
+            .unwrap()
+            .into_parts()
+            .1
+            .history
+            .is_empty()
+    );
+    assert_eq!(file_bytes(&root.path().join("sessions")), before);
+}
+
+#[tokio::test]
+async fn prepared_latest_returns_none_for_missing_or_empty_workspace() {
+    let root = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    assert!(
+        prepare_latest_workspace_session(root.path(), workspace.path())
+            .unwrap()
+            .is_none()
+    );
+    let empty = saved_store(root.path(), workspace.path(), "cleared").await;
+    empty.clear_history(new_thread_id()).await.unwrap();
+    assert!(
+        prepare_latest_workspace_session(root.path(), workspace.path())
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(
+        list_workspace_session_summaries(root.path(), workspace.path())
+            .unwrap()
+            .len(),
+        0
+    );
 }
