@@ -98,6 +98,38 @@ impl SessionView {
 }
 
 impl AppEventPublisher {
+    pub(in crate::app_server) fn completed_history(
+        &self,
+    ) -> Option<Arc<Vec<AppTranscriptMessage>>> {
+        self.0
+            .view
+            .lock()
+            .expect("session view lock")
+            .history
+            .as_ref()
+            .ok()
+            .cloned()
+    }
+
+    pub(in crate::app_server) fn refresh_history(
+        &self,
+        expected: &Arc<Vec<AppTranscriptMessage>>,
+        history: Vec<AppTranscriptMessage>,
+    ) -> Result<()> {
+        {
+            let mut view = self.0.view.lock().expect("session view lock");
+            if !view
+                .history
+                .as_ref()
+                .is_ok_and(|current| Arc::ptr_eq(current, expected))
+            {
+                return Ok(());
+            }
+            view.history = Ok(Arc::new(history));
+        }
+        self.publish_snapshot()
+    }
+
     pub(in crate::app_server) fn attach_runtime(
         &self,
         runtime: &Arc<AgentRuntime>,

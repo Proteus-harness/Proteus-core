@@ -17,6 +17,8 @@ use super::{
 
 #[cfg(unix)]
 mod cache;
+#[cfg(unix)]
+pub(crate) use cache::subscribe_updates as subscribe_catalog_updates;
 mod prepared;
 
 pub(crate) use prepared::{PreparedSession, prepare_latest_workspace_session};
@@ -165,7 +167,7 @@ fn session_summary_from_dir(session_dir: PathBuf) -> Result<AppSessionSummary> {
     session_summary_from_projection(session_dir, session_id, &projection)
 }
 
-fn session_summary_from_projection(
+pub(super) fn session_summary_from_projection(
     session_dir: PathBuf,
     session_id: crate::domain::SessionId,
     projection: &JournalProjection,

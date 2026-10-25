@@ -91,6 +91,7 @@ async fn subscription_snapshot_covers_buffered_events_and_recovers_after_overflo
 #[tokio::test]
 async fn reconnect_snapshot_replaces_live_progress_with_committed_transcript_once() {
     let (events, _) = test_event_channel(8);
+    let stale_refresh = events.completed_history().unwrap();
     let sink = RuntimeEventSink::default();
     assert!(sink.0.set(events.clone()).is_ok());
     let context = EventContext::new(
@@ -129,6 +130,7 @@ async fn reconnect_snapshot_replaces_live_progress_with_committed_transcript_onc
         )]);
     events.finish_progress(Ok(committed));
     events.publish_snapshot().unwrap();
+    events.refresh_history(&stale_refresh, Vec::new()).unwrap();
 
     assert!(matches!(
         subscription.recv().await.unwrap(),

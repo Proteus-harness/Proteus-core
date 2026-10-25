@@ -1,88 +1,22 @@
 //! Bounded, read-only acceleration for the UI catalog. Audit/replay never use it.
 use std::{
     collections::VecDeque,
-    ffi::OsString,
-    fs::{self, Metadata},
-    io::ErrorKind,
-    os::unix::fs::MetadataExt,
     path::{Path, PathBuf},
     sync::{Mutex, OnceLock},
 };
 
+use super::super::read_cache::{self, SourceFingerprint};
 use anyhow::Result;
 use proteus_contracts::app_protocol::AppSessionSummary;
 
 const MAX_SESSIONS: usize = 512;
 const MAX_FILE_STAMPS: usize = 8192;
 const MAX_BLOBS: usize = 256;
-
-#[derive(PartialEq, Eq)]
-struct FileStamp {
-    device: u64,
-    inode: u64,
-    bytes: u64,
-    modified: (i64, i64),
-    changed: (i64, i64),
-    mode: u32,
-}
-impl From<Metadata> for FileStamp {
-    fn from(m: Metadata) -> Self {
-        Self {
-            device: m.dev(),
-            inode: m.ino(),
-            bytes: m.len(),
-            modified: (m.mtime(), m.mtime_nsec()),
-            changed: (m.ctime(), m.ctime_nsec()),
-            mode: m.mode(),
-        }
-    }
-}
-
-#[derive(PartialEq, Eq)]
-struct Fingerprint {
-    directory: FileStamp,
-    metadata: FileStamp,
-    journal: Option<FileStamp>,
-    blobs_directory: Option<FileStamp>,
-    blobs: Vec<(OsString, FileStamp)>,
-}
-impl Fingerprint {
-    fn read(dir: &Path) -> Option<Self> {
-        let directory = fs::metadata(dir).ok()?.into();
-        let metadata = fs::metadata(dir.join("session.json")).ok()?.into();
-        let journal = optional_stamp(&super::journal_path(dir))?;
-        let blob_dir = dir.join("blobs");
-        let blobs_directory = optional_stamp(&blob_dir)?;
-        let mut blobs = Vec::new();
-        if blobs_directory.is_some() {
-            for entry in fs::read_dir(blob_dir).ok()? {
-                let entry = entry.ok()?;
-                if blobs.len() == MAX_BLOBS || !entry.file_type().ok()?.is_file() {
-                    return None;
-                }
-                blobs.push((entry.file_name(), entry.metadata().ok()?.into()));
-            }
-            blobs.sort_by(|a, b| a.0.cmp(&b.0));
-        }
-        Some(Self {
-            directory,
-            metadata,
-            journal,
-            blobs_directory,
-            blobs,
-        })
-    }
-}
-fn optional_stamp(path: &Path) -> Option<Option<FileStamp>> {
-    match fs::metadata(path) {
-        Ok(m) => Some(Some(m.into())),
-        Err(e) if e.kind() == ErrorKind::NotFound => Some(None),
-        Err(_) => None,
-    }
-}
+const MAX_DISK_BLOBS: usize = 8192;
+const DISK_NAME: &str = "summary";
 
 struct CachedSummary {
-    fingerprint: Fingerprint,
+    fingerprint: SourceFingerprint,
     summary: AppSessionSummary,
 }
 #[derive(Default)]
@@ -95,7 +29,7 @@ impl SummaryCache {
             .position(|entry| entry.summary.session_dir == path)?;
         self.0.remove(index)
     }
-    fn get(&mut self, path: &Path, fingerprint: &Fingerprint) -> Option<AppSessionSummary> {
+    fn get(&mut self, path: &Path, fingerprint: &SourceFingerprint) -> Option<AppSessionSummary> {
         let entry = self.take(path)?;
         if entry.fingerprint != *fingerprint {
             return None;
@@ -104,17 +38,17 @@ impl SummaryCache {
         self.0.push_back(entry);
         Some(summary)
     }
-    fn insert(&mut self, fingerprint: Fingerprint, summary: AppSessionSummary) {
+    fn insert(&mut self, fingerprint: SourceFingerprint, summary: AppSessionSummary) {
         self.take(&summary.session_dir);
         let mut files = self
             .0
             .iter()
-            .map(|entry| entry.fingerprint.blobs.len() + 4)
+            .map(|entry| entry.fingerprint.file_stamps())
             .sum::<usize>();
-        let incoming = fingerprint.blobs.len() + 4;
+        let incoming = fingerprint.file_stamps();
         while self.0.len() >= MAX_SESSIONS || files + incoming > MAX_FILE_STAMPS {
             if let Some(old) = self.0.pop_front() {
-                files -= old.fingerprint.blobs.len() + 4;
+                files -= old.fingerprint.file_stamps();
             }
         }
         self.0.push_back(CachedSummary {
@@ -124,8 +58,19 @@ impl SummaryCache {
     }
 }
 
+mod refresh;
+
+pub(crate) fn subscribe_updates() -> tokio::sync::watch::Receiver<u64> {
+    refresh::subscribe_updates()
+}
+
 pub(super) fn summary(dir: PathBuf) -> Result<AppSessionSummary> {
-    load(shared_cache(), dir, super::session_summary_from_dir)
+    let (summary, stale) =
+        load_with_status(shared_cache(), dir.clone(), super::session_summary_from_dir)?;
+    if stale {
+        refresh::enqueue(dir);
+    }
+    Ok(summary)
 }
 
 fn shared_cache() -> &'static Mutex<SummaryCache> {
@@ -138,7 +83,7 @@ pub(super) fn prime_from_read<T>(
     dir: &Path,
     read: impl FnOnce() -> Result<(T, AppSessionSummary)>,
 ) -> Result<T> {
-    let before = Fingerprint::read(dir);
+    let before = SourceFingerprint::read(dir, MAX_DISK_BLOBS);
     let (value, summary) = read()?;
     cache_if_unchanged(shared_cache(), dir, before, summary);
     Ok(value)
@@ -147,43 +92,85 @@ pub(super) fn prime_from_read<T>(
 fn cache_if_unchanged(
     cache: &Mutex<SummaryCache>,
     dir: &Path,
-    before: Option<Fingerprint>,
+    before: Option<SourceFingerprint>,
     summary: AppSessionSummary,
-) {
-    if let Some(before) = before {
-        if Fingerprint::read(dir).as_ref() == Some(&before) {
-            cache
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .insert(before, summary);
-        }
+) -> bool {
+    let Some(before) = before else {
+        return false;
+    };
+    if SourceFingerprint::read(dir, MAX_DISK_BLOBS).as_ref() != Some(&before) {
+        return false;
     }
+    let saved = read_cache::save(dir, DISK_NAME, &before, &summary);
+    if SourceFingerprint::read(dir, MAX_DISK_BLOBS).as_ref() != Some(&before) {
+        return false;
+    }
+    if before.file_stamps() <= MAX_BLOBS + 4 {
+        cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(before, summary);
+    }
+    saved
 }
 
+#[cfg(test)]
 fn load(
     cache: &Mutex<SummaryCache>,
     dir: PathBuf,
     read: impl FnOnce(PathBuf) -> Result<AppSessionSummary>,
 ) -> Result<AppSessionSummary> {
+    load_with_status(cache, dir, read).map(|(summary, _)| summary)
+}
+
+fn load_with_status(
+    cache: &Mutex<SummaryCache>,
+    dir: PathBuf,
+    read: impl FnOnce(PathBuf) -> Result<AppSessionSummary>,
+) -> Result<(AppSessionSummary, bool)> {
     // A removed or moved workspace must not remain visible through a cache hit.
-    super::workspace_path_from_session_dir(&dir)?;
-    let before = Fingerprint::read(&dir);
+    let workspace = super::workspace_path_from_session_dir(&dir)?;
+    let valid = |summary: &AppSessionSummary| {
+        summary.session_dir == dir
+            && summary.workspace_path == workspace
+            && super::resolve_session_identity(&dir)
+                .is_ok_and(|identity| summary.session_id == identity.session_id)
+            && summary.activity.is_none()
+    };
+    let before = SourceFingerprint::read(&dir, MAX_DISK_BLOBS);
     if let Some(fingerprint) = &before {
-        if let Some(summary) = cache
+        let cached = cache
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .get(&dir, fingerprint)
-        {
-            return Ok(summary);
+            .get(&dir, fingerprint);
+        if let Some(summary) = cached {
+            if valid(&summary) {
+                return Ok((summary, false));
+            }
         }
     } else {
         cache.lock().unwrap_or_else(|e| e.into_inner()).take(&dir);
+    }
+    if let Some((source, summary, fresh)) =
+        read_cache::load_any::<AppSessionSummary>(&dir, DISK_NAME)
+    {
+        if valid(&summary) {
+            // A stale summary is only a display placeholder. Do not mark it as
+            // current or retain it over a newer snapshot saved by background refresh.
+            if fresh && source.file_stamps() <= MAX_BLOBS + 4 {
+                cache
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .insert(source, summary.clone());
+            }
+            return Ok((summary, !fresh));
+        }
     }
     // Full validation stays outside the global cache lock. Never cache errors or
     // a snapshot whose files changed while it was being read.
     let summary = read(dir.clone())?;
     cache_if_unchanged(cache, &dir, before, summary.clone());
-    Ok(summary)
+    Ok((summary, false))
 }
 
 #[cfg(test)]

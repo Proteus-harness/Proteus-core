@@ -30,6 +30,7 @@ mod config_history;
 mod handle;
 mod profile;
 mod profile_watch;
+mod read_model;
 pub use handle::{AppServerHandle, AppServerState};
 mod config_summary;
 mod context_map;
@@ -421,16 +422,21 @@ impl AgentAppServer {
             .with_event_sink(event_sink)
             .with_approval(Arc::new(approval_transport))
             .with_user_input(Arc::new(user_input_transport));
+        let mut refresh_stale_view = false;
         let initial_transcript = if let Some(prepared) = resumed_session {
-            let (session_store, history, transcript) = tokio::task::spawn_blocking(move || {
-                let (session_store, projection) = prepared.into_parts();
-                let transcript = journal_transcript_messages(&projection, None);
-                (session_store, projection.history, transcript)
+            let (session_store, model, deferred, stale) = tokio::task::spawn_blocking(move || {
+                prepared.into_read_model(|projection| journal_transcript_messages(projection, None))
             })
             .await
-            .map_err(|error| anyhow!("session transcript task failed: {error}"))?;
-            builder = builder.resume_from_session_history(session_store, history, new_thread_id());
-            Some(transcript)
+            .map_err(|error| anyhow!("session transcript task failed: {error}"))??;
+            refresh_stale_view = stale;
+            builder = builder.resume_from_session_snapshot(
+                session_store,
+                model.conversation,
+                new_thread_id(),
+                deferred,
+            );
+            Some(model.transcript)
         } else {
             None
         };
@@ -480,6 +486,9 @@ impl AgentAppServer {
         };
         handle.command_catalog().await?;
         profile_watch::start(&handle).await;
+        if refresh_stale_view {
+            read_model::refresh_in_background(&handle);
+        }
         Ok(handle)
     }
 }
@@ -492,10 +501,12 @@ async fn completed_transcript(runtime: Arc<AgentRuntime>) -> Result<Vec<AppTrans
         return Ok(transcript_messages(&runtime.history().await));
     }
     tokio::task::spawn_blocking(move || {
-        let projection = runtime
-            .session_projection()?
-            .ok_or_else(|| anyhow!("persisted session has no journal projection"))?;
-        Ok(journal_transcript_messages(&projection, None))
+        let store = runtime
+            .session_store()
+            .ok_or_else(|| anyhow!("persisted session has no store"))?;
+        let model =
+            store.project_read_model(|projection| journal_transcript_messages(projection, None))?;
+        Ok(model.transcript)
     })
     .await
     .map_err(|error| anyhow!("transcript projection task failed: {error}"))?

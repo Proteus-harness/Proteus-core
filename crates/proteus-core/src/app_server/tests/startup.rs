@@ -16,6 +16,143 @@ async fn saved_startup_store(root: &Path, workspace: &Path, text: &str) -> Sessi
     store
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn stale_saved_transcript_refreshes_through_the_session_stream_without_a_turn() {
+    let root = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    let config = root.path().join("config.toml");
+    let store = saved_startup_store(root.path(), workspace.path(), "old display").await;
+    let first = AgentAppServer::launch_resumed(
+        crate::test_model::config(),
+        workspace.path().into(),
+        Some(&config),
+        store.session_dir().into(),
+    )
+    .await
+    .unwrap();
+    first.shutdown().await;
+    store
+        .append_history(
+            new_thread_id(),
+            None,
+            &[CanonicalMessage::text(MessageRole::User, "external update")],
+        )
+        .await
+        .unwrap();
+    let before = std::fs::read(store.journal_path()).unwrap();
+    let reopened = AgentAppServer::launch_resumed(
+        crate::test_model::config(),
+        workspace.path().into(),
+        Some(&config),
+        store.session_dir().into(),
+    )
+    .await
+    .unwrap();
+    let mut stream = reopened.subscribe_session();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if let AppServerEvent::SessionSnapshot { snapshot } = stream.recv().await.unwrap()
+                && snapshot
+                    .transcript
+                    .iter()
+                    .any(|message| message.text == "external update")
+            {
+                break;
+            }
+        }
+    })
+    .await
+    .expect("background refresh publishes a replacement snapshot");
+    assert_eq!(
+        reopened.runtime.history().await,
+        store.load_messages().unwrap()
+    );
+    assert_eq!(std::fs::read(store.journal_path()).unwrap(), before);
+    let (_, _, deferred, stale) =
+        crate::core::PreparedSession::from_dir(store.session_dir().into())
+            .unwrap()
+            .into_read_model(|_| panic!("background refresh should persist the current view"))
+            .unwrap();
+    assert!(deferred && !stale);
+    reopened.shutdown().await;
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn clear_persists_empty_view_but_external_append_makes_it_a_resume_candidate() {
+    let root = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    let config = root.path().join("config.toml");
+    let store = saved_startup_store(root.path(), workspace.path(), "before clear").await;
+    let handle = AgentAppServer::launch_resumed(
+        crate::test_model::config(),
+        workspace.path().into(),
+        Some(&config),
+        store.session_dir().into(),
+    )
+    .await
+    .unwrap();
+    handle.clear_history().await.unwrap();
+    let (_, view, deferred, stale) =
+        crate::core::PreparedSession::from_dir(store.session_dir().into())
+            .unwrap()
+            .into_read_model(|_| panic!("clear must persist the empty view"))
+            .unwrap();
+    assert!(deferred && !stale);
+    assert!(view.conversation.messages.is_empty());
+    assert!(view.transcript.is_empty());
+    assert!(
+        crate::core::prepare_latest_workspace_session(root.path(), workspace.path())
+            .unwrap()
+            .is_none()
+    );
+    handle.shutdown().await;
+    store
+        .append_history(
+            new_thread_id(),
+            None,
+            &[CanonicalMessage::text(
+                MessageRole::User,
+                "external after clear",
+            )],
+        )
+        .await
+        .unwrap();
+    let prepared = crate::core::prepare_latest_workspace_session(root.path(), workspace.path())
+        .unwrap()
+        .unwrap();
+    assert_eq!(prepared.session_dir(), store.session_dir());
+    let (_, old, deferred, stale) = prepared
+        .into_read_model(|_| panic!("stale view must not block startup"))
+        .unwrap();
+    assert!(deferred && stale && old.transcript.is_empty());
+    let reopened = AgentAppServer::launch_or_resume_latest(
+        crate::test_model::config(),
+        workspace.path().into(),
+        Some(&config),
+    )
+    .await
+    .unwrap();
+    assert_eq!(reopened.runtime.session_id(), store.session_id());
+    let mut stream = reopened.subscribe_session();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if let AppServerEvent::SessionSnapshot { snapshot } = stream.recv().await.unwrap()
+                && snapshot
+                    .transcript
+                    .iter()
+                    .any(|message| message.text == "external after clear")
+            {
+                break;
+            }
+        }
+    })
+    .await
+    .expect("externally populated session refreshes without a turn");
+    reopened.shutdown().await;
+}
+
 fn change_startup_metadata(store: &SessionStore, key: &str, version: u32) {
     let path = store.session_dir().join("session.json");
     let mut metadata: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();

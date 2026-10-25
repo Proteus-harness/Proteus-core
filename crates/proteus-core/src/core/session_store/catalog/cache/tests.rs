@@ -4,7 +4,7 @@ use crate::{
     domain::{new_session_id, new_thread_id},
     model_standard::{CanonicalMessage, MessageRole},
 };
-use std::{cell::Cell, time::Instant};
+use std::{cell::Cell, fs, time::Instant};
 
 async fn saved(root: &Path, workspace: &Path, text: &str) -> SessionStore {
     let store = SessionStore::new(root, workspace, new_session_id()).unwrap();
@@ -29,8 +29,20 @@ fn counted(
     })
 }
 
+fn refresh(
+    cache: &Mutex<SummaryCache>,
+    dir: &Path,
+    reads: &Cell<usize>,
+) -> Result<AppSessionSummary> {
+    let before = SourceFingerprint::read(dir, MAX_DISK_BLOBS);
+    reads.set(reads.get() + 1);
+    let summary = super::super::session_summary_from_dir(dir.to_owned())?;
+    cache_if_unchanged(cache, dir, before, summary.clone());
+    Ok(summary)
+}
+
 #[tokio::test]
-async fn warm_catalog_reuses_summary_but_append_replace_and_delete_are_visible() {
+async fn stale_catalog_is_immediate_then_authoritative_refresh_becomes_visible() {
     let root = tempfile::tempdir().unwrap();
     let workspace = tempfile::tempdir().unwrap();
     let store = saved(root.path(), workspace.path(), "first").await;
@@ -49,11 +61,17 @@ async fn warm_catalog_reuses_summary_but_append_replace_and_delete_are_visible()
         )
         .await
         .unwrap();
+    assert_eq!(counted(&cache, store.session_dir(), &reads).unwrap(), first);
+    assert!(
+        cache.lock().unwrap().0.is_empty(),
+        "stale data must not enter memory cache"
+    );
+    assert_eq!(reads.get(), 1);
+    let appended = refresh(&cache, store.session_dir(), &reads).unwrap();
+    assert_eq!(appended.message_count, 2);
     assert_eq!(
-        counted(&cache, store.session_dir(), &reads)
-            .unwrap()
-            .message_count,
-        2
+        counted(&cache, store.session_dir(), &reads).unwrap(),
+        appended
     );
     store
         .replace_history(
@@ -64,11 +82,26 @@ async fn warm_catalog_reuses_summary_but_append_replace_and_delete_are_visible()
         )
         .await
         .unwrap();
-    let replaced = counted(&cache, store.session_dir(), &reads).unwrap();
+    assert_eq!(
+        counted(&cache, store.session_dir(), &reads).unwrap(),
+        appended
+    );
+    // A fresh summary saved by another reader must replace the stale placeholder.
+    let independent = Mutex::new(SummaryCache::default());
+    let replaced = refresh(&independent, store.session_dir(), &reads).unwrap();
     assert_eq!(replaced.message_count, 1);
     assert_eq!(replaced.preview.as_deref(), Some("replacement"));
+    assert_eq!(
+        counted(&cache, store.session_dir(), &reads).unwrap(),
+        replaced
+    );
     assert_eq!(reads.get(), 3);
     fs::remove_file(store.journal_path()).unwrap();
+    assert_eq!(
+        counted(&cache, store.session_dir(), &reads).unwrap(),
+        replaced
+    );
+    refresh(&cache, store.session_dir(), &reads).unwrap();
     assert_eq!(
         counted(&cache, store.session_dir(), &reads)
             .unwrap()
@@ -79,7 +112,7 @@ async fn warm_catalog_reuses_summary_but_append_replace_and_delete_are_visible()
 }
 
 #[tokio::test]
-async fn warmed_cache_does_not_hide_corruption_even_with_preserved_mtime_and_size() {
+async fn stale_display_is_allowed_but_identity_and_audit_stay_strict() {
     let workspace = tempfile::tempdir().unwrap();
     for target in ["metadata", "journal", "blob"] {
         let root = tempfile::tempdir().unwrap();
@@ -91,7 +124,7 @@ async fn warmed_cache_does_not_hide_corruption_even_with_preserved_mtime_and_siz
         let store = saved(root.path(), workspace.path(), &text).await;
         let cache = Mutex::new(SummaryCache::default());
         let reads = Cell::new(0);
-        counted(&cache, store.session_dir(), &reads).unwrap();
+        let original = counted(&cache, store.session_dir(), &reads).unwrap();
         let path = match target {
             "metadata" => store.session_dir().join("session.json"),
             "journal" => store.journal_path(),
@@ -112,12 +145,20 @@ async fn warmed_cache_does_not_hide_corruption_even_with_preserved_mtime_and_siz
             .unwrap()
             .set_times(fs::FileTimes::new().set_modified(modified))
             .unwrap();
-        assert!(
-            counted(&cache, store.session_dir(), &reads).is_err(),
-            "{target} corruption was cached"
-        );
-        assert_eq!(reads.get(), 2);
+        let result = counted(&cache, store.session_dir(), &reads);
+        if target == "metadata" {
+            assert!(result.is_err(), "current identity must be valid");
+            assert_eq!(reads.get(), 2);
+        } else {
+            assert_eq!(result.unwrap(), original);
+            assert_eq!(
+                reads.get(),
+                1,
+                "stale display should not replay the journal"
+            );
+        }
         assert!(super::super::list_session_summaries_for_audit(root.path(), None).is_err());
+        assert!(refresh(&cache, store.session_dir(), &reads).is_err());
     }
 }
 
@@ -141,7 +182,10 @@ async fn concurrent_change_is_not_cached_and_cache_is_bounded() {
     for index in 0..MAX_SESSIONS + 10 {
         let mut item = summary.clone();
         item.session_dir = PathBuf::from(index.to_string());
-        cache.insert(Fingerprint::read(valid.session_dir()).unwrap(), item);
+        cache.insert(
+            SourceFingerprint::read(valid.session_dir(), MAX_BLOBS).unwrap(),
+            item,
+        );
     }
     assert_eq!(cache.0.len(), MAX_SESSIONS);
     assert!(cache.take(Path::new("0")).is_none());
@@ -170,10 +214,10 @@ async fn prepared_resume_primes_catalog_but_never_uses_cached_validation() {
     })
     .unwrap();
     assert_eq!(summary.preview.as_deref(), Some("prepared"));
-    assert_eq!(prepared.into_parts().1.history.len(), 1);
+    assert_eq!(prepared.message_count(), 1);
     // Even an unchanged warm catalog never substitutes for a startup projection.
     let second = super::super::PreparedSession::from_dir(store.session_dir().to_owned()).unwrap();
-    assert_eq!(second.into_parts().1.history.len(), 1);
+    assert_eq!(second.message_count(), 1);
     fs::write(store.journal_path(), b"{broken}\n").unwrap();
     assert!(super::super::PreparedSession::from_dir(store.session_dir().to_owned()).is_err());
     assert!(summary.message_count > 0);
@@ -242,6 +286,7 @@ async fn catalog_benchmark() {
         .await
         .unwrap();
     let changed = Instant::now();
+    refresh(&cache, stores[0].session_dir(), &reads).unwrap();
     for store in &stores {
         counted(&cache, store.session_dir(), &reads).unwrap();
     }
@@ -253,4 +298,107 @@ async fn catalog_benchmark() {
         changed.elapsed().as_secs_f64() * 1000.,
         reads.get()
     );
+}
+
+#[tokio::test]
+async fn persisted_summary_survives_a_fresh_memory_cache_but_audit_remains_strict() {
+    let root = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    let store = saved(root.path(), workspace.path(), "persisted").await;
+    let first = counted(
+        &Mutex::new(SummaryCache::default()),
+        store.session_dir(),
+        &Cell::new(0),
+    )
+    .unwrap();
+    let reloaded = load(
+        &Mutex::new(SummaryCache::default()),
+        store.session_dir().to_owned(),
+        |_| panic!("unchanged persisted summary must survive a process restart"),
+    )
+    .unwrap();
+    assert_eq!(reloaded, first);
+    fs::write(store.journal_path(), b"{broken}\n").unwrap();
+    assert!(super::super::list_session_summaries_for_audit(root.path(), None).is_err());
+    assert_eq!(
+        counted(
+            &Mutex::new(SummaryCache::default()),
+            store.session_dir(),
+            &Cell::new(0),
+        )
+        .unwrap(),
+        first
+    );
+}
+
+#[tokio::test]
+async fn persisted_summary_must_match_current_path_workspace_and_identity() {
+    let root = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    let store = saved(root.path(), workspace.path(), "canonical").await;
+    let source = SourceFingerprint::read(store.session_dir(), MAX_BLOBS).unwrap();
+    let expected = super::super::session_summary_from_dir(store.session_dir().to_owned()).unwrap();
+    for field in ["session_dir", "workspace_path", "session_id"] {
+        let mut wrong = expected.clone();
+        match field {
+            "session_dir" => wrong.session_dir = root.path().join("wrong"),
+            "workspace_path" => wrong.workspace_path = root.path().join("wrong"),
+            _ => wrong.session_id = new_session_id(),
+        }
+        assert!(read_cache::save(
+            store.session_dir(),
+            DISK_NAME,
+            &source,
+            &wrong
+        ));
+        let reads = Cell::new(0);
+        let actual = counted(
+            &Mutex::new(SummaryCache::default()),
+            store.session_dir(),
+            &reads,
+        )
+        .unwrap();
+        assert_eq!(actual, expected);
+        assert_eq!(reads.get(), 1, "{field}");
+    }
+}
+
+#[tokio::test]
+async fn public_stale_summary_refreshes_unopened_session_and_notifies_subscribers() {
+    let root = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    let store = saved(root.path(), workspace.path(), "unopened").await;
+    let old = summary(store.session_dir().to_owned()).unwrap();
+    store
+        .append_history(
+            new_thread_id(),
+            None,
+            &[CanonicalMessage::text(
+                MessageRole::Assistant,
+                "background reply",
+            )],
+        )
+        .await
+        .unwrap();
+    let journal = fs::read(store.journal_path()).unwrap();
+    let mut updates = subscribe_updates();
+    // The public catalog returns the stale value before its queued work completes.
+    let immediate = summary(store.session_dir().to_owned()).unwrap();
+    assert_eq!(immediate, old);
+    let current = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        loop {
+            updates.changed().await.unwrap();
+            if let Some((_, current)) =
+                read_cache::load::<AppSessionSummary>(store.session_dir(), DISK_NAME)
+            {
+                if current.message_count == 2 {
+                    break current;
+                }
+            }
+        }
+    })
+    .await
+    .expect("queued catalog refresh should publish its fresh summary");
+    assert_eq!(summary(store.session_dir().to_owned()).unwrap(), current);
+    assert_eq!(fs::read(store.journal_path()).unwrap(), journal);
 }

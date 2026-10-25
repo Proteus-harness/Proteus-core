@@ -33,6 +33,7 @@ mod hooks;
 mod images;
 mod paths;
 mod reload;
+mod resume;
 mod settings;
 mod steering;
 mod turn;
@@ -147,6 +148,7 @@ struct SessionState {
     model_context: Arc<Mutex<super::model_context::ModelContextState>>,
     interrupted_turns: Arc<Mutex<Vec<crate::contracts::WorkflowHistoryInterruption>>>,
     session_store: Option<SessionStore>,
+    deferred_resume_validation: Mutex<bool>,
     steering: Arc<SessionSteering>,
 }
 
@@ -169,6 +171,7 @@ impl SessionState {
             model_context: Default::default(),
             interrupted_turns: Default::default(),
             session_store,
+            deferred_resume_validation: Mutex::new(false),
             steering: Arc::new(SessionSteering::default()),
         }
     }
@@ -326,6 +329,7 @@ impl AgentRuntime {
     }
 
     pub async fn clear_history(&self) -> Result<()> {
+        self.validate_cached_resume().await?;
         let guard = self.session.run_lock.clone().lock_owned().await;
         let store = self.session.session_store.clone();
         let thread_id = self.session.thread_id;
@@ -370,12 +374,8 @@ impl AgentRuntime {
         self.session.history.lock().await.clone()
     }
 
-    pub(crate) fn session_projection(&self) -> Result<Option<crate::core::JournalProjection>> {
-        self.session
-            .session_store
-            .as_ref()
-            .map(SessionStore::load_projection)
-            .transpose()
+    pub(crate) fn session_store(&self) -> Option<&SessionStore> {
+        self.session.session_store.as_ref()
     }
 
     pub(crate) fn subscribe_queued_user_messages(

@@ -2,6 +2,26 @@ use super::*;
 use crate::contracts::WorkflowToolResultBinding;
 
 impl SessionStore {
+    /// First continuation acquires the existing writer lease and reuses its strict
+    /// recovery projection. Display caches never initialize writer validation.
+    pub(crate) async fn prepare_resume_projection(&self) -> Result<JournalProjection> {
+        let mut writer = self.writer.clone().lock_owned().await;
+        let store = self.clone();
+        tokio::task::spawn_blocking(move || {
+            store.materialize_for_write()?;
+            match crate::core::session_journal::initialize_writer_projection(
+                &store.session_dir,
+                store.session_id,
+                &mut writer,
+            )? {
+                Some(projection) => Ok(projection),
+                None => store.load_projection(),
+            }
+        })
+        .await
+        .context("session resume validation worker failed")?
+    }
+
     #[cfg(test)]
     pub(crate) async fn pause_next_append(
         &self,

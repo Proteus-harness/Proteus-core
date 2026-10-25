@@ -26,6 +26,13 @@ fn file_bytes(dir: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
     let mut files = BTreeMap::new();
     for entry in std::fs::read_dir(dir).unwrap() {
         let entry = entry.unwrap();
+        // Disposable read models may be created; canonical files stay byte-exact.
+        if matches!(
+            entry.file_name().to_str(),
+            Some(".read-summary.json" | ".read-view.json")
+        ) {
+            continue;
+        }
         if entry.file_type().unwrap().is_dir() {
             files.extend(file_bytes(&entry.path()));
         } else {
@@ -238,13 +245,14 @@ async fn prepared_latest_matches_catalog_millisecond_tie_order() {
         .unwrap();
     assert_eq!(prepared.session_dir(), expected[0].session_dir);
     assert_eq!(prepared.workspace_path().unwrap(), workspace.path());
-    let (store, projection) = prepared.into_parts();
+    let (store, model, deferred, stale) = prepared.into_read_model(|_| Vec::new()).unwrap();
     assert_eq!(store.session_id(), expected[0].session_id);
-    assert_eq!(projection.history, store.load_messages().unwrap());
+    assert_eq!(model.conversation.messages, store.load_messages().unwrap());
+    assert!(!deferred && !stale);
 }
 
 #[tokio::test]
-async fn prepared_latest_skips_newer_unusable_and_empty_sessions_without_writes() {
+async fn prepared_latest_skips_newer_unusable_and_empty_sessions_without_canonical_writes() {
     let root = tempfile::tempdir().unwrap();
     let workspace = tempfile::tempdir().unwrap();
     let valid = saved_store(root.path(), workspace.path(), "usable").await;
@@ -273,10 +281,8 @@ async fn prepared_latest_skips_newer_unusable_and_empty_sessions_without_writes(
     assert!(
         PreparedSession::from_dir(empty.session_dir().to_owned())
             .unwrap()
-            .into_parts()
-            .1
-            .history
-            .is_empty()
+            .message_count()
+            == 0
     );
     assert_eq!(file_bytes(&root.path().join("sessions")), before);
 }

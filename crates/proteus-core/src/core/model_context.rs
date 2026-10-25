@@ -22,6 +22,13 @@ pub(crate) struct ModelContextState {
 }
 
 impl ModelContextState {
+    pub(crate) fn from_snapshot(observations: Vec<ModelContextObservation>) -> Self {
+        Self {
+            observations,
+            requests: HashMap::new(),
+        }
+    }
+
     pub(crate) fn snapshot(&self) -> Vec<ModelContextObservation> {
         self.observations.clone()
     }

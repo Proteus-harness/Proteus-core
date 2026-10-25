@@ -52,6 +52,11 @@ impl AppServerHandle {
             return Err(anyhow!("cannot clear history while a run is active"));
         }
         self.runtime.clear_history().await?;
+        // The replacement is already durable. Cache failure must not report a
+        // failed clear, but a successful projection prevents old data resurfacing.
+        if let Err(error) = completed_transcript(self.runtime.clone()).await {
+            eprintln!("warning: cleared history read cache could not be refreshed: {error:#}");
+        }
         // A successful Replace([]) clears the canonical journal transcript.
         self.events.finish_progress(Ok(Vec::new()));
         self.events.publish_snapshot()

@@ -18,8 +18,8 @@ pub use types::*;
 
 pub(crate) use storage::redacted_history;
 pub(crate) use storage::{
-    JournalRecordAttribution, JournalWriterState, append_record, initialize_writer_state,
-    journal_path, load_records,
+    JournalRecordAttribution, JournalWriterState, append_record, initialize_writer_projection,
+    initialize_writer_state, journal_path, load_records,
 };
 
 #[cfg(test)]

@@ -108,8 +108,16 @@ pub(crate) fn initialize_writer_state(
     session_id: SessionId,
     state: &mut JournalWriterState,
 ) -> Result<()> {
+    initialize_writer_projection(session_dir, session_id, state).map(|_| ())
+}
+
+pub(crate) fn initialize_writer_projection(
+    session_dir: &Path,
+    session_id: SessionId,
+    state: &mut JournalWriterState,
+) -> Result<Option<JournalProjection>> {
     if state.initialized {
-        return Ok(());
+        return Ok(None);
     }
     let ownership = SessionWriteOwnership::acquire(session_dir, session_id)?;
     let path = journal_path(session_dir);
@@ -118,15 +126,15 @@ pub(crate) fn initialize_writer_state(
     {
         state.initial_recovery_scans += 1;
     }
-    let records = load_records(session_dir, session_id)?;
-    let projection = JournalProjection::build(session_id, records.clone())?;
+    let projection = JournalProjection::build(session_id, load_records(session_dir, session_id)?)?;
     let mut validation = JournalValidationState::default();
     let mut usage = super::UsageProjection::default();
-    for record in &records {
+    for record in &projection.records {
         validation.apply(record)?;
         usage.apply(record);
     }
-    state.next_seq = records
+    state.next_seq = projection
+        .records
         .last()
         .map(|record| record.session_seq.saturating_add(1))
         .unwrap_or(1);
@@ -136,7 +144,7 @@ pub(crate) fn initialize_writer_state(
     state.committed_offset = journal_len(&path)?;
     state._ownership = Some(ownership);
     state.initialized = true;
-    Ok(())
+    Ok(Some(projection))
 }
 
 impl JournalWriterState {

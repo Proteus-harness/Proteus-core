@@ -116,6 +116,9 @@ pub enum AppServerEvent {
         session_dir: PathBuf,
         activity: AppSessionActivity,
     },
+    /// A saved catalog projection was refreshed. Reload the session list;
+    /// this is global invalidation and carries no session transcript delta.
+    SessionCatalogUpdated,
 
     /// Ошибка в turn или ядре.
     Error { message: String },

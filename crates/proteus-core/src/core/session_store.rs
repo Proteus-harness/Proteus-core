@@ -25,10 +25,15 @@ mod catalog;
 mod checkpoint;
 mod identity;
 mod path_identity;
+#[cfg(unix)]
+pub(crate) mod read_cache;
+mod read_model;
 mod usage;
 mod workspace_dir;
 mod writer;
 
+#[cfg(unix)]
+pub(crate) use catalog::subscribe_catalog_updates;
 pub(crate) use catalog::{PreparedSession, prepare_latest_workspace_session};
 pub use catalog::{
     list_session_summaries, list_session_summaries_for_audit, list_workspace_session_summaries,
@@ -38,6 +43,7 @@ use identity::{
     short_session_directory_name, validate_new_session_target,
 };
 use path_identity::canonicalize_unmaterialized_path;
+pub(crate) use read_model::SessionReadModel;
 use workspace_dir::workspace_path_from_session_dir;
 pub use workspace_dir::{decode_workspace_path, encode_workspace_path};
 
@@ -48,6 +54,8 @@ pub struct SessionStore {
     directory_kind: SessionDirectoryKind,
     writer: Arc<Mutex<JournalWriterState>>,
     blob_threshold_bytes: usize,
+    #[cfg(unix)]
+    read_metadata: Arc<std::sync::RwLock<Option<read_model::CachedReadMetadata>>>,
 }
 
 impl SessionStore {
@@ -67,6 +75,8 @@ impl SessionStore {
             directory_kind: SessionDirectoryKind::ShortNumeric,
             writer,
             blob_threshold_bytes: DEFAULT_BLOB_THRESHOLD_BYTES,
+            #[cfg(unix)]
+            read_metadata: Default::default(),
         })
     }
 
@@ -81,6 +91,8 @@ impl SessionStore {
             directory_kind: identity.directory_kind,
             writer,
             blob_threshold_bytes: DEFAULT_BLOB_THRESHOLD_BYTES,
+            #[cfg(unix)]
+            read_metadata: Default::default(),
         })
     }
 
@@ -106,6 +118,13 @@ impl SessionStore {
 
     /// Read the current canonical conversation, without replay or a writer lease.
     pub fn conversation_snapshot(&self) -> Result<crate::contracts::ConversationSnapshot> {
+        #[cfg(unix)]
+        if let Some((_, model)) =
+            read_cache::load::<SessionReadModel>(self.session_dir(), read_model::VIEW_CACHE)
+            && model.matches(self)
+        {
+            return Ok(model.conversation);
+        }
         let projection = self.load_projection()?;
         let model_context =
             super::model_context::ModelContextState::from_records(&projection.records, None)
@@ -124,10 +143,14 @@ impl SessionStore {
     /// Read the committed writer revision without scanning every record on each hook.
     /// A read-only cold store has not acquired a writer lease; use its projection then.
     pub(crate) async fn history_revision(&self) -> Result<u64> {
-        match self.writer.lock().await.cached_history_revision() {
-            Some(revision) => Ok(revision),
-            None => Ok(self.load_projection()?.history_revision),
+        if let Some(revision) = self.writer.lock().await.cached_history_revision() {
+            return Ok(revision);
         }
+        #[cfg(unix)]
+        if let Some(cached) = self.cached_read_metadata() {
+            return Ok(cached.revision);
+        }
+        Ok(self.load_projection()?.history_revision)
     }
 
     pub fn load_projection(&self) -> Result<JournalProjection> {

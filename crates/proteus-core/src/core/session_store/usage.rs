@@ -9,6 +9,10 @@ impl SessionStore {
         if let Some(snapshot) = writer.usage_snapshot(self.session_id) {
             return Ok(snapshot);
         }
+        #[cfg(unix)]
+        if let Some(cached) = self.cached_read_metadata() {
+            return Ok(cached.usage);
+        }
         let store = self.clone();
         let snapshot = tokio::task::spawn_blocking(move || {
             let projection = store.load_projection()?;

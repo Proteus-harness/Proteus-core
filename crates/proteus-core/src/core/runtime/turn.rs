@@ -104,6 +104,7 @@ impl AgentRuntime {
                 "invalid workflow intent name"
             );
         }
+        self.validate_cached_resume().await?;
         let snapshot = self.capture_run_snapshot(options.permission_mode).await;
         let input = input.into();
         let input = tokio::task::spawn_blocking(move || super::images::ImageStore::prepare(input))

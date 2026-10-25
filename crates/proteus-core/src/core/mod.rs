@@ -77,7 +77,13 @@ pub use session_journal::{
     ToolCallRecordPhase, ToolCallRecorded, ToolResultRecorded, TurnOpened, TurnSettled,
     TurnSettlementStatus,
 };
-pub(crate) use session_store::{PreparedSession, prepare_latest_workspace_session};
+#[cfg(unix)]
+pub(crate) use session_store::read_cache as session_read_cache;
+#[cfg(unix)]
+pub(crate) use session_store::subscribe_catalog_updates;
+pub(crate) use session_store::{
+    PreparedSession, SessionReadModel, prepare_latest_workspace_session,
+};
 pub use session_store::{
     SessionStore, canonicalize_session_dir_path, decode_workspace_path, delete_workspace_session,
     encode_workspace_path, list_session_summaries, list_session_summaries_for_audit,

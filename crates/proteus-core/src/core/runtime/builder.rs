@@ -35,7 +35,8 @@ pub struct AgentRuntimeBuilder {
     session_id: Option<SessionId>,
     thread_id: Option<ThreadId>,
     resumed_session: Option<SessionStore>,
-    resumed_history: Option<Vec<crate::model_standard::CanonicalMessage>>,
+    resumed_history: Option<crate::contracts::ConversationSnapshot>,
+    deferred_resume_validation: bool,
 }
 
 impl AgentRuntimeBuilder {
@@ -52,6 +53,7 @@ impl AgentRuntimeBuilder {
             thread_id: None,
             resumed_session: None,
             resumed_history: None,
+            deferred_resume_validation: false,
         }
     }
 
@@ -103,19 +105,22 @@ impl AgentRuntimeBuilder {
         self.thread_id = Some(thread_id);
         self.resumed_session = Some(session_store);
         self.resumed_history = None;
+        self.deferred_resume_validation = false;
         self
     }
 
-    /// Reuse history from the same validated journal projection that the
-    /// app server used to build its initial transcript.
-    pub(crate) fn resume_from_session_history(
+    /// A display snapshot may be shown before its canonical writer is opened.
+    /// Its first continuation must validate and reconcile under the writer lease.
+    pub(crate) fn resume_from_session_snapshot(
         self,
         session_store: SessionStore,
-        history: Vec<crate::model_standard::CanonicalMessage>,
+        history: crate::contracts::ConversationSnapshot,
         thread_id: ThreadId,
+        deferred_validation: bool,
     ) -> Self {
         let mut builder = self.resume_from_session_store(session_store, thread_id);
         builder.resumed_history = Some(history);
+        builder.deferred_resume_validation = deferred_validation;
         builder
     }
 
@@ -141,6 +146,7 @@ impl AgentRuntimeBuilder {
             thread_id,
             resumed_session,
             resumed_history,
+            deferred_resume_validation,
         } = self;
 
         let cwd = match resumed_session.as_ref() {
@@ -208,9 +214,13 @@ impl AgentRuntimeBuilder {
         {
             eprintln!("warning: failed to persist session config snapshot: {error:#}");
         }
+        let mut resume_context = None;
         let history = if resume_history {
             match resumed_history {
-                Some(history) => history,
+                Some(history) => {
+                    resume_context = Some((history.revision, history.model_context));
+                    history.messages
+                }
                 None => session_store
                     .as_ref()
                     .map(SessionStore::load_messages)
@@ -228,21 +238,39 @@ impl AgentRuntimeBuilder {
             .map(|cfg| cfg.reasoning.clone())
             .unwrap_or_default();
         let default_reasoning = reasoning.clone();
+        let images = super::images::ImageStore::new(
+            session_store
+                .as_ref()
+                .map(|s| s.session_dir().join("images"))
+                .unwrap_or_else(|| {
+                    config_path
+                        .as_deref()
+                        .map(config_store_root)
+                        .unwrap_or_else(|| cwd.clone())
+                        .join("images")
+                }),
+        );
+
+        let mut session = SessionState::new(
+            session_id,
+            thread_id,
+            session_store,
+            history,
+            session_started,
+        );
+        session.deferred_resume_validation = Mutex::new(deferred_resume_validation);
+        if let Some((revision, observations)) = resume_context {
+            session
+                .history_revision
+                .store(revision, std::sync::atomic::Ordering::SeqCst);
+            session.model_context = Arc::new(Mutex::new(
+                crate::core::model_context::ModelContextState::from_snapshot(observations),
+            ));
+        }
 
         Ok(AgentRuntime {
             services: RuntimeServices {
-                images: super::images::ImageStore::new(
-                    session_store
-                        .as_ref()
-                        .map(|s| s.session_dir().join("images"))
-                        .unwrap_or_else(|| {
-                            config_path
-                                .as_deref()
-                                .map(config_store_root)
-                                .unwrap_or_else(|| cwd.clone())
-                                .join("images")
-                        }),
-                ),
+                images,
                 cwd,
                 execution_state: RwLock::new(RuntimeExecutionState {
                     runtime: RuntimeSnapshot::new(
@@ -260,13 +288,7 @@ impl AgentRuntimeBuilder {
                 user_input,
                 default_reasoning,
             },
-            session: SessionState::new(
-                session_id,
-                thread_id,
-                session_store,
-                history,
-                session_started,
-            ),
+            session,
         })
     }
 }

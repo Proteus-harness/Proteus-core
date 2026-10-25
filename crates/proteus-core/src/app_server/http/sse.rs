@@ -20,6 +20,10 @@ pub(super) async fn sse_response(
 ) -> HttpResponse {
     let mut events = server.subscribe_session();
     let mut activity_events = state.subscribe_activity();
+    #[cfg(unix)]
+    let mut catalog_updates = crate::core::subscribe_catalog_updates();
+    #[cfg(not(unix))]
+    let mut catalog_updates = tokio::sync::watch::channel(0_u64).1;
     let body = StreamBody::new(stream! {
         yield Ok::<Frame<Bytes>, Infallible>(Frame::data(Bytes::from_static(b": connected\n\n")));
 
@@ -30,9 +34,29 @@ pub(super) async fn sse_response(
         }
         state.emit_session_activity_for_server(&server).await;
 
+        // /sessions can finish refreshing before this connection exists.
+        // Reconcile that list once, including after reconnect. Later changes
+        // remain pending for the watch select below.
+        let catalog_was_refreshed = *catalog_updates.borrow_and_update() != 0;
+        if catalog_was_refreshed {
+            yield Ok(Frame::data(encode_sse_output(&StdioOutput::Event {
+                event: Box::new(AppServerEvent::SessionCatalogUpdated),
+            })));
+        }
+
         let mut heartbeat = tokio::time::interval(Duration::from_secs(SSE_HEARTBEAT_SECS));
+        let mut catalog_open = true;
         loop {
             tokio::select! {
+                changed = catalog_updates.changed(), if catalog_open => {
+                    if changed.is_err() {
+                        catalog_open = false;
+                        continue;
+                    }
+                    yield Ok(Frame::data(encode_sse_output(&StdioOutput::Event {
+                        event: Box::new(AppServerEvent::SessionCatalogUpdated),
+                    })));
+                }
                 _ = heartbeat.tick() => {
                     yield Ok(Frame::data(Bytes::from_static(b": keep-alive\n\n")));
                 }

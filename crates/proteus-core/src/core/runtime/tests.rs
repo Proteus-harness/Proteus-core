@@ -19,6 +19,7 @@ use crate::{
 mod clear_history;
 mod execution;
 mod interruption;
+mod resume_cache;
 mod snapshot_atomicity;
 mod steering_integration;
 

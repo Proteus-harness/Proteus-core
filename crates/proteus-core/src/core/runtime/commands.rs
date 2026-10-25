@@ -24,6 +24,7 @@ impl AgentRuntime {
         arguments: &str,
         cancellation: CancellationToken,
     ) -> Result<ToolResult> {
+        self.validate_cached_resume().await?;
         let admission = self.admit_execution(cancellation).await;
         let (_, tool) = admission
             .snapshot
