@@ -61,6 +61,18 @@ impl SessionReadModel {
 }
 
 impl SessionStore {
+    /// Current read projection only; stale display snapshots are a separate API.
+    pub(crate) fn fresh_read_model(&self) -> Option<SessionReadModel> {
+        #[cfg(unix)]
+        if let Some((_, model)) =
+            super::read_cache::load::<SessionReadModel>(self.session_dir(), VIEW_CACHE)
+            && model.matches(self)
+        {
+            return Some(model);
+        }
+        None
+    }
+
     pub(crate) fn project_read_model(
         &self,
         render: impl FnOnce(&JournalProjection) -> Vec<AppTranscriptMessage>,

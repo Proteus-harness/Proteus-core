@@ -118,11 +118,7 @@ impl SessionStore {
 
     /// Read the current canonical conversation, without replay or a writer lease.
     pub fn conversation_snapshot(&self) -> Result<crate::contracts::ConversationSnapshot> {
-        #[cfg(unix)]
-        if let Some((_, model)) =
-            read_cache::load::<SessionReadModel>(self.session_dir(), read_model::VIEW_CACHE)
-            && model.matches(self)
-        {
+        if let Some(model) = self.fresh_read_model() {
             return Ok(model.conversation);
         }
         let projection = self.load_projection()?;

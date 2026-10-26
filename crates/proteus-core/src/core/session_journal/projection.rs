@@ -1,4 +1,5 @@
-use std::collections::{HashMap, HashSet};
+use im::{HashMap as SharedMap, HashSet as SharedSet};
+use std::{collections::HashSet, sync::Arc};
 
 use anyhow::{Result, bail};
 use proteus_contracts::{
@@ -11,23 +12,25 @@ use super::types::{
 };
 
 #[derive(Debug, Clone, Default)]
+// Append clones this candidate before validation. Shared indices and immutable
+// payloads keep that transaction cheap; mutations must preserve COW isolation.
 pub(crate) struct JournalValidationState {
-    capture: super::history_capture::HistoryCapture,
+    capture: Arc<super::history_capture::HistoryCapture>,
     capture_owner: Option<JournalRecordAttributionOwner>,
-    history: Vec<CanonicalMessage>,
+    history: Arc<Vec<CanonicalMessage>>,
     history_revision: u64,
     history_turn: Option<TurnId>,
-    interrupted_turns: Vec<proteus_contracts::contracts::WorkflowHistoryInterruption>,
-    record_ids: HashSet<RecordId>,
-    known_parts: HashMap<PartId, CanonicalPart>,
-    opened_turns: HashMap<TurnId, TurnLifecycle>,
-    execution_turns: HashMap<ExecutionId, TurnId>,
-    detached_executions: HashSet<ExecutionId>,
-    settled_turns: HashSet<TurnId>,
-    model_requests: HashMap<ExchangeId, ExecutionFactOwner>,
-    model_responses: HashSet<ExchangeId>,
+    interrupted_turns: Arc<Vec<proteus_contracts::contracts::WorkflowHistoryInterruption>>,
+    record_ids: SharedSet<RecordId>,
+    known_parts: SharedMap<PartId, Arc<CanonicalPart>>,
+    opened_turns: SharedMap<TurnId, TurnLifecycle>,
+    execution_turns: SharedMap<ExecutionId, TurnId>,
+    detached_executions: SharedSet<ExecutionId>,
+    settled_turns: SharedSet<TurnId>,
+    model_requests: SharedMap<ExchangeId, ExecutionFactOwner>,
+    model_responses: SharedSet<ExchangeId>,
     context: super::context::ContextLifecycle,
-    tool_calls: HashMap<CallId, ToolLifecycle>,
+    tool_calls: SharedMap<CallId, Arc<ToolLifecycle>>,
 }
 
 type JournalRecordAttributionOwner = (ThreadId, TurnId);
@@ -58,7 +61,7 @@ struct ToolLifecycle {
 
 impl JournalValidationState {
     pub(crate) fn apply(&mut self, record: &JournalRecord) -> Result<()> {
-        if !self.record_ids.insert(record.record_id) {
+        if self.record_ids.insert(record.record_id).is_some() {
             bail!("duplicate journal record_id {}", record.record_id);
         }
 
@@ -72,6 +75,7 @@ impl JournalValidationState {
                     let lifecycle = self.tool_calls.get_mut(&call.id).ok_or_else(|| {
                         anyhow::anyhow!("tool hook precedes requested call {}", call.id)
                     })?;
+                    let lifecycle = Arc::make_mut(lifecycle);
                     if lifecycle.owner != Some(owner)
                         || lifecycle.call.as_ref() != Some(call)
                         || lifecycle.hook_reviewed
@@ -163,7 +167,7 @@ impl JournalValidationState {
                         if mutation.compaction.is_some() {
                             bail!("history append cannot carry a compaction report");
                         }
-                        self.history.extend(mutation.messages.iter().cloned());
+                        Arc::make_mut(&mut self.history).extend(mutation.messages.iter().cloned());
                     }
                     HistoryMutationKind::Replace => {
                         self.capture = Default::default();
@@ -175,7 +179,7 @@ impl JournalValidationState {
                         {
                             bail!("history replacement compaction report must be changed=true");
                         }
-                        self.history = mutation.messages.clone();
+                        self.history = Arc::new(mutation.messages.clone());
                     }
                     HistoryMutationKind::Checkpoint => {
                         let turn_id = self.require_root_turn(record)?;
@@ -194,8 +198,8 @@ impl JournalValidationState {
                                 .as_ref()
                                 .is_some_and(|report| report.changed),
                         )?;
-                        self.capture = capture;
-                        self.history = history;
+                        self.capture = Arc::new(capture);
+                        self.history = Arc::new(history);
                         self.capture_owner = Some((required_thread_id(record)?, turn_id));
                     }
                 }
@@ -205,7 +209,7 @@ impl JournalValidationState {
                     .as_ref()
                     .is_some_and(|report| report.changed)
                 {
-                    self.interrupted_turns.clear();
+                    self.interrupted_turns = Arc::default();
                 }
                 self.history_revision = mutation.new_revision;
                 self.history_turn = record.turn_id;
@@ -255,7 +259,7 @@ impl JournalValidationState {
                         response.exchange_id
                     );
                 }
-                if !self.model_responses.insert(response.exchange_id) {
+                if self.model_responses.insert(response.exchange_id).is_some() {
                     bail!("duplicate model exchange response {}", response.exchange_id);
                 }
                 if let super::types::ModelResponseOutcome::Response { response } = &response.outcome
@@ -274,7 +278,8 @@ impl JournalValidationState {
                 {
                     self.capture.validate_call(&tool.call)?;
                 }
-                let lifecycle = self.tool_calls.entry(tool.call.id.clone()).or_default();
+                let lifecycle =
+                    Arc::make_mut(self.tool_calls.entry(tool.call.id.clone()).or_default());
                 match &tool.phase {
                     ToolCallRecordPhase::Requested { .. } => {
                         if lifecycle.call.is_some() {
@@ -345,6 +350,7 @@ impl JournalValidationState {
                 let Some(lifecycle) = self.tool_calls.get_mut(&tool.result.call_id) else {
                     bail!("tool effect {} has no preceding call", tool.result.call_id);
                 };
+                let lifecycle = Arc::make_mut(lifecycle);
                 if !lifecycle.resolved
                     || lifecycle.owner != Some(owner)
                     || lifecycle.effect.is_some()
@@ -362,6 +368,7 @@ impl JournalValidationState {
                 let Some(lifecycle) = self.tool_calls.get_mut(&tool.result.call_id) else {
                     bail!("tool result {} has no preceding call", tool.result.call_id);
                 };
+                let lifecycle = Arc::make_mut(lifecycle);
                 if !lifecycle.resolved {
                     bail!(
                         "tool result {} precedes call resolution",
@@ -386,7 +393,7 @@ impl JournalValidationState {
                 }
                 lifecycle.result = true;
                 if record.thread_id.zip(record.turn_id) == self.capture_owner
-                    && self.capture.record(&mut self.history, &tool.result)?
+                    && self.capture_tool_result(&tool.result)?
                 {
                     self.history_revision = self.history_revision.saturating_add(1);
                     validate_active_history_ids(&self.history)?;
@@ -410,21 +417,21 @@ impl JournalValidationState {
                         .filter_map(|call| call.effect.clone())
                         .collect::<Vec<_>>();
                     for result in pending {
-                        if self.capture.record(&mut self.history, &result)? {
+                        if self.capture_tool_result(&result)? {
                             self.history_revision = self.history_revision.saturating_add(1);
                             validate_active_history_ids(&self.history)?;
                             Self::validate_part_id_stability(&mut self.known_parts, &self.history)?;
                         }
                     }
                 }
-                if !self.settled_turns.insert(turn_id) {
+                if self.settled_turns.insert(turn_id).is_some() {
                     bail!("turn {turn_id} settled more than once");
                 }
                 if settled.status == super::types::TurnSettlementStatus::Canceled
                     && self.history_turn == Some(turn_id)
                     && let Some(message) = self.history.last()
                 {
-                    self.interrupted_turns.push(
+                    Arc::make_mut(&mut self.interrupted_turns).push(
                         proteus_contracts::contracts::WorkflowHistoryInterruption {
                             turn_id,
                             after_message_id: message.id,
@@ -440,6 +447,22 @@ impl JournalValidationState {
         Ok(())
     }
 
+    fn capture_tool_result(
+        &mut self,
+        result: &proteus_contracts::domain::ToolResult,
+    ) -> Result<bool> {
+        if !self.capture.contains_call(&result.call_id) {
+            return Ok(false);
+        }
+        Arc::make_mut(&mut self.capture).record(Arc::make_mut(&mut self.history), result)
+    }
+
+    pub(crate) fn interrupted_turns(
+        &self,
+    ) -> Vec<proteus_contracts::contracts::WorkflowHistoryInterruption> {
+        self.interrupted_turns.as_ref().clone()
+    }
+
     pub(crate) fn history_revision(&self) -> u64 {
         self.history_revision
     }
@@ -449,23 +472,20 @@ impl JournalValidationState {
     }
 
     fn validate_part_id_stability(
-        known_parts: &mut HashMap<PartId, CanonicalPart>,
+        known_parts: &mut SharedMap<PartId, Arc<CanonicalPart>>,
         messages: &[CanonicalMessage],
     ) -> Result<()> {
         for message in messages {
             for part in &message.parts {
-                match known_parts.entry(part.part_id) {
-                    std::collections::hash_map::Entry::Occupied(previous) => {
-                        if previous.get() != part {
-                            bail!(
-                                "canonical part {} changed after it was recorded",
-                                part.part_id
-                            );
-                        }
+                if let Some(previous) = known_parts.get(&part.part_id) {
+                    if previous.as_ref() != part {
+                        bail!(
+                            "canonical part {} changed after it was recorded",
+                            part.part_id
+                        );
                     }
-                    std::collections::hash_map::Entry::Vacant(entry) => {
-                        entry.insert(part.clone());
-                    }
+                } else {
+                    known_parts.insert(part.part_id, Arc::new(part.clone()));
                 }
             }
         }
@@ -610,9 +630,9 @@ impl JournalProjection {
 
         Ok(Self {
             records,
-            history: state.history,
+            history: Arc::unwrap_or_clone(state.history),
             history_revision: state.history_revision,
-            interrupted_turns: state.interrupted_turns,
+            interrupted_turns: Arc::unwrap_or_clone(state.interrupted_turns),
             interrupted_model_exchanges,
             interrupted_context_builds,
             unresolved_tool_calls,

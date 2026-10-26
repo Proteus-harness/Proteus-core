@@ -15,7 +15,7 @@ use crate::core::{
 use super::{HttpAppState, state::session_key as canonical_session_key};
 use crate::app_server::{
     AppContextMapSnapshot, AppServerHandle, AppSessionActivity, AppSessionSummary,
-    AppTranscriptMessage, journal_transcript_messages,
+    AppTranscriptMessage,
 };
 
 pub(super) async fn session_summaries(
@@ -135,8 +135,8 @@ pub(super) async fn history_json(
     }
 
     tokio::task::spawn_blocking(move || {
-        let projection = SessionStore::open(session_dir)?.load_projection()?;
-        Ok(journal_transcript_messages(&projection, None))
+        let store = SessionStore::open(session_dir)?;
+        Ok(crate::app_server::read_model::current_read_model(&store)?.transcript)
     })
     .await
     .map_err(|error| anyhow!("cold history task failed: {error}"))?
@@ -168,7 +168,9 @@ pub(super) async fn context_map_json(
             ),
             workspace_path: Some(workspace_path),
             activity: None,
-            history: store.load_messages()?,
+            history: crate::app_server::read_model::current_read_model(&store)?
+                .conversation
+                .messages,
             diagnostics: Vec::new(),
         })
     })
@@ -190,7 +192,7 @@ pub(super) async fn conversation_json(
         Ok(crate::contracts::ConversationView::new(
             store.session_id(),
             env!("CARGO_PKG_VERSION"),
-            store.conversation_snapshot()?,
+            crate::app_server::read_model::current_read_model(&store)?.conversation,
         ))
     })
     .await
@@ -206,10 +208,14 @@ pub(super) async fn usage_json(
     if let Some(server) = state.server_for_session_dir(&session_dir).await {
         return server.usage_snapshot().await;
     }
-    SessionStore::open(session_dir)?
-        .usage_snapshot()
-        .await
-        .map(Some)
+    tokio::task::spawn_blocking(move || {
+        let store = SessionStore::open(session_dir)?;
+        Ok(Some(
+            crate::app_server::read_model::current_read_model(&store)?.usage,
+        ))
+    })
+    .await
+    .map_err(|error| anyhow!("cold usage task failed: {error}"))?
 }
 
 pub(super) async fn server_for_session(

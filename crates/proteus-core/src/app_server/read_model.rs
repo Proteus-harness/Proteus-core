@@ -2,6 +2,16 @@
 use super::{AppServerEvent, AppServerHandle, journal_transcript_messages};
 use crate::core::{SessionReadModel, SessionStore};
 
+/// Cold HTTP reads share the same current projection without opening a runtime.
+pub(super) fn current_read_model(store: &SessionStore) -> anyhow::Result<SessionReadModel> {
+    match store.fresh_read_model() {
+        Some(model) => Ok(model),
+        None => {
+            store.project_read_model(|projection| journal_transcript_messages(projection, None))
+        }
+    }
+}
+
 pub(super) fn refresh_in_background(server: &AppServerHandle) {
     let server = server.clone();
     let Some(baseline) = server.events.completed_history() else {

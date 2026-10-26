@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use im::{HashMap, HashSet};
 
 use anyhow::{Result, bail};
 use uuid::Uuid;
@@ -32,7 +32,7 @@ impl ContextLifecycle {
         if *request_owner != owner {
             bail!("context response {invocation_id} changed lifecycle owner");
         }
-        if !self.responses.insert(invocation_id) {
+        if self.responses.insert(invocation_id).is_some() {
             bail!("duplicate context build response {invocation_id}");
         }
         Ok(())

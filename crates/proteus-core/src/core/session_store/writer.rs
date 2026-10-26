@@ -2,6 +2,22 @@ use super::*;
 use crate::contracts::WorkflowToolResultBinding;
 
 impl SessionStore {
+    /// Execution reads the projection already validated by the sole writer.
+    /// Cold initialization still acquires ownership and validates on a worker.
+    pub(crate) async fn execution_state(
+        &self,
+    ) -> Result<(u64, Vec<crate::contracts::WorkflowHistoryInterruption>)> {
+        if let Some(state) = self.writer.lock().await.execution_state() {
+            return Ok(state);
+        }
+        self.write_transaction(|_, writer| {
+            writer
+                .execution_state()
+                .ok_or_else(|| anyhow!("writer was not initialized"))
+        })
+        .await
+    }
+
     /// First continuation acquires the existing writer lease and reuses its strict
     /// recovery projection. Display caches never initialize writer validation.
     pub(crate) async fn prepare_resume_projection(&self) -> Result<JournalProjection> {

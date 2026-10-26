@@ -79,15 +79,17 @@ pub(crate) fn append_record(
             MAX_PAYLOAD_BYTES
         );
     }
-    record.entry = JournalEntry::from_kind_and_payload(kind, payload.clone())
+    // Only small inline records need both DTO and JSON. Move large payloads
+    // into the DTO instead of cloning the complete blob-sized JSON tree.
+    let inline_payload = (payload_bytes.len() < blob_threshold_bytes).then(|| payload.clone());
+    record.entry = JournalEntry::from_kind_and_payload(kind, payload)
         .context("redacted journal payload no longer matches its canonical DTO")?;
     let mut next_validation = state.validation.clone();
     next_validation.apply(&record)?;
 
-    let stored_payload = if payload_bytes.len() >= blob_threshold_bytes {
-        write_blob(session_dir, &payload_bytes)?
-    } else {
-        StoredPayload::Inline { value: payload }
+    let stored_payload = match inline_payload {
+        Some(value) => StoredPayload::Inline { value },
+        None => write_blob(session_dir, &payload_bytes)?,
     };
     let stored = StoredJournalRecord {
         schema_version: record.schema_version,

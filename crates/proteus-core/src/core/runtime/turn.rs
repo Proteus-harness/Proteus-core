@@ -240,7 +240,7 @@ impl AgentRuntime {
         }
         let config_snapshot = snapshot.config_snapshot.clone();
         if let Some(session_store) = &self.session.session_store {
-            let base_history_revision = session_store.load_projection()?.history_revision;
+            let (base_history_revision, _) = session_store.execution_state().await?;
             session_store
                 .append_execution_journal_entry(
                     execution_attribution,
@@ -398,7 +398,7 @@ impl AgentRuntime {
         workflow_context.intent = reserved.intent;
         workflow_context.permission_mode = snapshot.permission_mode;
         workflow_context.interrupted_turns = match &self.session.session_store {
-            Some(store) => store.load_projection()?.interrupted_turns,
+            Some(store) => store.execution_state().await?.1,
             None => self.session.interrupted_turns.lock().await.clone(),
         };
         let steering_model = workflow_context.execution.model.as_ref().map(|model| {

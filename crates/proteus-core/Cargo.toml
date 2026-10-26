@@ -30,6 +30,7 @@ tokio = { version = "1", features = ["fs", "io-std", "io-util", "macros", "net",
 toml = "0.8"
 toml_edit = "0.22"
 uuid = { version = "1", features = ["serde", "v4"] }
+im = { version = "15.1.0", default-features = false }
 
 [dev-dependencies]
 tempfile = "3"

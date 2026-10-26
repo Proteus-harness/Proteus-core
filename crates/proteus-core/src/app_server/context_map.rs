@@ -1,21 +1,17 @@
-use std::{
-    collections::BTreeSet,
-    path::{Path, PathBuf},
-};
+use std::path::PathBuf;
 
-use anyhow::{Context, Result};
-use serde_json::Value;
+use anyhow::Result;
 
 use crate::{
-    domain::{Event, EventEnvelope, HistoryCompactionReport, SessionId, TokenUsageSource},
+    domain::SessionId,
     model_standard::{CanonicalMessage, ContentPart, MessageRole},
 };
 
-use super::{
-    AppContextBuildSnapshot, AppContextCompactionSnapshot, AppContextHistorySummary,
-    AppContextMapSnapshot, AppContextToolSummary, AppContextUsageCategory, AppContextUsageSnapshot,
-    AppSessionActivity, paths_equal,
-};
+use super::{AppContextHistorySummary, AppContextMapSnapshot, AppSessionActivity};
+
+mod telemetry;
+#[cfg(test)]
+mod tests;
 
 pub(super) struct ContextMapInput {
     pub session_dir: Option<PathBuf>,
@@ -29,187 +25,30 @@ pub(super) struct ContextMapInput {
 
 pub(super) fn build_context_map_snapshot(input: ContextMapInput) -> Result<AppContextMapSnapshot> {
     let mut diagnostics = input.diagnostics;
-    let events = read_context_events(
+    let telemetry = telemetry::read(
         &input.event_log_path,
         input.session_id,
         input.session_dir.as_deref(),
-        &mut diagnostics,
     )?;
     let history = summarize_context_history(&input.history);
-    let tools = summarize_context_tools(&events);
+    diagnostics.extend(telemetry.diagnostics.iter().cloned());
     let mut snapshot = AppContextMapSnapshot::new(
         input.session_dir,
         input.session_id,
         input.workspace_path,
         history,
-        tools,
+        telemetry.tools.clone(),
     );
     snapshot.activity = input.activity;
-    apply_context_events(&mut snapshot, &events);
+    snapshot.latest_context = telemetry.latest_context.clone();
+    snapshot.latest_usage = telemetry.latest_usage.clone();
+    snapshot.latest_compaction = telemetry.latest_compaction.clone();
     if snapshot.latest_usage.is_none() {
         diagnostics
             .push("token usage telemetry unavailable; showing history-only fallback".to_owned());
     }
     snapshot.diagnostics = diagnostics;
     Ok(snapshot)
-}
-
-fn read_context_events(
-    event_log_path: &Path,
-    session_id: Option<SessionId>,
-    session_dir: Option<&Path>,
-    diagnostics: &mut Vec<String>,
-) -> Result<Vec<EventEnvelope>> {
-    let content = match std::fs::read_to_string(event_log_path) {
-        Ok(content) => content,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            diagnostics.push("event log not found; using session history only".to_owned());
-            return Ok(Vec::new());
-        }
-        Err(error) => {
-            return Err(error)
-                .with_context(|| format!("failed to read {}", event_log_path.display()));
-        }
-    };
-
-    let mut skipped = 0usize;
-    let mut events = Vec::new();
-    for line in content.lines().filter(|line| !line.trim().is_empty()) {
-        match serde_json::from_str::<EventEnvelope>(line) {
-            Ok(envelope) if context_event_matches(&envelope, session_id, session_dir) => {
-                events.push(envelope);
-            }
-            Ok(_) => {}
-            Err(_) => skipped += 1,
-        }
-    }
-    if skipped > 0 {
-        diagnostics.push(format!("skipped {skipped} malformed event log lines"));
-    }
-    Ok(events)
-}
-
-fn context_event_matches(
-    envelope: &EventEnvelope,
-    session_id: Option<SessionId>,
-    session_dir: Option<&Path>,
-) -> bool {
-    if let Some(session_id) = session_id {
-        return envelope.session_id == session_id;
-    }
-    let Some(session_dir) = session_dir else {
-        return false;
-    };
-    match &envelope.event {
-        Event::SessionStarted {
-            session_dir: Some(started_dir),
-            ..
-        } => paths_equal(started_dir, session_dir),
-        _ => false,
-    }
-}
-
-fn apply_context_events(snapshot: &mut AppContextMapSnapshot, events: &[EventEnvelope]) {
-    for envelope in events {
-        match &envelope.event {
-            Event::ContextBuilt {
-                chunks,
-                token_estimate,
-            } => {
-                let mut context = AppContextBuildSnapshot::new(*chunks);
-                context.token_estimate = *token_estimate;
-                context.turn_id = envelope.turn_id;
-                context.timestamp_ms = Some(envelope.timestamp_ms);
-                snapshot.latest_context = Some(context);
-            }
-            Event::TokenUsageUpdated { usage } => {
-                let mut usage_snapshot = AppContextUsageSnapshot::new(
-                    usage.model.provider.clone(),
-                    usage.model.model.clone(),
-                    usage.estimated_input_tokens,
-                    token_usage_source_label(usage.source),
-                );
-                usage_snapshot.phase = usage.phase.clone();
-                usage_snapshot.max_input_tokens = usage.max_input_tokens;
-                usage_snapshot.compaction_trigger_tokens = usage.compaction_trigger_tokens;
-                usage_snapshot.categories = usage
-                    .categories
-                    .iter()
-                    .map(|category| {
-                        AppContextUsageCategory::new(category.name.clone(), category.tokens)
-                            .with_source(token_usage_source_label(category.source))
-                    })
-                    .collect();
-                usage_snapshot.actual = usage.actual.clone();
-                usage_snapshot.turn_id = envelope.turn_id;
-                usage_snapshot.timestamp_ms = Some(envelope.timestamp_ms);
-                snapshot.latest_usage = Some(usage_snapshot);
-            }
-            Event::HistoryCompactionStarted { .. } => {
-                let mut compaction = AppContextCompactionSnapshot::new("started");
-                compaction.turn_id = envelope.turn_id;
-                compaction.timestamp_ms = Some(envelope.timestamp_ms);
-                snapshot.latest_compaction = Some(compaction);
-            }
-            Event::HistoryCompactionCompleted { report } => {
-                let (report, summary_present) = sanitized_compaction_report(report);
-                let mut compaction = AppContextCompactionSnapshot::new("completed");
-                compaction.report = Some(report);
-                compaction.summary_present = summary_present;
-                compaction.turn_id = envelope.turn_id;
-                compaction.timestamp_ms = Some(envelope.timestamp_ms);
-                snapshot.latest_compaction = Some(compaction);
-            }
-            Event::HistoryCompactionFailed { .. } => {
-                let mut compaction = AppContextCompactionSnapshot::new("failed");
-                compaction.turn_id = envelope.turn_id;
-                compaction.timestamp_ms = Some(envelope.timestamp_ms);
-                snapshot.latest_compaction = Some(compaction);
-            }
-            _ => {}
-        }
-    }
-}
-
-fn token_usage_source_label(source: TokenUsageSource) -> &'static str {
-    match source {
-        TokenUsageSource::Estimated => "estimated",
-        TokenUsageSource::Provider => "provider",
-        TokenUsageSource::Mixed => "mixed",
-        _ => "unknown",
-    }
-}
-
-fn sanitized_compaction_report(
-    report: &HistoryCompactionReport,
-) -> (HistoryCompactionReport, bool) {
-    let mut report = report.clone();
-    let summary_present = report.summary.is_some();
-    report.summary = None;
-    report.metadata = Value::Null;
-    (report, summary_present)
-}
-
-fn summarize_context_tools(events: &[EventEnvelope]) -> AppContextToolSummary {
-    let mut names = BTreeSet::new();
-    let mut summary = AppContextToolSummary::default();
-    for envelope in events {
-        match &envelope.event {
-            Event::ToolCallRequested { call } => {
-                summary.requested += 1;
-                names.insert(call.name.clone());
-            }
-            Event::ToolFinished { result } => {
-                summary.finished += 1;
-                if !result.ok {
-                    summary.failed += 1;
-                }
-            }
-            _ => {}
-        }
-    }
-    summary.names = names.into_iter().collect();
-    summary
 }
 
 fn summarize_context_history(messages: &[CanonicalMessage]) -> AppContextHistorySummary {

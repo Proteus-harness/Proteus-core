@@ -159,6 +159,13 @@ impl JournalWriterState {
         self.initialized.then(|| self.history_revision())
     }
 
+    pub(crate) fn execution_state(
+        &self,
+    ) -> Option<(u64, Vec<crate::contracts::WorkflowHistoryInterruption>)> {
+        self.initialized
+            .then(|| (self.history_revision(), self.validation.interrupted_turns()))
+    }
+
     pub(crate) fn history_revision(&self) -> u64 {
         self.validation.history_revision()
     }

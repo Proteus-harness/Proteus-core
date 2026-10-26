@@ -18,6 +18,12 @@ pub(crate) struct HistoryCapture {
 }
 
 impl HistoryCapture {
+    pub(crate) fn contains_call(&self, call_id: &str) -> bool {
+        self.calls
+            .iter()
+            .any(|(_, binding, _)| binding.call_id == call_id)
+    }
+
     pub(crate) fn has_binding(&self, binding: &WorkflowToolResultBinding) -> bool {
         self.calls
             .iter()

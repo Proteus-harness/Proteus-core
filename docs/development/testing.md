@@ -245,6 +245,16 @@ unsupported capability или намеренный divergence. Snapshot не о�
 вслепую. Replay проверяет эквивалентность; качество и расход на живых задачах
 проверяются отдельным eval по [roadmap](../product/roadmap.md).
 
+Синтетические performance probes запускаются явно и не утверждают скорость
+модели или полного turn: `scripts/test.py -p proteus-core --lib
+projection_clone_benchmark -- --ignored --nocapture` измеряет подготовку
+транзакций validation, `execution_state_benchmark` — прежние два полных чтения
+против состояния прогретого writer. Одинаковые данные и correctness-проверки
+обязательны; результаты времени не являются test assertions. В Modules
+`rg-search --lib benchmark_single_parse_matches_double_parse_reference`
+с теми же `--ignored --nocapture` сравнивает стадии разбора Unicode match frames
+при полном равенстве DTO. Cold и warm HTTP чтения измеряются отдельно.
+
 ### Config, Tools И Transport
 
 | Граница | Target / filter |

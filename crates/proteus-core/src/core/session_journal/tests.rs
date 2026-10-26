@@ -14,6 +14,8 @@ use crate::{
 
 use super::*;
 
+mod performance;
+
 fn record(
     session_id: crate::domain::SessionId,
     execution_id: Option<crate::domain::ExecutionId>,

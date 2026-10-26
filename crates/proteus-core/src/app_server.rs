@@ -315,7 +315,9 @@ impl AppServerHandle {
                 session_id: Some(session_store.session_id()),
                 workspace_path: Some(workspace_path),
                 activity,
-                history: session_store.load_messages()?,
+                history: read_model::current_read_model(&session_store)?
+                    .conversation
+                    .messages,
                 event_log_path,
                 diagnostics: Vec::new(),
             })
