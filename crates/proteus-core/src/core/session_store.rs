@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex as StdMutex, OnceLock},
+    sync::{Arc, Mutex as StdMutex, OnceLock, Weak},
 };
 
 use anyhow::{Context, Result, anyhow};
@@ -12,7 +12,7 @@ use crate::{
     core::session_journal::{
         DEFAULT_BLOB_THRESHOLD_BYTES, HistoryMutated, HistoryMutationKind, JournalEntry,
         JournalProjection, JournalRecord, JournalRecordAttribution, JournalWriterState,
-        append_record, initialize_writer_state, journal_path, load_records,
+        WriterRetirement, append_record, initialize_writer_state, journal_path, load_records,
     },
     domain::{ExecutionId, HistoryCompactionReport, SessionId, ThreadId, TurnId},
     model_standard::CanonicalMessage,
@@ -303,19 +303,53 @@ pub fn canonicalize_session_dir_path(session_path: PathBuf) -> Result<PathBuf> {
     canonicalize_unmaterialized_path(&session_dir)
 }
 
+struct RegisteredWriter {
+    writer: Weak<Mutex<JournalWriterState>>,
+    retirement: Arc<WriterRetirement>,
+}
+
 fn writer_for_session_dir(session_dir: &Path) -> Result<Arc<Mutex<JournalWriterState>>> {
-    static WRITERS: OnceLock<StdMutex<HashMap<PathBuf, Arc<Mutex<JournalWriterState>>>>> =
-        OnceLock::new();
+    static WRITERS: OnceLock<StdMutex<HashMap<PathBuf, RegisteredWriter>>> = OnceLock::new();
     let key = canonicalize_unmaterialized_path(&journal_path(session_dir))?;
     let writers = WRITERS.get_or_init(|| StdMutex::new(HashMap::new()));
-    let mut writers = writers.lock().expect("session journal writer map poisoned");
-    Ok(writers
-        .entry(key)
-        .or_insert_with(|| Arc::new(Mutex::new(JournalWriterState::default())))
-        .clone())
+    loop {
+        let mut writers = writers.lock().expect("session journal writer map poisoned");
+        if let Some(registered) = writers.get(&key) {
+            if let Some(writer) = registered.writer.upgrade() {
+                return Ok(writer);
+            }
+            if !registered.retirement.completed() {
+                let retirement = registered.retirement.clone();
+                drop(writers);
+                // A zero strong count precedes field destruction. Wait for the
+                // old lease to close without blocking unrelated session opens.
+                retirement.wait();
+                continue;
+            }
+        }
+        // Stores and admitted transactions own live validation state and the OS
+        // lease. Retiring generations keep their completion latch until done.
+        writers.retain(|_, registered| {
+            registered.writer.strong_count() > 0 || !registered.retirement.completed()
+        });
+        let retirement = Arc::new(WriterRetirement::default());
+        let writer = Arc::new(Mutex::new(JournalWriterState::with_retirement(
+            retirement.clone(),
+        )));
+        writers.insert(
+            key,
+            RegisteredWriter {
+                writer: Arc::downgrade(&writer),
+                retirement,
+            },
+        );
+        return Ok(writer);
+    }
 }
 
 #[cfg(test)]
 mod cancellation_tests;
+#[cfg(test)]
+mod lifecycle_tests;
 #[cfg(test)]
 mod tests;

@@ -1220,7 +1220,13 @@ directory: она материализуется при первом canonical r
 `journal.write.lock` — постоянный lock-файл, а не признак живого owner сам по
 себе. При первой записи process берёт на нём exclusive advisory lock до конца
 writer lifetime; конкурентный writer той же session отказывает до изменения
-journal. ОС освобождает владение при закрытии process, включая crash/kill, после
+journal. `SessionStore` одной canonical session разделяют writer; реестр хранит
+только слабые ссылки. После закрытия последнего store и завершения всех
+допущенных blocking-транзакций освобождаются проверенная history и lock.
+Повторное открытие во время уничтожения прежнего writer ждёт освобождения
+его lock; другие sessions этим ожиданием не задерживаются. Отмена ожидающего
+caller не обрывает commit/rollback и не передаёт writer новому store раньше времени.
+ОС также освобождает владение при закрытии process, включая crash/kill, после
 чего другой writer может продолжить с проверенного cold state. Обычные
 `history`, inspect и replay lock не берут и файл не удаляют.
 

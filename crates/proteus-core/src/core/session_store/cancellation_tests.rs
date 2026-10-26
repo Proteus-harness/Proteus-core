@@ -40,6 +40,19 @@ async fn canceled_append_finishes_before_next_writer(fail_after_partial_write: b
         "worker must retain writer after caller cancellation"
     );
 
+    let session_dir = store.session_dir().to_owned();
+    let writer = Arc::downgrade(&store.writer);
+    drop(store);
+    assert!(
+        writer.upgrade().is_some(),
+        "an admitted transaction owns its writer after every caller/store drops"
+    );
+    let store = SessionStore::open(session_dir).expect("reopen during admitted append");
+    assert!(
+        store.writer.try_lock().is_err(),
+        "reopened stores must share the admitted transaction's writer"
+    );
+
     let following = CanonicalMessage::text(MessageRole::User, "short subsequent append");
     let following_messages = [following.clone()];
     let next = store.append_history(thread_id, None, &following_messages);

@@ -20,6 +20,8 @@ mod ownership;
 pub(crate) use append::append_record;
 mod recovery;
 mod redaction;
+mod retirement;
+pub(crate) use retirement::WriterRetirement;
 
 use ownership::SessionWriteOwnership;
 use recovery::{AppendRollback, restore_committed_offset};
@@ -73,6 +75,9 @@ pub(crate) struct JournalWriterState {
     initial_recovery_scans: usize,
     #[cfg(test)]
     append_pause: Option<append::AppendPause>,
+    // Fields drop in declaration order. Signal only after validation buffers,
+    // the OS lease and any test IO pause have been released.
+    _retirement: Option<retirement::RetirementGuard>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -153,6 +158,20 @@ pub(crate) fn initialize_writer_projection(
 }
 
 impl JournalWriterState {
+    pub(crate) fn with_retirement(retirement: std::sync::Arc<WriterRetirement>) -> Self {
+        Self {
+            _retirement: Some(retirement::RetirementGuard(retirement)),
+            ..Self::default()
+        }
+    }
+
+    /// Hold the destructor's lease/completion tail separately to exercise the
+    /// interval after the final Arc expires but before writer teardown ends.
+    #[cfg(test)]
+    pub(crate) fn detach_retirement(&mut self) -> impl Send + use<> {
+        (self._ownership.take(), self._retirement.take())
+    }
+
     pub(crate) fn model_context_before_turn(
         &self,
         turn_id: TurnId,
