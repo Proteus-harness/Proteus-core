@@ -122,6 +122,96 @@ fn assert_same_view(actual: &SessionReadModel, expected: &SessionReadModel) {
 }
 
 #[tokio::test]
+async fn sqlite_pages_keep_revision_order_and_usage_does_not_decode_conversation() {
+    let root = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    let store = SessionStore::new(root.path(), workspace.path(), new_session_id()).unwrap();
+    let messages: Vec<_> = (0..121)
+        .map(|index| CanonicalMessage::text(MessageRole::User, format!("message {index}")))
+        .collect();
+    store
+        .append_history(new_thread_id(), None, &messages)
+        .await
+        .unwrap();
+    let journal = fs::read(store.journal_path()).unwrap();
+    let model = store.project_read_model(render).unwrap();
+    let tail = store.saved_transcript_page(None, None).unwrap();
+    assert_eq!((tail.start, tail.total, tail.messages.len()), (71, 121, 50));
+    let middle = store
+        .saved_transcript_page(Some(tail.start), Some(&tail.revision))
+        .unwrap();
+    let first = store
+        .saved_transcript_page(Some(middle.start), Some(&tail.revision))
+        .unwrap();
+    assert_eq!((middle.start, first.start), (21, 0));
+    let all: Vec<_> = first
+        .messages
+        .into_iter()
+        .chain(middle.messages)
+        .chain(tail.messages)
+        .map(|message| message.text)
+        .collect();
+    assert_eq!(
+        all,
+        model
+            .transcript
+            .iter()
+            .map(|message| message.text.clone())
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        store
+            .saved_transcript_page(Some(122), Some(&tail.revision))
+            .is_none()
+    );
+    assert!(
+        store
+            .saved_transcript_page(None, Some("wrong revision"))
+            .is_none()
+    );
+    let db = rusqlite::Connection::open(store.session_dir().join(".read-view.sqlite")).unwrap();
+    db.execute(
+        "UPDATE records SET payload=x'00' WHERE section='conversation'",
+        [],
+    )
+    .unwrap();
+    drop(db);
+    assert!(store.fresh_read_model().is_none());
+    assert_eq!(store.fresh_read_usage().unwrap(), model.usage);
+    assert_eq!(
+        serde_json::to_value(store.fresh_context_summary().unwrap()).unwrap(),
+        serde_json::to_value(crate::core::summarize_context_history(&messages)).unwrap()
+    );
+    assert!(store.saved_transcript_page(None, None).is_some());
+    store
+        .append_history(
+            new_thread_id(),
+            None,
+            &[CanonicalMessage::text(MessageRole::User, "new")],
+        )
+        .await
+        .unwrap();
+    assert!(store.saved_transcript_page(None, None).is_none());
+    assert!(
+        store
+            .saved_transcript_page(Some(71), Some(&tail.revision))
+            .is_some()
+    );
+    assert!(store.fresh_read_usage().is_none());
+    assert_ne!(fs::read(store.journal_path()).unwrap(), journal);
+    store.project_read_model(render).unwrap();
+    let current = store.saved_transcript_page(None, None).unwrap();
+    let base = current.base.unwrap();
+    assert_eq!(base.revision, tail.revision);
+    assert_eq!(base.common_prefix, 121);
+    assert!(
+        store
+            .saved_transcript_page(Some(71), Some(&tail.revision))
+            .is_none()
+    );
+}
+
+#[tokio::test]
 async fn persisted_view_retains_transcript_conversation_usage_without_reprojection() {
     let root = tempfile::tempdir().unwrap();
     let workspace = tempfile::tempdir().unwrap();
@@ -198,16 +288,19 @@ async fn malformed_or_checksum_invalid_view_falls_back_to_strict_rendering() {
     let workspace = tempfile::tempdir().unwrap();
     let store = saved(root.path(), workspace.path(), "canonical").await;
     let journal = fs::read(store.journal_path()).unwrap();
-    let path = store.session_dir().join(".read-view.json");
+    let path = store.session_dir().join(".read-view.sqlite");
     for damage in ["malformed", "checksum"] {
         let expected = store.project_read_model(render).unwrap();
         if damage == "malformed" {
             fs::write(&path, b"{broken").unwrap();
         } else {
-            let mut envelope: serde_json::Value =
-                serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-            envelope["data"]["conversation"]["revision"] = 999.into();
-            fs::write(&path, serde_json::to_vec(&envelope).unwrap()).unwrap();
+            let connection = rusqlite::Connection::open(&path).unwrap();
+            connection
+                .execute(
+                    "UPDATE records SET payload=x'30' WHERE section='conversation'",
+                    [],
+                )
+                .unwrap();
         }
         let rendered = Cell::new(false);
         let (_, actual, deferred, stale) =

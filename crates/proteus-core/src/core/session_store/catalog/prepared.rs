@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use anyhow::Result;
 
 #[cfg(unix)]
-use super::super::read_cache::{self, SourceFingerprint};
+use super::super::read_cache::SourceFingerprint;
 use super::super::read_model::SessionReadModel;
 use crate::core::{SessionStore, session_journal::JournalProjection};
 
@@ -29,10 +29,8 @@ impl PreparedSession {
         #[cfg(unix)]
         {
             let store = SessionStore::open(session_dir.clone())?;
-            if let Some((source, model, fresh)) = read_cache::load_any::<SessionReadModel>(
-                &session_dir,
-                super::super::read_model::VIEW_CACHE,
-            ) && model.matches(&store)
+            if let Some((source, model, fresh)) = store.saved_read_model()
+                && model.matches(&store)
             {
                 return Ok(Self {
                     store,
@@ -116,13 +114,7 @@ impl PreparedSession {
         let store = match self.source {
             Some(source) => {
                 if !deferred {
-                    read_cache::save(
-                        self.store.session_dir(),
-                        super::super::read_model::VIEW_CACHE,
-                        &source,
-                        &model,
-                    );
-                    read_cache::save(self.store.session_dir(), "summary", &source, &model.summary);
+                    self.store.save_read_model(&source, &model);
                 }
                 self.store.with_read_metadata(&model)
             }

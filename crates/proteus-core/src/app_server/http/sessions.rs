@@ -6,7 +6,7 @@ use std::{
 
 use anyhow::{Result, anyhow};
 
-use crate::app_server::context_map::{ContextMapInput, build_context_map_snapshot};
+use crate::app_server::context_map::ContextMapInput;
 use crate::core::{
     SessionStore, canonicalize_session_dir_path, config_store_root, event_log_path,
     list_session_summaries, list_workspace_session_summaries,
@@ -158,21 +158,33 @@ pub(super) async fn context_map_json(
     tokio::task::spawn_blocking(move || {
         let store = SessionStore::open(session_dir.clone())?;
         let workspace_path = store.workspace_path()?;
-        build_context_map_snapshot(ContextMapInput {
-            session_dir: Some(session_dir),
-            session_id: Some(store.session_id()),
-            event_log_path: event_log_path(
-                &event_log_config_path,
-                config_path.as_deref(),
-                &workspace_path,
-            ),
-            workspace_path: Some(workspace_path),
-            activity: None,
-            history: crate::app_server::read_model::current_read_model(&store)?
+        #[cfg(unix)]
+        let summary = store.fresh_context_summary();
+        #[cfg(not(unix))]
+        let summary = None;
+        let history = if summary.is_some() {
+            Vec::new()
+        } else {
+            crate::app_server::read_model::current_read_model(&store)?
                 .conversation
-                .messages,
-            diagnostics: Vec::new(),
-        })
+                .messages
+        };
+        crate::app_server::context_map::build_context_map_snapshot_with_summary(
+            ContextMapInput {
+                session_dir: Some(session_dir),
+                session_id: Some(store.session_id()),
+                event_log_path: event_log_path(
+                    &event_log_config_path,
+                    config_path.as_deref(),
+                    &workspace_path,
+                ),
+                workspace_path: Some(workspace_path),
+                activity: None,
+                history,
+                diagnostics: Vec::new(),
+            },
+            summary,
+        )
     })
     .await
     .map_err(|error| anyhow!("cold context task failed: {error}"))?
@@ -208,14 +220,42 @@ pub(super) async fn usage_json(
     if let Some(server) = state.server_for_session_dir(&session_dir).await {
         return server.usage_snapshot().await;
     }
+    let store = tokio::task::spawn_blocking(move || SessionStore::open(session_dir))
+        .await
+        .map_err(|error| anyhow!("cold usage task failed: {error}"))??;
+    store.usage_snapshot().await.map(Some)
+}
+
+pub(super) async fn history_page_json(
+    query: Option<&str>,
+) -> Result<proteus_contracts::app_protocol::AppTranscriptPage> {
+    let dir = canonicalize_session_dir_path(required_session_query(query)?)?;
+    let [before, revision] = super::workspace::query_params(query, ["before", "revision"])?;
+    let before = before.map(|value| value.parse::<usize>()).transpose()?;
     tokio::task::spawn_blocking(move || {
-        let store = SessionStore::open(session_dir)?;
-        Ok(Some(
-            crate::app_server::read_model::current_read_model(&store)?.usage,
-        ))
+        let store = SessionStore::open(dir)?;
+        #[cfg(unix)]
+        {
+            if let Some(page) = store.saved_transcript_page(before, revision.as_deref()) {
+                return Ok(page);
+            }
+            anyhow::ensure!(
+                revision.is_none(),
+                "history revision changed; refresh the session snapshot"
+            );
+            let _ = crate::app_server::read_model::current_read_model(&store)?;
+            return store
+                .saved_transcript_page(before, None)
+                .ok_or_else(|| anyhow!("history index changed during reading"));
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = (store, before, revision);
+            anyhow::bail!("paged history requires a source fingerprint on this platform")
+        }
     })
     .await
-    .map_err(|error| anyhow!("cold usage task failed: {error}"))?
+    .map_err(|error| anyhow!("history page task failed: {error}"))?
 }
 
 pub(super) async fn server_for_session(

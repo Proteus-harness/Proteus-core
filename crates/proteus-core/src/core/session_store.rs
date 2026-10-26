@@ -23,6 +23,8 @@ use crate::model_standard::{ContentPart, MessageRole};
 
 mod catalog;
 mod checkpoint;
+mod context_summary;
+pub(crate) use context_summary::summarize_context_history;
 mod identity;
 mod path_identity;
 #[cfg(unix)]

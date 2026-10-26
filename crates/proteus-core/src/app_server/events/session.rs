@@ -1,6 +1,7 @@
 //! The view is updated inline with event delivery, before a producer can move
 //! on. A subscription snapshot and its sequence are sampled under that same lock.
 use super::{AppEventPublisher, AppServerEvent};
+use crate::app_server::read_model::CompletedTranscript;
 use crate::app_server::{AppTranscriptMessage, TurnProgress};
 use crate::{
     contracts::EventSink,
@@ -26,7 +27,7 @@ pub(super) struct SessionView {
     execution: AppExecutionState,
     // Completed turns are projected from the validated journal at attachment
     // and settlement. Reconnect snapshots must not reread it under this lock.
-    pub(super) history: Result<Arc<Vec<AppTranscriptMessage>>, Arc<String>>,
+    pub(super) history: Result<Arc<CompletedTranscript>, Arc<String>>,
 }
 
 struct SnapshotParts {
@@ -34,14 +35,14 @@ struct SnapshotParts {
     stream_id: String,
     seq: u64,
     root_thread_id: Option<crate::domain::ThreadId>,
-    history: Arc<Vec<AppTranscriptMessage>>,
+    history: Arc<CompletedTranscript>,
     progress: Vec<AppTranscriptMessage>,
     execution: AppExecutionState,
 }
 
 impl SnapshotParts {
     fn into_snapshot(self) -> AppSessionSnapshot {
-        let mut transcript = self.history.as_ref().clone();
+        let mut transcript = self.history.messages.clone();
         transcript.extend(self.progress);
         AppSessionSnapshot {
             session_id: self.session_id,
@@ -49,6 +50,7 @@ impl SnapshotParts {
             seq: self.seq,
             root_thread_id: self.root_thread_id,
             transcript,
+            history: self.history.cursor.clone(),
             execution: self.execution,
         }
     }
@@ -63,7 +65,7 @@ impl SessionView {
             runtime: Weak::new(),
             progress: TurnProgress::default(),
             execution: AppExecutionState::default(),
-            history: Ok(Arc::new(Vec::new())),
+            history: Ok(Arc::new(CompletedTranscript::default())),
         }
     }
 
@@ -98,9 +100,7 @@ impl SessionView {
 }
 
 impl AppEventPublisher {
-    pub(in crate::app_server) fn completed_history(
-        &self,
-    ) -> Option<Arc<Vec<AppTranscriptMessage>>> {
+    pub(in crate::app_server) fn completed_history(&self) -> Option<Arc<CompletedTranscript>> {
         self.0
             .view
             .lock()
@@ -113,8 +113,8 @@ impl AppEventPublisher {
 
     pub(in crate::app_server) fn refresh_history(
         &self,
-        expected: &Arc<Vec<AppTranscriptMessage>>,
-        history: Vec<AppTranscriptMessage>,
+        expected: &Arc<CompletedTranscript>,
+        history: CompletedTranscript,
     ) -> Result<()> {
         {
             let mut view = self.0.view.lock().expect("session view lock");
@@ -133,7 +133,7 @@ impl AppEventPublisher {
     pub(in crate::app_server) fn attach_runtime(
         &self,
         runtime: &Arc<AgentRuntime>,
-        history: Vec<AppTranscriptMessage>,
+        history: CompletedTranscript,
     ) {
         let mut view = self.0.view.lock().expect("session view lock");
         view.runtime = Arc::downgrade(runtime);
@@ -181,10 +181,7 @@ impl AppEventPublisher {
         }
     }
 
-    pub(in crate::app_server) fn finish_progress(
-        &self,
-        history: Result<Vec<AppTranscriptMessage>>,
-    ) {
+    pub(in crate::app_server) fn finish_progress(&self, history: Result<CompletedTranscript>) {
         let mut view = self.0.view.lock().expect("session view lock");
         view.seq = view.seq.checked_add(1).expect("session sequence");
         view.progress.finish_parent_turn();

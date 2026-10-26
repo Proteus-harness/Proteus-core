@@ -128,9 +128,11 @@ async fn reconnect_snapshot_replaces_live_progress_with_committed_transcript_onc
             crate::model_standard::MessageRole::Assistant,
             "committed",
         )]);
-    events.finish_progress(Ok(committed));
+    events.finish_progress(Ok(committed.into()));
     events.publish_snapshot().unwrap();
-    events.refresh_history(&stale_refresh, Vec::new()).unwrap();
+    events
+        .refresh_history(&stale_refresh, Vec::new().into())
+        .unwrap();
 
     assert!(matches!(
         subscription.recv().await.unwrap(),

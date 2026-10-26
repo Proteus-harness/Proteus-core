@@ -267,7 +267,25 @@ impl AppServerHandle {
     }
 
     pub async fn transcript(&self) -> Result<Vec<AppTranscriptMessage>> {
-        Ok(self.events.session_snapshot()?.transcript)
+        let snapshot = self.events.session_snapshot()?;
+        #[cfg(unix)]
+        if let Some(cursor) = &snapshot.history
+            && cursor.before > 0
+        {
+            let store = self
+                .runtime
+                .session_store()
+                .cloned()
+                .ok_or_else(|| anyhow!("paged history has no session store"))?;
+            let revision = cursor.revision.clone();
+            let mut history =
+                tokio::task::spawn_blocking(move || store.saved_transcript(&revision))
+                    .await?
+                    .ok_or_else(|| anyhow!("history revision changed; retry reading history"))?;
+            history.extend(snapshot.transcript.into_iter().skip(50));
+            return Ok(history);
+        }
+        Ok(snapshot.transcript)
     }
 
     pub async fn context_map_snapshot(
@@ -276,7 +294,20 @@ impl AppServerHandle {
     ) -> Result<AppContextMapSnapshot> {
         let session_dir = self.session_dir_path();
         let session_id = Some(self.runtime.session_id());
-        let history = self.runtime.history().await;
+        #[cfg(unix)]
+        let summary = match self.runtime.session_store().cloned() {
+            Some(store) => {
+                tokio::task::spawn_blocking(move || store.fresh_context_summary()).await?
+            }
+            None => None,
+        };
+        #[cfg(not(unix))]
+        let summary = None;
+        let history = if summary.is_some() {
+            Vec::new()
+        } else {
+            self.runtime.history().await
+        };
         let event_log_path = self.context_event_log_path(&self.cwd).await;
         let input = ContextMapInput {
             session_dir,
@@ -287,9 +318,11 @@ impl AppServerHandle {
             event_log_path,
             diagnostics: Vec::new(),
         };
-        tokio::task::spawn_blocking(move || build_context_map_snapshot(input))
-            .await
-            .map_err(|error| anyhow!("context map task failed: {error}"))?
+        tokio::task::spawn_blocking(move || {
+            context_map::build_context_map_snapshot_with_summary(input, summary)
+        })
+        .await
+        .map_err(|error| anyhow!("context map task failed: {error}"))?
     }
 
     pub async fn context_map_snapshot_for_session_dir(
@@ -432,13 +465,18 @@ impl AgentAppServer {
             .await
             .map_err(|error| anyhow!("session transcript task failed: {error}"))??;
             refresh_stale_view = stale;
+            let display_store = session_store.clone();
             builder = builder.resume_from_session_snapshot(
                 session_store,
                 model.conversation,
                 new_thread_id(),
                 deferred,
             );
-            Some(model.transcript)
+            Some(read_model::CompletedTranscript::from_model(
+                &display_store,
+                model.transcript,
+                stale,
+            ))
         } else {
             None
         };
@@ -498,9 +536,11 @@ impl AgentAppServer {
 /// Build the completed transcript once per committed turn. The journal is the
 /// authority for persisted sessions; disk replay and projection run outside
 /// the event and admission locks and off the async executor.
-async fn completed_transcript(runtime: Arc<AgentRuntime>) -> Result<Vec<AppTranscriptMessage>> {
+async fn completed_transcript(
+    runtime: Arc<AgentRuntime>,
+) -> Result<read_model::CompletedTranscript> {
     if runtime.session_dir().is_none() {
-        return Ok(transcript_messages(&runtime.history().await));
+        return Ok(transcript_messages(&runtime.history().await).into());
     }
     tokio::task::spawn_blocking(move || {
         let store = runtime
@@ -508,7 +548,11 @@ async fn completed_transcript(runtime: Arc<AgentRuntime>) -> Result<Vec<AppTrans
             .ok_or_else(|| anyhow!("persisted session has no store"))?;
         let model =
             store.project_read_model(|projection| journal_transcript_messages(projection, None))?;
-        Ok(model.transcript)
+        Ok(read_model::CompletedTranscript::from_model(
+            store,
+            model.transcript,
+            false,
+        ))
     })
     .await
     .map_err(|error| anyhow!("transcript projection task failed: {error}"))?

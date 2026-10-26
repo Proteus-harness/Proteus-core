@@ -34,6 +34,7 @@ fn snapshots_require_complete_revisions() {
     );
     required(
         AppSessionSnapshot {
+            history: None,
             session_id: new_session_id(),
             stream_id: "live".into(),
             seq: 0,

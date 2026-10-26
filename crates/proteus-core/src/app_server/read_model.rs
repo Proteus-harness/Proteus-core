@@ -2,6 +2,49 @@
 use super::{AppServerEvent, AppServerHandle, journal_transcript_messages};
 use crate::core::{SessionReadModel, SessionStore};
 
+use proteus_contracts::app_protocol::{AppTranscriptCursor, AppTranscriptMessage};
+
+#[derive(Default)]
+pub(super) struct CompletedTranscript {
+    pub messages: Vec<AppTranscriptMessage>,
+    pub cursor: Option<AppTranscriptCursor>,
+}
+
+impl From<Vec<AppTranscriptMessage>> for CompletedTranscript {
+    fn from(messages: Vec<AppTranscriptMessage>) -> Self {
+        Self {
+            messages,
+            cursor: None,
+        }
+    }
+}
+
+impl CompletedTranscript {
+    pub fn from_model(
+        store: &SessionStore,
+        transcript: Vec<AppTranscriptMessage>,
+        stale: bool,
+    ) -> Self {
+        #[cfg(unix)]
+        if let Some(page) = if stale {
+            store.saved_display_page()
+        } else {
+            store.saved_transcript_page(None, None)
+        } {
+            return Self {
+                messages: page.messages,
+                cursor: Some(AppTranscriptCursor {
+                    revision: page.revision,
+                    before: page.start,
+                    base: page.base,
+                }),
+            };
+        }
+        let _ = (store, stale);
+        transcript.into()
+    }
+}
+
 /// Cold HTTP reads share the same current projection without opening a runtime.
 pub(super) fn current_read_model(store: &SessionStore) -> anyhow::Result<SessionReadModel> {
     match store.fresh_read_model() {
@@ -41,7 +84,11 @@ pub(super) fn refresh_in_background(server: &AppServerHandle) {
                 if let Some(source) = source {
                     store.save_read_model(&source, &model);
                 }
-                Ok::<_, anyhow::Error>(model.transcript)
+                Ok::<_, anyhow::Error>(CompletedTranscript::from_model(
+                    &store,
+                    model.transcript,
+                    false,
+                ))
             })
             .await??;
             server.events.refresh_history(&baseline, transcript)?;

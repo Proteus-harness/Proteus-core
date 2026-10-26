@@ -53,7 +53,7 @@ fn query_param(query: Option<&str>, name: Option<&str>) -> Result<Option<String>
 }
 
 /// Optional parameters `names` of a workspace query, each at most once.
-fn query_params<const N: usize>(
+pub(super) fn query_params<const N: usize>(
     query: Option<&str>,
     names: [&str; N],
 ) -> Result<[Option<String>; N]> {

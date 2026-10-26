@@ -12,6 +12,9 @@ use super::SessionStore;
 
 pub(crate) const VIEW_CACHE: &str = "view";
 
+#[cfg(unix)]
+mod sqlite;
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct SessionReadModel {
@@ -64,8 +67,7 @@ impl SessionStore {
     /// Current read projection only; stale display snapshots are a separate API.
     pub(crate) fn fresh_read_model(&self) -> Option<SessionReadModel> {
         #[cfg(unix)]
-        if let Some((_, model)) =
-            super::read_cache::load::<SessionReadModel>(self.session_dir(), VIEW_CACHE)
+        if let Some((_, model, true)) = sqlite::load(self)
             && model.matches(self)
         {
             return Some(model);
@@ -95,8 +97,47 @@ impl SessionStore {
         source: &super::read_cache::SourceFingerprint,
         model: &SessionReadModel,
     ) {
-        super::read_cache::save(self.session_dir(), VIEW_CACHE, source, model);
+        sqlite::save(self, source, model);
         super::read_cache::save(self.session_dir(), "summary", source, &model.summary);
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn saved_read_model(
+        &self,
+    ) -> Option<(super::read_cache::SourceFingerprint, SessionReadModel, bool)> {
+        sqlite::load(self)
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn fresh_context_summary(
+        &self,
+    ) -> Option<proteus_contracts::app_protocol::AppContextHistorySummary> {
+        sqlite::context_summary(self)
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn fresh_read_usage(&self) -> Option<SessionUsageSnapshot> {
+        sqlite::usage(self)
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn saved_transcript_page(
+        &self,
+        before: Option<usize>,
+        revision: Option<&str>,
+    ) -> Option<proteus_contracts::app_protocol::AppTranscriptPage> {
+        sqlite::page(self, before, revision)
+    }
+    #[cfg(unix)]
+    pub(crate) fn saved_display_page(
+        &self,
+    ) -> Option<proteus_contracts::app_protocol::AppTranscriptPage> {
+        sqlite::display_page(self)
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn saved_transcript(&self, revision: &str) -> Option<Vec<AppTranscriptMessage>> {
+        sqlite::transcript(self, revision)
     }
 }
 

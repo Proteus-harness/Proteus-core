@@ -1,6 +1,34 @@
 use crate::model_standard::MessagePhase;
 use serde_json::Value;
 
+/// A page of one immutable display projection. Positions address that revision only.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AppTranscriptPage {
+    pub revision: String,
+    pub start: usize,
+    pub total: usize,
+    pub messages: Vec<AppTranscriptMessage>,
+    pub base: Option<AppTranscriptBase>,
+}
+
+/// Older completed rows exist before this position in the named display revision.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AppTranscriptCursor {
+    pub revision: String,
+    pub before: usize,
+    pub base: Option<AppTranscriptBase>,
+}
+
+/// Prefix verified byte-for-byte against the previous display projection.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AppTranscriptBase {
+    pub revision: String,
+    pub common_prefix: usize,
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct AppTranscriptMessage {
     pub message_id: Option<crate::domain::MessageId>,

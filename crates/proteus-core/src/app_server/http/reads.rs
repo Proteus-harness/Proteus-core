@@ -47,6 +47,10 @@ async fn read(state: &HttpAppState, path: &str, query: Option<&str>) -> Result<H
         "/bootstrap" => json_response(StatusCode::OK, &bootstrap(state).await),
         "/sessions" => json_response(StatusCode::OK, &session_summaries(state, None).await?),
         "/history" => json_response(StatusCode::OK, &history_json(state, query).await?),
+        "/history/page" => json_response(
+            StatusCode::OK,
+            &super::sessions::history_page_json(query).await?,
+        ),
         "/conversation" => json_response(StatusCode::OK, &conversation_json(state, query).await?),
         "/context" => json_response(StatusCode::OK, &context_map_json(state, query).await?),
         "/usage" => json_response(StatusCode::OK, &usage_json(state, query).await?),

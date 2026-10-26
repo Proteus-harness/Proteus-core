@@ -1,7 +1,7 @@
 //! Disposable, source-validated read models. Never an audit/replay authority.
 use std::{
     fs::{self, Metadata, OpenOptions},
-    io::{self, ErrorKind, Read, Write},
+    io::{self, ErrorKind, Write},
     os::unix::{
         ffi::OsStrExt,
         fs::{MetadataExt, OpenOptionsExt},
@@ -14,7 +14,8 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::{core::session_journal::JOURNAL_SCHEMA_VERSION, domain::new_record_id};
 
-const SCHEMA_VERSION: u32 = 1;
+mod sqlite;
+pub(super) use sqlite::{Reader, Writer};
 const MAX_BYTES: usize = 64 * 1024 * 1024;
 const MAX_BLOBS: usize = 8192;
 
@@ -65,6 +66,15 @@ pub(crate) struct SourceFingerprint {
     blobs: Vec<(Vec<u8>, FileStamp)>,
 }
 impl SourceFingerprint {
+    pub(crate) fn revision(&self) -> Option<String> {
+        Some(
+            digest(&SHA256, &serialize_bounded(self)?)
+                .as_ref()
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect(),
+        )
+    }
     pub(crate) fn read(dir: &Path, max_blobs: usize) -> Option<Self> {
         let directory = fs::symlink_metadata(dir).ok()?;
         if !directory.is_dir() {
@@ -129,60 +139,27 @@ fn optional_stamp(path: &Path, directory: bool) -> Option<Option<FileStamp>> {
     }
 }
 
-#[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Envelope<T> {
-    schema_version: u32,
-    journal_schema_version: u32,
-    source: SourceFingerprint,
-    checksum: String,
-    data: T,
-}
-
 fn cache_path(dir: &Path, name: &str) -> Option<PathBuf> {
     (!name.is_empty() && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'))
-        .then(|| dir.join(format!(".read-{name}.json")))
+        .then(|| dir.join(format!(".read-{name}.sqlite")))
 }
 
-pub(crate) fn load<T: Serialize + DeserializeOwned>(
-    dir: &Path,
-    name: &str,
-) -> Option<(SourceFingerprint, T)> {
+#[cfg(test)]
+pub(crate) fn load<T: DeserializeOwned>(dir: &Path, name: &str) -> Option<(SourceFingerprint, T)> {
     let (source, data, fresh) = load_any(dir, name)?;
     fresh.then_some((source, data))
 }
 
 /// A stale model is display-only until its caller refreshes it from the journal.
 /// The returned fingerprint always belongs to the cached model, not current files.
-pub(crate) fn load_any<T: Serialize + DeserializeOwned>(
+pub(crate) fn load_any<T: DeserializeOwned>(
     dir: &Path,
     name: &str,
 ) -> Option<(SourceFingerprint, T, bool)> {
-    let before = SourceFingerprint::read(dir, MAX_BLOBS)?;
-    let path = cache_path(dir, name)?;
-    let metadata = fs::symlink_metadata(&path).ok()?;
-    if !metadata.is_file() || metadata.len() > MAX_BYTES as u64 {
-        return None;
-    }
-    let mut bytes = Vec::with_capacity(metadata.len() as usize);
-    fs::File::open(path)
-        .ok()?
-        .take(MAX_BYTES as u64 + 1)
-        .read_to_end(&mut bytes)
-        .ok()?;
-    if bytes.len() > MAX_BYTES {
-        return None;
-    }
-    let envelope: Envelope<T> = serde_json::from_slice(&bytes).ok()?;
-    if envelope.schema_version != SCHEMA_VERSION
-        || envelope.journal_schema_version != JOURNAL_SCHEMA_VERSION
-        || checksum(&envelope.data)? != envelope.checksum
-    {
-        return None;
-    }
-    let after = SourceFingerprint::read(dir, MAX_BLOBS)?;
-    let fresh = envelope.source == before && after == before;
-    Some((envelope.source, envelope.data, fresh))
+    let reader = Reader::open(dir, name)?;
+    let data = reader.one("data")?;
+    let (source, fresh) = reader.finish()?;
+    Some((source, data, fresh))
 }
 
 pub(crate) fn save<T: Serialize>(
@@ -191,55 +168,14 @@ pub(crate) fn save<T: Serialize>(
     source: &SourceFingerprint,
     data: &T,
 ) -> bool {
-    save_inner(dir, name, source, data).is_some()
-}
-fn save_inner<T: Serialize>(
-    dir: &Path,
-    name: &str,
-    source: &SourceFingerprint,
-    data: &T,
-) -> Option<()> {
-    let path = cache_path(dir, name)?;
-    if SourceFingerprint::read(dir, MAX_BLOBS).as_ref() != Some(source) {
-        return None;
-    }
-    let envelope = Envelope {
-        schema_version: SCHEMA_VERSION,
-        journal_schema_version: JOURNAL_SCHEMA_VERSION,
-        source: source.clone(),
-        checksum: checksum(data)?,
-        data,
+    let save = || {
+        let writer = Writer::new(dir, name, source)?;
+        writer.one("data", data)?;
+        writer.finish()
     };
-    let bytes = serialize_bounded(&envelope)?;
-    let temp = dir.join(format!(".read-{name}.tmp.{}", new_record_id()));
-    let result = (|| {
-        let mut file = OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .mode(0o600)
-            .open(&temp)
-            .ok()?;
-        file.write_all(&bytes).ok()?;
-        file.sync_data().ok()?;
-        if SourceFingerprint::read(dir, MAX_BLOBS).as_ref() != Some(source) {
-            return None;
-        }
-        fs::rename(&temp, &path).ok()?;
-        Some(())
-    })();
-    let _ = fs::remove_file(temp);
-    result
+    save().is_some()
 }
 
-fn checksum<T: Serialize>(data: &T) -> Option<String> {
-    Some(
-        digest(&SHA256, &serialize_bounded(data)?)
-            .as_ref()
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect(),
-    )
-}
 fn serialize_bounded<T: Serialize>(data: &T) -> Option<Vec<u8>> {
     struct Bounded(Vec<u8>);
     impl Write for Bounded {

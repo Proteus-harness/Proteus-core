@@ -58,7 +58,7 @@ impl AppServerHandle {
             eprintln!("warning: cleared history read cache could not be refreshed: {error:#}");
         }
         // A successful Replace([]) clears the canonical journal transcript.
-        self.events.finish_progress(Ok(Vec::new()));
+        self.events.finish_progress(Ok(Vec::new().into()));
         self.events.publish_snapshot()
     }
 

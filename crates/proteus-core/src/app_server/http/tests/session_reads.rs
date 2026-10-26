@@ -1,5 +1,76 @@
 use super::*;
 
+#[cfg(unix)]
+#[tokio::test]
+async fn paged_snapshot_full_history_and_revision_checked_pages_agree() {
+    let root = tempfile::tempdir().unwrap();
+    let cwd = tempfile::tempdir().unwrap();
+    let config = root.path().join("config.toml");
+    let store =
+        crate::core::SessionStore::new(root.path(), cwd.path(), crate::domain::new_session_id())
+            .unwrap();
+    let messages: Vec<_> = (0..121)
+        .map(|i| {
+            crate::model_standard::CanonicalMessage::text(
+                crate::model_standard::MessageRole::User,
+                format!("row {i}"),
+            )
+        })
+        .collect();
+    store
+        .append_history(crate::domain::new_thread_id(), None, &messages)
+        .await
+        .unwrap();
+    let before = std::fs::read(store.journal_path()).unwrap();
+    let server = AgentAppServer::launch_resumed(
+        crate::test_model::config(),
+        cwd.path().into(),
+        Some(&config),
+        store.session_dir().into(),
+    )
+    .await
+    .unwrap();
+    let mut events = server.subscribe_session();
+    let snapshot = loop {
+        if let AppServerEvent::SessionSnapshot { snapshot } = events.recv().await.unwrap() {
+            break snapshot;
+        }
+    };
+    assert_eq!(snapshot.transcript.len(), 50);
+    assert_eq!(snapshot.transcript[0].text, "row 71");
+    let cursor = snapshot.history.unwrap();
+    assert_eq!(cursor.before, 71);
+    let full = server.transcript().await.unwrap();
+    assert_eq!(full.len(), 121);
+    assert_eq!(full[0].text, "row 0");
+    let query = format!(
+        "session_dir={}&before=71&revision={}",
+        store.session_dir().display(),
+        cursor.revision
+    );
+    let page = super::super::sessions::history_page_json(Some(&query))
+        .await
+        .unwrap();
+    assert_eq!((page.start, page.messages.len()), (21, 50));
+    let query = format!(
+        "session_dir={}&before=71&revision=wrong",
+        store.session_dir().display()
+    );
+    assert!(
+        super::super::sessions::history_page_json(Some(&query))
+            .await
+            .is_err()
+    );
+    let query = format!("session_dir={}&before=abc", store.session_dir().display());
+    assert!(
+        super::super::sessions::history_page_json(Some(&query))
+            .await
+            .is_err()
+    );
+    assert_eq!(std::fs::read(store.journal_path()).unwrap(), before);
+    server.shutdown().await;
+}
+
 #[tokio::test]
 async fn route_history_can_read_requested_cold_session_without_changing_live_registry() {
     let cwd = tempfile::tempdir().expect("cwd");

@@ -15,8 +15,9 @@ impl SessionStore {
         }
         let store = self.clone();
         let snapshot = tokio::task::spawn_blocking(move || {
-            if let Some(model) = store.fresh_read_model() {
-                return Ok(model.usage);
+            #[cfg(unix)]
+            if let Some(usage) = store.fresh_read_usage() {
+                return Ok(usage);
             }
             let projection = store.load_projection()?;
             let mut usage = UsageProjection::default();

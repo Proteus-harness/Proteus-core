@@ -43,7 +43,10 @@ pub mod settings;
 pub mod topology;
 mod transcript;
 pub use live::{AppExecutionState, AppRun, AppRunStatus, AppSessionSnapshot};
-pub use transcript::{AppTranscriptMessage, AppTranscriptSubagent, AppTranscriptTool};
+pub use transcript::{
+    AppTranscriptBase, AppTranscriptCursor, AppTranscriptMessage, AppTranscriptPage,
+    AppTranscriptSubagent, AppTranscriptTool,
+};
 
 mod pending;
 pub use pending::{AppPendingRequests, AppQueuedUserMessage};

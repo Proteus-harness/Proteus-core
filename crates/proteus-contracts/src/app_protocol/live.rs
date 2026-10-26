@@ -12,6 +12,7 @@ pub struct AppSessionSnapshot {
     pub seq: u64,
     pub root_thread_id: Option<crate::domain::ThreadId>,
     pub transcript: Vec<AppTranscriptMessage>,
+    pub history: Option<super::AppTranscriptCursor>,
     pub execution: AppExecutionState,
 }
 

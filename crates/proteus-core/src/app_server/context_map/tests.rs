@@ -1,3 +1,4 @@
+use crate::model_standard::MessageRole;
 use std::{fs::OpenOptions, io::Write, path::Path, sync::Arc};
 
 use super::*;

@@ -148,7 +148,7 @@ mod tests {
             .await
             .unwrap();
         assert!(refresh_one(store.session_dir()));
-        let cache_path = store.session_dir().join(".read-summary.json");
+        let cache_path = store.session_dir().join(".read-summary.sqlite");
         let old_cache = std::fs::read(&cache_path).unwrap();
         std::fs::write(store.journal_path(), b"{broken}\n").unwrap();
         let journal = std::fs::read(store.journal_path()).unwrap();

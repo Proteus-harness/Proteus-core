@@ -71,13 +71,42 @@ fn malformed_versions_and_checksum_are_disposable_misses() {
         if change == "malformed" {
             fs::write(&path, b"{broken").unwrap();
         } else {
-            let mut envelope: serde_json::Value =
-                serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-            match change {
-                "checksum" => envelope[change] = "wrong".into(),
-                _ => envelope[change] = 0.into(),
+            let connection = rusqlite::Connection::open(&path).unwrap();
+            let section = if matches!(change, "schema_version" | "journal_schema_version") {
+                "source"
+            } else {
+                "data"
+            };
+            if change == "checksum" {
+                connection
+                    .execute("UPDATE records SET checksum=x'00' WHERE section='data'", [])
+                    .unwrap();
+            } else if section == "source" {
+                let bytes: Vec<u8> = connection
+                    .query_row(
+                        "SELECT payload FROM records WHERE section='source'",
+                        [],
+                        |row| row.get(0),
+                    )
+                    .unwrap();
+                let mut source: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+                source[if change == "schema_version" {
+                    "format"
+                } else {
+                    "journal_schema"
+                }] = 0.into();
+                let bytes = serde_json::to_vec(&source).unwrap();
+                connection
+                    .execute(
+                        "UPDATE records SET payload=?1,checksum=?2 WHERE section='source'",
+                        rusqlite::params![&bytes, digest(&SHA256, &bytes).as_ref()],
+                    )
+                    .unwrap();
+            } else {
+                connection
+                    .execute("UPDATE records SET payload=x'30' WHERE section='data'", [])
+                    .unwrap();
             }
-            fs::write(&path, serde_json::to_vec(&envelope).unwrap()).unwrap();
         }
         assert!(load::<i32>(dir.path(), "test").is_none(), "{change}");
         assert!(load_any::<i32>(dir.path(), "test").is_none(), "{change}");
@@ -168,10 +197,14 @@ fn stale_snapshot_requires_current_source_and_cannot_hide_damaged_cache() {
     fs::remove_dir(dir.path().join("journal.jsonl")).unwrap();
     fs::write(dir.path().join("journal.jsonl"), b"newer version\n").unwrap();
     let path = cache_path(dir.path(), "test").unwrap();
-    let mut envelope: serde_json::Value =
-        serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-    envelope["data"] = serde_json::json!([99]);
-    fs::write(path, serde_json::to_vec(&envelope).unwrap()).unwrap();
+    let connection = rusqlite::Connection::open(path).unwrap();
+    connection
+        .execute(
+            "UPDATE records SET payload=?1 WHERE section='data'",
+            [b"[99]".as_slice()],
+        )
+        .unwrap();
+    drop(connection);
     assert!(load_any::<Vec<i32>>(dir.path(), "test").is_none());
 }
 
