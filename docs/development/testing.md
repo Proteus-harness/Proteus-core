@@ -255,6 +255,12 @@ projection_clone_benchmark -- --ignored --nocapture` измеряет подго
 с теми же `--ignored --nocapture` сравнивает стадии разбора Unicode match frames
 при полном равенстве DTO. Cold и warm HTTP чтения измеряются отдельно.
 
+Сравнение локальных SQL read indexes вынесено в самостоятельный
+[session-db benchmark](../../examples/performance/session-db/README.md):
+фиксированные SQLite/Turso, одинаковые schema/data/durability, новые процессы
+и bounded keyset pages. Он не входит в обычный Rust gate и не меняет canonical
+JSONL journal; его результаты не заменяют замеры HTTP и нативного первого кадра.
+
 ### Config, Tools И Transport
 
 | Граница | Target / filter |

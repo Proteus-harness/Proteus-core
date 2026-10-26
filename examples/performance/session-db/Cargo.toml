@@ -1,0 +1,17 @@
+[package]
+name = "proteus-session-db-bench"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+anyhow = "1"
+rusqlite = { version = "=0.41.0", default-features = false, features = ["bundled", "cache"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt", "macros"] }
+turso = { version = "=0.8.0", default-features = false }
+
+[profile.release]
+debug = 0
