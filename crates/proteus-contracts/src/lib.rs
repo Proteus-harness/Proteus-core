@@ -10,3 +10,6 @@ pub mod extension_metadata;
 pub mod model_standard;
 pub mod process_module;
 pub mod tool_support;
+
+#[cfg(test)]
+mod test_alloc;

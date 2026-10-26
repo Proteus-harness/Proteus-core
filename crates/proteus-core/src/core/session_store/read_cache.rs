@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use crate::{core::session_journal::JOURNAL_SCHEMA_VERSION, domain::new_record_id};
 
 mod sqlite;
-pub(super) use sqlite::{Reader, Writer};
+pub(super) use sqlite::{Reader, Updater, Writer};
 const MAX_BYTES: usize = 64 * 1024 * 1024;
 const MAX_BLOBS: usize = 8192;
 

@@ -132,13 +132,12 @@ pub(crate) fn initialize_writer_projection(
     {
         state.initial_recovery_scans += 1;
     }
-    let projection = JournalProjection::build(session_id, load_records(session_dir, session_id)?)?;
-    let mut validation = JournalValidationState::default();
+    let (projection, validation) =
+        JournalProjection::build_for_writer(session_id, load_records(session_dir, session_id)?)?;
     let mut usage = super::UsageProjection::default();
     let mut model_context =
         crate::core::model_context::projection::ModelContextProjection::default();
     for record in &projection.records {
-        validation.apply(record)?;
         usage.apply(record);
         model_context.apply(record);
     }

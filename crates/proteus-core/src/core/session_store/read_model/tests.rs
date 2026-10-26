@@ -212,6 +212,122 @@ async fn sqlite_pages_keep_revision_order_and_usage_does_not_decode_conversation
 }
 
 #[tokio::test]
+async fn saved_view_updates_only_changed_rows_and_removes_replaced_suffix() {
+    let root = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    let store = SessionStore::new(root.path(), workspace.path(), new_session_id()).unwrap();
+    let messages: Vec<_> = (0..121)
+        .map(|index| CanonicalMessage::text(MessageRole::User, format!("message {index}")))
+        .collect();
+    store
+        .append_history(new_thread_id(), None, &messages)
+        .await
+        .unwrap();
+    store.project_read_model(render).unwrap();
+    let path = store.session_dir().join(".read-view.sqlite");
+    let db = rusqlite::Connection::open(&path).unwrap();
+    db.execute_batch(
+        "CREATE TABLE changes(section TEXT,kind TEXT);
+        CREATE TRIGGER added AFTER INSERT ON records
+        BEGIN INSERT INTO changes VALUES(NEW.section,'insert'); END;
+        CREATE TRIGGER changed AFTER UPDATE ON records
+        BEGIN INSERT INTO changes VALUES(NEW.section,'update'); END;
+        CREATE TRIGGER removed AFTER DELETE ON records
+        BEGIN INSERT INTO changes VALUES(OLD.section,'delete'); END;",
+    )
+    .unwrap();
+    drop(db);
+    store
+        .append_history(
+            new_thread_id(),
+            None,
+            &[CanonicalMessage::text(MessageRole::Assistant, "new tail")],
+        )
+        .await
+        .unwrap();
+    let expected = store.project_read_model(render).unwrap();
+    assert_same_view(&store.fresh_read_model().unwrap(), &expected);
+    let db = rusqlite::Connection::open(&path).unwrap();
+    let changed: i64 = db
+        .query_row(
+            "SELECT count(*) FROM changes WHERE section IN ('conversation','transcript')",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(changed, 2, "unchanged history rows are not rewritten");
+    db.execute("DELETE FROM changes", []).unwrap();
+    drop(db);
+
+    store
+        .replace_history(new_thread_id(), None, &messages[..1], None)
+        .await
+        .unwrap();
+    let expected = store.project_read_model(render).unwrap();
+    assert_same_view(&store.fresh_read_model().unwrap(), &expected);
+    let db = rusqlite::Connection::open(&path).unwrap();
+    let rows: i64 = db
+        .query_row(
+            "SELECT count(*) FROM records WHERE section IN ('conversation','transcript')",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(rows, 2, "replaced history leaves no obsolete suffix rows");
+    assert_eq!(
+        db.query_row(
+            "SELECT count(*) FROM changes WHERE section IN ('conversation','transcript') AND kind='update'",
+            [],
+            |row| row.get::<_, i64>(0)
+        )
+        .unwrap(),
+        0,
+        "the common retained prefix stays untouched"
+    );
+}
+
+#[tokio::test]
+async fn long_reader_keeps_its_generation_while_replacement_publishes_new_pages() {
+    use crate::core::session_store::read_cache::Reader;
+
+    let root = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    let store = saved(root.path(), workspace.path(), "first").await;
+    store.project_read_model(render).unwrap();
+    let old = store.saved_transcript_page(None, None).unwrap();
+    let reader = Reader::open(store.session_dir(), VIEW_CACHE).unwrap();
+    assert_eq!(
+        reader
+            .page::<AppTranscriptMessage>("transcript", 0, 1)
+            .unwrap()[0]
+            .text,
+        "first"
+    );
+    store
+        .append_history(
+            new_thread_id(),
+            None,
+            &[CanonicalMessage::text(MessageRole::Assistant, "second")],
+        )
+        .await
+        .unwrap();
+    store.project_read_model(render).unwrap();
+    let current = store.saved_transcript_page(None, None).unwrap();
+    assert_ne!(current.revision, old.revision);
+    assert_eq!(current.messages.len(), 2);
+    assert_eq!(current.base.as_ref().unwrap().revision, old.revision);
+    assert_eq!(current.base.as_ref().unwrap().common_prefix, 1);
+    assert_eq!(
+        reader
+            .page::<AppTranscriptMessage>("transcript", 0, 1)
+            .unwrap()[0]
+            .text,
+        "first"
+    );
+    assert!(!reader.finish().unwrap().1);
+}
+
+#[tokio::test]
 async fn persisted_view_retains_transcript_conversation_usage_without_reprojection() {
     let root = tempfile::tempdir().unwrap();
     let workspace = tempfile::tempdir().unwrap();

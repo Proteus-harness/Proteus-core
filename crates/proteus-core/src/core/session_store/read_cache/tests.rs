@@ -136,13 +136,10 @@ fn failed_or_concurrent_save_never_installs_candidate() {
     }
     assert!(!save(dir.path(), "test", &before, &Changing(dir.path())));
     assert!(!cache_path(dir.path(), "test").unwrap().exists());
-    assert!(
-        fs::read_dir(dir.path()).unwrap().all(|entry| !entry
-            .unwrap()
-            .file_name()
-            .as_bytes()
-            .starts_with(b".read-"))
-    );
+    assert!(fs::read_dir(dir.path()).unwrap().all(|entry| {
+        let name = entry.unwrap().file_name();
+        !name.as_bytes().starts_with(b".read-") || name.as_bytes().ends_with(b".lock")
+    }));
     let current = fingerprint(dir.path());
     fs::create_dir(cache_path(dir.path(), "test").unwrap()).unwrap();
     assert!(!save(dir.path(), "test", &current, &123));

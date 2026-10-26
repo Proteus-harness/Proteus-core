@@ -29,7 +29,12 @@ fn file_bytes(dir: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
         // Disposable read models may be created; canonical files stay byte-exact.
         if matches!(
             entry.file_name().to_str(),
-            Some(".read-summary.sqlite" | ".read-view.sqlite")
+            Some(
+                ".read-summary.sqlite"
+                    | ".read-view.sqlite"
+                    | ".read-summary.lock"
+                    | ".read-view.lock"
+            )
         ) {
             continue;
         }

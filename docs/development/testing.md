@@ -261,6 +261,10 @@ projection_clone_benchmark -- --ignored --nocapture` измеряет подго
 и bounded keyset pages. Он не входит в обычный Rust gate и не меняет canonical
 JSONL journal; его результаты не заменяют замеры HTTP и нативного первого кадра.
 
+[Multi-agent benchmark](../../examples/performance/multi-agent/README.md)
+сравнивает 1/5/10 настоящих process peers с локальной fake model: PSS, CPU,
+запись, конкурентность, resident pool и replay каждого хода вне замера.
+
 ### Config, Tools И Transport
 
 | Граница | Target / filter |

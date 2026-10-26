@@ -152,55 +152,66 @@ pub(crate) fn compose_outputs(
     previous: &ContextPreparationOutput,
     candidate: &ContextPreparationOutput,
 ) -> Result<ContextPreparationOutput> {
+    let mut previous_messages = std::collections::HashMap::with_capacity(previous.messages.len());
+    for message in &previous.messages {
+        previous_messages.entry(message.id).or_insert(message);
+    }
     for message in &candidate.messages {
-        if let Some(old) = previous.messages.iter().find(|old| old.id == message.id) {
+        if let Some(old) = previous_messages.get(&message.id) {
             anyhow::ensure!(
-                old == message,
+                *old == message,
                 "context preparation changes a preceding hook message identity"
             );
         }
     }
-    let mut material = input.clone();
-    material.messages = previous.messages.clone();
+    let mut material: Vec<_> = previous.messages.iter().collect();
     if candidate.changed {
+        let mut known = previous_messages
+            .keys()
+            .copied()
+            .collect::<std::collections::HashSet<_>>();
         for message in &input.messages {
-            if !material.messages.iter().any(|old| old.id == message.id) {
-                material.messages.push(message.clone());
+            if known.insert(message.id) {
+                material.push(message);
             }
         }
     }
-    super::validate_context_preparation_output(&material, candidate)?;
-    let mut composed = candidate.clone();
+    super::compaction_validation::validate_material(material.iter().copied(), candidate)?;
+    let mut composed = if !candidate.changed && previous.changed {
+        previous.clone()
+    } else {
+        candidate.clone()
+    };
     composed.changed |= previous.changed;
-    if !candidate.changed && previous.changed {
-        composed = previous.clone();
-    }
     let roots = previous
         .user_message_replacements
         .iter()
         .map(|mapping| (mapping.replacement_message_id, mapping.source_message_id))
         .collect::<std::collections::HashMap<_, _>>();
+    let candidate_ids = candidate
+        .messages
+        .iter()
+        .map(|message| message.id)
+        .collect::<std::collections::HashSet<_>>();
     composed.user_message_replacements = previous
         .user_message_replacements
         .iter()
-        .filter(|mapping| {
-            candidate
-                .messages
-                .iter()
-                .any(|message| message.id == mapping.replacement_message_id)
-        })
+        .filter(|mapping| candidate_ids.contains(&mapping.replacement_message_id))
         .cloned()
         .collect();
+    let original_ids = input
+        .messages
+        .iter()
+        .map(|message| message.id)
+        .collect::<std::collections::HashSet<_>>();
     for replacement in &candidate.user_message_replacements {
         let root = roots
             .get(&replacement.source_message_id)
             .copied()
             .or_else(|| {
-                input
-                    .messages
-                    .iter()
-                    .find(|message| message.id == replacement.source_message_id)
-                    .map(|message| message.id)
+                original_ids
+                    .contains(&replacement.source_message_id)
+                    .then_some(replacement.source_message_id)
             });
         if let Some(source_message_id) = root {
             composed.user_message_replacements.push(
@@ -415,3 +426,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "context_preparation/allocation_tests.rs"]
+mod allocation_tests;

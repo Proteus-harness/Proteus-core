@@ -18,23 +18,52 @@ pub fn validate_context_preparation_output(
     input: &ContextPreparationInput,
     output: &ContextPreparationOutput,
 ) -> Result<()> {
-    let original = &input.messages;
+    validate_material(input.messages.iter(), output)
+}
+
+/// Composition validates a borrowed union of preceding and original messages.
+/// Index identities once instead of copying payloads or scanning history for
+/// every output message/replacement.
+pub(super) fn validate_material<'a>(
+    original: impl Iterator<Item = &'a CanonicalMessage> + Clone,
+    output: &ContextPreparationOutput,
+) -> Result<()> {
     ensure!(
-        original.is_empty() || !output.messages.is_empty(),
+        original.clone().next().is_none() || !output.messages.is_empty(),
         "context preparation returned empty history"
     );
     ensure!(
         output.changed
-            || (output.messages == *original && output.user_message_replacements.is_empty()),
+            || (original.clone().eq(output.messages.iter())
+                && output.user_message_replacements.is_empty()),
         "unchanged compaction must preserve messages and cannot declare replacements"
     );
-    let original_parts = original
-        .iter()
-        .flat_map(|message| &message.parts)
-        .map(|part| (part.part_id, part))
-        .collect::<HashMap<_, _>>();
-    let mut output_part_ids = HashSet::new();
-    let mut output_ids = HashSet::new();
+    let original_count = original.size_hint().0;
+    let mut original_messages = HashMap::with_capacity(original_count);
+    let mut original_parts = HashMap::with_capacity(original_count);
+    let mut original_users = HashSet::new();
+    let user_derivations = !output.user_message_replacements.is_empty();
+    for message in original {
+        // Match the previous first-message/last-part lookup behavior even for
+        // malformed source material; output identities are still unique.
+        original_messages.entry(message.id).or_insert(message);
+        for part in &message.parts {
+            original_parts.insert(part.part_id, part);
+        }
+        if user_derivations
+            && message.role == MessageRole::User
+            && !message.parts.is_empty()
+            && message
+                .parts
+                .iter()
+                .all(|part| part.scope == PartScope::Conversation)
+        {
+            original_users.insert(message.id);
+        }
+    }
+    let mut output_part_ids = HashSet::with_capacity(output.messages.len());
+    let mut output_ids = HashSet::with_capacity(output.messages.len());
+    let mut compacted_users = HashSet::new();
     for message in &output.messages {
         ensure!(
             output_ids.insert(message.id),
@@ -52,11 +81,14 @@ pub fn validate_context_preparation_output(
                 );
             }
         }
-        if let Some(source) = original.iter().find(|source| source.id == message.id) {
+        if let Some(source) = original_messages.get(&message.id) {
             ensure!(
-                source == message,
+                *source == message,
                 "compaction changed content under an existing message identity"
             );
+        }
+        if user_derivations && is_compacted_user_message(message) {
+            compacted_users.insert(message.id);
         }
     }
     let mut sources = HashSet::new();
@@ -68,21 +100,11 @@ pub fn validate_context_preparation_output(
             "compaction user replacements must be one-to-one"
         );
         ensure!(
-            original
-                .iter()
-                .any(|message| message.id == replacement.source_message_id
-                    && message.role == MessageRole::User
-                    && !message.parts.is_empty()
-                    && message
-                        .parts
-                        .iter()
-                        .all(|part| part.scope == PartScope::Conversation)),
+            original_users.contains(&replacement.source_message_id),
             "compaction replacement source must be an existing conversation user message"
         );
         ensure!(
-            !original
-                .iter()
-                .any(|message| message.id == replacement.replacement_message_id),
+            !original_messages.contains_key(&replacement.replacement_message_id),
             "compaction replacement must have a fresh message identity"
         );
         ensure!(
@@ -90,11 +112,7 @@ pub fn validate_context_preparation_output(
             "compaction cannot retain both source and replacement"
         );
         ensure!(
-            output
-                .messages
-                .iter()
-                .any(|message| message.id == replacement.replacement_message_id
-                    && is_compacted_user_message(message)),
+            compacted_users.contains(&replacement.replacement_message_id),
             "compaction replacement must identify a compactor-owned conversation user message"
         );
     }
@@ -108,6 +126,30 @@ mod tests {
         domain::{CompactionUserMessageReplacement, new_message_id},
         model_standard::{CanonicalPart, ContentPart},
     };
+
+    #[test]
+    fn unchanged_material_still_rejects_duplicate_message_and_part_identities() {
+        let user = CanonicalMessage::text(MessageRole::User, "unchanged source");
+        let input = ContextPreparationInput::new(vec![user.clone(), user.clone()], None);
+        let output = ContextPreparationOutput::unchanged(input.messages.clone());
+        assert!(
+            validate_context_preparation_output(&input, &output)
+                .unwrap_err()
+                .to_string()
+                .contains("duplicated a message identity")
+        );
+
+        let mut different_message = user.clone();
+        different_message.id = new_message_id();
+        let input = ContextPreparationInput::new(vec![user, different_message], None);
+        let output = ContextPreparationOutput::unchanged(input.messages.clone());
+        assert!(
+            validate_context_preparation_output(&input, &output)
+                .unwrap_err()
+                .to_string()
+                .contains("duplicated a canonical part identity")
+        );
+    }
 
     #[test]
     fn user_derivation_rejects_ambiguous_or_forged_identity() {

@@ -1,6 +1,9 @@
-//! Atomically replaced disposable SQLite indexes; never written by a journal reader.
+//! Coherent disposable SQLite indexes; never written by a journal reader.
 use super::*;
 use rusqlite::{Connection, OpenFlags, params};
+
+mod update;
+pub(in crate::core::session_store) use update::Updater;
 
 const FORMAT: i64 = 1;
 const SCHEMA: &str = "CREATE TABLE records(section TEXT NOT NULL,position INTEGER NOT NULL,
@@ -23,6 +26,13 @@ pub(in crate::core::session_store) struct Reader {
 
 impl Reader {
     pub(in crate::core::session_store) fn open(dir: &Path, name: &str) -> Option<Self> {
+        // Pin the SQLite snapshot before a replacement may remove a hot
+        // rollback journal. Existing readers keep their inode after rename.
+        let _opening = read_open_lock(dir, name)?;
+        Self::open_inner(dir, name)
+    }
+
+    fn open_inner(dir: &Path, name: &str) -> Option<Self> {
         let before = SourceFingerprint::read(dir, MAX_BLOBS)?;
         let path = cache_path(dir, name)?;
         if !fs::symlink_metadata(&path).ok()?.is_file() {
@@ -33,6 +43,8 @@ impl Reader {
             OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
         )
         .ok()?;
+        conn.busy_timeout(std::time::Duration::from_millis(25))
+            .ok()?;
         conn.execute_batch("PRAGMA cache_size=-2048; PRAGMA mmap_size=0; BEGIN")
             .ok()?;
         let mut reader = Self {
@@ -62,51 +74,20 @@ impl Reader {
         start: usize,
         end: usize,
     ) -> Option<Vec<T>> {
-        let mut statement = self
-            .conn
-            .prepare(
-                "SELECT position,payload,checksum FROM records
-            WHERE section=?1 AND position>=?2 AND position<?3 ORDER BY position",
-            )
-            .ok()?;
-        let mut rows = statement
-            .query(params![
-                section,
-                i64::try_from(start).ok()?,
-                i64::try_from(end).ok()?
-            ])
-            .ok()?;
-        let mut out = Vec::new();
-        while let Some(row) = rows.next().ok()? {
-            if row.get::<_, i64>(0).ok()? != i64::try_from(start + out.len()).ok()? {
-                return None;
-            }
-            let bytes = row.get_ref(1).ok()?.as_blob().ok()?;
-            let checksum = row.get_ref(2).ok()?.as_blob().ok()?;
-            if bytes.len() > MAX_BYTES || digest(&SHA256, bytes).as_ref() != checksum {
-                return None;
-            }
-            out.push(serde_json::from_slice(bytes).ok()?);
-        }
-        (out.len() == end.checked_sub(start)?).then_some(out)
+        read_page(&self.conn, section, start, end)
     }
 
     pub(in crate::core::session_store) fn revision(&self) -> Option<String> {
         self.source.revision()
     }
 
-    pub(in crate::core::session_store) fn row_hash(
+    pub(in crate::core::session_store) fn row_matches(
         &self,
         section: &str,
         position: usize,
-    ) -> Option<Vec<u8>> {
-        self.conn
-            .query_row(
-                "SELECT checksum FROM records WHERE section=?1 AND position=?2",
-                params![section, i64::try_from(position).ok()?],
-                |row| row.get(0),
-            )
-            .ok()
+        hash: &[u8],
+    ) -> Option<bool> {
+        row_matches(&self.conn, section, position, hash)
     }
 
     pub(in crate::core::session_store) fn finish(self) -> Option<(SourceFingerprint, bool)> {
@@ -122,15 +103,25 @@ pub(in crate::core::session_store) struct Writer {
     path: PathBuf,
     temp: PathBuf,
     source: SourceFingerprint,
+    _lock: fs::File,
 }
 
 impl Writer {
+    pub(in crate::core::session_store) fn previous(&self, name: &str) -> Option<Reader> {
+        if cache_path(&self.dir, name)? != self.path {
+            return None;
+        }
+        // This writer already owns the exclusive replacement gate.
+        Reader::open_inner(&self.dir, name)
+    }
+
     pub(in crate::core::session_store) fn new(
         dir: &Path,
         name: &str,
         source: &SourceFingerprint,
     ) -> Option<Self> {
         let path = cache_path(dir, name)?;
+        let lock = write_lock(dir, name)?;
         if SourceFingerprint::read(dir, MAX_BLOBS).as_ref() != Some(source) {
             return None;
         }
@@ -148,6 +139,7 @@ impl Writer {
             path,
             temp,
             source: source.clone(),
+            _lock: lock,
         };
         writer.conn = Some(Connection::open(&writer.temp).ok()?);
         let conn = writer.conn.as_ref()?;
@@ -202,8 +194,110 @@ impl Writer {
         if SourceFingerprint::read(&self.dir, MAX_BLOBS).as_ref() != Some(&self.source) {
             return None;
         }
+        // A failed in-place transaction normally rolls back on close. If a
+        // process died with a damaged database, its disposable rollback journal
+        // must not be applied to the replacement generation. The cache lock
+        // excludes another live writer while the generation is replaced.
+        let mut journal = self.path.as_os_str().to_owned();
+        journal.push("-journal");
+        match fs::remove_file(PathBuf::from(journal)) {
+            Ok(()) => {}
+            Err(error) if error.kind() == ErrorKind::NotFound => {}
+            Err(_) => return None,
+        }
         fs::rename(&self.temp, &self.path).ok()?;
         Some(())
+    }
+}
+
+fn lock_file(dir: &Path, name: &str) -> Option<fs::File> {
+    cache_path(dir, name)?;
+    let lock = OpenOptions::new()
+        .create(true)
+        .read(true)
+        .write(true)
+        .mode(0o600)
+        .open(dir.join(format!(".read-{name}.lock")))
+        .ok()?;
+    Some(lock)
+}
+
+fn write_lock(dir: &Path, name: &str) -> Option<fs::File> {
+    let lock = lock_file(dir, name)?;
+    lock.try_lock().ok()?;
+    Some(lock)
+}
+
+fn update_lock(dir: &Path, name: &str) -> Option<fs::File> {
+    let lock = lock_file(dir, name)?;
+    // SQLite's BEGIN IMMEDIATE serializes in-place writers. A shared gate
+    // excludes replacement while allowing readers to open the old snapshot.
+    lock.try_lock_shared().ok()?;
+    Some(lock)
+}
+
+fn read_open_lock(dir: &Path, name: &str) -> Option<fs::File> {
+    cache_path(dir, name)?;
+    // Reading never creates coordination metadata. An older disposable cache
+    // without a gate is rebuilt through the normal cache-miss path.
+    let lock = fs::File::open(dir.join(format!(".read-{name}.lock"))).ok()?;
+    lock.try_lock_shared().ok()?;
+    Some(lock)
+}
+
+fn read_page<T: DeserializeOwned>(
+    conn: &Connection,
+    section: &str,
+    start: usize,
+    end: usize,
+) -> Option<Vec<T>> {
+    let mut statement = conn
+        .prepare_cached(
+            "SELECT position,payload,checksum FROM records
+        WHERE section=?1 AND position>=?2 AND position<?3 ORDER BY position",
+        )
+        .ok()?;
+    let mut rows = statement
+        .query(params![
+            section,
+            i64::try_from(start).ok()?,
+            i64::try_from(end).ok()?
+        ])
+        .ok()?;
+    let mut out = Vec::new();
+    while let Some(row) = rows.next().ok()? {
+        if row.get::<_, i64>(0).ok()? != i64::try_from(start + out.len()).ok()? {
+            return None;
+        }
+        let bytes = row.get_ref(1).ok()?.as_blob().ok()?;
+        let checksum = row.get_ref(2).ok()?.as_blob().ok()?;
+        if bytes.len() > MAX_BYTES || digest(&SHA256, bytes).as_ref() != checksum {
+            return None;
+        }
+        out.push(serde_json::from_slice(bytes).ok()?);
+    }
+    (out.len() == end.checked_sub(start)?).then_some(out)
+}
+
+fn row_matches(conn: &Connection, section: &str, position: usize, expected: &[u8]) -> Option<bool> {
+    let mut statement = conn
+        .prepare_cached("SELECT payload,checksum FROM records WHERE section=?1 AND position=?2")
+        .ok()?;
+    match statement.query_row(params![section, i64::try_from(position).ok()?], |row| {
+        let bytes = row.get_ref(0)?;
+        let checksum = row.get_ref(1)?;
+        Ok(match (bytes.as_blob(), checksum.as_blob()) {
+            (Ok(bytes), Ok(checksum)) => {
+                bytes.len() <= MAX_BYTES
+                    && checksum == expected
+                    && digest(&SHA256, bytes).as_ref() == checksum
+            }
+            _ => false,
+        })
+    }) {
+        Ok(matches) => Some(matches),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Some(false),
+        Err(_) => None,
     }
 }
 

@@ -66,23 +66,27 @@ impl ExecutionHooks for RuntimeHookChain {
         } else {
             super::model_call_scope::operation_cancellation(&self.scope.cancellation).child_token()
         };
+        let mut event = input.event.clone();
         let mut trace = HookTrace {
             owner: super::model_call_scope::current_operation_owner(),
-            input: input.clone(),
+            input,
             steps: vec![],
             output: None,
         };
-        let mut event = input.event.clone();
         for (module_id, handler) in &self.handlers {
-            let mut invocation = input.clone();
-            invocation.event = event.clone();
+            let invocation = HookInput {
+                event: event.clone(),
+                attribution: trace.input.attribution,
+                cwd: trace.input.cwd.clone(),
+                conversation: trace.input.conversation.clone(),
+            };
             let invocation_id = uuid::Uuid::new_v4();
             let host = Arc::new(super::extension_operations::InvocationOperations {
                 operations: self.operations.get().cloned(),
                 owner: crate::contracts::OperationOwner::Hook { invocation_id },
                 lineage: super::model_call_scope::current_tool_lineage(),
                 cancellation: cancellation.child_token(),
-                cwd: input.cwd.clone(),
+                cwd: trace.input.cwd.clone(),
                 model_allowed: !notification,
                 tools_allowed: !notification
                     && !matches!(
@@ -114,10 +118,10 @@ impl ExecutionHooks for RuntimeHookChain {
             let validated = outcome.and_then(|response| {
                 // Parts removed by an earlier contribution remain immutable at this boundary.
                 if matches!(
-                    &input.event,
+                    &trace.input.event,
                     HookEvent::BeforeModel { .. } | HookEvent::BeforeToolSelection { .. }
                 ) {
-                    apply_hook_response(&input.event, &response)?;
+                    apply_hook_response(&trace.input.event, &response)?;
                 }
                 let mut next = apply_hook_response(&event, &response)?;
                 if let HookEvent::BeforeModel { request, .. } = &mut next {

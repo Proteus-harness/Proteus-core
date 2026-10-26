@@ -1,6 +1,9 @@
 //! Sections are decoded independently; text rows are fetched only when requested.
 use super::*;
-use crate::core::session_store::read_cache::{Reader, SourceFingerprint, Writer};
+use crate::core::session_store::read_cache::{Reader, SourceFingerprint};
+
+mod save;
+pub(super) use save::save;
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -12,62 +15,6 @@ struct Header {
     context_len: usize,
     context_summary: proteus_contracts::app_protocol::AppContextHistorySummary,
     base: Option<proteus_contracts::app_protocol::AppTranscriptBase>,
-}
-
-pub(super) fn save(
-    store: &SessionStore,
-    source: &SourceFingerprint,
-    model: &SessionReadModel,
-) -> bool {
-    let save = || {
-        let writer = Writer::new(store.session_dir(), VIEW_CACHE, source)?;
-        let previous = Reader::open(store.session_dir(), VIEW_CACHE).filter(|reader| {
-            reader
-                .one::<Header>("header")
-                .is_some_and(|header| matches(store, &header))
-        });
-        let mut base = previous
-            .as_ref()
-            .and_then(|reader| reader.revision())
-            .map(
-                |revision| proteus_contracts::app_protocol::AppTranscriptBase {
-                    revision,
-                    common_prefix: 0,
-                },
-            );
-        writer.one("usage", &model.usage)?;
-        for (index, message) in model.conversation.messages.iter().enumerate() {
-            writer.row("conversation", index, message)?;
-        }
-        for (index, message) in model.transcript.iter().enumerate() {
-            let hash = writer.row("transcript", index, message)?;
-            if let (Some(base), Some(previous)) = (&mut base, &previous)
-                && base.common_prefix == index
-                && previous.row_hash("transcript", index).as_deref() == Some(hash.as_slice())
-            {
-                base.common_prefix += 1;
-            }
-        }
-        for (index, observation) in model.conversation.model_context.iter().enumerate() {
-            writer.row("context", index, observation)?;
-        }
-        writer.one(
-            "header",
-            &Header {
-                summary: model.summary.clone(),
-                revision: model.conversation.revision,
-                conversation_len: model.conversation.messages.len(),
-                transcript_len: model.transcript.len(),
-                context_len: model.conversation.model_context.len(),
-                context_summary: crate::core::summarize_context_history(
-                    &model.conversation.messages,
-                ),
-                base,
-            },
-        )?;
-        writer.finish()
-    };
-    save().is_some()
 }
 
 pub(super) fn load(store: &SessionStore) -> Option<(SourceFingerprint, SessionReadModel, bool)> {
