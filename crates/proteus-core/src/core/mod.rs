@@ -44,6 +44,7 @@ pub use assembly::{
 };
 pub use bound_model::{BoundModel, ModelExecutionBinding};
 pub use bound_tools::{BoundTools, ToolExecutionBinding};
+pub(crate) use config::ConfigInputs;
 pub use config::{
     AgentControlConfig, AgentControlSurface, AgentProfileConfig, AppConfig, AppServerConfig,
     ConfiguredMcpServerConfig, EventLogConfig, InstructionSourceConfig, ModelConfig, ModulesConfig,

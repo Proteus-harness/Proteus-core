@@ -1,7 +1,6 @@
-//! Semantic polling avoids a second config parser and detects includes,
-//! directory overlays, resolved instructions and portable package metadata.
+//! Metadata polling invalidates semantic reloads without reparsing idle profiles.
 use super::{AppServerHandle, prepare_assembly};
-use crate::core::AppConfig;
+use crate::core::{AppConfig, ConfigInputs};
 use anyhow::Result;
 use std::{path::Path, time::Duration};
 #[cfg(test)]
@@ -43,6 +42,9 @@ pub(super) async fn start(handle: &AppServerHandle) {
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let mut seen = None;
         let mut failed = None;
+        let mut inputs: Option<ConfigInputs> = None;
+        let mut pending = false;
+        let mut addons = config.addons.clone();
         let mut source_seen = path.exists();
         loop {
             tokio::select! { _ = stop.cancelled() => break, _ = interval.tick() => {} }
@@ -52,19 +54,31 @@ pub(super) async fn start(handle: &AppServerHandle) {
                 continue;
             };
             source_seen = true;
-            let input = match AppConfig::load(Some(&path)).await {
-                Ok(config) => match Fingerprint::new(&config, &handle.cwd) {
-                    Ok(value) => Input::Valid(value),
-                    Err(error) => Input::Invalid(format!("{error:#}")),
-                },
+            if !pending && inputs.as_ref().is_some_and(ConfigInputs::is_current) {
+                continue;
+            }
+            let mut observed = ConfigInputs::watching();
+            let input = match AppConfig::load_observed(Some(&path), &mut observed).await {
+                Ok(config) => {
+                    addons = config.addons.clone();
+                    observed.observe_plugins(&addons, &handle.cwd);
+                    match Fingerprint::new(&config, &handle.cwd) {
+                        Ok(value) => Input::Valid(value),
+                        Err(error) => Input::Invalid(format!("{error:#}")),
+                    }
+                }
                 Err(error) => Input::Invalid(format!("{error:#}")),
             };
+            observed.observe_plugins(&addons, &handle.cwd);
+            inputs = Some(observed);
             // Editors may temporarily write an incomplete file. A stable failure
             // is reported once; it never replaces the last validated assembly.
             if seen.as_ref() != Some(&input) {
                 seen = Some(input.clone());
+                pending = true;
                 continue;
             }
+            pending = false;
             let expected = match input {
                 Input::Invalid(error) => {
                     handle.set_profile_error(Some(error)).await;

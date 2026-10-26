@@ -1931,6 +1931,19 @@ new_epoch, tool_names }`, а `GET /config` / `ConfigSummary` возвращае�
 `module_epoch`. Это reload control-plane: новый snapshot получает свои MCP
 host-процессы, но это не общий `reload_modules`.
 
+File refresh проверяет метаданные исходных файлов каждые 300 мс. Полный
+разбор профиля и fingerprint пакетов выполняются только после изменения
+входов, с повторным чтением для стабилизации редакторских сохранений.
+Пути includes, каталоги overlays и файлы instructions собирает тот же loader;
+отдельного парсера watcher не имеет. Учитываются также `plugin.json`,
+`mcp.json`, отсутствующие входы для восстановления после ошибки и замена
+файла через rename. Неизменившийся профиль не перечитывается в простое.
+
+В Linux/glibc executable `proteus` до создания Tokio workers задаёт максимум
+две malloc-арены: это уменьшает удержание свободной памяти при множестве
+процессов и потоков. Явные `MALLOC_ARENA_MAX` и
+`GLIBC_TUNABLES=glibc.malloc.arena_max=...` сохраняют приоритет.
+
 `POST /config/builder` публикует новый assembly, смену provider model и
 permission mode одной записью runtime state. Уже admitted Turn продолжает
 использовать прежний полный capture; следующий Turn видит новую комбинацию

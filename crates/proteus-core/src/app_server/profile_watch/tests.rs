@@ -139,6 +139,41 @@ async fn file_and_ui_updates_reach_other_open_sessions_and_bad_source_preserves_
 }
 
 #[tokio::test]
+async fn instruction_file_edits_reload_without_touching_the_profile() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("config.toml");
+    let rules = root.path().join("rules.md");
+    std::fs::write(&rules, "first rules").unwrap();
+    let mut config = crate::test_model::config();
+    config.instructions = vec![
+        serde_json::from_value(serde_json::json!({
+            "kind":"System", "priority":100, "file":"rules.md"
+        }))
+        .unwrap(),
+    ];
+    std::fs::write(&path, toml::to_string(&config).unwrap()).unwrap();
+    let server = AgentAppServer::launch(
+        AppConfig::load(Some(&path)).await.unwrap(),
+        root.path().to_path_buf(),
+        Some(&path),
+    )
+    .await
+    .unwrap();
+    let mut events = server.subscribe();
+    // Let both debounce reads settle before editing only the external input.
+    tokio::time::sleep(Duration::from_millis(750)).await;
+    let epoch = server.runtime.module_epoch().await;
+    std::fs::write(&rules, "other rules").unwrap();
+    next_reload(&mut events).await;
+    assert!(server.runtime.module_epoch().await > epoch);
+    assert_eq!(
+        server.config.read().await.instructions[0].text.as_deref(),
+        Some("other rules")
+    );
+    server.shutdown().await;
+}
+
+#[tokio::test]
 async fn watcher_does_not_keep_a_dropped_handle_alive() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("config.toml");

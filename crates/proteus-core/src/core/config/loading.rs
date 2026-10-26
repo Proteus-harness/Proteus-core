@@ -9,24 +9,43 @@ use serde_json::{Map, Value};
 
 use crate::core::core_slots::{CoreSlotSelection, core_slot_descriptor_by_id};
 
-use super::AppConfig;
+use super::{AppConfig, ConfigInputs};
 
 impl AppConfig {
     pub async fn load(path: Option<&Path>) -> Result<Self> {
+        Self::load_observed(path, &mut ConfigInputs::default()).await
+    }
+
+    pub(crate) async fn load_observed(
+        path: Option<&Path>,
+        inputs: &mut ConfigInputs,
+    ) -> Result<Self> {
+        if let Some(path) = path {
+            let path = expand_user_path(path);
+            inputs.observe(&path);
+            if let Some(name) = config_name_ref(&path) {
+                for candidate in named_config_candidates(name, default_config_dir().as_deref()) {
+                    inputs.observe(&candidate);
+                }
+            }
+        }
         let config_path = Self::resolve_config_path(path).await?;
+        if let Some(path) = &config_path {
+            inputs.observe(path);
+        }
         let should_load = match (path, config_path.as_deref()) {
             (None, Some(path)) => tokio::fs::try_exists(path).await?,
             (_, Some(_)) => true,
             (_, None) => false,
         };
         let config = if should_load {
-            Self::load_path(config_path.as_ref().expect("config path")).await?
+            Self::load_path(config_path.as_ref().expect("config path"), inputs).await?
         } else {
             Self::default()
         };
         let instructions_config_path = should_load.then_some(config_path.as_deref()).flatten();
         config
-            .with_resolved_instructions(instructions_config_path)
+            .with_resolved_instructions(instructions_config_path, inputs)
             .await
     }
 
@@ -45,12 +64,12 @@ impl AppConfig {
         })
     }
 
-    async fn load_path(path: &Path) -> Result<Self> {
+    async fn load_path(path: &Path, inputs: &mut ConfigInputs) -> Result<Self> {
         let metadata = tokio::fs::metadata(path)
             .await
             .with_context(|| format!("failed to inspect config path {}", path.display()))?;
         let source_kind = if metadata.is_dir() { "dir" } else { "file" };
-        let value = load_config_path_value(path, &mut BTreeSet::new())?;
+        let value = load_config_path_value(path, &mut BTreeSet::new(), inputs)?;
         let config: Self = serde_json::from_value(value).with_context(|| {
             format!(
                 "failed to build config from {source_kind} {}",
@@ -88,7 +107,11 @@ impl AppConfig {
     /// Резолвит `[[instructions]]` entries с `file` в текст. Относительные
     /// пути считаются от каталога config-файла, чтобы один относительный
     /// путь работал и в repo, и в установленном `~/.config/.../configs/`.
-    async fn with_resolved_instructions(mut self, config_path: Option<&Path>) -> Result<Self> {
+    async fn with_resolved_instructions(
+        mut self,
+        config_path: Option<&Path>,
+        inputs: &mut ConfigInputs,
+    ) -> Result<Self> {
         let base_dir = config_path.map(|path| {
             if path.is_dir() {
                 path.to_path_buf()
@@ -113,6 +136,7 @@ impl AppConfig {
                     {
                         path = base_dir.join(path);
                     }
+                    inputs.observe(&path);
                     let text = tokio::fs::read_to_string(&path).await.with_context(|| {
                         format!("failed to read instructions file {}", path.display())
                     })?;
@@ -124,7 +148,12 @@ impl AppConfig {
     }
 }
 
-fn load_config_path_value(path: &Path, stack: &mut BTreeSet<PathBuf>) -> Result<Value> {
+fn load_config_path_value(
+    path: &Path,
+    stack: &mut BTreeSet<PathBuf>,
+    inputs: &mut ConfigInputs,
+) -> Result<Value> {
+    inputs.observe(path);
     let canonical = std::fs::canonicalize(path)
         .with_context(|| format!("failed to inspect config path {}", path.display()))?;
     if !stack.insert(canonical.clone()) {
@@ -134,16 +163,22 @@ fn load_config_path_value(path: &Path, stack: &mut BTreeSet<PathBuf>) -> Result<
     let metadata = std::fs::metadata(&canonical)
         .with_context(|| format!("failed to inspect config path {}", canonical.display()))?;
     let value = if metadata.is_dir() {
-        load_config_dir_value(&canonical, stack)?
+        inputs.observe(&canonical);
+        load_config_dir_value(&canonical, stack, inputs)?
     } else {
-        load_config_file_value(&canonical, stack)?
+        inputs.observe(&canonical);
+        load_config_file_value(&canonical, stack, inputs)?
     };
 
     stack.remove(&canonical);
     Ok(value)
 }
 
-fn load_config_dir_value(path: &Path, stack: &mut BTreeSet<PathBuf>) -> Result<Value> {
+fn load_config_dir_value(
+    path: &Path,
+    stack: &mut BTreeSet<PathBuf>,
+    inputs: &mut ConfigInputs,
+) -> Result<Value> {
     let mut entries = std::fs::read_dir(path)
         .with_context(|| format!("failed to read config dir {}", path.display()))?;
     let mut files = Vec::new();
@@ -159,11 +194,11 @@ fn load_config_dir_value(path: &Path, stack: &mut BTreeSet<PathBuf>) -> Result<V
     let mut merged = Value::Object(Map::new());
     let overlay = path.join(super::CONFIG_BUILDER_OVERLAY);
     for file in files.iter().filter(|file| **file != overlay) {
-        let value = load_config_path_value(file, stack)?;
+        let value = load_config_path_value(file, stack, inputs)?;
         merge_config_value(&mut merged, value);
     }
     if files.contains(&overlay) {
-        let value = load_config_path_value(&overlay, stack)?;
+        let value = load_config_path_value(&overlay, stack, inputs)?;
         // Builder selections replace these complete managed objects, including
         // removal of optional slots and active_provider. Other fields still merge.
         let object = merged.as_object_mut().expect("config merge is an object");
@@ -176,7 +211,11 @@ fn load_config_dir_value(path: &Path, stack: &mut BTreeSet<PathBuf>) -> Result<V
     Ok(merged)
 }
 
-fn load_config_file_value(path: &Path, stack: &mut BTreeSet<PathBuf>) -> Result<Value> {
+fn load_config_file_value(
+    path: &Path,
+    stack: &mut BTreeSet<PathBuf>,
+    inputs: &mut ConfigInputs,
+) -> Result<Value> {
     let mut value = load_config_value(path)?;
     let includes = take_config_includes(&mut value)?;
     if includes.is_empty() {
@@ -187,7 +226,7 @@ fn load_config_file_value(path: &Path, stack: &mut BTreeSet<PathBuf>) -> Result<
     let mut merged = Value::Object(Map::new());
     for include in includes {
         let include_path = resolve_config_include(base_dir, &include);
-        let include_value = load_config_path_value(&include_path, stack)
+        let include_value = load_config_path_value(&include_path, stack, inputs)
             .with_context(|| format!("failed to include config {}", include_path.display()))?;
         merge_config_value(&mut merged, include_value);
     }

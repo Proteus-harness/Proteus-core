@@ -15,9 +15,11 @@ pub(crate) const CONFIG_BUILDER_OVERLAY: &str = "config-builder.toml";
 
 mod commands;
 mod files;
+mod inputs;
 mod loading;
 pub use commands::PromptCommandConfig;
 pub(crate) use files::config_files;
+pub(crate) use inputs::ConfigInputs;
 
 pub use crate::domain::{ConfiguredMcpServerConfig, ProcessEnvironmentConfig};
 pub use loading::expand_user_path;

@@ -25,6 +25,7 @@ mod cli_doctor;
 mod cli_init;
 mod cli_prompt_replay;
 mod cli_workflow_replay;
+mod process_memory;
 
 use cli_app::CliAppClient;
 use cli_commands::{CliCommand, InspectPlanFormat, InspectTopologyFormat, parse_cli_command};
@@ -99,8 +100,13 @@ impl From<CliPermissionMode> for PermissionMode {
     }
 }
 
+fn main() -> Result<()> {
+    process_memory::initialize();
+    run_cli()
+}
+
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn run_cli() -> Result<()> {
     let cli = Cli::parse();
     let command = parse_cli_command(&cli.task)?;
     if let CliCommand::Init(profile) = command {
