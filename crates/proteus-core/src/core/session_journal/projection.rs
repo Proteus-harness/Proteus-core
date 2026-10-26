@@ -2,6 +2,7 @@ mod build;
 mod part_identity;
 #[cfg(test)]
 mod retention_tests;
+mod sequence;
 
 use im::{HashMap as SharedMap, HashSet as SharedSet};
 use std::{collections::HashSet, sync::Arc};

@@ -5,6 +5,25 @@ use crate::{
     model_standard::{CanonicalMessage, MessageRole},
 };
 
+#[test]
+fn directory_cannot_be_mistaken_for_an_empty_journal() {
+    let root = tempfile::tempdir().unwrap();
+    let path = journal_path(root.path());
+    std::fs::create_dir(&path).unwrap();
+    assert!(
+        load_records(root.path(), new_session_id())
+            .unwrap_err()
+            .to_string()
+            .contains("not a regular file")
+    );
+    assert!(
+        recovery::repair_unterminated_tail(&path)
+            .unwrap_err()
+            .to_string()
+            .contains("not a regular file")
+    );
+}
+
 #[tokio::test]
 async fn blob_and_inline_decoders_preserve_records_and_reject_invalid_payloads() {
     let root = tempfile::tempdir().unwrap();

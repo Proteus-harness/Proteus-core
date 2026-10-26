@@ -16,8 +16,12 @@ use super::{
 };
 
 mod append;
+mod initialize;
 mod ownership;
+pub(crate) use initialize::{initialize_writer_projection, initialize_writer_state};
+mod read;
 pub(crate) use append::append_record;
+pub(crate) use read::load_records;
 mod recovery;
 mod redaction;
 mod retirement;
@@ -109,53 +113,6 @@ impl JournalRecordAttribution {
     }
 }
 
-pub(crate) fn initialize_writer_state(
-    session_dir: &Path,
-    session_id: SessionId,
-    state: &mut JournalWriterState,
-) -> Result<()> {
-    initialize_writer_projection(session_dir, session_id, state).map(|_| ())
-}
-
-pub(crate) fn initialize_writer_projection(
-    session_dir: &Path,
-    session_id: SessionId,
-    state: &mut JournalWriterState,
-) -> Result<Option<JournalProjection>> {
-    if state.initialized {
-        return Ok(None);
-    }
-    let ownership = SessionWriteOwnership::acquire(session_dir, session_id)?;
-    let path = journal_path(session_dir);
-    repair_unterminated_tail(&path)?;
-    #[cfg(test)]
-    {
-        state.initial_recovery_scans += 1;
-    }
-    let (projection, validation) =
-        JournalProjection::build_for_writer(session_id, load_records(session_dir, session_id)?)?;
-    let mut usage = super::UsageProjection::default();
-    let mut model_context =
-        crate::core::model_context::projection::ModelContextProjection::default();
-    for record in &projection.records {
-        usage.apply(record);
-        model_context.apply(record);
-    }
-    state.next_seq = projection
-        .records
-        .last()
-        .map(|record| record.session_seq.saturating_add(1))
-        .unwrap_or(1);
-    debug_assert_eq!(validation.history_revision(), projection.history_revision);
-    state.validation = validation;
-    state.usage = usage;
-    state.model_context = model_context;
-    state.committed_offset = journal_len(&path)?;
-    state._ownership = Some(ownership);
-    state.initialized = true;
-    Ok(Some(projection))
-}
-
 impl JournalWriterState {
     pub(crate) fn with_retirement(retirement: std::sync::Arc<WriterRetirement>) -> Self {
         Self {
@@ -221,116 +178,8 @@ impl JournalWriterState {
     }
 }
 
-pub(crate) fn load_records(
-    session_dir: &Path,
-    expected_session_id: SessionId,
-) -> Result<Vec<JournalRecord>> {
-    let path = journal_path(session_dir);
-    let bytes = match std::fs::read(&path) {
-        Ok(bytes) => bytes,
-        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => {
-            return Err(error).with_context(|| format!("failed to read {}", path.display()));
-        }
-    };
-    let complete_len = complete_jsonl_len(&bytes);
-    let complete = &bytes[..complete_len];
-    let mut records = Vec::new();
-    if complete.is_empty() {
-        return Ok(records);
-    }
-    let body = &complete[..complete.len() - 1];
-    for (index, line) in body.split(|byte| *byte == b'\n').enumerate() {
-        if line.is_empty() {
-            bail!(
-                "journal {} contains an empty line at {}",
-                path.display(),
-                index + 1
-            );
-        }
-        let stored: StoredJournalRecord = serde_json::from_slice(line).with_context(|| {
-            format!(
-                "failed to parse journal {} line {}",
-                path.display(),
-                index + 1
-            )
-        })?;
-        if stored.schema_version != JOURNAL_SCHEMA_VERSION {
-            bail!(
-                "unsupported journal schema_version {} in {} line {}; expected {}",
-                stored.schema_version,
-                path.display(),
-                index + 1,
-                JOURNAL_SCHEMA_VERSION
-            );
-        }
-        if stored.session_id != expected_session_id {
-            bail!(
-                "journal {} line {} belongs to session {}, expected {}",
-                path.display(),
-                index + 1,
-                stored.session_id,
-                expected_session_id
-            );
-        }
-        let entry = hydrate_entry(session_dir, stored.kind, stored.payload).with_context(|| {
-            format!(
-                "invalid journal payload in {} line {}",
-                path.display(),
-                index + 1
-            )
-        })?;
-        records.push(JournalRecord {
-            schema_version: stored.schema_version,
-            record_id: stored.record_id,
-            session_seq: stored.session_seq,
-            timestamp_ms: stored.timestamp_ms,
-            session_id: stored.session_id,
-            execution_id: stored.execution_id,
-            thread_id: stored.thread_id,
-            turn_id: stored.turn_id,
-            entry,
-        });
-    }
-    Ok(records)
-}
-
 pub(crate) fn journal_path(session_dir: &Path) -> PathBuf {
     session_dir.join(JOURNAL_FILE)
-}
-
-fn complete_jsonl_len(bytes: &[u8]) -> usize {
-    if bytes.ends_with(b"\n") {
-        bytes.len()
-    } else {
-        bytes
-            .iter()
-            .rposition(|byte| *byte == b'\n')
-            .map(|index| index + 1)
-            .unwrap_or(0)
-    }
-}
-
-fn repair_unterminated_tail(path: &Path) -> Result<()> {
-    let bytes = match std::fs::read(path) {
-        Ok(bytes) => bytes,
-        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(()),
-        Err(error) => {
-            return Err(error).with_context(|| format!("failed to read {}", path.display()));
-        }
-    };
-    let complete_len = complete_jsonl_len(&bytes);
-    if complete_len == bytes.len() {
-        return Ok(());
-    }
-    let file = StdOpenOptions::new()
-        .write(true)
-        .open(path)
-        .with_context(|| format!("failed to open {} for tail recovery", path.display()))?;
-    file.set_len(complete_len as u64)
-        .with_context(|| format!("failed to truncate interrupted tail in {}", path.display()))?;
-    file.sync_data()?;
-    Ok(())
 }
 
 fn journal_len(path: &Path) -> Result<u64> {

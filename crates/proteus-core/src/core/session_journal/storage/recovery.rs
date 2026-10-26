@@ -6,6 +6,34 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 
+pub(super) fn repair_unterminated_tail(path: &Path) -> Result<()> {
+    let mut source = match fs::File::open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(()),
+        Err(error) => {
+            return Err(error).with_context(|| format!("failed to read {}", path.display()));
+        }
+    };
+    let metadata = source.metadata()?;
+    if !metadata.is_file() {
+        bail!("journal {} is not a regular file", path.display());
+    }
+    let length = metadata.len();
+    let complete = super::read::complete_jsonl_offset(&mut source, length)?;
+    if complete == length {
+        return Ok(());
+    }
+    drop(source);
+    let file = OpenOptions::new()
+        .write(true)
+        .open(path)
+        .with_context(|| format!("failed to open {} for tail recovery", path.display()))?;
+    file.set_len(complete)
+        .with_context(|| format!("failed to truncate interrupted tail in {}", path.display()))?;
+    file.sync_data()?;
+    Ok(())
+}
+
 pub(super) struct AppendRollback {
     path: PathBuf,
     committed_offset: u64,
@@ -71,6 +99,36 @@ pub(super) fn restore_committed_offset(path: &Path, committed_offset: u64) -> Re
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tail_recovery_handles_block_boundaries_and_non_utf8_without_changing_complete_prefix() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("journal.jsonl");
+        for prefix_len in [0, 8192, 8193] {
+            for tail_len in [0, 1, 8191, 8192, 8193, 32769] {
+                let mut prefix = vec![b'x'; prefix_len];
+                if let Some(last) = prefix.last_mut() {
+                    *last = b'\n';
+                }
+                let mut original = prefix.clone();
+                original.extend(std::iter::repeat_n(0xff, tail_len));
+                fs::write(&path, &original).unwrap();
+                let mut file = fs::File::open(&path).unwrap();
+                assert_eq!(
+                    super::super::read::complete_jsonl_offset(&mut file, original.len() as u64)
+                        .unwrap(),
+                    prefix_len as u64
+                );
+                assert_eq!(
+                    fs::read(&path).unwrap(),
+                    original,
+                    "inspection must be read-only"
+                );
+                repair_unterminated_tail(&path).unwrap();
+                assert_eq!(fs::read(&path).unwrap(), prefix);
+            }
+        }
+    }
 
     #[test]
     fn armed_guard_removes_even_a_complete_uncommitted_record() {
