@@ -1340,7 +1340,11 @@ Blob payload после проверки размера и SHA-256 читает�
 copy-on-write history/payloads. Изменения кандидата изолированы до успешного
 `sync_data`; ошибка validation или записи не изменяет committed state.
 Под OS writer lease каждый ход читает revision и interruptions из этой
-проверенной проекции, без повторного разбора всего журнала в async-потоке.
+проверенной проекции. При завершении хода сверка history и числа уже
+подтверждённых compaction checkpoints использует то же committed state,
+включая checkpoint с потерянным ACK. Полный журнал с прошлыми model requests
+и tool outputs повторно не разбирается в async-потоке; счётчик compactions
+обновляется вместе с durable history mutation и восстанавливается при replay.
 Холодная инициализация writer по-прежнему восстанавливает его на blocking worker.
 
 Workspace задаётся именем внешней `<encoded-workspace>` directory. Resume

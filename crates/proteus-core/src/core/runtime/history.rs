@@ -135,16 +135,12 @@ impl super::AgentRuntime {
             .cloned();
         if let Some(store) = &self.session.session_store {
             // A callback can lose its acknowledgement after its journal append.
-            let projection = store.load_projection()?;
-            let recorded_compactions = projection.records.iter().filter(|record| {
-                record.turn_id == Some(turn_id)
-                    && record.thread_id == Some(self.session.thread_id)
-                    && matches!(&record.entry, crate::core::JournalEntry::HistoryMutated(mutation)
-                        if mutation.compaction.as_ref().is_some_and(|report| report.changed))
-            }).count();
+            let (committed_history, recorded_compactions) = store
+                .committed_history(self.session.thread_id, turn_id)
+                .await?;
             let offered_compactions = compactions.iter().filter(|report| report.changed).count();
             if recorded_compactions > offered_compactions {
-                refresh_committed_history(&mut history, projection.history)?;
+                refresh_committed_history(&mut history, committed_history)?;
                 ensure!(
                     preserve_completed_suffix,
                     "successful workflow discarded a committed preparation checkpoint"
@@ -157,7 +153,7 @@ impl super::AgentRuntime {
                 .skip(recorded_compactions)
                 .last()
                 .cloned();
-            refresh_committed_history(&mut history, projection.history)?;
+            refresh_committed_history(&mut history, committed_history)?;
         }
         if history.starts_with(&update.final_messages) {
             ensure!(

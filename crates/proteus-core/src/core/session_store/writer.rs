@@ -2,6 +2,29 @@ use super::*;
 use crate::contracts::WorkflowToolResultBinding;
 
 impl SessionStore {
+    /// Reconcile acknowledged or lost-ack checkpoints from the sole writer's
+    /// validated state, without replaying every previous request and tool output.
+    pub(crate) async fn committed_history(
+        &self,
+        thread_id: ThreadId,
+        turn_id: TurnId,
+    ) -> Result<(Vec<CanonicalMessage>, usize)> {
+        if let Some(state) = self
+            .writer
+            .lock()
+            .await
+            .committed_history(thread_id, turn_id)
+        {
+            return Ok(state);
+        }
+        self.write_transaction(move |_, writer| {
+            writer
+                .committed_history(thread_id, turn_id)
+                .ok_or_else(|| anyhow!("writer was not initialized"))
+        })
+        .await
+    }
+
     /// Execution reads the projection already validated by the sole writer.
     /// Cold initialization still acquires ownership and validates on a worker.
     pub(crate) async fn execution_state(

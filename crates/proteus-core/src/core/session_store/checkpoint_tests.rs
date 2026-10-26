@@ -11,6 +11,83 @@ use crate::{
 use serde_json::json;
 
 #[tokio::test]
+async fn committed_history_matches_replay_after_checkpoints_and_writer_restart() {
+    let root = tempfile::tempdir().unwrap();
+    let workspace = root.path().join("workspace");
+    std::fs::create_dir(&workspace).unwrap();
+    let store = SessionStore::new(root.path(), &workspace, new_session_id()).unwrap();
+    let thread = new_thread_id();
+    let turn = new_turn_id();
+    let attribution =
+        ExecutionAttribution::for_turn(new_execution_id(), store.session_id(), thread, turn);
+    store
+        .append_execution_journal_entry(
+            attribution,
+            JournalEntry::TurnOpened(TurnOpened {
+                intent: None,
+                task: AgentTask::new("compact", workspace),
+                base_history_revision: 0,
+                module_epoch: 0,
+                config_snapshot: json!({}),
+            }),
+        )
+        .await
+        .unwrap();
+    let mut history = vec![CanonicalMessage::text(MessageRole::User, "compact")];
+    let mut report = HistoryCompactionReport::unchanged(1, None);
+    report.changed = true;
+    store
+        .append_history(thread, Some(turn), &history)
+        .await
+        .unwrap();
+    store
+        .checkpoint_history(thread, turn, &history, Some(report.clone()), vec![])
+        .await
+        .unwrap();
+    store
+        .replace_history(thread, Some(turn), &history, Some(report))
+        .await
+        .unwrap();
+    let answer = CanonicalMessage::text(MessageRole::Assistant, "done");
+    store
+        .append_history(thread, Some(turn), std::slice::from_ref(&answer))
+        .await
+        .unwrap();
+    history.push(answer);
+    let expected = store.load_projection().unwrap().history;
+    assert_eq!(expected, history);
+    assert_eq!(
+        store.committed_history(thread, turn).await.unwrap(),
+        (expected.clone(), 2)
+    );
+    assert_eq!(
+        store
+            .committed_history(new_thread_id(), turn)
+            .await
+            .unwrap()
+            .1,
+        0
+    );
+    assert_eq!(
+        store
+            .committed_history(thread, new_turn_id())
+            .await
+            .unwrap()
+            .1,
+        0
+    );
+
+    let directory = store.session_dir().to_owned();
+    drop(store);
+    let reopened = SessionStore::open(directory).unwrap();
+    assert_eq!(
+        reopened.committed_history(thread, turn).await.unwrap(),
+        (expected, 2)
+    );
+    assert_eq!(reopened.writer.lock().await.initial_recovery_scans(), 1);
+}
+
+#[tokio::test]
 async fn checkpoint_captures_only_declared_root_results_in_binding_order() {
     let root = tempfile::tempdir().unwrap();
     let workspace = root.path().join("workspace");

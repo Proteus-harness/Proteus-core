@@ -39,6 +39,7 @@ type JournalRecordAttributionOwner = (ThreadId, TurnId);
 struct TurnLifecycle {
     root_thread_id: ThreadId,
     execution_id: ExecutionId,
+    history_compactions: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -109,6 +110,7 @@ impl JournalValidationState {
                         TurnLifecycle {
                             root_thread_id: thread_id,
                             execution_id,
+                            history_compactions: 0,
                         },
                     )
                     .is_some()
@@ -209,6 +211,13 @@ impl JournalValidationState {
                     .as_ref()
                     .is_some_and(|report| report.changed)
                 {
+                    if let Some(turn_id) = record.turn_id {
+                        // require_root_turn above already validated this owner.
+                        self.opened_turns
+                            .get_mut(&turn_id)
+                            .expect("validated root turn")
+                            .history_compactions += 1;
+                    }
                     self.interrupted_turns = Arc::default();
                 }
                 self.history_revision = mutation.new_revision;
@@ -469,6 +478,21 @@ impl JournalValidationState {
 
     pub(crate) fn history(&self) -> &[CanonicalMessage] {
         &self.history
+    }
+
+    pub(crate) fn committed_history(
+        &self,
+        thread_id: ThreadId,
+        turn_id: TurnId,
+    ) -> (Vec<CanonicalMessage>, usize) {
+        (
+            self.history.as_ref().clone(),
+            self.opened_turns
+                .get(&turn_id)
+                .filter(|turn| turn.root_thread_id == thread_id)
+                .map(|turn| turn.history_compactions)
+                .unwrap_or(0),
+        )
     }
 
     fn validate_part_id_stability(

@@ -148,6 +148,15 @@ pub(crate) fn initialize_writer_projection(
 }
 
 impl JournalWriterState {
+    pub(crate) fn committed_history(
+        &self,
+        thread_id: ThreadId,
+        turn_id: TurnId,
+    ) -> Option<(Vec<crate::model_standard::CanonicalMessage>, usize)> {
+        self.initialized
+            .then(|| self.validation.committed_history(thread_id, turn_id))
+    }
+
     pub(crate) fn usage_snapshot(
         &self,
         session_id: SessionId,
