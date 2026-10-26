@@ -1345,6 +1345,17 @@ copy-on-write history/payloads. Изменения кандидата изоли
 включая checkpoint с потерянным ACK. Полный журнал с прошлыми model requests
 и tool outputs повторно не разбирается в async-потоке; счётчик compactions
 обновляется вместе с durable history mutation и восстанавливается при replay.
+Факты model context также обновляются после каждого durable append без хранения
+текстов запросов. `TurnOpened` фиксирует отдельный prefix snapshot: поздние
+responses и последующий clear не меняют context уже принятого хода. Начало
+следующего хода получает этот snapshot writer-а вместо чтения всех старых
+model requests; cold resume и replay используют ту же обработку событий.
+После завершения хода app-server перестраивает transcript/read-index из
+канонического журнала на blocking worker. Когда временные records, JSON и
+conversation этого построения уже освобождены, Linux/glibc получает один
+`malloc_trim(0)`: свободные страницы возвращаются ОС вместо удержания пиков
+в allocator arenas. Это не меняет live allocations или writer state и не
+запускает фоновый таймер; на остальных платформах этот hint отсутствует.
 Холодная инициализация writer по-прежнему восстанавливает его на blocking worker.
 
 Workspace задаётся именем внешней `<encoded-workspace>` directory. Resume

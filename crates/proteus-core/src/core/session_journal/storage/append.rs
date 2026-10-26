@@ -142,5 +142,6 @@ pub(crate) fn append_record(
     state.validation = next_validation;
     state.committed_offset = next_committed_offset;
     state.usage.apply(&record);
+    state.model_context.apply(&record);
     Ok(record)
 }

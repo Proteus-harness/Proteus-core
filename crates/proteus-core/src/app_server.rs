@@ -546,13 +546,7 @@ async fn completed_transcript(
         let store = runtime
             .session_store()
             .ok_or_else(|| anyhow!("persisted session has no store"))?;
-        let model =
-            store.project_read_model(|projection| journal_transcript_messages(projection, None))?;
-        Ok(read_model::CompletedTranscript::from_model(
-            store,
-            model.transcript,
-            false,
-        ))
+        read_model::project_completed_transcript(store)
     })
     .await
     .map_err(|error| anyhow!("transcript projection task failed: {error}"))?

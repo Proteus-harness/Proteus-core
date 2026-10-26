@@ -154,4 +154,54 @@ async fn usage_tracks_exchanges_and_matches_read_only_cold_journal() {
         "repeated reads must not accumulate twice"
     );
     assert_eq!(std::fs::read(store.journal_path()).unwrap(), before);
+
+    let next_turn = new_turn_id();
+    store
+        .append_execution_journal_entry(
+            ExecutionAttribution::for_turn(
+                new_execution_id(),
+                store.session_id(),
+                thread_id,
+                next_turn,
+            ),
+            JournalEntry::TurnOpened(TurnOpened {
+                intent: None,
+                task: AgentTask::new("continue", workspace.path().into()),
+                base_history_revision: 0,
+                module_epoch: 0,
+                config_snapshot: serde_json::json!({}),
+            }),
+        )
+        .await
+        .unwrap();
+    let expected = vec![crate::contracts::ModelContextObservation::Usage {
+        total_tokens: 1260,
+        last_tokens: 60,
+    }];
+    assert_eq!(
+        store.model_context_before_turn(next_turn).await.unwrap(),
+        expected
+    );
+    assert_eq!(
+        crate::core::model_context::ModelContextState::from_records(
+            &store.load_records().unwrap(),
+            Some(next_turn)
+        )
+        .snapshot(),
+        expected
+    );
+    let directory = store.session_dir().to_owned();
+    drop(cold);
+    drop(store);
+    let reopened = SessionStore::open(directory).unwrap();
+    assert_eq!(
+        reopened.model_context_before_turn(next_turn).await.unwrap(),
+        expected
+    );
+    assert!(
+        reopened
+            .model_context_before_turn(new_turn_id())
+            .await
+            .is_err()
+    );
 }

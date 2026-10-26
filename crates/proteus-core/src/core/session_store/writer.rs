@@ -2,6 +2,28 @@ use super::*;
 use crate::contracts::WorkflowToolResultBinding;
 
 impl SessionStore {
+    /// The prefix is captured when TurnOpened commits. Later facts, including
+    /// late responses from another execution, cannot change this turn's input.
+    pub(crate) async fn model_context_before_turn(
+        &self,
+        turn_id: TurnId,
+    ) -> Result<Vec<crate::contracts::ModelContextObservation>> {
+        if let Some(context) = self
+            .writer
+            .lock()
+            .await
+            .model_context_before_turn(turn_id)?
+        {
+            return Ok(context);
+        }
+        self.write_transaction(move |_, writer| {
+            writer
+                .model_context_before_turn(turn_id)?
+                .ok_or_else(|| anyhow!("writer was not initialized"))
+        })
+        .await
+    }
+
     /// Reconcile acknowledged or lost-ack checkpoints from the sole writer's
     /// validated state, without replaying every previous request and tool output.
     pub(crate) async fn committed_history(

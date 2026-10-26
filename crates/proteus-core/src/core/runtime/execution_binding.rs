@@ -25,11 +25,9 @@ impl AgentRuntime {
         turn_id: TurnId,
     ) -> anyhow::Result<AgentWorkflowContext> {
         if let Some(store) = &self.session.session_store {
-            let records = store.load_records()?;
             *self.session.model_context.lock().await =
-                crate::core::model_context::ModelContextState::from_records(
-                    &records,
-                    Some(turn_id),
+                crate::core::model_context::ModelContextState::from_snapshot(
+                    store.model_context_before_turn(turn_id).await?,
                 );
         }
         let model_context = self.session.model_context.lock().await.snapshot();

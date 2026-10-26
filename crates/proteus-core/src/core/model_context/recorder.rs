@@ -15,8 +15,8 @@ use crate::{
 use super::ModelContextState;
 
 /// Preserve in-memory continuation even when the runtime has no session store.
-/// Persisted facts are acknowledged first; a new turn reloads committed journal
-/// facts so a lost append acknowledgement cannot split warm and cold behavior.
+/// Persisted facts are acknowledged first; a new turn reads the writer's committed
+/// prefix so a lost append acknowledgement cannot split warm and cold behavior.
 pub(crate) struct ContextExecutionRecorder {
     pub(crate) inner: Arc<dyn ExecutionRecorder>,
     pub(crate) context: Arc<Mutex<ModelContextState>>,

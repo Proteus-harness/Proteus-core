@@ -64,6 +64,7 @@ enum StoredPayload {
 pub(crate) struct JournalWriterState {
     initialized: bool,
     usage: super::UsageProjection,
+    model_context: crate::core::model_context::projection::ModelContextProjection,
     next_seq: u64,
     validation: JournalValidationState,
     committed_offset: u64,
@@ -129,9 +130,12 @@ pub(crate) fn initialize_writer_projection(
     let projection = JournalProjection::build(session_id, load_records(session_dir, session_id)?)?;
     let mut validation = JournalValidationState::default();
     let mut usage = super::UsageProjection::default();
+    let mut model_context =
+        crate::core::model_context::projection::ModelContextProjection::default();
     for record in &projection.records {
         validation.apply(record)?;
         usage.apply(record);
+        model_context.apply(record);
     }
     state.next_seq = projection
         .records
@@ -141,6 +145,7 @@ pub(crate) fn initialize_writer_projection(
     debug_assert_eq!(validation.history_revision(), projection.history_revision);
     state.validation = validation;
     state.usage = usage;
+    state.model_context = model_context;
     state.committed_offset = journal_len(&path)?;
     state._ownership = Some(ownership);
     state.initialized = true;
@@ -148,6 +153,19 @@ pub(crate) fn initialize_writer_projection(
 }
 
 impl JournalWriterState {
+    pub(crate) fn model_context_before_turn(
+        &self,
+        turn_id: TurnId,
+    ) -> Result<Option<Vec<crate::contracts::ModelContextObservation>>> {
+        if !self.initialized {
+            return Ok(None);
+        }
+        self.model_context
+            .before_turn(turn_id)
+            .map(Some)
+            .ok_or_else(|| anyhow!("model context requested outside the latest admitted turn"))
+    }
+
     pub(crate) fn committed_history(
         &self,
         thread_id: ThreadId,

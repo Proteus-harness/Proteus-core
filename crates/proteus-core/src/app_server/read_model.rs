@@ -55,6 +55,37 @@ pub(super) fn current_read_model(store: &SessionStore) -> anyhow::Result<Session
     }
 }
 
+pub(super) fn project_completed_transcript(
+    store: &SessionStore,
+) -> anyhow::Result<CompletedTranscript> {
+    // Drop replay records, JSON trees and the full cached conversation before
+    // returning free pages. The completed page and writer's live state survive.
+    let result = (|| {
+        let model =
+            store.project_read_model(|projection| journal_transcript_messages(projection, None))?;
+        Ok(CompletedTranscript::from_model(
+            store,
+            model.transcript,
+            false,
+        ))
+    })();
+    release_projection_memory();
+    result
+}
+
+fn release_projection_memory() {
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    {
+        unsafe extern "C" {
+            fn malloc_trim(pad: usize) -> std::ffi::c_int;
+        }
+        // SAFETY: glibc's thread-safe hint releases only unused allocator pages;
+        // it takes no pointers and cannot move or invalidate live allocations.
+        // This runs once per completed blocking projection, never per event.
+        unsafe { malloc_trim(0) };
+    }
+}
+
 pub(super) fn refresh_in_background(server: &AppServerHandle) {
     let server = server.clone();
     let Some(baseline) = server.events.completed_history() else {

@@ -6,13 +6,14 @@ use std::collections::HashMap;
 
 use crate::{
     contracts::{ModelCallOrigin, ModelContextObservation},
-    core::{HistoryMutationKind, JournalEntry, JournalRecord, ModelResponseOutcome},
+    core::{JournalEntry, JournalRecord},
     domain::{ExchangeId, TurnId},
     model_standard::{
         CanonicalModelRequest, CanonicalModelResponse, ModelFailure, ModelFailureKind,
     },
 };
 
+pub(crate) mod projection;
 pub(crate) mod recorder;
 
 #[derive(Debug, Default)]
@@ -91,63 +92,16 @@ impl ModelContextState {
     /// replayed turn. Root TurnOpened lineage survives resume with a new thread;
     /// detached and child executions cannot affect the shared conversation.
     pub(crate) fn from_records(records: &[JournalRecord], before_turn: Option<TurnId>) -> Self {
-        let mut state = Self::default();
-        let mut root_executions = HashMap::new();
+        let mut projection = projection::ModelContextProjection::default();
         for record in records {
             if matches!(record.entry, JournalEntry::TurnOpened(_))
                 && before_turn.is_some_and(|turn| record.turn_id == Some(turn))
             {
                 break;
             }
-            match &record.entry {
-                JournalEntry::TurnOpened(_) => {
-                    if let (Some(turn), Some(thread), Some(execution)) =
-                        (record.turn_id, record.thread_id, record.execution_id)
-                    {
-                        root_executions.insert(turn, (thread, execution));
-                    }
-                }
-                JournalEntry::HistoryMutated(mutation) => {
-                    if mutation
-                        .compaction
-                        .as_ref()
-                        .is_some_and(|report| report.changed)
-                    {
-                        state.compacted();
-                    } else if mutation.mutation == HistoryMutationKind::Replace {
-                        state = Self::default();
-                    }
-                }
-                JournalEntry::ModelRequestRecorded(request)
-                    if record
-                        .turn_id
-                        .and_then(|turn| root_executions.get(&turn).copied())
-                        .is_some_and(|owner| {
-                            Some(owner) == record.thread_id.zip(record.execution_id)
-                        }) =>
-                {
-                    state.request(request.exchange_id, request.origin, &request.request);
-                }
-                JournalEntry::ModelResponseRecorded(response)
-                    if record
-                        .turn_id
-                        .and_then(|turn| root_executions.get(&turn).copied())
-                        .is_some_and(|owner| {
-                            Some(owner) == record.thread_id.zip(record.execution_id)
-                        }) =>
-                {
-                    match &response.outcome {
-                        ModelResponseOutcome::Response { response: model } => {
-                            state.response(response.exchange_id, model);
-                        }
-                        ModelResponseOutcome::Error { failure } => {
-                            state.failure(response.exchange_id, failure);
-                        }
-                    }
-                }
-                _ => {}
-            }
+            projection.apply(record);
         }
+        let mut state = projection.context;
         // Incomplete exchanges from a dead process cannot complete in this one.
         state.requests.clear();
         state

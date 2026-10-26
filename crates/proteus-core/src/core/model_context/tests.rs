@@ -1,7 +1,10 @@
 use super::*;
 use crate::{
     contracts::{ExecutionRecorder, NoopExecutionRecorder},
-    core::{ModelRequestRecorded, ModelResponseRecorded, TurnOpened},
+    core::{
+        HistoryMutationKind, ModelRequestRecorded, ModelResponseOutcome, ModelResponseRecorded,
+        TurnOpened,
+    },
     domain::{
         AgentTask, ModelRef, new_exchange_id, new_execution_id, new_record_id, new_session_id,
         new_thread_id, new_turn_id,
@@ -162,11 +165,34 @@ fn journal_prefix_excludes_other_threads_detached_and_nested_executions() {
             }),
         );
     }
+    let late_exchange = new_exchange_id();
+    push(
+        Some(thread_id),
+        Some(turn_id),
+        Some(execution_id),
+        JournalEntry::ModelRequestRecorded(ModelRequestRecorded {
+            exchange_id: late_exchange,
+            origin: ModelCallOrigin::Direct,
+            owner: crate::contracts::OperationOwner::Workflow,
+            request: request(Some(4_000)),
+        }),
+    );
     push(
         Some(thread_id),
         Some(next_turn),
         Some(new_execution_id()),
         opened(),
+    );
+    push(
+        Some(thread_id),
+        Some(turn_id),
+        Some(execution_id),
+        JournalEntry::ModelResponseRecorded(ModelResponseRecorded {
+            exchange_id: late_exchange,
+            outcome: ModelResponseOutcome::Error {
+                failure: overflow(),
+            },
+        }),
     );
     push(
         Some(thread_id),
@@ -193,4 +219,14 @@ fn journal_prefix_excludes_other_threads_detached_and_nested_executions() {
             .snapshot()
             .is_empty()
     );
+    let mut committed = projection::ModelContextProjection::default();
+    for record in &records {
+        committed.apply(record);
+    }
+    assert_eq!(
+        committed.before_turn(next_turn).unwrap(),
+        prefix.snapshot(),
+        "late responses and later history clears cannot change an admitted prefix"
+    );
+    assert!(committed.before_turn(turn_id).is_none());
 }
