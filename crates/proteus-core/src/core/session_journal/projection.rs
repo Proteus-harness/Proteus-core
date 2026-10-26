@@ -1,4 +1,7 @@
 mod build;
+mod part_identity;
+#[cfg(test)]
+mod retention_tests;
 
 use im::{HashMap as SharedMap, HashSet as SharedSet};
 use std::{collections::HashSet, sync::Arc};
@@ -6,7 +9,7 @@ use std::{collections::HashSet, sync::Arc};
 use anyhow::{Result, bail};
 use proteus_contracts::{
     domain::{CallId, ExchangeId, ExecutionId, PartId, RecordId, SessionId, ThreadId, TurnId},
-    model_standard::{CanonicalMessage, CanonicalPart, PartScope},
+    model_standard::{CanonicalMessage, PartScope},
 };
 
 use super::types::{
@@ -24,7 +27,7 @@ pub(crate) struct JournalValidationState {
     history_turn: Option<TurnId>,
     interrupted_turns: Arc<Vec<proteus_contracts::contracts::WorkflowHistoryInterruption>>,
     record_ids: SharedSet<RecordId>,
-    known_parts: SharedMap<PartId, Arc<CanonicalPart>>,
+    known_parts: SharedMap<PartId, part_identity::PartIdentity>,
     opened_turns: SharedMap<TurnId, TurnLifecycle>,
     execution_turns: SharedMap<ExecutionId, TurnId>,
     detached_executions: SharedSet<ExecutionId>,
@@ -403,6 +406,8 @@ impl JournalValidationState {
                     bail!("tool result changed its actual status/error/content");
                 }
                 lifecycle.result = true;
+                // The effect is only needed until the final result is checked.
+                lifecycle.effect = None;
                 if record.thread_id.zip(record.turn_id) == self.capture_owner
                     && self.capture_tool_result(&tool.result)?
                 {
@@ -498,20 +503,20 @@ impl JournalValidationState {
     }
 
     fn validate_part_id_stability(
-        known_parts: &mut SharedMap<PartId, Arc<CanonicalPart>>,
+        known_parts: &mut SharedMap<PartId, part_identity::PartIdentity>,
         messages: &[CanonicalMessage],
     ) -> Result<()> {
         for message in messages {
             for part in &message.parts {
                 if let Some(previous) = known_parts.get(&part.part_id) {
-                    if previous.as_ref() != part {
+                    if !previous.matches(part) {
                         bail!(
                             "canonical part {} changed after it was recorded",
                             part.part_id
                         );
                     }
                 } else {
-                    known_parts.insert(part.part_id, Arc::new(part.clone()));
+                    known_parts.insert(part.part_id, part_identity::PartIdentity::new(part));
                 }
             }
         }

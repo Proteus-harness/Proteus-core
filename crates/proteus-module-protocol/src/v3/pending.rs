@@ -4,7 +4,7 @@ use std::{
     time::Instant,
 };
 
-use proteus_process_host::{FrameDispatch, NewlineJsonFraming, ProcessTransport};
+use proteus_process_host::{FrameDispatch, NewlineJsonFraming, ProcessTransport, ProcessWake};
 use serde_json::Value;
 use tokio::{runtime::Handle, sync::oneshot, task::AbortHandle};
 
@@ -15,6 +15,7 @@ use super::{
     config::ComponentBrokerOptions,
     invocation::{AsyncHostRequestDispatcher, CancelCause, InvocationRef, InvocationTerminal},
     notification::NotificationSink,
+    signal::CommandSender,
 };
 
 pub(super) enum TerminalSender {
@@ -100,7 +101,8 @@ pub(super) struct LoopState {
     pub spec: proteus_process_host::ProcessSpec,
     pub binding: ProcessComponentBinding,
     pub options: ComponentBrokerOptions,
-    pub control_tx: mpsc::SyncSender<ControlCommand>,
+    pub control_tx: CommandSender<ControlCommand>,
+    pub wake: ProcessWake,
     pub generation: u64,
     pub next_host_sequence: u64,
     pub worker: Option<WorkerGeneration>,
@@ -121,13 +123,15 @@ impl LoopState {
         spec: proteus_process_host::ProcessSpec,
         binding: ProcessComponentBinding,
         options: ComponentBrokerOptions,
-        control_tx: mpsc::SyncSender<ControlCommand>,
+        control_tx: CommandSender<ControlCommand>,
+        wake: ProcessWake,
     ) -> Self {
         Self {
             spec,
             binding,
             options,
             control_tx,
+            wake,
             generation: 1,
             next_host_sequence: 1,
             worker: None,

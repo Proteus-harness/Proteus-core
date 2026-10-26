@@ -649,7 +649,10 @@ fn lazy_restart_after_child_exit() -> Result<()> {
         .request("exit", json!({}), SHORT_TIMEOUT)
         .expect_err("first request should fail when child exits");
     assert!(
-        error.to_string().contains("closed") || error.to_string().contains("stopped"),
+        error.to_string().contains("closed")
+            || error.to_string().contains("stopped")
+            // The lifecycle notification can now arrive before pipe EOF.
+            || error.to_string().contains("exited successfully with code 0"),
         "unexpected error: {error}"
     );
 

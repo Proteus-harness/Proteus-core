@@ -6,9 +6,11 @@ use std::{
     time::{Duration, Instant},
 };
 
+use crate::ProcessWake;
 use anyhow::{Result, anyhow};
 
-const CHILD_STATUS_POLL_INTERVAL: Duration = Duration::from_millis(10);
+mod monitor;
+use monitor::MonitorWake;
 
 /// Portable terminal status for one child-process generation.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -64,6 +66,7 @@ impl LifecycleTerminal {
 struct ExitSignal {
     terminal: Mutex<Option<LifecycleTerminal>>,
     changed: Condvar,
+    wake: ProcessWake,
 }
 
 impl ExitSignal {
@@ -75,6 +78,7 @@ impl ExitSignal {
         if current.is_none() {
             *current = Some(terminal);
             self.changed.notify_all();
+            self.wake.notify();
         }
     }
 
@@ -137,6 +141,14 @@ struct LifecycleInner {
     pid: u32,
     commands: mpsc::Sender<LifecycleCommand>,
     exit: Arc<ExitSignal>,
+    commands_wake: Arc<MonitorWake>,
+}
+
+impl Drop for LifecycleInner {
+    fn drop(&mut self) {
+        let _ = self.commands.send(LifecycleCommand::Terminate);
+        self.commands_wake.notify();
+    }
 }
 
 /// Cloneable lifecycle handle for one concrete child-process generation.
@@ -160,17 +172,24 @@ impl fmt::Debug for ProcessLifecycle {
 }
 
 impl ProcessLifecycle {
-    pub(crate) fn spawn(child: Child) -> (Self, JoinHandle<()>) {
+    pub(crate) fn spawn(child: Child, wake: ProcessWake) -> (Self, JoinHandle<()>) {
         let pid = child.id();
         let (command_tx, command_rx) = mpsc::channel();
-        let exit = Arc::new(ExitSignal::default());
+        let exit = Arc::new(ExitSignal {
+            wake,
+            ..ExitSignal::default()
+        });
         let monitor_exit = Arc::clone(&exit);
-        let monitor = thread::spawn(move || monitor_child(child, command_rx, monitor_exit));
+        let commands_wake = Arc::new(MonitorWake::new(pid));
+        let monitor_wake = Arc::clone(&commands_wake);
+        let monitor =
+            thread::spawn(move || monitor_child(child, command_rx, monitor_exit, monitor_wake));
         let lifecycle = Self {
             inner: Arc::new(LifecycleInner {
                 pid,
                 commands: command_tx,
                 exit,
+                commands_wake,
             }),
         };
         (lifecycle, monitor)
@@ -205,6 +224,7 @@ impl ProcessLifecycle {
             return Ok(exit);
         }
         let _ = self.inner.commands.send(LifecycleCommand::Terminate);
+        self.inner.commands_wake.notify();
         self.inner.exit.wait().into_result()
     }
 
@@ -227,6 +247,7 @@ fn monitor_child(
     mut child: Child,
     commands: mpsc::Receiver<LifecycleCommand>,
     exit: Arc<ExitSignal>,
+    commands_wake: Arc<MonitorWake>,
 ) {
     loop {
         match observe_child(&mut child) {
@@ -247,7 +268,7 @@ fn monitor_child(
             }
         }
 
-        match commands.recv_timeout(CHILD_STATUS_POLL_INTERVAL) {
+        match commands_wake.receive(&commands) {
             Ok(LifecycleCommand::Terminate) | Err(mpsc::RecvTimeoutError::Disconnected) => {
                 let terminal = match terminate_child(&mut child) {
                     Ok(status) => LifecycleTerminal::Exited(ProcessExit::from_status(status)),

@@ -181,8 +181,8 @@ pub(crate) struct StartMeta {
 pub struct InvocationHandle {
     invocation: InvocationRef,
     pid: u32,
-    control_tx: mpsc::SyncSender<ControlCommand>,
-    terminal_rx: Option<oneshot::Receiver<InvocationTerminal>>,
+    control_tx: super::signal::CommandSender<ControlCommand>,
+    terminal_rx: Option<TerminalReceiver>,
     notifications: Option<InvocationNotificationReceiver>,
     dropped_notifications: Arc<AtomicU64>,
 }
@@ -193,7 +193,7 @@ pub struct InvocationHandle {
 pub struct InvocationCancelHandle {
     id: String,
     generation: u64,
-    control_tx: mpsc::SyncSender<ControlCommand>,
+    control_tx: super::signal::CommandSender<ControlCommand>,
 }
 
 impl InvocationCancelHandle {
@@ -217,10 +217,10 @@ impl fmt::Debug for InvocationHandle {
 }
 
 impl InvocationHandle {
-    pub(crate) fn new(
+    pub(super) fn new(
         meta: StartMeta,
-        control_tx: mpsc::SyncSender<ControlCommand>,
-        terminal_rx: oneshot::Receiver<InvocationTerminal>,
+        control_tx: super::signal::CommandSender<ControlCommand>,
+        terminal_rx: TerminalReceiver,
         notifications: InvocationNotificationReceiver,
         sink: &NotificationSink,
     ) -> Self {
@@ -284,7 +284,7 @@ impl InvocationHandle {
 }
 
 fn cancel_invocation(
-    control_tx: &mpsc::SyncSender<ControlCommand>,
+    control_tx: &super::signal::CommandSender<ControlCommand>,
     id: &str,
     generation: u64,
     cause: CancelCause,
@@ -326,5 +326,44 @@ impl InvocationHandle {
                 self.id()
             ))
         })
+    }
+}
+
+/// Closing a result receiver is a cancellation event, even while admission
+/// is still pending or a result() future is being dropped.
+pub(super) struct TerminalReceiver {
+    receiver: Option<oneshot::Receiver<InvocationTerminal>>,
+    wake: proteus_process_host::ProcessWake,
+}
+impl TerminalReceiver {
+    pub(super) fn new(
+        receiver: oneshot::Receiver<InvocationTerminal>,
+        wake: proteus_process_host::ProcessWake,
+    ) -> Self {
+        Self {
+            receiver: Some(receiver),
+            wake,
+        }
+    }
+}
+impl std::future::Future for TerminalReceiver {
+    type Output = Result<InvocationTerminal, oneshot::error::RecvError>;
+    fn poll(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        std::pin::Pin::new(
+            self.get_mut()
+                .receiver
+                .as_mut()
+                .expect("terminal receiver missing"),
+        )
+        .poll(cx)
+    }
+}
+impl Drop for TerminalReceiver {
+    fn drop(&mut self) {
+        drop(self.receiver.take());
+        self.wake.notify();
     }
 }

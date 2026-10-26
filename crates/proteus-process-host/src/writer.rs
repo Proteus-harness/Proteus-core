@@ -2,9 +2,9 @@ use std::{
     error::Error,
     fmt, io,
     sync::{
-        Arc, Condvar, Mutex,
+        Arc, Mutex,
         atomic::{AtomicBool, AtomicU8, Ordering},
-        mpsc::{self, RecvTimeoutError, SyncSender, TryRecvError, TrySendError},
+        mpsc::{self, SyncSender, TryRecvError, TrySendError},
     },
     thread::{self, JoinHandle},
     time::{Duration, Instant},
@@ -12,7 +12,7 @@ use std::{
 
 use serde_json::Value;
 
-use crate::{Framing, ProcessLifecycle, receive::compact_json_len};
+use crate::{Framing, ProcessLifecycle, ProcessWake, receive::compact_json_len};
 
 /// Default number of data frames that may wait for the dedicated stdin writer.
 pub const DEFAULT_MAX_QUEUED_WRITES: usize = 256;
@@ -22,8 +22,6 @@ pub const DEFAULT_MAX_QUEUED_CONTROL_WRITES: usize = 64;
 pub const DEFAULT_MAX_QUEUED_WRITE_BYTES: usize = 32 * 1024 * 1024;
 /// Default aggregate compact-JSON budget reserved for queued control frames.
 pub const DEFAULT_MAX_QUEUED_CONTROL_WRITE_BYTES: usize = 8 * 1024 * 1024;
-
-const WRITER_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct WriterLimits {
@@ -161,7 +159,6 @@ const DISPATCH_FAILED: u8 = 4;
 #[derive(Debug)]
 struct DispatchCompletion {
     result: Mutex<Option<std::result::Result<(), SendFrameError>>>,
-    ready: Condvar,
 }
 
 /// Completion token for one frame accepted into a bounded writer lane.
@@ -175,18 +172,19 @@ pub struct FrameDispatch {
     completion: Arc<DispatchCompletion>,
     status: WriterStatus,
     lifecycle: ProcessLifecycle,
+    wake: ProcessWake,
 }
 
 impl FrameDispatch {
-    fn queued(status: WriterStatus, lifecycle: ProcessLifecycle) -> Self {
+    fn queued(status: WriterStatus, lifecycle: ProcessLifecycle, wake: ProcessWake) -> Self {
         Self {
             state: Arc::new(AtomicU8::new(DISPATCH_QUEUED)),
             completion: Arc::new(DispatchCompletion {
                 result: Mutex::new(None),
-                ready: Condvar::new(),
             }),
             status,
             lifecycle,
+            wake,
         }
     }
 
@@ -241,13 +239,15 @@ impl FrameDispatch {
         timeout: Option<Duration>,
     ) -> Option<std::result::Result<(), SendFrameError>> {
         let started = Instant::now();
-        let mut result = self
-            .completion
-            .result
-            .lock()
-            .expect("frame dispatch mutex poisoned");
         loop {
-            if let Some(result) = result.clone() {
+            let observed = self.wake.revision();
+            if let Some(result) = self
+                .completion
+                .result
+                .lock()
+                .expect("frame dispatch mutex poisoned")
+                .clone()
+            {
                 return Some(result);
             }
             if let Some(reason) = self.lifecycle.stopped_reason() {
@@ -256,22 +256,11 @@ impl FrameDispatch {
             if let Some(failure) = self.status.failure_if_any() {
                 return Some(Err(failure));
             }
-            let wait = match timeout {
-                Some(timeout) => {
-                    let remaining = timeout.checked_sub(started.elapsed())?;
-                    if remaining.is_zero() {
-                        return None;
-                    }
-                    remaining.min(WRITER_POLL_INTERVAL)
-                }
-                None => WRITER_POLL_INTERVAL,
+            let remaining = match timeout {
+                Some(timeout) => Some(timeout.checked_sub(started.elapsed())?),
+                None => None,
             };
-            let (next, _) = self
-                .completion
-                .ready
-                .wait_timeout(result, wait)
-                .expect("frame dispatch mutex poisoned while waiting");
-            result = next;
+            self.wake.wait(observed, remaining);
         }
     }
 
@@ -306,7 +295,7 @@ impl FrameDispatch {
             .expect("frame dispatch mutex poisoned");
         if current.is_none() {
             *current = Some(result);
-            self.completion.ready.notify_all();
+            self.wake.notify();
         }
     }
 }
@@ -381,6 +370,7 @@ pub struct ProcessFrameWriter {
     status: WriterStatus,
     stopping: Arc<AtomicBool>,
     lifecycle: ProcessLifecycle,
+    wake: ProcessWake,
     max_queued_writes: usize,
     max_queued_control_writes: usize,
     max_frame_bytes: usize,
@@ -448,7 +438,11 @@ impl ProcessFrameWriter {
         };
         let permit = budget.reserve(lane, bytes)?;
 
-        let dispatch = FrameDispatch::queued(self.status.clone(), self.lifecycle.clone());
+        let dispatch = FrameDispatch::queued(
+            self.status.clone(),
+            self.lifecycle.clone(),
+            self.wake.clone(),
+        );
         let command = WriterCommand::Frame {
             value,
             dispatch: dispatch.clone(),
@@ -469,6 +463,7 @@ impl ProcessFrameWriter {
             Err(TrySendError::Disconnected(_)) => return Err(self.status.failure()),
         }
 
+        self.wake.notify();
         Ok(dispatch)
     }
 }
@@ -479,6 +474,7 @@ pub(crate) fn spawn_writer<W, F>(
     limits: WriterLimits,
     stopping: Arc<AtomicBool>,
     lifecycle: ProcessLifecycle,
+    wake: ProcessWake,
 ) -> (ProcessFrameWriter, JoinHandle<()>)
 where
     W: io::Write + Send + 'static,
@@ -501,6 +497,7 @@ where
         status: status.clone(),
         stopping: Arc::clone(&stopping),
         lifecycle,
+        wake: wake.clone(),
         max_queued_writes: limits.max_queued_writes,
         max_queued_control_writes: limits.max_queued_control_writes,
         max_frame_bytes: limits.max_frame_bytes,
@@ -509,22 +506,17 @@ where
     };
     let thread = thread::spawn(move || {
         while !stopping.load(Ordering::Acquire) {
+            let observed = wake.revision();
             let command = match control_commands.try_recv() {
                 Ok(command) => command,
-                Err(TryRecvError::Empty) => {
-                    match data_commands.recv_timeout(WRITER_POLL_INTERVAL) {
-                        Ok(command) => command,
-                        Err(RecvTimeoutError::Timeout) => continue,
-                        Err(RecvTimeoutError::Disconnected) => break,
+                Err(_) => match data_commands.try_recv() {
+                    Ok(command) => command,
+                    Err(TryRecvError::Disconnected) => break,
+                    Err(TryRecvError::Empty) => {
+                        wake.wait(observed, None);
+                        continue;
                     }
-                }
-                Err(TryRecvError::Disconnected) => {
-                    match data_commands.recv_timeout(WRITER_POLL_INTERVAL) {
-                        Ok(command) => command,
-                        Err(RecvTimeoutError::Timeout) => continue,
-                        Err(RecvTimeoutError::Disconnected) => break,
-                    }
-                }
+                },
             };
             match command {
                 WriterCommand::Frame {
@@ -553,6 +545,7 @@ where
         }
         stopping.store(true, Ordering::Release);
         let failure = status.fail("child stdin writer stopped");
+        wake.notify();
         for command in control_commands.try_iter().chain(data_commands.try_iter()) {
             let WriterCommand::Frame { dispatch, .. } = command;
             dispatch.finish(Err(failure.clone()));

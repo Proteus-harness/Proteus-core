@@ -1,7 +1,6 @@
 use std::{
     sync::mpsc::{Receiver, TryRecvError},
-    thread,
-    time::{Duration, Instant},
+    time::Instant,
 };
 
 use anyhow::Result;
@@ -18,7 +17,6 @@ use super::{
     wire,
 };
 
-const LOOP_IDLE: Duration = Duration::from_millis(1);
 const MAX_CONTROL_COMMANDS_PER_TICK: usize = 64;
 const MAX_ROOT_COMMANDS_PER_TICK: usize = 8;
 const MAX_FRAMES_PER_TICK: usize = 32;
@@ -31,6 +29,7 @@ impl LoopState {
     ) {
         let mut shutdown = false;
         while !shutdown {
+            let observed = self.wake.revision();
             let mut active_tick = false;
             for _ in 0..MAX_CONTROL_COMMANDS_PER_TICK {
                 match control_rx.try_recv() {
@@ -88,7 +87,19 @@ impl LoopState {
             }
 
             if !active_tick {
-                thread::sleep(LOOP_IDLE);
+                let deadline = self
+                    .pending
+                    .values()
+                    .map(|pending| {
+                        pending
+                            .cancel_deadline
+                            .unwrap_or(pending.invocation.deadline)
+                    })
+                    .min();
+                self.wake.wait(
+                    observed,
+                    deadline.map(|value| value.saturating_duration_since(Instant::now())),
+                );
             }
         }
         self.reset_generation(ComponentFailure::Shutdown);
@@ -152,10 +163,11 @@ impl LoopState {
         if let Some(worker) = &self.worker {
             return Ok(worker.pid);
         }
-        let mut transport = match ProcessTransport::spawn_with_limits(
+        let mut transport = match ProcessTransport::spawn_with_wake(
             &self.spec,
             NewlineJsonFraming::default(),
             self.options.transport_limits(),
+            self.wake.clone(),
         ) {
             Ok(transport) => transport,
             Err(error) => {

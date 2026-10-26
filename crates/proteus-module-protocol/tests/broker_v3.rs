@@ -235,7 +235,7 @@ async fn targeted_cancel_keeps_sibling_and_generation() -> Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn dropped_terminal_receiver_cancels_owned_work() -> Result<()> {
     let broker = broker(ComponentBrokerOptions::default())?;
-    let target = broker
+    let mut target = broker
         .start_invocation(
             &export("workflow", "fixture.workflow"),
             PROCESS_WORKFLOW_METHOD,
@@ -245,19 +245,17 @@ async fn dropped_terminal_receiver_cancels_owned_work() -> Result<()> {
         .await?;
     let pid = target.pid();
     let generation = target.generation();
+    let mut notifications = target.notifications()?;
     drop(target); // No explicit cancel handle: receiver ownership alone must suffice.
+    // Polling snapshot would itself wake the broker and hide a lost drop event.
     tokio::time::timeout(Duration::from_secs(1), async {
-        loop {
-            let snapshot = broker.snapshot()?;
-            if snapshot.pending_invocations == 0 {
-                ensure!(snapshot.generation == generation);
-                ensure!(snapshot.pid == Some(pid));
-                return Ok::<_, anyhow::Error>(());
-            }
-            tokio::time::sleep(Duration::from_millis(5)).await;
-        }
+        while notifications.recv().await.is_some() {}
     })
-    .await??;
+    .await?;
+    let snapshot = broker.snapshot()?;
+    ensure!(snapshot.pending_invocations == 0);
+    ensure!(snapshot.generation == generation);
+    ensure!(snapshot.pid == Some(pid));
     Ok(())
 }
 

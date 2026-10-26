@@ -14,8 +14,8 @@ enum PathPattern<'a> {
     ArrayItem,
 }
 
-pub(super) fn redact_sensitive_values(value: &mut Value) {
-    redact_at_path(value, &mut Vec::new());
+pub(super) fn redact_sensitive_values(value: &mut Value) -> bool {
+    redact_at_path(value, &mut Vec::new())
 }
 
 pub(crate) fn redacted_history(
@@ -26,7 +26,8 @@ pub(crate) fn redacted_history(
     Ok(serde_json::from_value(payload["messages"].take())?)
 }
 
-fn redact_at_path(value: &mut Value, path: &mut Vec<PathSegment>) {
+fn redact_at_path(value: &mut Value, path: &mut Vec<PathSegment>) -> bool {
+    let mut changed = false;
     match value {
         Value::Object(map) => {
             for (key, nested) in map {
@@ -35,22 +36,24 @@ fn redact_at_path(value: &mut Value, path: &mut Vec<PathSegment>) {
                 }
                 if is_sensitive_key(key) {
                     *nested = Value::String(REDACTED.to_owned());
+                    changed = true;
                     continue;
                 }
                 path.push(PathSegment::Key(key.clone()));
-                redact_at_path(nested, path);
+                changed |= redact_at_path(nested, path);
                 path.pop();
             }
         }
         Value::Array(values) => {
             path.push(PathSegment::ArrayItem);
             for nested in values {
-                redact_at_path(nested, path);
+                changed |= redact_at_path(nested, path);
             }
             path.pop();
         }
         _ => {}
     }
+    changed
 }
 
 fn is_schema_definition(path: &[PathSegment], key: &str) -> bool {

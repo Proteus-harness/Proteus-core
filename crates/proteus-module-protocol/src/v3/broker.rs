@@ -2,7 +2,7 @@ use std::{
     sync::{
         Arc, Mutex, Weak,
         atomic::{AtomicBool, Ordering},
-        mpsc::{self, SyncSender, TrySendError},
+        mpsc::{self, TrySendError},
     },
     thread::{self, JoinHandle},
     time::{Duration, Instant},
@@ -10,7 +10,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use proteus_contracts::contracts::ProcessComponentExportRef;
-use proteus_process_host::ProcessSpec;
+use proteus_process_host::{ProcessSpec, ProcessWake};
 use serde_json::Value;
 use tokio::{runtime::Handle, sync::oneshot};
 
@@ -25,6 +25,7 @@ use super::{
     },
     notification::NotificationSink,
     pending::{LoopState, TerminalSender},
+    signal::{self, CommandSender},
 };
 
 const COMMAND_ACK_SLACK: Duration = Duration::from_secs(2);
@@ -98,8 +99,8 @@ pub struct ComponentBrokerSnapshot {
 }
 
 struct BrokerInner {
-    root_tx: SyncSender<StartRequest>,
-    control_tx: SyncSender<ControlCommand>,
+    root_tx: CommandSender<StartRequest>,
+    control_tx: CommandSender<ControlCommand>,
     binding: ProcessComponentBinding,
     options: ComponentBrokerOptions,
     stopped: AtomicBool,
@@ -155,14 +156,16 @@ impl ComponentBroker {
         options: ComponentBrokerOptions,
     ) -> Result<Self> {
         options.validate()?;
-        let (root_tx, root_rx) = mpsc::sync_channel(options.root_command_capacity);
-        let (control_tx, control_rx) = mpsc::sync_channel(options.control_command_capacity);
+        let wake = ProcessWake::default();
+        let (root_tx, root_rx) = signal::channel(options.root_command_capacity, &wake);
+        let (control_tx, control_rx) = signal::channel(options.control_command_capacity, &wake);
         let thread_control_tx = control_tx.clone();
         let thread_binding = binding.clone();
         let thread = thread::Builder::new()
             .name(format!("component-v3-{}", binding.component_id))
             .spawn(move || {
-                let mut state = LoopState::new(spec, thread_binding, options, thread_control_tx);
+                let mut state =
+                    LoopState::new(spec, thread_binding, options, thread_control_tx, wake);
                 state.run(root_rx, control_rx);
             })?;
         let broker = Self {
@@ -290,6 +293,8 @@ impl ComponentBroker {
             )
         })?;
         let (terminal_tx, terminal_rx) = oneshot::channel();
+        let terminal_rx =
+            super::invocation::TerminalReceiver::new(terminal_rx, self.inner.control_tx.wake());
         let (notifications, notification_rx) =
             NotificationSink::channel(self.inner.options.notification_limits);
         let handle_sink = notifications.clone();

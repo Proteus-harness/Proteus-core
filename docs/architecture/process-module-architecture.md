@@ -624,6 +624,14 @@ Child exit наблюдается отдельно от frame queue, а terminat
 read. Один reader маршрутизирует out-of-order terminal responses, callbacks и
 live notifications по host-owned invocation records.
 
+Idle broker и writer блокируются на общем revision/Condvar уведомлении:
+enqueue, frame, completion, child exit и закрытие terminal receiver будят
+ожидание; pending deadlines ограничивают время сна. Снимок revision берётся
+до проверки очередей, чтобы не терять события между проверкой и ожиданием.
+На Linux lifecycle ждёт pidfd и eventfd; portable monitor используется, если
+ядро или платформа не поддерживает pidfd. Per-component потоки и failure
+domains сохраняются; это не общий process/I/O pool.
+
 Initialize использует один `handshake_timeout_ms` для подготовки, записи
 кадра и получения ответа; зависшая запись завершает конкретное поколение.
 Лимит Content-Length headers действует во время накопления байтов, включая

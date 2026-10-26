@@ -105,7 +105,7 @@ fn main() -> Result<()> {
     run_cli()
 }
 
-#[tokio::main]
+#[tokio::main(worker_threads = 2)]
 async fn run_cli() -> Result<()> {
     let cli = Cli::parse();
     let command = parse_cli_command(&cli.task)?;

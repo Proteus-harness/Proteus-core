@@ -5,7 +5,7 @@ use std::{
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
-        mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TryRecvError, TrySendError},
+        mpsc::{self, Receiver, SyncSender, TryRecvError, TrySendError},
     },
     thread::{self, JoinHandle},
     time::Duration,
@@ -20,12 +20,11 @@ use std::os::unix::process::CommandExt;
 use crate::{
     DEFAULT_MAX_FRAME_BYTES, DEFAULT_MAX_QUEUED_CONTROL_WRITE_BYTES,
     DEFAULT_MAX_QUEUED_CONTROL_WRITES, DEFAULT_MAX_QUEUED_WRITE_BYTES, DEFAULT_MAX_QUEUED_WRITES,
-    Framing, ProcessFrameWriter, ProcessLifecycle, ProcessSpec, ReceiveFrameError, ReceiveLimits,
-    SendFrameError,
+    Framing, ProcessFrameWriter, ProcessLifecycle, ProcessSpec, ProcessWake, ReceiveFrameError,
+    ReceiveLimits, SendFrameError,
     receive::{BufferedFrame, ReaderStatus, ReceiveBudget, compact_json_len},
     writer::{WriterLimits, spawn_writer},
 };
-const READER_LIFECYCLE_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
 /// Bounds owned by the protocol-neutral process transport.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -124,6 +123,7 @@ pub struct ProcessFrameReader {
     frames: Receiver<BufferedFrame>,
     status: ReaderStatus,
     lifecycle: ProcessLifecycle,
+    wake: ProcessWake,
 }
 
 impl ProcessFrameReader {
@@ -142,6 +142,7 @@ impl ProcessFrameReader {
     ) -> std::result::Result<BufferedFrame, ReceiveFrameError> {
         let started = std::time::Instant::now();
         loop {
+            let observed = self.wake.revision();
             match self.frames.try_recv() {
                 Ok(frame) => return Ok(frame),
                 Err(TryRecvError::Disconnected) => return Err(self.receive_failure()),
@@ -156,14 +157,7 @@ impl ProcessFrameReader {
             if remaining.is_zero() {
                 return Err(ReceiveFrameError::Timeout { timeout });
             }
-            match self
-                .frames
-                .recv_timeout(remaining.min(READER_LIFECYCLE_POLL_INTERVAL))
-            {
-                Ok(frame) => return Ok(frame),
-                Err(RecvTimeoutError::Timeout) => {}
-                Err(RecvTimeoutError::Disconnected) => return Err(self.receive_failure()),
-            }
+            self.wake.wait(observed, Some(remaining));
         }
     }
 
@@ -245,6 +239,16 @@ impl<F: Framing> ProcessTransport<F> {
         framing: F,
         limits: ProcessTransportLimits,
     ) -> Result<Self> {
+        Self::spawn_with_wake(spec, framing, limits, ProcessWake::default())
+    }
+
+    /// Shares transport events with a protocol owner's command wake.
+    pub fn spawn_with_wake(
+        spec: &ProcessSpec,
+        framing: F,
+        limits: ProcessTransportLimits,
+        wake: ProcessWake,
+    ) -> Result<Self> {
         limits.validate()?;
         let mut command = crate::launch::prepare(spec)?;
         command
@@ -269,7 +273,7 @@ impl<F: Framing> ProcessTransport<F> {
         let stderr = child.stderr.take();
 
         let stopping = Arc::new(AtomicBool::new(false));
-        let (lifecycle, lifecycle_thread) = ProcessLifecycle::spawn(child);
+        let (lifecycle, lifecycle_thread) = ProcessLifecycle::spawn(child, wake.clone());
 
         let (frame_tx, frame_rx) = mpsc::sync_channel(limits.receive.max_buffered_frames());
         let receive_budget = ReceiveBudget::new(limits.receive);
@@ -281,6 +285,7 @@ impl<F: Framing> ProcessTransport<F> {
             receive_budget,
             reader_status.clone(),
             Arc::clone(&stopping),
+            wake.clone(),
         );
 
         let (writer, writer_thread) = spawn_writer(
@@ -295,6 +300,7 @@ impl<F: Framing> ProcessTransport<F> {
             },
             Arc::clone(&stopping),
             lifecycle.clone(),
+            wake.clone(),
         );
         let stderr_thread = stderr.map(spawn_stderr_drain);
 
@@ -303,6 +309,7 @@ impl<F: Framing> ProcessTransport<F> {
                 frames: frame_rx,
                 status: reader_status,
                 lifecycle: lifecycle.clone(),
+                wake,
             },
             writer,
             lifecycle,
@@ -367,6 +374,7 @@ impl<F: Framing> ProcessTransport<F> {
     /// is idempotent; cloned writer/lifecycle handles observe the same stop.
     pub fn terminate(&mut self) -> Result<()> {
         self.stopping.store(true, Ordering::Release);
+        self.reader.wake.notify();
         let lifecycle_result = self.lifecycle.terminate().map(|_| ());
         let join_result = self.join_workers();
         lifecycle_result.and(join_result)
@@ -399,6 +407,7 @@ fn spawn_reader<R, F>(
     budget: ReceiveBudget,
     status: ReaderStatus,
     stopping: Arc<AtomicBool>,
+    wake: ProcessWake,
 ) -> JoinHandle<()>
 where
     R: Read + Send + 'static,
@@ -435,7 +444,7 @@ where
             };
             let frame = BufferedFrame::new(value, permit);
             match frames.try_send(frame) {
-                Ok(()) => {}
+                Ok(()) => wake.notify(),
                 Err(TrySendError::Full(_)) => {
                     status.fail(format!(
                         "receive channel exceeded frame count limit: max {}",
@@ -446,6 +455,7 @@ where
                 Err(TrySendError::Disconnected(_)) => break,
             }
         }
+        wake.notify();
     })
 }
 

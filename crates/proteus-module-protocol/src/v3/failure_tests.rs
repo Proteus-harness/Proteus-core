@@ -61,8 +61,9 @@ fn cancel_tree_defers_admission_failure_and_next_generation_remains_usable() -> 
         "no-read child unexpectedly accepted the large frame"
     );
 
-    let (control_tx, _) = mpsc::sync_channel(options.control_command_capacity);
-    let mut state = LoopState::new(spec, binding.clone(), options, control_tx);
+    let wake = proteus_process_host::ProcessWake::default();
+    let (control_tx, _) = crate::v3::signal::channel(options.control_command_capacity, &wake);
+    let mut state = LoopState::new(spec, binding.clone(), options, control_tx, wake);
     state.worker = Some(WorkerGeneration {
         pid: transport.pid(),
         transport,

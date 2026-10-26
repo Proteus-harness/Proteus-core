@@ -13,6 +13,7 @@ mod notification;
 mod pending;
 mod routing;
 mod runtime;
+mod signal;
 mod wire;
 mod wire_id;
 

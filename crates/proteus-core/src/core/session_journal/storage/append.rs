@@ -70,7 +70,7 @@ pub(crate) fn append_record(
         crate::core::session_journal::hooks::validate_raw_trace(&record, trace)?;
     }
     let mut payload = record.entry.payload_value()?;
-    redact_sensitive_values(&mut payload);
+    let redacted = redact_sensitive_values(&mut payload);
     let payload_bytes = serde_json::to_vec(&payload)?;
     if payload_bytes.len() > MAX_PAYLOAD_BYTES {
         bail!(
@@ -79,11 +79,24 @@ pub(crate) fn append_record(
             MAX_PAYLOAD_BYTES
         );
     }
-    // Only small inline records need both DTO and JSON. Move large payloads
-    // into the DTO instead of cloning the complete blob-sized JSON tree.
-    let inline_payload = (payload_bytes.len() < blob_threshold_bytes).then(|| payload.clone());
-    record.entry = JournalEntry::from_kind_and_payload(kind, payload)
-        .context("redacted journal payload no longer matches its canonical DTO")?;
+    let inline = payload_bytes.len() < blob_threshold_bytes;
+    // These tool DTOs serialize losslessly. Other entries can contain native
+    // floats (e.g. context scores); retain their canonicalization round trip.
+    let keep_dto = !redacted
+        && matches!(
+            record.entry,
+            JournalEntry::ToolCallRecorded(_)
+                | JournalEntry::ToolEffectRecorded(_)
+                | JournalEntry::ToolResultRecorded(_)
+        );
+    let inline_payload = if !keep_dto {
+        let inline_payload = inline.then(|| payload.clone());
+        record.entry = JournalEntry::from_kind_and_payload(kind, payload)
+            .context("redacted journal payload no longer matches its canonical DTO")?;
+        inline_payload
+    } else {
+        inline.then_some(payload)
+    };
     let mut next_validation = state.validation.clone();
     next_validation.apply(&record)?;
 
