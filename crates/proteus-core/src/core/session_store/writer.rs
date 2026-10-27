@@ -2,6 +2,18 @@ use super::*;
 use crate::contracts::WorkflowToolResultBinding;
 
 impl SessionStore {
+    pub(crate) async fn hibernate_writer(&self) {
+        let mut writer = self.writer.lock().await;
+        #[cfg(unix)]
+        if let (Some(revision), Some(usage)) = (
+            writer.cached_history_revision(),
+            writer.usage_snapshot(self.session_id),
+        ) {
+            self.set_read_metadata(revision, usage);
+        }
+        writer.hibernate();
+    }
+
     /// The prefix is captured when TurnOpened commits. Later facts, including
     /// late responses from another execution, cannot change this turn's input.
     pub(crate) async fn model_context_before_turn(

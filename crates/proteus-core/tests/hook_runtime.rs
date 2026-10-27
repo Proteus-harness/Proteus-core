@@ -343,7 +343,7 @@ async fn interruption_during_after_hook_preserves_already_completed_effect() {
                     .expect("follow-up turn must reach the model");
                 next_request.messages
             } else {
-                runtime.history().await
+                runtime.history().await.unwrap()
             };
             assert!(next_history.iter().flat_map(|message| &message.parts).any(|part| matches!(&part.payload, proteus_contracts::model_standard::ContentPart::ToolResult { result } if result.ok)), "next live turn must retain the completed tool result (persist={persist})");
         }

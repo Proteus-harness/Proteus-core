@@ -45,7 +45,7 @@ async fn rust_and_python_workflows_share_the_checkpoint_contract() {
         let projection = store.load_projection().unwrap();
         assert!(projection.records.iter().any(|record| matches!(&record.entry,
             JournalEntry::HistoryMutated(mutation) if mutation.mutation == HistoryMutationKind::Checkpoint)));
-        assert_eq!(projection.history, runtime.history().await);
+        assert_eq!(projection.history, runtime.history().await.unwrap());
         let catalog = ModuleCatalog::from_config(&config).unwrap();
         let replay = replay_workflow(
             store.session_dir(),
@@ -98,6 +98,7 @@ async fn preparation_checkpoint_rejects_stale_revision_and_unbound_tool_does_not
             runtime
                 .history()
                 .await
+                .unwrap()
                 .iter()
                 .all(|message| message.tool_call_id.is_none())
         );
@@ -115,6 +116,7 @@ async fn preparation_checkpoint_rejects_stale_revision_and_unbound_tool_does_not
             runtime
                 .history()
                 .await
+                .unwrap()
                 .iter()
                 .all(|message| message.display_text() != "REJECTED CANDIDATE")
         );
@@ -137,7 +139,7 @@ async fn lost_preparation_acknowledgement_cannot_roll_back_committed_history() {
             format!("{error:#}").contains("lost preparation acknowledgement"),
             "{error:#}"
         );
-        let history = runtime.history().await;
+        let history = runtime.history().await.unwrap();
         assert!(
             history
                 .iter()

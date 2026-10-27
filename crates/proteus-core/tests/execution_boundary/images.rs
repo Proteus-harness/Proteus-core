@@ -61,7 +61,7 @@ async fn image_input_survives_process_workflow_cold_resume_and_replay() {
         .unwrap_err();
     assert!(format!("{error:#}").contains("invalid image format or MIME type"));
     assert!(
-        runtime.history().await.is_empty(),
+        runtime.history().await.unwrap().is_empty(),
         "invalid attachment must fail before opening a turn"
     );
     assert!(!capture.exists());
@@ -73,7 +73,7 @@ async fn image_input_survives_process_workflow_cold_resume_and_replay() {
             .text,
         "Images received: 1"
     );
-    let history = runtime.history().await;
+    let history = runtime.history().await.unwrap();
     let image = history[0]
         .parts
         .iter()
@@ -100,7 +100,7 @@ async fn image_input_survives_process_workflow_cold_resume_and_replay() {
             .text,
         "Images received: 1"
     );
-    assert!(runtime.history().await[0].parts.iter().any(
+    assert!(runtime.history().await.unwrap()[0].parts.iter().any(
         |part| matches!(&part.payload, ContentPart::Image { image: restored } if restored == &image)
     ));
     let turn_id = SessionStore::open(session_dir.clone())
@@ -191,7 +191,7 @@ async fn codex_compaction_strips_working_images_but_keeps_original_journal_and_s
             .text,
         "Images received: 1"
     );
-    let original = runtime.history().await[0].clone();
+    let original = runtime.history().await.unwrap()[0].clone();
     let image = original
         .parts
         .iter()
@@ -214,7 +214,7 @@ async fn codex_compaction_strips_working_images_but_keeps_original_journal_and_s
         runtime.run("Text follow-up".into()).await.unwrap().text,
         "Images received: 0"
     );
-    let working = runtime.history().await;
+    let working = runtime.history().await.unwrap();
     assert!(
         working
             .iter()

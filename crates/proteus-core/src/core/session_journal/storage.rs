@@ -114,6 +114,14 @@ impl JournalRecordAttribution {
 }
 
 impl JournalWriterState {
+    /// Release decoded execution state without releasing the sole-writer lease.
+    pub(crate) fn hibernate(&mut self) {
+        self.initialized = false;
+        self.validation = Default::default();
+        self.usage = Default::default();
+        self.model_context = Default::default();
+    }
+
     pub(crate) fn with_retirement(retirement: std::sync::Arc<WriterRetirement>) -> Self {
         Self {
             _retirement: Some(retirement::RetirementGuard(retirement)),

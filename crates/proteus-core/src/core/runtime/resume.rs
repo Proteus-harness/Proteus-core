@@ -7,12 +7,17 @@ use super::AgentRuntime;
 impl AgentRuntime {
     pub(super) async fn validate_cached_resume(&self) -> anyhow::Result<()> {
         let mut deferred = self.session.deferred_resume_validation.lock().await;
-        if !*deferred {
+        if !*deferred
+            && self
+                .session
+                .history_resident
+                .load(std::sync::atomic::Ordering::SeqCst)
+        {
             return Ok(());
         }
         if let Some(store) = &self.session.session_store {
             let projection = store.prepare_resume_projection().await?;
-            self.apply_resumed_projection(&projection).await;
+            self.apply_resumed_projection(&projection, true).await;
         }
         *deferred = false;
         Ok(())
@@ -27,17 +32,30 @@ impl AgentRuntime {
             return Ok(None);
         };
         let projection = tokio::task::spawn_blocking(move || store.load_projection()).await??;
-        self.apply_resumed_projection(&projection).await;
+        self.apply_resumed_projection(&projection, false).await;
         // A refreshed display is still not a writer-authorized continuation.
         Ok(Some(projection))
     }
 
-    async fn apply_resumed_projection(&self, projection: &JournalProjection) {
-        let context = ModelContextState::from_records(&projection.records, None);
+    async fn apply_resumed_projection(&self, projection: &JournalProjection, materialize: bool) {
         let mut history = self.session.history.lock().await;
         let mut model_context = self.session.model_context.lock().await;
-        *history = projection.history.clone();
-        *model_context = context;
+        self.session.history_count.store(
+            projection.history.len(),
+            std::sync::atomic::Ordering::SeqCst,
+        );
+        if materialize
+            || self
+                .session
+                .history_resident
+                .load(std::sync::atomic::Ordering::SeqCst)
+        {
+            *history = projection.history.clone();
+            *model_context = ModelContextState::from_records(&projection.records, None);
+            self.session
+                .history_resident
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+        }
         self.session.history_revision.store(
             projection.history_revision,
             std::sync::atomic::Ordering::SeqCst,

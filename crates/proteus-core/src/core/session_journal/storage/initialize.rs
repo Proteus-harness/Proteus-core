@@ -26,7 +26,11 @@ fn initialize(
     if state.initialized {
         return Ok(None);
     }
-    let ownership = SessionWriteOwnership::acquire(session_dir, session_id)?;
+    let ownership = if state._ownership.is_none() {
+        Some(SessionWriteOwnership::acquire(session_dir, session_id)?)
+    } else {
+        None
+    };
     let path = journal_path(session_dir);
     recovery::repair_unterminated_tail(&path)?;
     #[cfg(test)]
@@ -58,7 +62,9 @@ fn initialize(
     state.usage = usage;
     state.model_context = model_context;
     state.committed_offset = committed_offset;
-    state._ownership = Some(ownership);
+    if let Some(ownership) = ownership {
+        state._ownership = Some(ownership);
+    }
     state.initialized = true;
     Ok(projection)
 }

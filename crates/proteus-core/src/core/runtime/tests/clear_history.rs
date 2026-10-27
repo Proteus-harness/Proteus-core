@@ -54,8 +54,8 @@ async fn clear_transaction_case(cancel_caller: bool, fail: bool) {
         .registry
         .replace_model_for_test(model.clone());
     runtime.run("existing history".into()).await.unwrap();
-    let before = runtime.history().await;
-    let context_before = runtime.session.model_context.lock().await.snapshot();
+    let before = runtime.history().await.unwrap();
+    let context_before = runtime.conversation_snapshot().await.unwrap().model_context;
     assert!(!context_before.is_empty());
     let store = runtime.session.session_store.as_ref().unwrap().clone();
     let (started, release) = store.pause_next_append().await;
@@ -68,7 +68,7 @@ async fn clear_transaction_case(cancel_caller: bool, fail: bool) {
         .unwrap()
         .unwrap();
     assert_eq!(
-        runtime.history().await,
+        runtime.history().await.unwrap(),
         before,
         "warm history stays intact until durable clear settles"
     );
@@ -81,9 +81,9 @@ async fn clear_transaction_case(cancel_caller: bool, fail: bool) {
     }
     let next = async {
         let guard = runtime.session.run_lock.lock().await;
-        let warm = runtime.history().await;
+        let warm = runtime.history().await.unwrap();
         let cold = store.load_messages().unwrap();
-        let context = runtime.session.model_context.lock().await.snapshot();
+        let context = runtime.conversation_snapshot().await.unwrap().model_context;
         drop(guard);
         runtime.run("next".into()).await?;
         Ok::<_, anyhow::Error>((warm, cold, context))

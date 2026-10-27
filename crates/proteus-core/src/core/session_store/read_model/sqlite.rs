@@ -17,6 +17,54 @@ struct Header {
     base: Option<proteus_contracts::app_protocol::AppTranscriptBase>,
 }
 
+pub(super) fn view(store: &SessionStore) -> Option<(SourceFingerprint, SessionReadView, bool)> {
+    let reader = Reader::open(store.session_dir(), VIEW_CACHE)?;
+    let header: Header = reader.one("header")?;
+    if !matches(store, &header) {
+        return None;
+    }
+    let start = header.transcript_len.saturating_sub(50);
+    let transcript = reader.page("transcript", start, header.transcript_len)?;
+    let usage: SessionUsageSnapshot = reader.one("usage")?;
+    if usage.session_id != store.session_id() {
+        return None;
+    }
+    let (source, fresh) = reader.finish()?;
+    let revision = source.revision()?;
+    Some((
+        source,
+        SessionReadView {
+            summary: header.summary,
+            revision: header.revision,
+            usage,
+            transcript,
+            cursor: Some(proteus_contracts::app_protocol::AppTranscriptCursor {
+                revision,
+                before: start,
+                base: header.base,
+            }),
+        },
+        fresh,
+    ))
+}
+
+pub(in crate::core::session_store) fn conversation(
+    store: &SessionStore,
+) -> Option<ConversationSnapshot> {
+    let reader = Reader::open(store.session_dir(), VIEW_CACHE)?;
+    let header: Header = reader.one("header")?;
+    if !matches(store, &header) {
+        return None;
+    }
+    let snapshot = ConversationSnapshot {
+        revision: header.revision,
+        messages: reader.page("conversation", 0, header.conversation_len)?,
+        model_context: reader.page("context", 0, header.context_len)?,
+    };
+    let (_, fresh) = reader.finish()?;
+    fresh.then_some(snapshot)
+}
+
 pub(super) fn load(store: &SessionStore) -> Option<(SourceFingerprint, SessionReadModel, bool)> {
     let reader = Reader::open(store.session_dir(), VIEW_CACHE)?;
     let header: Header = reader.one("header")?;

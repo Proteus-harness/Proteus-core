@@ -19,6 +19,65 @@ impl Workflow for CaptureHistory {
     }
 }
 
+#[tokio::test]
+async fn display_resume_and_settled_turns_do_not_retain_decoded_history() {
+    let root = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    let store = cold_store(root.path(), workspace.path()).await;
+    let runtime = AgentRuntime::builder(AppConfig::default(), workspace.path().to_owned())
+        .with_config_path(Some(&root.path().join("config.toml")))
+        .with_module_catalog(test_catalog())
+        .resume_from_session_view(store.clone(), 1, 1, new_thread_id())
+        .build()
+        .unwrap();
+    let unloaded = || {
+        !runtime
+            .session
+            .history_resident
+            .load(std::sync::atomic::Ordering::SeqCst)
+    };
+    assert!(unloaded());
+    assert!(runtime.session.history.lock().await.is_empty());
+    assert_eq!(runtime.history_len().await, 1);
+    let journal = std::fs::read(store.journal_path()).unwrap();
+    assert_eq!(runtime.history().await.unwrap().len(), 1);
+    assert!(
+        unloaded(),
+        "explicit reads must not pin the complete history"
+    );
+    assert_eq!(std::fs::read(store.journal_path()).unwrap(), journal);
+    let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+    replace_workflow_for_test(&runtime, Arc::new(CaptureHistory(seen.clone()))).await;
+    for (index, input) in ["first continuation", "second continuation"]
+        .into_iter()
+        .enumerate()
+    {
+        runtime.run(input.into()).await.unwrap();
+        assert!(unloaded());
+        assert!(runtime.session.history.lock().await.is_empty());
+        // SessionStore handles in one process share a writer. A fresh OS
+        // handle must still be excluded after its decoded state is hibernated.
+        let lock = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(store.session_dir().join("journal.write.lock"))
+            .unwrap();
+        assert!(matches!(
+            lock.try_lock(),
+            Err(std::fs::TryLockError::WouldBlock)
+        ));
+        assert_eq!(runtime.history_len().await, 3 + index * 2);
+        assert_eq!(
+            runtime.history().await.unwrap(),
+            store.load_messages().unwrap()
+        );
+        assert_eq!(
+            message_text_for_test(seen.lock().unwrap()[index].last().unwrap()),
+            input
+        );
+    }
+}
+
 async fn cold_store(root: &std::path::Path, workspace: &std::path::Path) -> SessionStore {
     let fixture = tempfile::tempdir().unwrap();
     let source = SessionStore::new(fixture.path(), workspace, new_session_id()).unwrap();
@@ -72,7 +131,7 @@ async fn cached_context_is_reconciled_before_the_first_workflow_and_writer_lease
     let store = cold_store(root.path(), workspace.path()).await;
     let runtime = cached_runtime(store.clone(), &root.path().join("config.toml")).await;
     assert_eq!(
-        message_text_for_test(&runtime.history().await[0]),
+        message_text_for_test(&runtime.history().await.unwrap()[0]),
         "incorrect cached context"
     );
     let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -83,7 +142,10 @@ async fn cached_context_is_reconciled_before_the_first_workflow_and_writer_lease
     assert_eq!(message_text_for_test(&calls[0][0]), "canonical source");
     assert_eq!(message_text_for_test(calls[0].last().unwrap()), "continue");
     assert!(!*runtime.session.deferred_resume_validation.lock().await);
-    assert_eq!(runtime.history().await, store.load_messages().unwrap());
+    assert_eq!(
+        runtime.history().await.unwrap(),
+        store.load_messages().unwrap()
+    );
 }
 
 #[tokio::test]

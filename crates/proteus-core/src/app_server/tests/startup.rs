@@ -65,14 +65,14 @@ async fn stale_saved_transcript_refreshes_through_the_session_stream_without_a_t
     .await
     .expect("background refresh publishes a replacement snapshot");
     assert_eq!(
-        reopened.runtime.history().await,
+        reopened.runtime.history().await.unwrap(),
         store.load_messages().unwrap()
     );
     assert_eq!(std::fs::read(store.journal_path()).unwrap(), before);
     let (_, _, deferred, stale) =
         crate::core::PreparedSession::from_dir(store.session_dir().into())
             .unwrap()
-            .into_read_model(|_| panic!("background refresh should persist the current view"))
+            .into_display_view(|_| panic!("background refresh should persist the current view"))
             .unwrap();
     assert!(deferred && !stale);
     reopened.shutdown().await;
@@ -97,10 +97,10 @@ async fn clear_persists_empty_view_but_external_append_makes_it_a_resume_candida
     let (_, view, deferred, stale) =
         crate::core::PreparedSession::from_dir(store.session_dir().into())
             .unwrap()
-            .into_read_model(|_| panic!("clear must persist the empty view"))
+            .into_display_view(|_| panic!("clear must persist the empty view"))
             .unwrap();
     assert!(deferred && !stale);
-    assert!(view.conversation.messages.is_empty());
+    assert_eq!(view.summary.message_count, 0);
     assert!(view.transcript.is_empty());
     assert!(
         crate::core::prepare_latest_workspace_session(root.path(), workspace.path())
@@ -124,7 +124,7 @@ async fn clear_persists_empty_view_but_external_append_makes_it_a_resume_candida
         .unwrap();
     assert_eq!(prepared.session_dir(), store.session_dir());
     let (_, old, deferred, stale) = prepared
-        .into_read_model(|_| panic!("stale view must not block startup"))
+        .into_display_view(|_| panic!("stale view must not block startup"))
         .unwrap();
     assert!(deferred && stale && old.transcript.is_empty());
     let reopened = AgentAppServer::launch_or_resume_latest(
@@ -234,7 +234,7 @@ async fn launch_or_resume_latest_uses_last_non_empty_workspace_session() {
         handle.runtime.session_dir(),
         Some(saved_store.session_dir())
     );
-    assert_eq!(handle.runtime.history().await.len(), 1);
+    assert_eq!(handle.runtime.history().await.unwrap().len(), 1);
     assert_eq!(
         handle.transcript().await.expect("transcript")[0].text,
         "restore saved chat".to_owned()
@@ -292,7 +292,7 @@ async fn launch_or_resume_latest_starts_fresh_when_all_persisted_sessions_are_un
     )
     .await
     .unwrap();
-    assert!(handle.runtime.history().await.is_empty());
+    assert!(handle.runtime.history().await.unwrap().is_empty());
     assert!(handle.transcript().await.unwrap().is_empty());
     assert!(handle.workspace_session_summaries().unwrap().is_empty());
     assert_ne!(handle.session_id(), old_metadata.session_id());

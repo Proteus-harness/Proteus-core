@@ -234,7 +234,7 @@ async fn completion_review_checkpoint_and_continuation_share_delivered_steering(
                 );
             }
             assert!(runtime.queued_user_messages().await.is_empty());
-            assert_eq!(runtime.history().await, reviews[1]);
+            assert_eq!(runtime.history().await.unwrap(), reviews[1]);
             if let Some(store) = &runtime.session.session_store {
                 assert_eq!(store.load_messages().unwrap(), reviews[1]);
             }

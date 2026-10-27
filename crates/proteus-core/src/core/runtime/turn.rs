@@ -161,6 +161,7 @@ impl AgentRuntime {
         cancellation: CancellationToken,
     ) -> Result<ReservedRunCompletion> {
         let _run_guard = self.session.run_lock.lock().await;
+        self.validate_cached_resume().await?;
         self.session
             .steering
             .validate_reservation(reserved.turn_id)
@@ -210,6 +211,7 @@ impl AgentRuntime {
             }
         };
         reservation_guard.disarm();
+        self.session.release_history().await;
         ReservedRunCompletion {
             result,
             _finalization: finalization,

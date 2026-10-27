@@ -156,7 +156,7 @@ async fn forged_tool_result_cannot_enter_persisted_reference_workflow_history() 
             "{error:#}"
         );
         let dir = runtime.session_dir().unwrap().to_path_buf();
-        let history = runtime.history().await;
+        let history = runtime.history().await.unwrap();
         assert!(
             history
                 .iter()

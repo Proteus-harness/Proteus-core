@@ -36,6 +36,7 @@ pub struct AgentRuntimeBuilder {
     thread_id: Option<ThreadId>,
     resumed_session: Option<SessionStore>,
     resumed_history: Option<crate::contracts::ConversationSnapshot>,
+    resumed_view: Option<(u64, usize)>,
     deferred_resume_validation: bool,
 }
 
@@ -53,6 +54,7 @@ impl AgentRuntimeBuilder {
             thread_id: None,
             resumed_session: None,
             resumed_history: None,
+            resumed_view: None,
             deferred_resume_validation: false,
         }
     }
@@ -105,12 +107,14 @@ impl AgentRuntimeBuilder {
         self.thread_id = Some(thread_id);
         self.resumed_session = Some(session_store);
         self.resumed_history = None;
+        self.resumed_view = None;
         self.deferred_resume_validation = false;
         self
     }
 
     /// A display snapshot may be shown before its canonical writer is opened.
     /// Its first continuation must validate and reconcile under the writer lease.
+    #[cfg(test)]
     pub(crate) fn resume_from_session_snapshot(
         self,
         session_store: SessionStore,
@@ -121,6 +125,19 @@ impl AgentRuntimeBuilder {
         let mut builder = self.resume_from_session_store(session_store, thread_id);
         builder.resumed_history = Some(history);
         builder.deferred_resume_validation = deferred_validation;
+        builder
+    }
+
+    pub(crate) fn resume_from_session_view(
+        self,
+        store: SessionStore,
+        revision: u64,
+        count: usize,
+        thread: ThreadId,
+    ) -> Self {
+        let mut builder = self.resume_from_session_store(store, thread);
+        builder.resumed_view = Some((revision, count));
+        builder.deferred_resume_validation = true;
         builder
     }
 
@@ -146,6 +163,7 @@ impl AgentRuntimeBuilder {
             thread_id,
             resumed_session,
             resumed_history,
+            resumed_view,
             deferred_resume_validation,
         } = self;
 
@@ -215,7 +233,9 @@ impl AgentRuntimeBuilder {
             eprintln!("warning: failed to persist session config snapshot: {error:#}");
         }
         let mut resume_context = None;
-        let history = if resume_history {
+        let history = if resumed_view.is_some() {
+            Vec::new()
+        } else if resume_history {
             match resumed_history {
                 Some(history) => {
                     resume_context = Some((history.revision, history.model_context));
@@ -230,7 +250,8 @@ impl AgentRuntimeBuilder {
         } else {
             Vec::new()
         };
-        let session_started = resume_history && !history.is_empty();
+        let session_started =
+            resume_history && resumed_view.map_or(!history.is_empty(), |(_, count)| count > 0);
         let model_ref = registry.model_config.as_ref().map(|cfg| cfg.model_ref());
         let reasoning = registry
             .model_config
@@ -259,6 +280,17 @@ impl AgentRuntimeBuilder {
             session_started,
         );
         session.deferred_resume_validation = Mutex::new(deferred_resume_validation);
+        if let Some((revision, count)) = resumed_view {
+            session
+                .history_resident
+                .store(false, std::sync::atomic::Ordering::SeqCst);
+            session
+                .history_count
+                .store(count, std::sync::atomic::Ordering::SeqCst);
+            session
+                .history_revision
+                .store(revision, std::sync::atomic::Ordering::SeqCst);
+        }
         if let Some((revision, observations)) = resume_context {
             session
                 .history_revision
@@ -288,7 +320,7 @@ impl AgentRuntimeBuilder {
                 user_input,
                 default_reasoning,
             },
-            session,
+            session: Arc::new(session),
         })
     }
 }

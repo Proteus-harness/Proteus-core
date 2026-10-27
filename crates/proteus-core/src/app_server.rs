@@ -306,7 +306,7 @@ impl AppServerHandle {
         let history = if summary.is_some() {
             Vec::new()
         } else {
-            self.runtime.history().await
+            self.runtime.history().await?
         };
         let event_log_path = self.context_event_log_path(&self.cwd).await;
         let input = ContextMapInput {
@@ -459,24 +459,25 @@ impl AgentAppServer {
             .with_user_input(Arc::new(user_input_transport));
         let mut refresh_stale_view = false;
         let initial_transcript = if let Some(prepared) = resumed_session {
-            let (session_store, model, deferred, stale) = tokio::task::spawn_blocking(move || {
-                prepared.into_read_model(|projection| journal_transcript_messages(projection, None))
+            let (session_store, model, _, stale) = tokio::task::spawn_blocking(move || {
+                let result = prepared
+                    .into_display_view(|projection| journal_transcript_messages(projection, None));
+                read_model::release_projection_memory();
+                result
             })
             .await
             .map_err(|error| anyhow!("session transcript task failed: {error}"))??;
             refresh_stale_view = stale;
-            let display_store = session_store.clone();
-            builder = builder.resume_from_session_snapshot(
+            builder = builder.resume_from_session_view(
                 session_store,
-                model.conversation,
+                model.revision,
+                model.summary.message_count,
                 new_thread_id(),
-                deferred,
             );
-            Some(read_model::CompletedTranscript::from_model(
-                &display_store,
-                model.transcript,
-                stale,
-            ))
+            Some(read_model::CompletedTranscript {
+                messages: model.transcript,
+                cursor: model.cursor,
+            })
         } else {
             None
         };
@@ -540,7 +541,7 @@ async fn completed_transcript(
     runtime: Arc<AgentRuntime>,
 ) -> Result<read_model::CompletedTranscript> {
     if runtime.session_dir().is_none() {
-        return Ok(transcript_messages(&runtime.history().await).into());
+        return Ok(transcript_messages(&runtime.history().await?).into());
     }
     tokio::task::spawn_blocking(move || {
         let store = runtime

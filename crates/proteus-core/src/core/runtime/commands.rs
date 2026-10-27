@@ -24,37 +24,43 @@ impl AgentRuntime {
         arguments: &str,
         cancellation: CancellationToken,
     ) -> Result<ToolResult> {
-        self.validate_cached_resume().await?;
-        let admission = self.admit_execution(cancellation).await;
-        let (_, tool) = admission
-            .snapshot
-            .runtime
-            .registry
-            .tools
-            .user_commands()
-            .into_iter()
-            .find(|(command, _)| command.name == name)
-            .ok_or_else(|| anyhow!("unknown module command: /{name}"))?;
-        let conversation = Arc::new(super::conversation::TurnConversation {
-            history: self.session.history.clone(),
-            revision: self.session.history_revision.clone(),
-            store: self.session.session_store.clone(),
-            context: self.session.model_context.clone(),
-        });
-        self.bind_detached_tools(&admission)?
-            .execute_enriched(
-                self.services.cwd.clone(),
-                ToolCall::new(
-                    new_call_id(),
-                    tool,
-                    serde_json::json!({"arguments": arguments}),
-                ),
-                &NoopToolExecutionObserver,
-                |ctx| {
-                    ctx.conversation = Some(conversation);
-                    ctx.conversation_session_id = Some(self.session.session_id);
-                },
-            )
-            .await
+        let result = async {
+            self.validate_cached_resume().await?;
+            let admission = self.admit_execution(cancellation).await;
+            let (_, tool) = admission
+                .snapshot
+                .runtime
+                .registry
+                .tools
+                .user_commands()
+                .into_iter()
+                .find(|(command, _)| command.name == name)
+                .ok_or_else(|| anyhow!("unknown module command: /{name}"))?;
+            let conversation = Arc::new(super::conversation::TurnConversation {
+                history: self.session.history.clone(),
+                resident: self.session.history_resident.clone(),
+                revision: self.session.history_revision.clone(),
+                store: self.session.session_store.clone(),
+                context: self.session.model_context.clone(),
+            });
+            self.bind_detached_tools(&admission)?
+                .execute_enriched(
+                    self.services.cwd.clone(),
+                    ToolCall::new(
+                        new_call_id(),
+                        tool,
+                        serde_json::json!({"arguments": arguments}),
+                    ),
+                    &NoopToolExecutionObserver,
+                    |ctx| {
+                        ctx.conversation = Some(conversation);
+                        ctx.conversation_session_id = Some(self.session.session_id);
+                    },
+                )
+                .await
+        }
+        .await;
+        self.release_history_if_idle().await;
+        result
     }
 }

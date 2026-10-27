@@ -42,7 +42,10 @@ async fn conversation_read_addresses_warm_and_cold_sessions_without_resuming_or_
     let live_store = SessionStore::open(live_dir.clone()).unwrap();
     let live_journal = std::fs::read(live_store.journal_path()).unwrap();
     let live = read_conversation(&state, &live_dir).await;
-    assert_eq!(live.conversation.messages, server.runtime.history().await);
+    assert_eq!(
+        live.conversation.messages,
+        server.runtime.history().await.unwrap()
+    );
     assert_eq!(live.source.revision, live.conversation.revision);
     assert!(!live.conversation.messages.is_empty());
     assert_eq!(

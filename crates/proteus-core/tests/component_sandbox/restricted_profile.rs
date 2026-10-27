@@ -110,7 +110,7 @@ async fn shipped_restricted_profile_runs_search_callbacks_and_replays_a_file_tur
     assert_eq!(fs::read_to_string(workspace.join("smoke.txt"))?, "smoke\n");
     let store = SessionStore::open(runtime.session_dir().unwrap().to_owned())?;
     let projection = store.load_projection()?;
-    assert_eq!(projection.history, runtime.history().await);
+    assert_eq!(projection.history, runtime.history().await.unwrap());
     assert!(projection.records.iter().any(|record| matches!(&record.entry,
         JournalEntry::ToolResultRecorded(tool) if tool.result.ok && tool.result.output.contains("smoke.txt"))));
     let contexts = projection

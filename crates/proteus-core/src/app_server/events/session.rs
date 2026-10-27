@@ -213,7 +213,7 @@ impl EventSink for RuntimeEventSink {
                     .upgrade();
                 match runtime.filter(|runtime| runtime.session_dir().is_none()) {
                     Some(runtime) => Some(crate::app_server::transcript_messages(
-                        &runtime.history().await,
+                        &runtime.history().await?,
                     )),
                     None => None,
                 }

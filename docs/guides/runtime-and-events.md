@@ -1326,9 +1326,23 @@ messages, base}` с последними 50 строками. Для преды�
 ревизии: сервер отвергает несовпадение вместо смешивания страниц. Известная
 клиенту завершённая ревизия остаётся пригодной для просмотра во время нового
 turn, пока её индекс не заменён. Полный `/history` сохраняет прежнюю семантику.
-Клиент догружает страницы при прокрутке вверх, а уже открытые строки удерживает
-до замены неподтверждённой проекции или закрытия вкладки. Поэтому это ограничение
-начальной загрузки, а не постоянный лимит RAM после просмотра всей истории.
+Клиент заранее догружает страницы при приближении к краю окна в обе стороны.
+Окно просмотра удерживает до 200 строк с бюджетом payload 8 MiB; видимые строки
+и одна страница остаются целыми, даже когда они превышают бюджет. Дальний край
+вытесняется, а обратная прокрутка читает его снова. Текущий хвост с live-событиями
+хранится отдельно; текущий turn остаётся целиком до settlement. Переход к
+последним сообщениям и отправка возвращают live-хвост. Смена ревизии сохраняет
+только подтверждённый префикс, ответы от старого запроса игнорируются.
+
+Открытие сохранённой app-server session читает из SQLite только metadata, usage
+и последнюю страницу transcript. Canonical conversation и model context не
+материализуются в idle runtime. При отсутствии индекса первичная строгая
+проекция пока читает полный журнал; её временный пик не ограничен размером
+страницы. Перед исполнением runtime восстанавливает полный execution state
+под writer lease. После settlement всей цепочки root/follow-up или clear
+декодированная история и writer validation cache освобождаются. OS writer lease
+и identity остаются у session до её закрытия; повторное продолжение снова
+валидирует журнал с тем же lease.
 
 Telemetry для `/context` читается построчно и кешируется отдельно от текущей
 истории и activity. Кеш ограничен 16 event logs, 128 записями и 8 MiB
@@ -1392,7 +1406,13 @@ session во время записи перемещать нельзя. Target w
 `SessionState` держит `SessionId`, `ThreadId`, `run_lock`, in-memory history,
 optional session store и bounded root-steering queue.
 
-Session state держит активную history projection в памяти. После обычного turn
+Session state держит активную history projection в памяти во время исполнения.
+Для persisted session после settlement она выгружается. `AgentRuntime::history()`
+теперь возвращает `Result<Vec<CanonicalMessage>>`: явное чтение idle session
+загружает snapshot с диска, передаёт ошибку вызывающей стороне и не закрепляет
+полную историю в runtime. `conversation_snapshot()` сохраняет согласованные
+revision, messages и model context. In-memory session без store сохраняет историю
+в памяти. После обычного turn
 runtime добавляет `history_mutated/append`. Если workflow вернул
 `HistoryCompactionReport` с `changed = true`, runtime заменяет in-memory history
 и добавляет `history_mutated/replace` с полной compacted projection и lineage.

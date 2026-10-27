@@ -345,11 +345,11 @@ async fn persisted_view_retains_transcript_conversation_usage_without_reprojecti
     let (mut cached_store, actual, deferred, stale) =
         PreparedSession::from_dir(store.session_dir().to_owned())
             .unwrap()
-            .into_read_model(|_| panic!("fresh persisted view must not reproject transcript"))
+            .into_display_view(|_| panic!("fresh persisted view must not reproject transcript"))
             .unwrap();
     assert!(deferred);
     assert!(!stale);
-    assert_same_view(&actual, &expected);
+    assert_display_view(&actual, &expected);
     // Simulate a new process whose writer has no in-memory journal projection.
     cached_store.writer = Arc::new(tokio::sync::Mutex::new(JournalWriterState::default()));
     assert_eq!(
@@ -382,19 +382,19 @@ async fn external_append_shows_old_view_then_explicit_refresh_publishes_current_
     let (prepared_store, stale_model, deferred, stale) =
         PreparedSession::from_dir(store.session_dir().to_owned())
             .unwrap()
-            .into_read_model(|_| panic!("stale display must be immediate without rendering"))
+            .into_display_view(|_| panic!("stale display must be immediate without rendering"))
             .unwrap();
     assert!(deferred && stale);
-    assert_same_view(&stale_model, &old);
+    assert_display_view(&stale_model, &old);
     let refreshed = prepared_store.project_read_model(render).unwrap();
     assert_eq!(refreshed.conversation.messages.len(), 2);
     assert!(refreshed.conversation.revision > old.conversation.revision);
     let (_, current, deferred, stale) = PreparedSession::from_dir(store.session_dir().to_owned())
         .unwrap()
-        .into_read_model(|_| panic!("strict refresh must persist its new view"))
+        .into_display_view(|_| panic!("strict refresh must persist its new view"))
         .unwrap();
     assert!(deferred && !stale);
-    assert_same_view(&current, &refreshed);
+    assert_display_view(&current, &refreshed);
     assert_eq!(fs::read(store.journal_path()).unwrap(), journal);
 }
 
@@ -413,7 +413,7 @@ async fn malformed_or_checksum_invalid_view_falls_back_to_strict_rendering() {
             let connection = rusqlite::Connection::open(&path).unwrap();
             connection
                 .execute(
-                    "UPDATE records SET payload=x'30' WHERE section='conversation'",
+                    "UPDATE records SET payload=x'30' WHERE section='transcript'",
                     [],
                 )
                 .unwrap();
@@ -422,14 +422,14 @@ async fn malformed_or_checksum_invalid_view_falls_back_to_strict_rendering() {
         let (_, actual, deferred, stale) =
             PreparedSession::from_dir(store.session_dir().to_owned())
                 .unwrap()
-                .into_read_model(|projection| {
+                .into_display_view(|projection| {
                     rendered.set(true);
                     render(projection)
                 })
                 .unwrap();
         assert!(rendered.get(), "{damage}");
         assert!(!deferred && !stale);
-        assert_same_view(&actual, &expected);
+        assert_display_view(&actual, &expected);
         assert_eq!(fs::read(store.journal_path()).unwrap(), journal);
     }
 }
@@ -458,10 +458,10 @@ async fn corrupted_blob_allows_stale_display_but_strict_refresh_fails_without_so
     let (cached_store, display, deferred, stale) =
         PreparedSession::from_dir(store.session_dir().to_owned())
             .unwrap()
-            .into_read_model(|_| panic!("damaged source must not block cached display"))
+            .into_display_view(|_| panic!("damaged source must not block cached display"))
             .unwrap();
     assert!(deferred && stale);
-    assert_same_view(&display, &old);
+    assert_display_view(&display, &old);
     assert!(
         cached_store
             .project_read_model(|_| panic!("invalid source must fail before rendering"))
@@ -469,4 +469,44 @@ async fn corrupted_blob_allows_stale_display_but_strict_refresh_fails_without_so
     );
     assert_eq!(fs::read(store.journal_path()).unwrap(), journal);
     assert_eq!(fs::read(&blob).unwrap(), damaged);
+}
+
+fn assert_display_view(actual: &SessionReadView, expected: &SessionReadModel) {
+    assert_eq!(actual.summary, expected.summary);
+    assert_eq!(actual.revision, expected.conversation.revision);
+    assert_eq!(actual.usage, expected.usage);
+    let start = expected.transcript.len().saturating_sub(50);
+    assert_eq!(
+        serde_json::to_value(&actual.transcript).unwrap(),
+        serde_json::to_value(&expected.transcript[start..]).unwrap()
+    );
+    assert_eq!(actual.cursor.as_ref().unwrap().before, start);
+}
+
+#[tokio::test]
+async fn opening_a_display_decodes_only_the_tail_not_the_conversation() {
+    let root = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    let store = SessionStore::new(root.path(), workspace.path(), new_session_id()).unwrap();
+    let messages = (0..75)
+        .map(|i| CanonicalMessage::text(MessageRole::User, format!("row {i}")))
+        .collect::<Vec<_>>();
+    store
+        .append_history(new_thread_id(), None, &messages)
+        .await
+        .unwrap();
+    let model = store.project_read_model(render).unwrap();
+    let journal = fs::read(store.journal_path()).unwrap();
+    let db = rusqlite::Connection::open(store.session_dir().join(".read-view.sqlite")).unwrap();
+    db.execute("UPDATE records SET payload=x'30' WHERE section='conversation' OR (section='transcript' AND position < 25)", []).unwrap();
+    drop(db);
+    let (_, view, deferred, stale) = PreparedSession::from_dir(store.session_dir().to_owned())
+        .unwrap()
+        .into_display_view(|_| panic!("unrequested rows must not be decoded"))
+        .unwrap();
+    assert!(deferred && !stale);
+    assert_display_view(&view, &model);
+    assert_eq!(view.transcript.len(), 50);
+    assert_eq!(store.conversation_snapshot().unwrap().messages, messages);
+    assert_eq!(fs::read(store.journal_path()).unwrap(), journal);
 }

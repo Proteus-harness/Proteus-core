@@ -103,6 +103,7 @@ async fn in_memory_interruption_is_retired_after_compaction_retaining_its_anchor
                 runtime
                     .history()
                     .await
+                    .unwrap()
                     .iter()
                     .all(|message| { !message_text_for_test(message).contains("<turn_aborted>") }),
                 "generic Core must never manufacture Codex prompt text"

@@ -379,7 +379,7 @@ async fn queued_message_is_delivered_before_model_call_after_tool_boundary() {
         );
     }
 
-    let history = runtime.history().await;
+    let history = runtime.history().await.unwrap();
     assert_eq!(
         history
             .iter()
@@ -495,7 +495,7 @@ async fn delivered_message_and_completed_work_survive_model_failure_in_history_a
         .expect("join")
         .expect_err("second model request must fail");
     assert!(error.to_string().contains("scripted response exhausted"));
-    let history = runtime.history().await;
+    let history = runtime.history().await.unwrap();
     assert_eq!(
         history
             .iter()
@@ -729,7 +729,7 @@ async fn queued_message_without_tool_boundary_runs_as_followup_turn() {
     assert_ne!(execution_ids[0], execution_ids[1]);
     drop(execution_ids);
     assert!(runtime.queued_user_messages().await.is_empty());
-    let history = runtime.history().await;
+    let history = runtime.history().await.unwrap();
     assert_eq!(history.len(), 4);
     assert_eq!(message_text_for_test(&history[0]), "initial");
     assert_eq!(message_text_for_test(&history[2]), "later");

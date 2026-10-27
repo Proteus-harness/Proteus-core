@@ -57,7 +57,7 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(resumed.session_id(), old_id);
-        assert!(!resumed.runtime.history().await.is_empty());
+        assert!(!resumed.runtime.history().await.unwrap().is_empty());
         let fresh = launch_selected(
             config.clone(),
             dir.path().to_owned(),
@@ -68,7 +68,7 @@ mod tests {
         .await
         .unwrap();
         assert_ne!(fresh.session_id(), old_id);
-        assert!(fresh.runtime.history().await.is_empty());
+        assert!(fresh.runtime.history().await.unwrap().is_empty());
         assert!(
             launch_selected(
                 config,

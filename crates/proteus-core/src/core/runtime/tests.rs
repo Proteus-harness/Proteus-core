@@ -313,7 +313,7 @@ async fn failed_turn_keeps_user_message_in_runtime_and_session_store() {
             .to_string()
             .contains("workflow returned no new persistent turn messages")
     );
-    let history = runtime.history().await;
+    let history = runtime.history().await.unwrap();
     assert_eq!(history.len(), 1);
     assert_eq!(history[0].role, MessageRole::User);
     assert_eq!(message_text_for_test(&history[0]), "current request");
@@ -357,7 +357,7 @@ async fn compaction_replaces_runtime_and_session_history() {
 
     runtime.run("current request".to_owned()).await.unwrap();
 
-    let history = runtime.history().await;
+    let history = runtime.history().await.unwrap();
     assert_eq!(history.len(), 3);
     assert_eq!(history[0].role, MessageRole::User);
     assert!(message_text_for_test(&history[0]).contains("compacted summary"));

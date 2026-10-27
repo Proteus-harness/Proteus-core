@@ -33,6 +33,7 @@ mod hooks;
 mod images;
 mod paths;
 mod reload;
+mod residency;
 mod resume;
 mod settings;
 mod steering;
@@ -48,7 +49,7 @@ use steering::{SessionSteering, SteeringFinalizationGuard};
 
 pub struct AgentRuntime {
     services: RuntimeServices,
-    session: SessionState,
+    session: Arc<SessionState>,
 }
 
 pub(crate) struct ReservedRunCompletion {
@@ -143,6 +144,8 @@ struct SessionState {
     run_lock: Arc<Mutex<()>>,
     session_started: Mutex<bool>,
     history: Arc<Mutex<Vec<CanonicalMessage>>>,
+    history_resident: Arc<std::sync::atomic::AtomicBool>,
+    history_count: std::sync::atomic::AtomicUsize,
     history_revision: Arc<std::sync::atomic::AtomicU64>,
     history_turn: Arc<Mutex<Option<crate::domain::TurnId>>>,
     model_context: Arc<Mutex<super::model_context::ModelContextState>>,
@@ -165,6 +168,8 @@ impl SessionState {
             thread_id,
             run_lock: Default::default(),
             session_started: Mutex::new(session_started),
+            history_count: std::sync::atomic::AtomicUsize::new(history.len()),
+            history_resident: Arc::new(std::sync::atomic::AtomicBool::new(true)),
             history: Arc::new(Mutex::new(history)),
             history_revision: Default::default(),
             history_turn: Default::default(),
@@ -329,49 +334,76 @@ impl AgentRuntime {
     }
 
     pub async fn clear_history(&self) -> Result<()> {
-        self.validate_cached_resume().await?;
         let guard = self.session.run_lock.clone().lock_owned().await;
-        let store = self.session.session_store.clone();
-        let thread_id = self.session.thread_id;
-        let history = self.session.history.clone();
-        let history_turn = self.session.history_turn.clone();
-        let model_context = self.session.model_context.clone();
-        let interrupted_turns = self.session.interrupted_turns.clone();
-        let steering = self.session.steering.clone();
-        // The operation owns durable and live settlement together. A caller
-        // dropping its wait cannot expose old warm state after an admitted clear.
+        self.validate_cached_resume().await?;
+        let session = self.session.clone();
+        // The admitted worker owns durable mutation, reconciliation and unloading.
         tokio::spawn(async move {
             let _run_guard = guard;
-            if let Some(store) = store {
-                if let Err(error) = store.clear_history(thread_id).await {
-                    let projection = store.load_projection().map_err(|recovery| {
-                        anyhow::anyhow!("{error:#}; additionally failed to recover history after clear: {recovery:#}")
-                    })?;
-                    history::refresh_committed_history(&mut *history.lock().await, projection.history)?;
-                    *model_context.lock().await =
-                        crate::core::model_context::ModelContextState::from_records(&projection.records, None);
-                    *history_turn.lock().await = projection.records.iter().rev().find_map(|record| {
-                        matches!(&record.entry, crate::core::JournalEntry::HistoryMutated(_)).then_some(record.turn_id)
-                    }).flatten();
-                    *interrupted_turns.lock().await = projection.interrupted_turns;
-                    return Err(error);
+            let result = async {
+                if let Some(store) = &session.session_store {
+                    if let Err(error) = store.clear_history(session.thread_id).await {
+                        let projection = store.load_projection().map_err(|recovery| {
+                            anyhow::anyhow!("{error:#}; additionally failed to recover history after clear: {recovery:#}")
+                        })?;
+                        history::refresh_committed_history(&mut *session.history.lock().await, projection.history)?;
+                        *session.model_context.lock().await =
+                            crate::core::model_context::ModelContextState::from_records(&projection.records, None);
+                        *session.history_turn.lock().await = projection.records.iter().rev().find_map(|record| {
+                            matches!(&record.entry, crate::core::JournalEntry::HistoryMutated(_)).then_some(record.turn_id)
+                        }).flatten();
+                        *session.interrupted_turns.lock().await = projection.interrupted_turns;
+                        return Err(error);
+                    }
                 }
-            }
-            steering.abort().await;
-            history.lock().await.clear();
-            *history_turn.lock().await = None;
-            interrupted_turns.lock().await.clear();
-            *model_context.lock().await = Default::default();
-            Ok(())
+                session.steering.abort().await;
+                *session.history.lock().await = Vec::new();
+                *session.history_turn.lock().await = None;
+                session.interrupted_turns.lock().await.clear();
+                *session.model_context.lock().await = Default::default();
+                Ok(())
+            }.await;
+            session.release_history().await;
+            result
         }).await.map_err(|error| anyhow::anyhow!("clear history task failed: {error}"))?
     }
 
     pub async fn history_len(&self) -> usize {
-        self.session.history.lock().await.len()
+        let history = self.session.history.lock().await;
+        if self
+            .session
+            .history_resident
+            .load(std::sync::atomic::Ordering::SeqCst)
+        {
+            history.len()
+        } else {
+            self.session
+                .history_count
+                .load(std::sync::atomic::Ordering::SeqCst)
+        }
     }
 
-    pub async fn history(&self) -> Vec<CanonicalMessage> {
-        self.session.history.lock().await.clone()
+    pub async fn history(&self) -> Result<Vec<CanonicalMessage>> {
+        let history = self.session.history.lock().await;
+        if self
+            .session
+            .history_resident
+            .load(std::sync::atomic::Ordering::SeqCst)
+        {
+            return Ok(history.clone());
+        }
+        let store = self
+            .session
+            .session_store
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("nonresident history has no session store"))?;
+        // A history-only read need not wait for the writer's revision lock.
+        tokio::task::spawn_blocking(move || {
+            store
+                .conversation_snapshot()
+                .map(|snapshot| snapshot.messages)
+        })
+        .await?
     }
 
     pub(crate) fn session_store(&self) -> Option<&SessionStore> {

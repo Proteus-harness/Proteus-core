@@ -5,7 +5,7 @@ use anyhow::Result;
 
 #[cfg(unix)]
 use super::super::read_cache::SourceFingerprint;
-use super::super::read_model::SessionReadModel;
+use super::super::read_model::{SessionReadModel, SessionReadView};
 use crate::core::{SessionStore, session_journal::JournalProjection};
 
 use super::{session_updated_at_ms, warn_unusable_session, workspace_session_dirs};
@@ -21,7 +21,7 @@ pub(crate) struct PreparedSession {
 enum PreparedHistory {
     Validated(JournalProjection),
     #[cfg(unix)]
-    Cached(SessionReadModel),
+    Cached(SessionReadView),
 }
 
 impl PreparedSession {
@@ -29,9 +29,7 @@ impl PreparedSession {
         #[cfg(unix)]
         {
             let store = SessionStore::open(session_dir.clone())?;
-            if let Some((source, model, fresh)) = store.saved_read_model()
-                && model.matches(&store)
-            {
+            if let Some((source, model, fresh)) = store.saved_read_view() {
                 return Ok(Self {
                     store,
                     history: PreparedHistory::Cached(model),
@@ -89,21 +87,26 @@ impl PreparedSession {
         match &self.history {
             PreparedHistory::Validated(projection) => projection.history.len(),
             #[cfg(unix)]
-            PreparedHistory::Cached(model) => model.conversation.messages.len(),
+            PreparedHistory::Cached(model) => model.summary.message_count,
         }
     }
 
-    pub(crate) fn into_read_model(
+    pub(crate) fn into_display_view(
         self,
         render: impl FnOnce(
             &JournalProjection,
         ) -> Vec<proteus_contracts::app_protocol::AppTranscriptMessage>,
-    ) -> Result<(SessionStore, SessionReadModel, bool, bool)> {
+    ) -> Result<(SessionStore, SessionReadView, bool, bool)> {
         let (model, deferred) = match self.history {
             PreparedHistory::Validated(projection) => {
                 let transcript = render(&projection);
+                let model = SessionReadModel::from_projection(&self.store, projection, transcript)?;
+                #[cfg(unix)]
+                if let Some(source) = &self.source {
+                    self.store.save_read_model(source, &model);
+                }
                 (
-                    SessionReadModel::from_projection(&self.store, projection, transcript)?,
+                    SessionReadView::from_model(&self.store, model, false),
                     false,
                 )
             }
@@ -112,12 +115,9 @@ impl PreparedSession {
         };
         #[cfg(unix)]
         let store = match self.source {
-            Some(source) => {
-                if !deferred {
-                    self.store.save_read_model(&source, &model);
-                }
-                self.store.with_read_metadata(&model)
-            }
+            Some(_) => self
+                .store
+                .with_read_metadata(model.revision, model.usage.clone()),
             None => self.store,
         };
         #[cfg(not(unix))]

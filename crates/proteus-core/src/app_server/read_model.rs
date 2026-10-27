@@ -73,7 +73,7 @@ pub(super) fn project_completed_transcript(
     result
 }
 
-fn release_projection_memory() {
+pub(super) fn release_projection_memory() {
     #[cfg(all(target_os = "linux", target_env = "gnu"))]
     {
         unsafe extern "C" {

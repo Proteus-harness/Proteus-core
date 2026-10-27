@@ -54,6 +54,7 @@ impl AgentRuntime {
         let conversation: Arc<dyn crate::contracts::ConversationReader> =
             Arc::new(super::conversation::TurnConversation {
                 history: self.session.history.clone(),
+                resident: self.session.history_resident.clone(),
                 revision: self.session.history_revision.clone(),
                 store: self.session.session_store.clone(),
                 context: self.session.model_context.clone(),

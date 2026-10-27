@@ -15,6 +15,9 @@ pub(crate) const VIEW_CACHE: &str = "view";
 #[cfg(unix)]
 mod sqlite;
 
+#[cfg(unix)]
+pub(super) use sqlite::conversation as sqlite_conversation;
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct SessionReadModel {
@@ -22,6 +25,47 @@ pub(crate) struct SessionReadModel {
     pub conversation: ConversationSnapshot,
     pub transcript: Vec<AppTranscriptMessage>,
     pub usage: SessionUsageSnapshot,
+}
+
+/// An opened view keeps metadata and one display page, not the conversation.
+#[derive(Debug)]
+pub(crate) struct SessionReadView {
+    pub summary: AppSessionSummary,
+    pub revision: u64,
+    pub usage: SessionUsageSnapshot,
+    pub transcript: Vec<AppTranscriptMessage>,
+    pub cursor: Option<proteus_contracts::app_protocol::AppTranscriptCursor>,
+}
+
+impl SessionReadView {
+    pub(crate) fn from_model(store: &SessionStore, model: SessionReadModel, stale: bool) -> Self {
+        #[cfg(unix)]
+        let page = if stale {
+            store.saved_display_page()
+        } else {
+            store.saved_transcript_page(None, None)
+        };
+        #[cfg(not(unix))]
+        let page: Option<proteus_contracts::app_protocol::AppTranscriptPage> = None;
+        let (transcript, cursor) = match page {
+            Some(page) => (
+                page.messages,
+                Some(proteus_contracts::app_protocol::AppTranscriptCursor {
+                    revision: page.revision,
+                    before: page.start,
+                    base: page.base,
+                }),
+            ),
+            None => (model.transcript, None),
+        };
+        Self {
+            summary: model.summary,
+            revision: model.conversation.revision,
+            usage: model.usage,
+            transcript,
+            cursor,
+        }
+    }
 }
 
 impl SessionReadModel {
@@ -102,10 +146,10 @@ impl SessionStore {
     }
 
     #[cfg(unix)]
-    pub(crate) fn saved_read_model(
+    pub(crate) fn saved_read_view(
         &self,
-    ) -> Option<(super::read_cache::SourceFingerprint, SessionReadModel, bool)> {
-        sqlite::load(self)
+    ) -> Option<(super::read_cache::SourceFingerprint, SessionReadView, bool)> {
+        sqlite::view(self)
     }
 
     #[cfg(unix)]
@@ -153,8 +197,8 @@ pub(super) struct CachedReadMetadata {
 
 #[cfg(unix)]
 impl SessionStore {
-    pub(crate) fn with_read_metadata(self, model: &SessionReadModel) -> Self {
-        self.set_read_metadata(model.conversation.revision, model.usage.clone());
+    pub(crate) fn with_read_metadata(self, revision: u64, usage: SessionUsageSnapshot) -> Self {
+        self.set_read_metadata(revision, usage);
         self
     }
 
