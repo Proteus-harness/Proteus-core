@@ -245,6 +245,10 @@ unsupported capability или намеренный divergence. Snapshot не о�
 вслепую. Replay проверяет эквивалентность; качество и расход на живых задачах
 проверяются отдельным eval по [roadmap](../product/roadmap.md).
 
+Постоянные стенды, команды сборки и правила сравнения RSS/PSS, длинных историй,
+process peers и запуска Desktop собраны в
+[индексе performance](../../examples/performance/README.md).
+
 Синтетические performance probes запускаются явно и не утверждают скорость
 модели или полного turn: `scripts/test.py -p proteus-core --lib
 projection_clone_benchmark -- --ignored --nocapture` измеряет подготовку

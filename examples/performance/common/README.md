@@ -88,3 +88,26 @@ python3 -m unittest discover -s examples/performance/common -p 'test_*.py' -v
 памяти, JSONL phases и восстановление после ошибки IO. Живая синтетика выделяет
 16 МиБ в двух собственных Python-процессах; GUI и существующие процессы
 пользователя не используются.
+
+## Архивирование derived caches после измерений
+
+Сначала остановите все процессы стенда. `archive_caches.py` принимает только
+полностью завершённую серию: общий `report.json` должен иметь `status=passed`,
+а все cases — покрывать messages × repeats из `invocation.json` (для native —
+обе стадии first/restart из `manifest.json`).
+
+```sh
+python3 examples/performance/common/archive_caches.py \
+  --root /absolute/completed-benchmark \
+  --output /absolute/cache-archives/completed-caches.tar.gz --remove
+```
+
+Архивируются только обычные файлы `.read-*.sqlite*`; symlinks и каталог `blobs`
+пропускаются. В tar.gz находятся относительные пути и `CACHE-MANIFEST.json` с
+размерами/SHA256. Перед удалением каждый архивный entry сверяется по байтам и
+хэшу, затем повторно проверяются исходные файлы. Рядом сохраняется
+`*.tar.gz.manifest.json` с SHA256 архива. Без `--remove` исходные кэши остаются;
+с ним удаляются только перечисленные и проверенные derived caches. Canonical
+journal/blobs, configs, raw samples и отчёты остаются на месте. Имена archive и
+sidecar должны быть новыми. При необходимости кэши восстанавливаются из tar.gz
+по относительным путям; штатный runtime также может построить их заново.

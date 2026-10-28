@@ -33,6 +33,21 @@ struct Input {
     peers: usize,
     rounds: usize,
     idle_cap: usize,
+    /// Benchmark-only seeded sessions use one distinct role/config per peer.
+    #[serde(default)]
+    peer_configs: Vec<PathBuf>,
+    #[serde(default = "default_resident_idle_ms")]
+    resident_idle_ms: u64,
+    #[serde(default = "default_role_timeout_ms")]
+    role_timeout_ms: u64,
+}
+
+fn default_resident_idle_ms() -> u64 {
+    1_000
+}
+
+fn default_role_timeout_ms() -> u64 {
+    120_000
 }
 
 struct Events {
@@ -92,6 +107,14 @@ pub async fn run() -> Result<()> {
         input.rounds == 1 || input.idle_cap >= input.peers,
         "resumed rounds require resident slots for all peers"
     );
+    ensure!(
+        input.peer_configs.is_empty()
+            || (input.peer_configs.len() == input.peers
+                && input.peer_configs.iter().collect::<HashSet<_>>().len() == input.peers),
+        "fixture mode requires exactly one distinct config per peer"
+    );
+    ensure!(input.resident_idle_ms <= 60_000);
+    ensure!((1..=600_000).contains(&input.role_timeout_ms));
     let events = Arc::new(Events {
         start: Instant::now(),
         state: Mutex::new(Round::default()),
@@ -122,10 +145,20 @@ pub async fn run() -> Result<()> {
         crate::test_model::no_context_preparation(),
         None,
     );
+    let roles = if input.peer_configs.is_empty() {
+        vec![
+            json!({"name":"bench","description":"Synthetic local peer","config":input.config,
+            "parallel_safe":true,"max_processes":10,"timeout_ms":input.role_timeout_ms,"max_summary_bytes":131072}),
+        ]
+    } else {
+        input.peer_configs.iter().enumerate().map(|(peer, config)| {
+            json!({"name":format!("bench{peer}"),"description":"Synthetic seeded-history peer","config":config,
+                "parallel_safe":true,"max_processes":1,"timeout_ms":input.role_timeout_ms,"max_summary_bytes":131072})
+        }).collect()
+    };
     let control: AgentControlConfig = serde_json::from_value(json!({
         "binary":input.binary,"max_parallel":10,"max_idle_processes":input.idle_cap,
-        "roles":[{"name":"bench","description":"Synthetic local peer","config":input.config,
-            "parallel_safe":true,"max_processes":10,"timeout_ms":120000,"max_summary_bytes":131072}]
+        "roles":roles
     }))?;
     let owner = AgentControlRuntime::from_config(&control)?;
     let runner = owner.service().context("agent control not configured")?;
@@ -139,8 +172,13 @@ pub async fn run() -> Result<()> {
         events.mark("round_start", json!({"round":round}));
         let mut waiting = tokio::task::JoinSet::new();
         for (peer, task_id) in task_ids.iter().enumerate() {
+            let role = if input.peer_configs.is_empty() {
+                "bench".to_owned()
+            } else {
+                format!("bench{peer}")
+            };
             let mut request = AgentControlRequest::new(
-                "bench",
+                role,
                 "read_file payload.txt",
                 AgentTask::new(
                     format!("synthetic peer {peer} round {round}"),
@@ -197,7 +235,7 @@ pub async fn run() -> Result<()> {
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
     events.mark("resident_idle", json!({}));
-    tokio::time::sleep(Duration::from_secs(1)).await;
+    tokio::time::sleep(Duration::from_millis(input.resident_idle_ms)).await;
     drop(runner);
     drop(owner);
     drop(context);
