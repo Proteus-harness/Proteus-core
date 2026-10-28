@@ -63,7 +63,7 @@ test -f "${config_home}/configs/context-search-chatgpt.config.toml"
 test -f "${config_home}/configs/codex-explore.config.toml"
 test -f "${config_home}/configs/codex-coder.config.toml"
 test -f "${config_home}/configs/fragments/openai-chatgpt.toml"
-for fragment in codex-runtime codex-behavior codex-components codex-subscription restricted-components dcp-runtime; do
+for fragment in codex-runtime codex-behavior codex-components codex-subscription restricted-components; do
   test -f "${config_home}/configs/fragments/${fragment}.toml"
 done
 test -f "${config_home}/configs/fragments/codex-peer-runtime.toml"
@@ -91,13 +91,11 @@ run_and_capture subscription-doctor "${output_dir}/subscription-doctor.txt" \
   "${proteus}" --config codex doctor
 require_text "openai_codex" "${output_dir}/subscription-doctor.txt"
 
-# Installer не поставляет Node/DCP. Копируем установленный restricted profile,
-# исключая только DCP overlay: даже выключенный tool export участвует в discovery.
-# Остальные includes и sandbox grants остаются такими же, модель — synthetic fake.
+# Копируем установленный restricted profile с теми же includes и sandbox grants;
+# модель — synthetic fake.
 restricted_config="${config_home}/configs/smoke-restricted.toml"
 printf '%s\n' 'active_provider = "fake"' >"${restricted_config}"
-sed '/"fragments\/dcp-runtime.toml",/d' \
-  "${config_home}/configs/restricted.config.toml" >>"${restricted_config}"
+cat "${config_home}/configs/restricted.config.toml" >>"${restricted_config}"
 cat >>"${restricted_config}" <<'EOF'
 
 [providers.fake]

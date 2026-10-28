@@ -53,8 +53,7 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            ~/.npm
-          key: deps-${{ runner.os }}-${{ runner.arch }}-rust1.95-node22-${{ hashFiles('**/Cargo.lock', '**/package-lock.json') }}
+          key: deps-${{ runner.os }}-${{ runner.arch }}-rust1.95-node22-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: deps-${{ runner.os }}-${{ runner.arch }}-rust1.95-node22-
       - name: Formatting
         run: cargo fmt --all -- --check

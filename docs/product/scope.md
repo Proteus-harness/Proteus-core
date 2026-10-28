@@ -22,10 +22,6 @@
   messages, отбор tools, подготовка working history, pre-tool block/args, post-tool output
   и bounded completion review. Hooks/tools получают execution-bound model/tool
   callbacks; выбранный preparation hook заменяет отдельный compactor slot.
-- Самостоятельный DCP Node component с model-driven `compress` и hook context
-  view, package-owned durable state; исходная история сохраняется. Это перенос
-  механизма DCP 3.2.0 с явными adaptations, без OpenCode commands/TUI/RPC;
-  [подключение](https://github.com/Proteus-harness/Proteus-modules/blob/main/hook/dcp/README.md).
 - Общий tool safety/approval path и execution-bound model/tools/context providers.
 - Canonical journal, history/resume, prompt replay и workflow replay
   в поддержанной границе.
@@ -65,6 +61,9 @@ Reference modules и profiles — поставляемые примеры без
 
 ## Что Пока Ограничено
 
+DCP отложен в [Proteus-modules/research/dcp](https://github.com/Proteus-harness/Proteus-modules/tree/main/research/dcp)
+и исключён из штатных профилей, поставки и общего test gate.
+
 | Граница | Ограничение |
 |---|---|
 | Model | Descriptor запрашивается для конкретного `ModelRef` и сохраняется в runtime snapshot; обновление возможностей требует пересборки snapshot |
@@ -74,7 +73,7 @@ Reference modules и profiles — поставляемые примеры без
 | Replay | Model-free Turn поддержан. Context build воспроизводится по точным input/outcome records, включая ошибки до модели; отбор tools и preparation — по typed hook trace, включая failure и unchanged. Owner/parent tree связывает дочерние model/tool records с hook/tool invocation; алгоритмы и effects повторно не исполняются. Root steering и внешние Canceled/Timeout не эмулируются |
 | Collaboration | Spawn принимает только parallel_safe роли с isolation=none; настроенный coder с worktree в эту surface не входит |
 | Peer recovery | Resume зависит от живого process; durable tree, attach и reconnect отсутствуют |
-| Доверие к модулям | Trusted default сохраняет OS-права владельца. Opt-in Linux `restricted` ограничивает один configured export явными filesystem/network grants и optional executable file grant. Рабочий профиль `restricted` применяет это к шести процессам; model, DCP, skills и writable tools сохраняют прежние права. Stdio MCP server допускает ту же явную policy в `tools.mcp_servers[].sandbox` для всех remote tools процесса. LSP, peers и Desktop extensions сохраняют отдельные launch paths. Нет общей изоляции агента, resource quotas и гарантии очистки OS descendants после cooperative component invocation cancel |
+| Доверие к модулям | Trusted default сохраняет OS-права владельца. Opt-in Linux `restricted` ограничивает один configured export явными filesystem/network grants и optional executable file grant. Рабочий профиль `restricted` применяет это к шести процессам; model, skills и writable tools сохраняют прежние права. Stdio MCP server допускает ту же явную policy в `tools.mcp_servers[].sandbox` для всех remote tools процесса. LSP, peers и Desktop extensions сохраняют отдельные launch paths. Нет общей изоляции агента, resource quotas и гарантии очистки OS descendants после cooperative component invocation cancel |
 | Форматы | Config/API/DTO/wire/storage и Rust SDK имеют experimental-статус; alpha фиксирует воспроизводимую ревизию, совместимость между alpha-выпусками не обещана |
 
 Состав рабочего Linux-профиля и его prerequisites — в

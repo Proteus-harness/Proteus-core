@@ -131,7 +131,7 @@ Rejected candidate не попадает в terminal output или WorkflowFailu
 диагностики. Без conversation persistence ACK имеет revision=null и возвращает
 локальный progress; это не полный root snapshot.
 
-Tools сохраняют implementation-owned данные для подготовки, как DCP. Прямого
+Tools сохраняют implementation-owned данные для подготовки, как отложенный DCP. Прямого
 host.context.prepare callback у tools нет: запуском управляет workflow после
 batch. Typed edit proposal непосредственно в ToolResult пока не реализован;
 текст output не является скрытым способом изменить историю.
@@ -153,7 +153,7 @@ Cold resume читает accepted working history из journal.
 
 ## Стратегии
 
-DCP сохраняет summary/prune state своим tool и строит request view в BeforeModel.
+В отложенном эксперименте DCP сохраняет summary/prune state своим tool и строит request view в BeforeModel.
 Он не меняет durable root history. Codex export `hook/codex_compact` проверяет
 порог, при необходимости вызывает модель и предлагает replacement. Python suffix
 реализует тот же hook contract без model callback. Workflow и Core не знают

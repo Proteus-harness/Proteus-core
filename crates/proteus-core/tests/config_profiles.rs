@@ -99,18 +99,9 @@ async fn restricted_profile_preserves_default_behavior_and_trusted_capabilities(
         exports
     };
     assert_eq!(exports(&default), exports(&restricted));
-    for id in ["reference-model", "dcp"] {
-        assert_eq!(
-            serde_json::to_value(&default.components[id]).unwrap(),
-            serde_json::to_value(&restricted.components[id]).unwrap()
-        );
-    }
     assert_eq!(
-        restricted.components["dcp"]
-            .exports()
-            .map(|(slot, module, _)| (slot, module))
-            .collect::<Vec<_>>(),
-        [("hook", "hook.dcp"), ("tool", "dcp.tools")]
+        serde_json::to_value(&default.components["reference-model"]).unwrap(),
+        serde_json::to_value(&restricted.components["reference-model"]).unwrap()
     );
     let mut expected_capabilities =
         serde_json::to_value(&default.components["reference-capabilities"]).unwrap();

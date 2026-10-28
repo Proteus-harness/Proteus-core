@@ -1,15 +1,15 @@
 # Механизм DCP поверх экспериментального профиля; не OpenCode parity runtime.
-include = "../../configs/opencode.config.toml"
+include = "../../../configs/opencode.config.toml"
 
 # Instructions paths разрешаются относительно выбранного верхнего профиля.
 [[instructions]]
 kind = "System"
-file = "../../configs/prompts/direct-patch.md"
+file = "../../../configs/prompts/direct-patch.md"
 priority = 90
 
 [[instructions]]
 kind = "System"
-file = "../../configs/prompts/opencode-default.md"
+file = "../../../configs/prompts/opencode-default.md"
 priority = 100
 
 [profile]
@@ -21,7 +21,7 @@ hooks = ["hook.dcp"]
 [components.dcp]
 command = "node"
 # Замените абсолютным путём вашей сборки; install.sh DCP не устанавливает.
-args = ["/absolute/path/to/Proteus-modules/hook/dcp/dist/worker.js"]
+args = ["/absolute/path/to/Proteus-modules/research/dcp/dist/worker.js"]
 env_allowlist = ["HOME", "XDG_DATA_HOME"]
 
 [components.dcp.exports.hook."hook.dcp"]

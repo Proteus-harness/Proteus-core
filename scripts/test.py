@@ -7,7 +7,7 @@ import sys
 import time
 
 from build_module import build
-from sources import ROOT, resolve
+from sources import ROOT
 
 
 def test_env():
@@ -56,13 +56,6 @@ def main(args):
             env["PROTEUS_TEST_REFERENCE_MODULE"] = str(path)
         else:
             env["PROTEUS_TEST_REFERENCE_MODULE"] = build(env=env)
-    if core and (full or ("--lib" not in args and
-                         ("--test" not in args or any(name in args for name in ("module_swap", "hook_runtime", "component_sandbox"))))):
-        if not env.get("PROTEUS_TEST_DCP_MODULE"):
-            dcp = resolve("modules") / "hook/dcp"
-            for command in (["npm", "ci", "--ignore-scripts"], ["npm", "run", "build"]):
-                subprocess.run(command, cwd=dcp, env=env, check=True)
-            env["PROTEUS_TEST_DCP_MODULE"] = str(dcp / "dist/worker.js")
     prepared = time.monotonic()
     print(f"Preparation: {prepared-start:.2f}s", file=sys.stderr, flush=True)
     status = subprocess.call(["cargo", "test", "--locked", *args], cwd=ROOT, env=env)

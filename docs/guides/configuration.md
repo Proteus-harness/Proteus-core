@@ -4,7 +4,7 @@ Proteus принимает TOML и JSON. Schema pre-release и strict: неиз�
 должны приводить к ошибке, а не игнорироваться.
 
 Полный рабочий пример: [configs/config.toml](../../configs/config.toml).
-Он включает подписочную сборку `codex` и добавляет DCP. Подписочная сборка без DCP:
+Он включает подписочную сборку `codex`:
 [configs/codex.config.toml](../../configs/codex.config.toml).
 Минимальный fake-model профиль:
 [proteus.example.toml](../../examples/configs/proteus.example.toml).
@@ -42,10 +42,9 @@ config file. Includes merge-ятся слева направо, затем те�
 Поставляемая подписочная сборка `codex` использует явные fragments:
 
 ```text
-configs/config.toml                 codex.config.toml + DCP overlay
-configs/codex.config.toml           подписочная сборка без DCP
+configs/config.toml                 основной профиль на базе codex.config.toml
+configs/codex.config.toml           подписочная сборка
 configs/restricted.config.toml      рабочая Linux-сборка с частичной изоляцией
-configs/fragments/dcp-runtime.toml  общий DCP overlay
 configs/fragments/codex-behavior.toml общий выбор modules/tools и peer routing
 configs/fragments/codex-components.toml доверенная process-композиция
 configs/fragments/restricted-components.toml частично ограниченная композиция
@@ -73,10 +72,10 @@ Root `codex` и основной `config.toml` используют подпис
 
 [restricted.config.toml](../../configs/restricted.config.toml) — отдельная
 рабочая сборка с частичной OS-изоляцией. Она сохраняет подписочную модель,
-обычный набор tools, DCP, роли и поведение основного `config.toml` через общие
+обычный набор tools, роли и поведение основного `config.toml` через общие
 fragments. Основной профиль и `codex` автоматически не переключаются.
 
-После установки CLI и подготовки DCP, описанной [ниже](#chatgpt-subscription-через-oauth):
+После установки CLI:
 
 ```bash
 cd /path/to/project
@@ -99,10 +98,9 @@ profile и его fragments; существующий пользовательс
 Нужны Linux, исполняемый `/usr/bin/bwrap` и разрешённые user namespaces.
 Профиль явно разрешает чтение `/usr`, `/lib`, `/lib64` и `/bin`: все эти пути
 должны существовать. На другой раскладке runtime измените grants в собственной
-копии profile. Для reference search нужен ripgrep, для DCP — Node.js 22+ и
-`proteus-dcp` в `PATH`. Portable включает DCP, но использует системный Node.js;
-CLI `install.sh` требует отдельной подготовки DCP. Для расширений Desktop
-по-прежнему нужен Python 3. Недоступный backend или неверный grant приводят
+копии profile. Для reference search нужен ripgrep. Для поставляемых JS hook
+adapters portable нужен системный Node.js 22.18+; DCP отложен и не поставляется.
+Недоступный backend или неверный grant приводят
 к ошибке запуска, без trusted fallback.
 
 | Component / export | Прямой OS-доступ |
@@ -117,8 +115,7 @@ executable задаёт `read_executable = true`; соседний катало�
 
 Model credentials, пользовательские/plugin skills, запись файлов/patch/памяти,
 `shell`, `exec_command`, `write_stdin`, LSP и peers сохраняют прежние доверенные
-пути. У shell/exec остаётся собственная изоляция отдельной команды. DCP остаётся
-trusted: его hook и tool делят process state. Desktop extensions не ограничены
+пути. У shell/exec остаётся собственная изоляция отдельной команды. Desktop extensions не ограничены
 этим profile. Дочерние роли используют прежние child profiles, а не наследуют
 OS-grants родителя автоматически.
 
@@ -320,26 +317,9 @@ proteus-reference-module auth openai_codex logout
 model export, capabilities и консервативный порог контекста 200000 tokens.
 
 Основной `config.toml` включает `codex.config.toml`, сохраняя его model/provider,
-workflow, preparation hook, peers и остальные параметры, и добавляет самостоятельный
-[DCP component](https://github.com/Proteus-harness/Proteus-modules/blob/main/hook/dcp/README.md): `hook.dcp`, model tool
-`compress` и пользовательская команда `/dcp`. Для запуска нужен Node.js 22+,
-собранный модуль и executable `proteus-dcp` в `PATH`. Desktop portable включает
-модуль, его runtime dependencies и relocatable launcher; Node.js остаётся
-системной зависимостью. CLI `install.sh` не устанавливает DCP автоматически.
-После сборки в корне checkout Proteus-modules можно
-подключить entry:
-
-```bash
-mkdir -p "$HOME/.local/bin"
-ln -s "$PWD/hook/dcp/dist/worker.js" "$HOME/.local/bin/proteus-dcp"
-```
-
-Не заменяйте существующий launcher без проверки его назначения. При переносе
-checkout обновите ссылку; при переносе модуля сохраняйте его dependencies.
-Сборки, включающие основной `config.toml` через `include`, наследуют DCP.
-Чистый подписочный `codex`, `codex-explore` и `codex-coder` его не включают.
-Workflow, model и обычный `codex_compact` preparation hook не заменены: DCP меняет только
-outgoing view, а параметры hook/tool exports в профиле одинаковы.
+workflow, preparation hook, peers и остальные параметры. DCP отложен и
+исключён из штатных профилей и поставки. Его исходники сохранены в
+[Proteus-modules/research/dcp](https://github.com/Proteus-harness/Proteus-modules/tree/main/research/dcp).
 
 Экспериментальный `context-search-chatgpt` включает основной `config.toml` и меняет
 только context selection на `repo_aware`. Запуск:
@@ -356,8 +336,8 @@ proteus --config context-search-chatgpt
 chunk и иначе оформляет project instructions. Поиск может добавить шум и
 увеличить первый запрос. Он не видит историю прочитанных файлов и не удаляет
 из контекста уже известные модели фрагменты. Запуск без `--config` возвращает
-основной `config.toml` с `codex_context` и DCP; `--config codex` выбирает
-чистую подписочную сборку без DCP.
+основной `config.toml` с `codex_context`; `--config codex` явно выбирает
+ту же подписочную сборку.
 
 `openai_codex` сам запрашивает `GET /backend-api/codex/models` с ChatGPT OAuth.
 Интерфейс приложения показывает все возвращённые модели, включая entries с отметкой «скрытая»,
@@ -1227,7 +1207,7 @@ max_hot_tools = 16
 ```
 
 Массив `modules.hooks` заменяется целиком: сохраните все другие contributions
-своего профиля, включая `hook.dcp`, если он подключён. Selection выполняется
+своего профиля. Selection выполняется
 на `BeforeToolSelection` до `BeforeContext`, поэтому подготовка учитывает schemas
 уже отобранных tools. На остальных events selector возвращает Continue.
 
@@ -1372,21 +1352,13 @@ root turn, имеет общий workflow deadline и лимит 8 продол�
 не загрузчик чужих plugins. Модуль использует тот же `hook/v6`, без отдельной
 registration или authority surface в Core.
 
-### DCP Context Pruning
+### DCP — Отложенный Эксперимент
 
-[`proteus.dcp.example.toml`](../../examples/configs/proteus.dcp.example.toml)
-подключает самостоятельный Node component с `hook.dcp` и tool export `dcp.tools`.
-Сборка, настройки, происхождение и лицензия описаны в
-[`Proteus-modules/hook/dcp/README.md`](https://github.com/Proteus-harness/Proteus-modules/blob/main/hook/dcp/README.md).
-Выбор включает `hook.dcp` в `modules.hooks` и `compress`, `dcp` в `tools.enabled`;
-opaque config двух exports должен совпадать. Пример не устанавливает executable
-автоматически: нужен абсолютный путь к подготовленному `dist/worker.js`.
-
-DCP заменяет только outgoing model context, не cold history. Стратегия
-подготовки `codex_compact` выбирается отдельным hook export. `/dcp stats`, `/dcp context` и
-`/dcp decompress [NUMBER]` принадлежат тому же component; управление не
-предоставляется модели. Это механизм из DCP 3.2.0, не вся оболочка OpenCode
-с её commands/TUI/RPC и не объявление parity экспериментального профиля.
+DCP исключён из штатных профилей, installer, portable и общих test runners.
+Код и отдельные Node tests сохранены в
+[Proteus-modules/research/dcp](https://github.com/Proteus-harness/Proteus-modules/tree/main/research/dcp);
+прежний профиль и интеграционные fixtures — в
+[examples/research/dcp](../../examples/research/dcp/README.md).
 
 ### Prompt-команды
 

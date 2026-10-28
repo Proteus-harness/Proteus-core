@@ -63,7 +63,7 @@ SDK не требует зависимости от Core runtime или referenc
 | Репозиторий | Ответственность |
 |---|---|
 | **Proteus-core** (этот) | Core, публичные контракты, process host, HTTP/SSE и CLI |
-| [Proteus-modules](https://github.com/Proteus-harness/Proteus-modules) | Реализации по слотам, reference executable и DCP |
+| [Proteus-modules](https://github.com/Proteus-harness/Proteus-modules) | Реализации по слотам и reference executable |
 | [Proteus-desktop](https://github.com/Proteus-harness/Proteus-desktop) | Приложение GPUI и общие правила клиента |
 | [Proteus-desktop-extensions](https://github.com/Proteus-harness/Proteus-desktop-extensions) | Поставляемые по умолчанию процессные расширения приложения |
 
@@ -100,10 +100,9 @@ proteus --config codex "Расскажи о структуре этого про
 
 Для Linux есть отдельный рабочий профиль `restricted` с частичной изоляцией:
 `proteus --config restricted` или `./proteus-native /path/to/project --config restricted`
-из portable. Он сохраняет подписку, tools, DCP и роли; ограничения применяются
+из portable. Он сохраняет подписку, tools и роли; ограничения применяются
 к шести выбранным процессам, а не ко всему агенту. Нужны рабочий `/usr/bin/bwrap`,
-user namespaces и явные runtime-пути; для DCP — Node.js 22+. CLI installer
-не устанавливает DCP автоматически. Покрытие и подготовка описаны в
+user namespaces и явные runtime-пути. Покрытие и подготовка описаны в
 [руководстве конфигурации](docs/guides/configuration.md#рабочий-linux-профиль-restricted).
 Обычный запуск и профиль `codex` сохраняют прежнее поведение.
 Для stdio MCP ограничения включаются отдельно в `tools.mcp_servers[].sandbox`:

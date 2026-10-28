@@ -68,7 +68,7 @@ Wire shape и правила validation — в
 
 | Слот | Правило выбора | Где выбирается | Процессный контракт | Примеры имён |
 |---|---|---|---|---|
-| `hook` | `ordered_many` | `modules.hooks` (явный порядок) | да, `hook/v6` | `hook.instructions`, `hook.output_budget`, `codex_compact`, `tool_selection.dynamic`, `hook.dcp` |
+| `hook` | `ordered_many` | `modules.hooks` (явный порядок) | да, `hook/v6` | `hook.instructions`, `hook.output_budget`, `codex_compact`, `tool_selection.dynamic` |
 | `workflow` | `select_one` | `modules.workflow` | да | `coding.single_loop`, `coding.codex_loop`, `coding.plan_execute_review`, `coding.project_check` |
 | `context` | `select_one` | `modules.context` | да, `context/v3` | `simple`, `repo_aware`, `codex_context` |
 | `policy` | `select_one` | `modules.policy` | да | `allow_all`, `ask_write`, `codex_policy`, `opencode_policy` |
@@ -244,13 +244,10 @@ handlers и PreToolUse/Stop commands Codex/Claude. Он экспортирует
 `hook/v6` с тем же contract и общими model/tool callbacks. Upstream lifecycle
 или неподдержанные actions не эмулируются; различия описаны рядом с примерами.
 
-[`DCP`](https://github.com/Proteus-harness/Proteus-modules/blob/main/hook/dcp/README.md) — независимый Node component
-с exports `hook/hook.dcp` и `tool/dcp.tools` (tool `compress`). Алгоритмы и prompts
-из pinned upstream DCP 3.2.0 применяются к model context view, не переписывают
-canonical history. Hook получает immutable conversation snapshot в input;
-tool читает invocation-bound snapshot через `host.conversation.read`. Общий
-process lifecycle и внутренние blocks не объединяют authority exports. Это
-механизм с явными platform adaptations, не OpenCode shell/TUI/RPC; durable history не заменяет.
+DCP отложен в
+[Proteus-modules/research/dcp](https://github.com/Proteus-harness/Proteus-modules/tree/main/research/dcp).
+Штатные профили и поставка его не подключают. Общие hook/tool contracts
+остаются доступными самостоятельным процессным модулям.
 
 ### Workflow
 

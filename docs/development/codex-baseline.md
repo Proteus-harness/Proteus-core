@@ -87,10 +87,10 @@ context/EOF semantics выбирается реализацией, module error 
 [Conformance](https://github.com/Proteus-harness/Proteus-modules/blob/main/components/process-module/tests/conformance.rs)
 проверяет handshake и canonical DTO обоих exports. Существующий
 [workflow fixture](https://github.com/Proteus-harness/Proteus-modules/blob/main/components/process-module/tests/codex_model_resume/patch_interception.rs)
-загружает чистый подписочный `codex` без DCP, затем явно выбирает локальный mock
+загружает подписочный `codex`, затем явно выбирает локальный mock
 Responses provider. Function patch и shell interception проходят
 policy, approval, journal, cold history и replay с выбранным `codex` export;
-этот сценарий не проверяет DCP или подключение по ChatGPT OAuth.
+этот сценарий не проверяет подключение по ChatGPT OAuth.
 Перехваченные `shell`/`exec_command` сохраняют `workdir`: одноимённый файл в
 корне остаётся неизменным, patch применяется в указанном подкаталоге.
 Оба patch exports проверяются с относительным/абсолютным рабочим каталогом

@@ -1,5 +1,5 @@
-# Основная локальная сборка: подписочный Codex с DCP.
-include = ["codex.config.toml", "fragments/dcp-runtime.toml"]
+# Основная локальная сборка: подписочный Codex.
+include = ["codex.config.toml"]
 
 [profile]
 name = "default"

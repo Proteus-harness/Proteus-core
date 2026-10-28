@@ -96,8 +96,7 @@ Runner готовит reference-модуль из отдельного Proteus-m
 `PROTEUS_TEST_REFERENCE_MODULE`. Core fixtures не запускают Cargo и не
 угадывают binary в target. Явный `PROTEUS_TEST_REFERENCE_MODULE` используется
 и в полном gate; его свежесть обеспечивает вызывающий сценарий. Отсутствующий
-файл — ошибка. При подготовке JS fixture используются `hook/dcp` отдельного
-репозитория и переменная `PROTEUS_TEST_DCP_MODULE`.
+файл — ошибка. Отложенный DCP не подготавливается общим runner.
 
 `full` выбирает пять crates harness, включая worker SDK. Реализации проверяются
 своим `python3 scripts/test.py full` в Proteus-modules. В приложении используется
@@ -161,11 +160,10 @@ pin canonical ELF target и явный отказ для shebang script; file-on
 child environment.
 
 Рабочий `restricted` проверяется как конкретная сборка: шесть single-export
-components и их OS-grants, сохранённые tools/DCP/роли, assets установленного
+components и их OS-grants, сохранённые tools/роли, assets установленного
 CLI и перенесённого portable. Runtime smoke использует синтетическую модель и
-временные каталоги личного состояния. CLI installer не поставляет DCP, поэтому
-его smoke исключает DCP overlay; полный runtime test и portable проверяют оба
-DCP exports вместе с restricted components. Успешный fake turn не является
+временные каталоги личного состояния. Installer и portable проверяют одну
+штатную композицию без отложенного DCP. Успешный fake turn не является
 проверкой живого provider или оценкой качества/стоимости. Default и `codex`
 проверяются отдельно на сохранение прежней композиции.
 
@@ -334,34 +332,19 @@ client DTO в `proteus-contracts` клиент проверяется вмест
 
 ## Ordered Hook Evidence
 
-Самостоятельный DCP Node component проверяется `npm test` в
-`Proteus-modules/hook/dcp`. Runner перед `full`, общим core integration scope и
-целевыми `hook_runtime`/`module_swap`/`context_profile_swap` выполняет locked
-`npm ci --ignore-scripts` и build,
-передаёт свежий путь через `PROTEUS_TEST_DCP_MODULE`; сборок внутри Rust tests нет.
-`hook_runtime` связывает реальные hook/tool exports и scripted process model:
-outgoing context отличается, cold history сохраняет оригиналы, replay `Success`
-и `Error` не вызывает model/DCP и не меняет package-owned state. Live-model
-dogfood/eval проверяется отдельно: scripted evidence не доказывает полезность
-или качество summary на повседневных задачах.
+`hook_runtime` проверяет реальные process hooks: изменение instructions и
+результатов tools, pre-tool block, ошибки, отмену и workflow replay.
+Подготовка Codex/Python history проверяется существующими runtime targets.
 
-`hook_runtime::dcp::composition` проверяет DCP вместе с реально сработавшими
-Rust Codex и Python suffix preparation hooks. Сначала `compress` меняет только outgoing
-view; затем preparation hook предлагает удалить prefix history, сохраняя текущий user id. Проверяются
-checkpoint, отсутствие stale pruning оставленного user в следующем model request,
-новый runtime/process с той же session и сохранённым DCP state, cold transcript
-и workflow replay без повторного `compress`, model calls или записи state.
-Node `composition.test.mjs` отдельно проверяет exact file DTO protection,
-инвалидацию потерявших ссылки блоков и зависимых родителей, сохранение валидных
-вложенных блоков и одинаковое согласование state в живом и новом component.
+DCP отложен: общий gate не устанавливает его npm dependencies и не запускает
+его проверки. Node tests сохранены в `Proteus-modules/research/dcp`; прежние
+Rust integration fixtures — в [examples/research/dcp](../../examples/research/dcp/README.md).
 
 ## Slash-команды
 
 `proteus-core --lib app_server::http::tests::slash` проверяет общий каталог,
 prompt expansion и настоящую process-команду: allow/deny approval, idle admission,
-cancel и cold journal без Turn/model call. `hook_runtime` проверяет DCP management
-и replay без повторного изменения package state; `npm test` — оригинальные
-stats/context/decompress handlers и восстановление view после restart.
+cancel и cold journal без Turn/model call.
 User-only tool не попадает в model catalog и отклоняется model-request validation.
 
 ## Typed Hook Boundary

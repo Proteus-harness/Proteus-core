@@ -4,8 +4,8 @@ use proteus_core::core::{
     WorkflowReplayOptions, replay_workflow,
 };
 
-/// Exercise the shipped composition with real restricted workers and trusted
-/// DCP. Only the model, executable locations and personal state are fixtures.
+/// Exercise the shipped composition with real restricted workers. Only the
+/// model, executable locations and personal state are fixtures.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn shipped_restricted_profile_runs_search_callbacks_and_replays_a_file_turn() -> Result<()> {
     let state = tempfile::tempdir()?;
@@ -36,29 +36,15 @@ async fn shipped_restricted_profile_runs_search_callbacks_and_replays_a_file_tur
         .insert("model".into(), fake.module_config["model"].clone());
     config.agent_control.surface = AgentControlSurface::None;
     config.agent_control.roles.clear();
-    for (id, component) in &mut config.components {
+    for component in config.components.values_mut() {
         let mut value = serde_json::to_value(&*component)?;
-        if id == "dcp" {
-            value["command"] = json!("node");
-            value["args"] = json!([std::env::var("PROTEUS_TEST_DCP_MODULE")?]);
-        } else {
-            value["command"] = json!(test_model::reference_module());
-        }
+        value["command"] = json!(test_model::reference_module());
         if value.get("sandbox").is_none() {
             // Keep trusted workers away from the owner's credentials/plugins.
             value["env_allowlist"] = json!([]);
             value["env"] = json!({"HOME":home, "PROTEUS_HOME":home, "XDG_DATA_HOME":home});
         }
         *component = serde_json::from_value(value)?;
-    }
-    for (slot, id) in [("hook", "hook.dcp"), ("tool", "dcp.tools")] {
-        let dcp = config
-            .module_config
-            .get_mut(slot)
-            .unwrap()
-            .get_mut(id)
-            .unwrap();
-        dcp["state_dir"] = json!(state.path().join("dcp-state"));
     }
     // Search is opt-in in the context builder. Exercise its restricted provider
     // through the normal host callback in addition to the direct search tool.
@@ -101,8 +87,6 @@ async fn shipped_restricted_profile_runs_search_callbacks_and_replays_a_file_tur
         .with_config_path(Some(&state.path().join("profile.toml")))
         .build_async()
         .await?;
-    // The fake's patch trigger accepts trailing context annotations, including
-    // DCP message IDs; its literal-path read_file trigger intentionally does not.
     let output = runtime
         .run("apply_patch PROFILE_SEARCH_SENTINEL".into())
         .await?;
@@ -132,10 +116,8 @@ async fn shipped_restricted_profile_runs_search_callbacks_and_replays_a_file_tur
         contexts.contains("codex_context:search:rg"),
         "restricted search provider callback: {contexts}"
     );
-    for hook in ["codex_compact", "hook.dcp"] {
-        assert!(projection.records.iter().any(|record| matches!(&record.entry,
-            JournalEntry::HookInvoked(trace) if trace.steps.iter().any(|step| step.module_id == hook))), "missing hook {hook}");
-    }
+    assert!(projection.records.iter().any(|record| matches!(&record.entry,
+        JournalEntry::HookInvoked(trace) if trace.steps.iter().any(|step| step.module_id == "codex_compact"))), "missing codex_compact hook");
     let catalog = ModuleCatalog::from_config(&config)?;
     let replay = replay_workflow(
         store.session_dir(),

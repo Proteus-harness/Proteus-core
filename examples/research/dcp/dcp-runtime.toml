@@ -1,4 +1,4 @@
-# Общий DCP overlay для основной и restricted сборок.
+# Архивный DCP overlay. Штатные профили его не подключают.
 
 [modules]
 hooks = ["codex_compact", "hook.dcp"]
