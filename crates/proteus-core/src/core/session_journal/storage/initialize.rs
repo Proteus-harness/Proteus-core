@@ -23,14 +23,21 @@ fn initialize(
     state: &mut JournalWriterState,
     include_projection: bool,
 ) -> Result<Option<JournalProjection>> {
+    state.ensure_active()?;
     if state.initialized {
         return Ok(None);
     }
-    let ownership = if state._ownership.is_none() {
-        Some(SessionWriteOwnership::acquire(session_dir, session_id)?)
-    } else {
-        None
-    };
+    state.with_ownership_preflight(session_dir, session_id, |state| {
+        recover(session_dir, session_id, state, include_projection)
+    })
+}
+
+fn recover(
+    session_dir: &Path,
+    session_id: SessionId,
+    state: &mut JournalWriterState,
+    include_projection: bool,
+) -> Result<Option<JournalProjection>> {
     let path = journal_path(session_dir);
     recovery::repair_unterminated_tail(&path)?;
     #[cfg(test)]
@@ -62,9 +69,6 @@ fn initialize(
     state.usage = usage;
     state.model_context = model_context;
     state.committed_offset = committed_offset;
-    if let Some(ownership) = ownership {
-        state._ownership = Some(ownership);
-    }
     state.initialized = true;
     Ok(projection)
 }

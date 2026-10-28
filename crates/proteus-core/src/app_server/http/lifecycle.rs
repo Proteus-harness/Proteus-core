@@ -112,13 +112,17 @@ pub(super) async fn execute_delete_session(
                 "session path is outside configured workspace sessions"
             ));
         }
-        if let Some(server) = live_server {
+        let deleted = if let Some(server) = live_server {
+            // Keep the owner's lease throughout terminal settlement. Removing a
+            // cache entry is not ownership release: other handles remain valid
+            // references to the generation that owned deletion will retire.
             server.shutdown().await;
             state.remove_session_server(&session_dir).await;
-        }
-        let deleted =
+            server.delete_closed_session().await?
+        } else {
             delete_workspace_session(&config_store_root(config_path), &workspace, session_dir)
-                .await?;
+                .await?
+        };
         Ok(Some(json!({ "deleted": deleted || was_live })))
     }
     .await;

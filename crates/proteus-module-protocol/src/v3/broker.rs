@@ -50,14 +50,10 @@ pub(super) enum StartAck {
 }
 
 impl StartAck {
-    pub(super) fn send(self, result: Result<StartMeta, ComponentBrokerError>) {
+    pub(super) fn send(self, result: Result<StartMeta, ComponentBrokerError>) -> bool {
         match self {
-            Self::Async(sender) => {
-                let _ = sender.send(result);
-            }
-            Self::Blocking(sender) => {
-                let _ = sender.send(result);
-            }
+            Self::Async(sender) => sender.send(result).is_ok(),
+            Self::Blocking(sender) => sender.send(result).is_ok(),
         }
     }
 }

@@ -24,6 +24,7 @@ use crate::model_standard::{ContentPart, MessageRole};
 mod catalog;
 mod checkpoint;
 mod context_summary;
+mod deletion;
 pub(crate) use context_summary::summarize_context_history;
 mod identity;
 mod path_identity;
@@ -55,6 +56,9 @@ pub struct SessionStore {
     session_id: SessionId,
     directory_kind: SessionDirectoryKind,
     writer: Arc<Mutex<JournalWriterState>>,
+    // Permission originates in the constructor's single initial observation.
+    // Clones share it; the first mkdir/observed existing slot consumes it.
+    may_create: Arc<std::sync::atomic::AtomicBool>,
     blob_threshold_bytes: usize,
     #[cfg(unix)]
     read_metadata: Arc<std::sync::RwLock<Option<read_model::CachedReadMetadata>>>,
@@ -69,13 +73,14 @@ impl SessionStore {
                 .join(workspace)
                 .join(short_session_directory_name(session_id)),
         )?;
-        validate_new_session_target(&session_dir, session_id)?;
+        let may_create = validate_new_session_target(&session_dir, session_id)?;
         let writer = writer_for_session_dir(&session_dir)?;
         Ok(Self {
             session_dir,
             session_id,
             directory_kind: SessionDirectoryKind::ShortNumeric,
             writer,
+            may_create: Arc::new(std::sync::atomic::AtomicBool::new(may_create)),
             blob_threshold_bytes: DEFAULT_BLOB_THRESHOLD_BYTES,
             #[cfg(unix)]
             read_metadata: Default::default(),
@@ -92,6 +97,7 @@ impl SessionStore {
             session_id: identity.session_id,
             directory_kind: identity.directory_kind,
             writer,
+            may_create: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             blob_threshold_bytes: DEFAULT_BLOB_THRESHOLD_BYTES,
             #[cfg(unix)]
             read_metadata: Default::default(),
@@ -245,46 +251,68 @@ impl SessionStore {
     }
 }
 
+/// Conservatively refuse deletion while any cooperating process owns a writer.
+/// Callers must stop work and drop all owner handles before retrying. This does
+/// not implement coordinated active-session shutdown or local retirement.
 pub async fn delete_workspace_session(
     config_root: &Path,
     workspace_path: &Path,
     session_path: PathBuf,
 ) -> Result<bool> {
-    let session_dir = normalize_session_dir_path(session_path)?;
-    let metadata = match std::fs::symlink_metadata(&session_dir) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
-        Err(error) => {
-            return Err(error)
-                .with_context(|| format!("failed to inspect {}", session_dir.display()));
+    let config_root = config_root.to_path_buf();
+    let workspace_path = workspace_path.to_path_buf();
+    // The closure owns both deletion and its lease. Canceling the waiter cannot
+    // release the lease while remove_dir_all is still running.
+    tokio::task::spawn_blocking(move || {
+        let session_dir = normalize_session_dir_path(session_path)?;
+        let metadata = match std::fs::symlink_metadata(&session_dir) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(error) => {
+                return Err(error)
+                    .with_context(|| format!("failed to inspect {}", session_dir.display()));
+            }
+        };
+        if metadata.file_type().is_symlink() || !metadata.is_dir() {
+            return Err(anyhow!(
+                "session path is not a directory: {}",
+                session_dir.display()
+            ));
         }
-    };
-    if metadata.file_type().is_symlink() || !metadata.is_dir() {
-        return Err(anyhow!(
-            "session path is not a directory: {}",
-            session_dir.display()
-        ));
-    }
-
-    let workspace_dir = config_root
-        .join("sessions")
-        .join(encode_workspace_path(workspace_path)?);
-    let workspace_root = std::fs::canonicalize(&workspace_dir)
-        .with_context(|| format!("failed to resolve {}", workspace_dir.display()))?;
-    let target = std::fs::canonicalize(&session_dir)
-        .with_context(|| format!("failed to resolve {}", session_dir.display()))?;
-    if target.parent() != Some(workspace_root.as_path()) {
-        return Err(anyhow!(
-            "session path is outside current workspace sessions: {}",
-            session_dir.display()
-        ));
-    }
-    resolve_session_identity(&target)?;
-
-    tokio::fs::remove_dir_all(&target)
-        .await
-        .with_context(|| format!("failed to delete {}", target.display()))?;
-    Ok(true)
+        let workspace_dir = config_root
+            .join("sessions")
+            .join(encode_workspace_path(&workspace_path)?);
+        let workspace_root = std::fs::canonicalize(&workspace_dir)
+            .with_context(|| format!("failed to resolve {}", workspace_dir.display()))?;
+        let target = std::fs::canonicalize(&session_dir)
+            .with_context(|| format!("failed to resolve {}", session_dir.display()))?;
+        if target.parent() != Some(workspace_root.as_path()) {
+            return Err(anyhow!(
+                "session path is outside current workspace sessions: {}",
+                session_dir.display()
+            ));
+        }
+        let _ownership =
+            crate::core::session_journal::SessionWriteOwnership::acquire_slot(&target)?;
+        // Validate again under the lease; a cold handle never grants identity.
+        match std::fs::symlink_metadata(&target) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(error) => return Err(error.into()),
+            Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
+                return Err(anyhow!(
+                    "session path is not a directory: {}",
+                    target.display()
+                ));
+            }
+            Ok(_) => {}
+        }
+        resolve_session_identity(&target)?;
+        std::fs::remove_dir_all(&target)
+            .with_context(|| format!("failed to delete {}", target.display()))?;
+        Ok(true)
+    })
+    .await
+    .context("session deletion worker failed")?
 }
 
 pub fn normalize_session_dir_path(session_path: PathBuf) -> Result<PathBuf> {
@@ -311,7 +339,13 @@ struct RegisteredWriter {
 
 fn writer_for_session_dir(session_dir: &Path) -> Result<Arc<Mutex<JournalWriterState>>> {
     static WRITERS: OnceLock<StdMutex<HashMap<PathBuf, RegisteredWriter>>> = OnceLock::new();
-    let key = canonicalize_unmaterialized_path(&journal_path(session_dir))?;
+    let parent = session_dir
+        .parent()
+        .context("session writer slot has no parent")?;
+    let name = session_dir
+        .file_name()
+        .context("session writer slot has no basename")?;
+    let key = canonicalize_unmaterialized_path(parent)?.join(name);
     let writers = WRITERS.get_or_init(|| StdMutex::new(HashMap::new()));
     loop {
         let mut writers = writers.lock().expect("session journal writer map poisoned");

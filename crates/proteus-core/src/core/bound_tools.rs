@@ -307,11 +307,6 @@ impl BoundTools {
             anyhow::bail!("tool execution canceled");
         }
 
-        if let Some(raw_arguments) = call.raw_arguments.as_deref()
-            && let Ok(parsed_arguments) = serde_json::from_str(raw_arguments)
-        {
-            call.args = parsed_arguments;
-        }
         observer.tool_call_requested(&call).await?;
 
         let tool_spec = self.registry.spec(&call.name).ok();

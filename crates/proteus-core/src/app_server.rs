@@ -255,7 +255,31 @@ impl AppServerHandle {
         let Some(config_path) = self.config_path.as_deref() else {
             return Ok(false);
         };
+        if self.is_session_dir(&session_dir) {
+            let store = self
+                .runtime
+                .session_store()
+                .ok_or_else(|| anyhow!("session has no storage"))?;
+            store.validate_owned_delete_scope(&config_store_root(config_path), &self.cwd)?;
+            // Inline: cancellation before settlement must not detach shutdown or
+            // remove storage underneath admitted runtime work.
+            self.shutdown().await;
+            return self.delete_closed_session().await;
+        }
+        // A path alone never authorizes taking another local runtime's lease.
         delete_workspace_session(&config_store_root(config_path), &self.cwd, session_dir).await
+    }
+
+    pub(crate) async fn delete_closed_session(&self) -> Result<bool> {
+        let Some(config_path) = self.config_path.as_deref() else {
+            return Ok(false);
+        };
+        let Some(store) = self.runtime.session_store() else {
+            return Ok(false);
+        };
+        store
+            .delete_owned(&config_store_root(config_path), &self.cwd)
+            .await
     }
 
     pub fn is_session_dir(&self, session_dir: &Path) -> bool {
@@ -278,10 +302,10 @@ impl AppServerHandle {
                 .cloned()
                 .ok_or_else(|| anyhow!("paged history has no session store"))?;
             let revision = cursor.revision.clone();
-            let mut history =
-                tokio::task::spawn_blocking(move || store.saved_transcript(&revision))
-                    .await?
-                    .ok_or_else(|| anyhow!("history revision changed; retry reading history"))?;
+            let mut history = tokio::task::spawn_blocking(move || {
+                read_model::transcript_at_revision(&store, &revision)
+            })
+            .await??;
             history.extend(snapshot.transcript.into_iter().skip(50));
             return Ok(history);
         }
@@ -582,3 +606,6 @@ async fn prepare_assembly(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod ownership_tests;

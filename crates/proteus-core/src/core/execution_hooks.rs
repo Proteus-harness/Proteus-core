@@ -179,9 +179,9 @@ impl ExecutionHooks for RuntimeHookChain {
                 }
             }
         }
-        trace.output = Some(event.clone());
+        trace.output = Some(event);
         self.recorder.hook_recorded(&trace).await?;
-        Ok(event)
+        Ok(trace.output.expect("completed hook trace has an output"))
     }
 }
 

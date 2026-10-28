@@ -52,6 +52,37 @@ async fn paged_snapshot_full_history_and_revision_checked_pages_agree() {
         .await
         .unwrap();
     assert_eq!((page.start, page.messages.len()), (21, 50));
+    // Full active-session reads and revision-bound pages must both survive a
+    // disposable-index failure. Exercise each path independently: the first
+    // recovery must not mask the second by repairing its cache beforehand.
+    for damage in ["missing", "malformed", "checksum", "unwritable"] {
+        for full_read in [true, false] {
+            damage_read_index(&store, damage);
+            if full_read {
+                assert_eq!(
+                    serde_json::to_value(server.transcript().await.unwrap()).unwrap(),
+                    serde_json::to_value(&full).unwrap(),
+                    "{damage}: active full history"
+                );
+            } else {
+                let recovered = super::super::sessions::history_page_json(Some(&query))
+                    .await
+                    .unwrap();
+                assert_eq!(recovered.revision, cursor.revision, "{damage}");
+                assert_eq!((recovered.start, recovered.total), (21, 121), "{damage}");
+                assert_eq!(
+                    serde_json::to_value(&recovered.messages).unwrap(),
+                    serde_json::to_value(&full[21..71]).unwrap(),
+                    "{damage}: older page"
+                );
+            }
+            assert_eq!(
+                std::fs::read(store.journal_path()).unwrap(),
+                before,
+                "{damage}"
+            );
+        }
+    }
     let query = format!(
         "session_dir={}&before=71&revision=wrong",
         store.session_dir().display()
@@ -277,4 +308,38 @@ async fn live_history_matches_cold_journal_after_turn_settlement() {
         serde_json::to_value(live).unwrap(),
         serde_json::to_value(cold).unwrap()
     );
+}
+
+#[cfg(unix)]
+fn damage_read_index(store: &crate::core::SessionStore, damage: &str) {
+    let path = store.session_dir().join(".read-view.sqlite");
+    if path.is_dir() {
+        std::fs::remove_dir(&path).unwrap();
+    } else if path.exists() {
+        std::fs::remove_file(&path).unwrap();
+    }
+    store
+        .project_read_model(|projection| {
+            crate::app_server::journal_transcript_messages(projection, None)
+        })
+        .unwrap();
+    match damage {
+        "missing" => std::fs::remove_file(&path).unwrap(),
+        "malformed" => std::fs::write(&path, b"not a SQLite database").unwrap(),
+        "checksum" => {
+            let db = rusqlite::Connection::open(&path).unwrap();
+            db.execute(
+                "UPDATE records SET payload=x'00' WHERE section='transcript'",
+                [],
+            )
+            .unwrap();
+        }
+        "unwritable" => {
+            // Deterministic even when tests run as root: rename cannot replace
+            // this directory. Canonical reads must not depend on cache writes.
+            std::fs::remove_file(&path).unwrap();
+            std::fs::create_dir(&path).unwrap();
+        }
+        _ => unreachable!(),
+    }
 }

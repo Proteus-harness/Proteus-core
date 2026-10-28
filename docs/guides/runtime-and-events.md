@@ -1212,15 +1212,16 @@ directory: она материализуется при первом canonical r
 ```text
 <config-dir>/sessions/<encoded-workspace>/<10-digit-id>/session.json
 <config-dir>/sessions/<encoded-workspace>/<10-digit-id>/journal.jsonl
-<config-dir>/sessions/<encoded-workspace>/<10-digit-id>/journal.write.lock
+<config-dir>/sessions/<encoded-workspace>/.<10-digit-id>.write.lock
 <config-dir>/sessions/<encoded-workspace>/<10-digit-id>/config_snapshot.json
 <config-dir>/sessions/<encoded-workspace>/<10-digit-id>/blobs/<sha256>.json
 ```
 
-`journal.write.lock` — постоянный lock-файл, а не признак живого owner сам по
-себе. При первой записи process берёт на нём exclusive advisory lock до конца
+`.<10-digit-id>.write.lock` — постоянный lock-файл рядом с каталогом сессии,
+а не признак живого owner сам по себе. При первой записи process берёт на нём
+exclusive advisory lock до материализации session directory и держит до конца
 writer lifetime; конкурентный writer той же session отказывает до изменения
-journal. `SessionStore` одной canonical session разделяют writer; реестр хранит
+её файлов. `SessionStore` одной canonical session разделяют writer; реестр хранит
 только слабые ссылки. После закрытия последнего store и завершения всех
 допущенных blocking-транзакций освобождаются проверенная history и lock.
 Повторное открытие во время уничтожения прежнего writer ждёт освобождения
@@ -1229,6 +1230,12 @@ caller не обрывает commit/rollback и не передаёт writer н�
 ОС также освобождает владение при закрытии process, включая crash/kill, после
 чего другой writer может продолжить с проверенного cold state. Обычные
 `history`, inspect и replay lock не берут и файл не удаляют.
+
+Удаление собственной live session сначала закрывает admission и ждёт settlement,
+затем выводит прежний writer из обращения и удерживает его OS lease до физического
+удаления каталога. Оставшиеся handles этого writer больше не могут читать его
+write-state или писать и заново создавать сессию. Постоянный lock-файл остаётся
+снаружи каталога; удаление по одному пути не заимствует lease другого runtime.
 
 Пример:
 
@@ -1326,6 +1333,12 @@ messages, base}` с последними 50 строками. Для преды�
 ревизии: сервер отвергает несовпадение вместо смешивания страниц. Известная
 клиенту завершённая ревизия остаётся пригодной для просмотра во время нового
 turn, пока её индекс не заменён. Полный `/history` сохраняет прежнюю семантику.
+При утрате или повреждении индекса полный `/history` и страничное чтение
+делают одну попытку строгой проекции. Явно запрошенную ревизию разрешено
+восстановить только при совпадении fingerprint канонического источника до и
+после чтения; новые строки не выдаются под старой ревизией. При невозможности
+сохранить производный индекс проверенный результат возвращается из памяти,
+без цикла повторов.
 Клиент заранее догружает страницы при приближении к краю окна в обе стороны.
 Окно просмотра удерживает до 200 строк с бюджетом payload 8 MiB; видимые строки
 и одна страница остаются целыми, даже когда они превышают бюджет. Дальний край

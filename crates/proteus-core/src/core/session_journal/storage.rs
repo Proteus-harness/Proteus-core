@@ -27,7 +27,7 @@ mod redaction;
 mod retirement;
 pub(crate) use retirement::WriterRetirement;
 
-use ownership::SessionWriteOwnership;
+pub(crate) use ownership::SessionWriteOwnership;
 use recovery::{AppendRollback, restore_committed_offset};
 pub(super) use redaction::contains_redacted_sensitive_value;
 use redaction::redact_sensitive_values;
@@ -69,6 +69,7 @@ enum StoredPayload {
 #[derive(Debug, Default)]
 pub(crate) struct JournalWriterState {
     initialized: bool,
+    retired: bool,
     usage: super::UsageProjection,
     model_context: crate::core::model_context::projection::ModelContextProjection,
     next_seq: u64,
@@ -120,6 +121,56 @@ impl JournalWriterState {
         self.validation = Default::default();
         self.usage = Default::default();
         self.model_context = Default::default();
+    }
+
+    /// Newly acquired ownership remains tentative until preflight succeeds.
+    /// A rejected preflight must not strand a lease in a still-live read handle.
+    /// Existing ownership is never released by a rejected later operation.
+    pub(crate) fn with_ownership_preflight<T>(
+        &mut self,
+        session_dir: &Path,
+        session_id: SessionId,
+        preflight: impl FnOnce(&mut Self) -> Result<T>,
+    ) -> Result<T> {
+        self.ensure_active()?;
+        let newly_acquired = self._ownership.is_none();
+        if newly_acquired {
+            self._ownership = Some(SessionWriteOwnership::acquire(session_dir, session_id)?);
+        }
+        struct Tentative<'a> {
+            state: &'a mut JournalWriterState,
+            newly_acquired: bool,
+            committed: bool,
+        }
+        impl Drop for Tentative<'_> {
+            fn drop(&mut self) {
+                if self.newly_acquired && !self.committed {
+                    self.state._ownership.take();
+                }
+            }
+        }
+        let mut tentative = Tentative {
+            state: self,
+            newly_acquired,
+            committed: false,
+        };
+        let result = preflight(&mut *tentative.state);
+        tentative.committed = result.is_ok();
+        result
+    }
+
+    pub(crate) fn ensure_active(&self) -> Result<()> {
+        anyhow::ensure!(!self.retired, "session writer generation is retired");
+        Ok(())
+    }
+
+    /// Transfer the actual lease and completion tail, never unlock/reacquire.
+    /// The shared generation remains terminal even if filesystem deletion fails.
+    pub(crate) fn retire_for_delete(&mut self) -> Result<impl Send + use<>> {
+        self.ensure_active()?;
+        self.retired = true;
+        // Tuple fields drop in order: OS lease closes before completion is signaled.
+        Ok((self._ownership.take(), self._retirement.take()))
     }
 
     pub(crate) fn with_retirement(retirement: std::sync::Arc<WriterRetirement>) -> Self {

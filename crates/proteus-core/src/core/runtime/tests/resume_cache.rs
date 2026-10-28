@@ -57,10 +57,18 @@ async fn display_resume_and_settled_turns_do_not_retain_decoded_history() {
         assert!(runtime.session.history.lock().await.is_empty());
         // SessionStore handles in one process share a writer. A fresh OS
         // handle must still be excluded after its decoded state is hibernated.
+        // The persistent ownership inode is outside the removable session
+        // directory. Derive its canonical parent/name independently of the
+        // owner implementation, then probe with a separately opened File.
+        let session_dir = store.session_dir();
+        let parent = std::fs::canonicalize(session_dir.parent().unwrap()).unwrap();
+        let mut lock_name = std::ffi::OsString::from(".");
+        lock_name.push(session_dir.file_name().unwrap());
+        lock_name.push(".write.lock");
         let lock = std::fs::OpenOptions::new()
             .read(true)
             .write(true)
-            .open(store.session_dir().join("journal.write.lock"))
+            .open(parent.join(lock_name))
             .unwrap();
         assert!(matches!(
             lock.try_lock(),

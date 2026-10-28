@@ -45,6 +45,76 @@ impl CompletedTranscript {
     }
 }
 
+/// Read a complete named display revision. A disposable cache miss must not
+/// make the canonical history unreadable, but a newer source is not that revision.
+#[cfg(unix)]
+pub(super) fn transcript_at_revision(
+    store: &SessionStore,
+    revision: &str,
+) -> anyhow::Result<Vec<AppTranscriptMessage>> {
+    if let Some(messages) = store.saved_transcript(revision) {
+        return Ok(messages);
+    }
+    Ok(rebuild_transcript(store, Some(revision))?.1)
+}
+
+/// Read a bounded page, repairing a missing/corrupt index at most once.
+#[cfg(unix)]
+pub(super) fn transcript_page(
+    store: &SessionStore,
+    before: Option<usize>,
+    expected: Option<&str>,
+) -> anyhow::Result<proteus_contracts::app_protocol::AppTranscriptPage> {
+    if let Some(page) = store.saved_transcript_page(before, expected) {
+        return Ok(page);
+    }
+    let (revision, messages) = rebuild_transcript(store, expected)?;
+    let total = messages.len();
+    let end = before.unwrap_or(total);
+    anyhow::ensure!(
+        end <= total,
+        "history position is outside the requested revision"
+    );
+    let start = end.saturating_sub(50);
+    Ok(proteus_contracts::app_protocol::AppTranscriptPage {
+        revision,
+        start,
+        total,
+        messages: messages.into_iter().skip(start).take(end - start).collect(),
+        // Rebuilding cannot prove a relationship to a lost display projection.
+        base: None,
+    })
+}
+
+#[cfg(unix)]
+fn rebuild_transcript(
+    store: &SessionStore,
+    expected: Option<&str>,
+) -> anyhow::Result<(String, Vec<AppTranscriptMessage>)> {
+    use crate::core::session_read_cache::SourceFingerprint;
+
+    let source = SourceFingerprint::read(store.session_dir(), 8192)
+        .ok_or_else(|| anyhow::anyhow!("history source cannot be fingerprinted"))?;
+    let revision = source
+        .revision()
+        .ok_or_else(|| anyhow::anyhow!("history source revision is unavailable"))?;
+    anyhow::ensure!(
+        expected.is_none_or(|expected| expected == revision),
+        "history revision changed; refresh the session snapshot"
+    );
+    // Strict journal validation is mandatory; cached conversation state is not
+    // an authority. project_read_model saves the index only on a stable source.
+    let model =
+        store.project_read_model(|projection| journal_transcript_messages(projection, None))?;
+    anyhow::ensure!(
+        SourceFingerprint::read(store.session_dir(), 8192).as_ref() == Some(&source),
+        "history source changed during recovery; refresh the session snapshot"
+    );
+    // Cache writes are best effort (e.g. disk full). The verified in-memory
+    // result remains usable without retrying indefinitely or requiring a writer lease.
+    Ok((revision, model.transcript))
+}
+
 /// Cold HTTP reads share the same current projection without opening a runtime.
 pub(super) fn current_read_model(store: &SessionStore) -> anyhow::Result<SessionReadModel> {
     match store.fresh_read_model() {
@@ -133,3 +203,6 @@ pub(super) fn refresh_in_background(server: &AppServerHandle) {
         }
     });
 }
+
+#[cfg(all(test, unix))]
+mod tests;

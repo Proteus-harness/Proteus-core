@@ -7,7 +7,7 @@ pub(in crate::core::session_store) struct Updater {
     dir: PathBuf,
     source: SourceFingerprint,
     previous: SourceFingerprint,
-    _lock: fs::File,
+    _lock: CacheGate,
 }
 
 impl Updater {

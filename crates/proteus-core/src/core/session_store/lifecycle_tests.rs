@@ -19,10 +19,24 @@ async fn last_store_drop_releases_writer_state_and_lease_before_reopen() {
     let peer = SessionStore::open(session_dir.clone()).expect("second handle");
     let writer = Arc::downgrade(&store.writer);
     assert!(Arc::ptr_eq(&store.writer, &peer.writer));
+    let lease_path = session_dir
+        .parent()
+        .expect("session slot parent")
+        .join(format!(
+            ".{}.write.lock",
+            session_dir
+                .file_name()
+                .expect("session slot name")
+                .to_string_lossy()
+        ));
+    assert!(
+        !session_dir.join("journal.write.lock").exists(),
+        "writer lease must be outside the removable session directory"
+    );
     let lease = OpenOptions::new()
         .read(true)
         .write(true)
-        .open(session_dir.join("journal.write.lock"))
+        .open(lease_path)
         .expect("persistent lease file");
 
     drop(store);

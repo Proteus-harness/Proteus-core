@@ -103,7 +103,7 @@ pub(in crate::core::session_store) struct Writer {
     path: PathBuf,
     temp: PathBuf,
     source: SourceFingerprint,
-    _lock: fs::File,
+    _lock: CacheGate,
 }
 
 impl Writer {
@@ -210,6 +210,34 @@ impl Writer {
     }
 }
 
+/// A disposable-cache gate belongs to the operation that acquired it, not to
+/// incidental descriptors inherited or duplicated from its open description.
+struct CacheGate {
+    file: fs::File,
+    owner_pid: u32,
+}
+
+impl CacheGate {
+    fn acquired(file: fs::File) -> Self {
+        Self {
+            file,
+            owner_pid: std::process::id(),
+        }
+    }
+}
+
+impl Drop for CacheGate {
+    fn drop(&mut self) {
+        // A forked child must only close its inherited descriptor; unlocking
+        // it would also release the still-live parent's gate.
+        if self.owner_pid == std::process::id() {
+            // End this logical operation even if a fork/dup alias remains.
+            // File drop still closes our descriptor if unlock fails.
+            let _ = self.file.unlock();
+        }
+    }
+}
+
 fn lock_file(dir: &Path, name: &str) -> Option<fs::File> {
     cache_path(dir, name)?;
     let lock = OpenOptions::new()
@@ -222,27 +250,27 @@ fn lock_file(dir: &Path, name: &str) -> Option<fs::File> {
     Some(lock)
 }
 
-fn write_lock(dir: &Path, name: &str) -> Option<fs::File> {
+fn write_lock(dir: &Path, name: &str) -> Option<CacheGate> {
     let lock = lock_file(dir, name)?;
     lock.try_lock().ok()?;
-    Some(lock)
+    Some(CacheGate::acquired(lock))
 }
 
-fn update_lock(dir: &Path, name: &str) -> Option<fs::File> {
+fn update_lock(dir: &Path, name: &str) -> Option<CacheGate> {
     let lock = lock_file(dir, name)?;
     // SQLite's BEGIN IMMEDIATE serializes in-place writers. A shared gate
     // excludes replacement while allowing readers to open the old snapshot.
     lock.try_lock_shared().ok()?;
-    Some(lock)
+    Some(CacheGate::acquired(lock))
 }
 
-fn read_open_lock(dir: &Path, name: &str) -> Option<fs::File> {
+fn read_open_lock(dir: &Path, name: &str) -> Option<CacheGate> {
     cache_path(dir, name)?;
     // Reading never creates coordination metadata. An older disposable cache
     // without a gate is rebuilt through the normal cache-miss path.
     let lock = fs::File::open(dir.join(format!(".read-{name}.lock"))).ok()?;
     lock.try_lock_shared().ok()?;
-    Some(lock)
+    Some(CacheGate::acquired(lock))
 }
 
 fn read_page<T: DeserializeOwned>(

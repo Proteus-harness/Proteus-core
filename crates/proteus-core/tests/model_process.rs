@@ -306,8 +306,46 @@ async fn slow_consumer_is_backpressured_and_drop_releases_callback() {
     let adapter = model(&config("slow", settings), cwd.path()).unwrap();
     let mut stream = adapter.stream(request("slow")).await.unwrap();
     assert!(stream.next().await.unwrap().is_ok());
+    let marker_text = || {
+        std::fs::read_to_string(&marker)
+            .unwrap_or_else(|error| panic!("cannot read backpressure marker {marker:?}: {error}"))
+    };
+    let acknowledged_count = |text: &str| {
+        assert!(
+            !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit()),
+            "expected numeric acknowledgement marker before stream drop, got {text:?}"
+        );
+        let count = text
+            .parse::<usize>()
+            .unwrap_or_else(|error| panic!("invalid acknowledgement count {text:?}: {error}"));
+        assert!(
+            count > 0,
+            "acknowledgement count must be positive, got {text:?}"
+        );
+        count
+    };
+    // Receiving the first event does not prove host.model.emit has returned in the worker.
+    // Wait only for that acknowledgement; terminal or malformed states must fail.
+    tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            let text = marker_text();
+            if text != "started" {
+                acknowledged_count(&text);
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap_or_else(|_| {
+        panic!(
+            "worker did not publish an acknowledgement within 3 seconds; marker {:?}",
+            marker_text()
+        )
+    });
     tokio::time::sleep(Duration::from_millis(50)).await;
-    let count: usize = std::fs::read_to_string(&marker).unwrap().parse().unwrap();
+    // Observe the current count, not the first acknowledged value.
+    let count = acknowledged_count(&marker_text());
     assert!(
         count <= 2,
         "unbounded streaming: {count} acknowledged events"

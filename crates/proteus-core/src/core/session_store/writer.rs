@@ -20,13 +20,12 @@ impl SessionStore {
         &self,
         turn_id: TurnId,
     ) -> Result<Vec<crate::contracts::ModelContextObservation>> {
-        if let Some(context) = self
-            .writer
-            .lock()
-            .await
-            .model_context_before_turn(turn_id)?
         {
-            return Ok(context);
+            let writer = self.writer.lock().await;
+            writer.ensure_active()?;
+            if let Some(context) = writer.model_context_before_turn(turn_id)? {
+                return Ok(context);
+            }
         }
         self.write_transaction(move |_, writer| {
             writer
@@ -43,13 +42,12 @@ impl SessionStore {
         thread_id: ThreadId,
         turn_id: TurnId,
     ) -> Result<(Vec<CanonicalMessage>, usize)> {
-        if let Some(state) = self
-            .writer
-            .lock()
-            .await
-            .committed_history(thread_id, turn_id)
         {
-            return Ok(state);
+            let writer = self.writer.lock().await;
+            writer.ensure_active()?;
+            if let Some(state) = writer.committed_history(thread_id, turn_id) {
+                return Ok(state);
+            }
         }
         self.write_transaction(move |_, writer| {
             writer
@@ -64,8 +62,12 @@ impl SessionStore {
     pub(crate) async fn execution_state(
         &self,
     ) -> Result<(u64, Vec<crate::contracts::WorkflowHistoryInterruption>)> {
-        if let Some(state) = self.writer.lock().await.execution_state() {
-            return Ok(state);
+        {
+            let writer = self.writer.lock().await;
+            writer.ensure_active()?;
+            if let Some(state) = writer.execution_state() {
+                return Ok(state);
+            }
         }
         self.write_transaction(|_, writer| {
             writer
@@ -81,15 +83,19 @@ impl SessionStore {
         let mut writer = self.writer.clone().lock_owned().await;
         let store = self.clone();
         tokio::task::spawn_blocking(move || {
-            store.materialize_for_write()?;
-            match crate::core::session_journal::initialize_writer_projection(
-                &store.session_dir,
-                store.session_id,
-                &mut writer,
-            )? {
-                Some(projection) => Ok(projection),
-                None => store.load_projection(),
-            }
+            writer.ensure_active()?;
+            store.prepare_lease_parent()?;
+            writer.with_ownership_preflight(&store.session_dir, store.session_id, |writer| {
+                store.materialize_for_write()?;
+                match crate::core::session_journal::initialize_writer_projection(
+                    &store.session_dir,
+                    store.session_id,
+                    writer,
+                )? {
+                    Some(projection) => Ok(projection),
+                    None => store.load_projection(),
+                }
+            })
         })
         .await
         .context("session resume validation worker failed")?
@@ -114,8 +120,14 @@ impl SessionStore {
         let mut writer = self.writer.clone().lock_owned().await;
         let store = self.clone();
         tokio::task::spawn_blocking(move || {
-            store.materialize_for_write()?;
-            initialize_writer_state(&store.session_dir, store.session_id, &mut writer)?;
+            writer.ensure_active()?;
+            store.prepare_lease_parent()?;
+            writer.with_ownership_preflight(&store.session_dir, store.session_id, |writer| {
+                store.materialize_for_write()?;
+                initialize_writer_state(&store.session_dir, store.session_id, writer)
+            })?;
+            // Ownership is committed before the requested operation. A rejected
+            // append must not discard an already valid writer's lease.
             operation(&store, &mut writer)
         })
         .await
@@ -128,33 +140,92 @@ impl SessionStore {
         self.write_transaction(|_, _| Ok(())).await
     }
 
+    fn prepare_lease_parent(&self) -> Result<()> {
+        let parent = self
+            .session_dir
+            .parent()
+            .context("session directory has no parent")?;
+        if self.may_create.load(std::sync::atomic::Ordering::SeqCst) {
+            // Only ancestors, never the session or its metadata, precede the lease.
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("failed to create session parent {}", parent.display()))?;
+        }
+        Ok(())
+    }
+
     fn materialize_for_write(&self) -> Result<()> {
-        let parent = self.session_dir.parent().ok_or_else(|| {
-            anyhow!(
-                "session directory has no parent: {}",
-                self.session_dir.display()
-            )
-        })?;
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("failed to create session parent {}", parent.display()))?;
-        let created = match std::fs::create_dir(&self.session_dir) {
-            Ok(()) => true,
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => false,
+        use std::sync::atomic::Ordering;
+        let created = match std::fs::symlink_metadata(&self.session_dir) {
+            Ok(metadata) => {
+                self.may_create.store(false, Ordering::SeqCst);
+                if metadata.file_type().is_symlink() || !metadata.is_dir() {
+                    anyhow::bail!(
+                        "session path is not a directory: {}",
+                        self.session_dir.display()
+                    );
+                }
+                false
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                if !self.may_create.load(Ordering::SeqCst) {
+                    anyhow::bail!(
+                        "existing session is missing: {}",
+                        self.session_dir.display()
+                    );
+                }
+                match std::fs::create_dir(&self.session_dir) {
+                    Ok(()) => {
+                        // Consumed even if the subsequent metadata write fails.
+                        self.may_create.store(false, Ordering::SeqCst);
+                        true
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                        self.may_create.store(false, Ordering::SeqCst);
+                        false
+                    }
+                    Err(error) => {
+                        return Err(error).with_context(|| {
+                            format!(
+                                "failed to create session dir {}",
+                                self.session_dir.display()
+                            )
+                        });
+                    }
+                }
+            }
             Err(error) => {
                 return Err(error).with_context(|| {
                     format!(
-                        "failed to create session dir {}",
+                        "failed to inspect session dir {}",
                         self.session_dir.display()
                     )
                 });
             }
         };
+        if !created {
+            let metadata = std::fs::symlink_metadata(&self.session_dir)?;
+            if metadata.file_type().is_symlink() || !metadata.is_dir() {
+                anyhow::bail!(
+                    "session path is not a directory: {}",
+                    self.session_dir.display()
+                );
+            }
+            let identity = resolve_session_identity(&self.session_dir)?;
+            if identity.session_id != self.session_id {
+                anyhow::bail!(
+                    "session identity changed: expected {}, found {}",
+                    self.session_id,
+                    identity.session_id
+                );
+            }
+            return Ok(());
+        }
         ensure_writable_identity(
             &self.session_dir,
             self.session_id,
             self.directory_kind,
             &self.workspace_path()?,
-            created,
+            true,
         )
     }
 

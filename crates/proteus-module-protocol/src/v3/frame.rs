@@ -26,9 +26,9 @@ pub enum ComponentFrame {
 /// Wire ID grammar, direction, generation, method authority and invocation
 /// state are validated separately by the receiving host or worker.
 pub fn parse_component_frame(value: Value) -> Result<ComponentFrame> {
-    let object = value
-        .as_object()
-        .ok_or_else(|| anyhow::anyhow!("JSON-RPC frame must be an object"))?;
+    let Value::Object(object) = value else {
+        bail!("JSON-RPC frame must be an object");
+    };
     if object.get("jsonrpc").and_then(Value::as_str) != Some("2.0") {
         bail!("JSON-RPC frame must declare jsonrpc=\"2.0\"");
     }
@@ -47,57 +47,55 @@ pub fn parse_component_frame(value: Value) -> Result<ComponentFrame> {
     }
 }
 
-fn parse_success(object: &Map<String, Value>) -> Result<ComponentFrame> {
-    require_exact_fields(object, &["jsonrpc", "id", "result"])?;
+fn parse_success(mut object: Map<String, Value>) -> Result<ComponentFrame> {
+    require_exact_fields(&object, &["jsonrpc", "id", "result"])?;
     Ok(ComponentFrame::Response {
-        id: string_id(object.get("id").expect("checked id"))?,
-        result: Ok(object.get("result").expect("checked result").clone()),
+        id: string_id(object.remove("id").expect("checked id"))?,
+        result: Ok(object.remove("result").expect("checked result")),
     })
 }
 
-fn parse_error(object: &Map<String, Value>) -> Result<ComponentFrame> {
-    require_exact_fields(object, &["jsonrpc", "id", "error"])?;
+fn parse_error(mut object: Map<String, Value>) -> Result<ComponentFrame> {
+    require_exact_fields(&object, &["jsonrpc", "id", "error"])?;
     let error = serde_json::from_value::<ProcessModuleRpcError>(
-        object.get("error").expect("checked error").clone(),
+        object.remove("error").expect("checked error"),
     )
     .context("invalid JSON-RPC error body")?;
     Ok(ComponentFrame::Response {
-        id: string_id(object.get("id").expect("checked id"))?,
+        id: string_id(object.remove("id").expect("checked id"))?,
         result: Err(error),
     })
 }
 
-fn parse_request(object: &Map<String, Value>) -> Result<ComponentFrame> {
-    require_exact_fields(object, &["jsonrpc", "id", "method", "params"])?;
+fn parse_request(mut object: Map<String, Value>) -> Result<ComponentFrame> {
+    require_exact_fields(&object, &["jsonrpc", "id", "method", "params"])?;
     Ok(ComponentFrame::Request {
-        id: string_id(object.get("id").expect("checked id"))?,
-        method: method(object)?,
-        params: object.get("params").expect("checked params").clone(),
+        id: string_id(object.remove("id").expect("checked id"))?,
+        method: method(object.remove("method").expect("checked method"))?,
+        params: object.remove("params").expect("checked params"),
     })
 }
 
-fn parse_notification(object: &Map<String, Value>) -> Result<ComponentFrame> {
-    require_exact_fields(object, &["jsonrpc", "method", "params"])?;
+fn parse_notification(mut object: Map<String, Value>) -> Result<ComponentFrame> {
+    require_exact_fields(&object, &["jsonrpc", "method", "params"])?;
     Ok(ComponentFrame::Notification {
-        method: method(object)?,
-        params: object.get("params").expect("checked params").clone(),
+        method: method(object.remove("method").expect("checked method"))?,
+        params: object.remove("params").expect("checked params"),
     })
 }
 
-fn method(object: &Map<String, Value>) -> Result<String> {
-    object
-        .get("method")
-        .and_then(Value::as_str)
-        .filter(|method| !method.trim().is_empty())
-        .map(str::to_owned)
-        .ok_or_else(|| anyhow::anyhow!("JSON-RPC method must be a non-empty string"))
+fn method(value: Value) -> Result<String> {
+    match value {
+        Value::String(method) if !method.trim().is_empty() => Ok(method),
+        _ => bail!("JSON-RPC method must be a non-empty string"),
+    }
 }
 
-fn string_id(value: &Value) -> Result<String> {
-    value
-        .as_str()
-        .map(str::to_owned)
-        .ok_or_else(|| anyhow::anyhow!("component-v3 JSON-RPC id must be a string"))
+fn string_id(value: Value) -> Result<String> {
+    match value {
+        Value::String(id) => Ok(id),
+        _ => bail!("component-v3 JSON-RPC id must be a string"),
+    }
 }
 
 fn require_exact_fields(object: &Map<String, Value>, expected: &[&str]) -> Result<()> {

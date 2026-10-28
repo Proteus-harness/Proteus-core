@@ -25,7 +25,6 @@ use crate::{
     },
     model_standard::{
         CanonicalModelRequest, CanonicalModelResponse, ModelCapabilities, ModelStreamEvent,
-        validate_model_response_against_request,
     },
 };
 
@@ -278,7 +277,7 @@ impl BoundModel {
             )
             .await?;
 
-        let validation_request = request.clone();
+        let mut progress = CompletedMessageProgress::new(&request);
         let cancellation =
             crate::core::model_call_scope::operation_cancellation(&self.binding.scope.cancellation);
         let recorder = self.binding.recorder();
@@ -290,7 +289,6 @@ impl BoundModel {
             },
             _ = wait_for_deadline(deadline), if deadline.is_some() => {
                 let error = model_timeout(self.model_timeout_ms);
-                let mut progress = CompletedMessageProgress::new(&validation_request);
                 let failure = progress.attach_to_failure(
                     crate::model_standard::ModelFailure::from_error(&error),
                 );
@@ -300,7 +298,6 @@ impl BoundModel {
             result = self.service.start_prepared(request) => match result {
                 Ok(stream) => stream,
                 Err(error) => {
-                    let mut progress = CompletedMessageProgress::new(&validation_request);
                     let failure = progress.attach_to_failure(
                         crate::model_standard::ModelFailure::from_error(&error),
                     );
@@ -312,7 +309,7 @@ impl BoundModel {
 
         Ok(bound_recording_stream(
             stream,
-            validation_request,
+            progress,
             recorder,
             exchange_id,
             cancellation,
@@ -393,7 +390,7 @@ fn bind_reserved_id(
 
 fn bound_recording_stream(
     mut stream: ModelEventStream,
-    validation_request: CanonicalModelRequest,
+    mut progress: CompletedMessageProgress,
     recorder: Arc<dyn ExecutionRecorder>,
     exchange_id: ExchangeId,
     cancellation: crate::contracts::CancellationToken,
@@ -402,7 +399,6 @@ fn bound_recording_stream(
 ) -> ModelEventStream {
     Box::pin(async_stream::try_stream! {
         let mut terminal_recorded = false;
-        let mut progress = CompletedMessageProgress::new(&validation_request);
         loop {
             enum Next {
                 Item(Option<Result<ModelStreamEvent>>),
@@ -451,8 +447,7 @@ fn bound_recording_stream(
                 ModelStreamEvent::Response { response } => {
                     if let Err(error) =
                         progress.reconcile_response(response).and_then(|_| {
-                            validate_model_response_against_request(&validation_request, response)
-                                .map_err(anyhow::Error::msg)
+                            progress.validate_response(response)
                         })
                     {
                         let error = anyhow!("model protocol error: {error}");

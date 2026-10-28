@@ -10,8 +10,8 @@ use super::{
     broker::{ComponentBrokerSnapshot, ControlCommand, StartRequest},
     handshake::initialize_transport,
     invocation::{
-        ComponentBrokerError, ComponentBrokerErrorKind, ComponentFailure, InvocationRef,
-        InvocationTerminal, StartMeta,
+        CancelCause, ComponentBrokerError, ComponentBrokerErrorKind, ComponentFailure,
+        InvocationRef, InvocationTerminal, StartMeta,
     },
     pending::{LoopState, PendingInvocation, WorkerGeneration},
     wire,
@@ -324,6 +324,10 @@ impl LoopState {
                 return;
             }
         };
+        // Initialization may block while the caller abandons admission.
+        if request.terminal.receiver_dropped() {
+            return;
+        }
         let id = wire::host_id(self.generation, self.next_host_sequence);
         self.next_host_sequence = self.next_host_sequence.saturating_add(1);
         let root_id = if root_id.is_empty() {
@@ -366,7 +370,11 @@ impl LoopState {
         if !request.bootstrap {
             self.runtime_started = true;
         }
-        request.ack.send(Ok(meta));
+        if !request.ack.send(Ok(meta)) {
+            // No caller can own this invocation, and it has not been queued.
+            self.finish_without_admission(&id, InvocationTerminal::Canceled);
+            return;
+        }
 
         if effective_deadline <= Instant::now() {
             self.finish(&id, InvocationTerminal::TimedOut);
@@ -384,6 +392,36 @@ impl LoopState {
     }
 
     pub(super) fn activate(&mut self, id: &str) {
+        let pending = self
+            .pending
+            .get(id)
+            .expect("pending invocation disappeared before activation");
+        assert!(!pending.active, "invocation activated twice");
+        if let Some(cause) = pending.cancel {
+            // Cancellation already visited the tree; inactive records normally
+            // settle immediately. Preserve its recorded cause if one remains.
+            self.finish_without_admission(id, InvocationTerminal::canceled(cause));
+            return;
+        }
+        let cause = if pending
+            .terminal
+            .as_ref()
+            .is_some_and(|sender| sender.receiver_dropped())
+        {
+            Some(CancelCause::User)
+        } else if pending.invocation.deadline <= Instant::now() {
+            Some(CancelCause::Timeout)
+        } else {
+            None
+        };
+        if let Some(cause) = cause {
+            // Queued parents can already own nested invocations. Cancel the
+            // whole tree before the caller continues iterative admission.
+            let generation = pending.invocation.generation;
+            let _ = self.cancel_without_admission(id, generation, cause);
+            return;
+        }
+
         let frame = {
             let pending = self
                 .pending
@@ -436,3 +474,7 @@ impl LoopState {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "runtime_tests.rs"]
+mod tests;

@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import os
+import socket
 import sys
 import threading
 import time
@@ -113,6 +114,12 @@ class Worker:
         if not isinstance(params, dict):
             self.send_error(request_id, -32602, "initialize params must be an object")
             return
+        barrier_port = os.environ.get("PROTEUS_TEST_RESTART_HANDSHAKE_PORT")
+        if request_id == "h:2:0" and barrier_port is not None:
+            with socket.create_connection(("127.0.0.1", int(barrier_port)), timeout=5.0) as barrier:
+                barrier.sendall(b"ready\n")
+                if barrier.recv(1) != b"1":
+                    raise RuntimeError("restart handshake barrier was not released")
         protocol_version = params.get("protocol_version")
         if protocol_version == "v3":
             component_id = params.get("component_id")

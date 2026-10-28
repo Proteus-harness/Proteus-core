@@ -236,17 +236,7 @@ pub(super) async fn history_page_json(
         let store = SessionStore::open(dir)?;
         #[cfg(unix)]
         {
-            if let Some(page) = store.saved_transcript_page(before, revision.as_deref()) {
-                return Ok(page);
-            }
-            anyhow::ensure!(
-                revision.is_none(),
-                "history revision changed; refresh the session snapshot"
-            );
-            let _ = crate::app_server::read_model::current_read_model(&store)?;
-            return store
-                .saved_transcript_page(before, None)
-                .ok_or_else(|| anyhow!("history index changed during reading"));
+            crate::app_server::read_model::transcript_page(&store, before, revision.as_deref())
         }
         #[cfg(not(unix))]
         {

@@ -710,9 +710,22 @@ process.
 сохраняют `anyhow::Result`, но Core может различить module failure, cancel,
 timeout и конкретный класс component loss без парсинга display text.
 
-При cancel/timeout host отправляет `$/cancelRequest` и ждёт bounded grace
-period. Cooperative terminal завершает только target invocation (и её nested
-descendants). Если grace истёк, reset-ится **весь component**, потому что
+До постановки invocation в writer host повторно проверяет наблюдаемые
+отмену, потерю async terminal receiver и deadline; эта проверка действует
+также при продвижении queued roots. После блокирующего handshake потеря
+receiver проверяется повторно, а недоставленный admission ACK не допускает
+invocation к dispatch. Отмена queued parent сохраняет отмену её nested tree.
+Успешная отправка ACK не доказывает, что caller уже получил handle.
+
+Проверка до dispatch не устраняет гонку с более поздней отменой. Если writer
+ещё не забрал request, `cancel_before_write` может атомарно отменить запись.
+После начала записи cancel/timeout не гарантирует отсутствие или rollback
+эффектов module.
+
+При cancel/timeout уже отправленной invocation host отправляет
+`$/cancelRequest` и ждёт bounded grace period. Cooperative terminal завершает
+только target invocation (и её nested descendants). Если grace истёк,
+reset-ится **весь component**, потому что
 неотвечающий trusted process является общим failure domain. Transport,
 protocol и resource failure делают то же.
 Следующая invocation любого export lazily запускает новый child и повторяет

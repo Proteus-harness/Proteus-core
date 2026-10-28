@@ -761,6 +761,17 @@ async fn recursive_callback(broker: &ComponentBroker) -> Result<InvocationHandle
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn protocol_faults_fail_closed_and_restart_lazily() -> Result<()> {
+    // This scenario must keep its host callback unresolved until protocol loss.
+    // A dispatcher that returns immediately can legitimately finish before the
+    // worker's separately flushed terminal frame reaches the broker.
+    struct PendingDispatcher;
+
+    impl AsyncHostRequestDispatcher for PendingDispatcher {
+        fn dispatch(&self, _request: ComponentHostRequest) -> HostRequestFuture {
+            Box::pin(std::future::pending())
+        }
+    }
+
     let broker = broker(ComponentBrokerOptions::default())?;
     let workflow = export("workflow", "fixture.workflow");
 
@@ -849,6 +860,16 @@ async fn protocol_faults_fail_closed_and_restart_lazily() -> Result<()> {
         json!({"op":"terminal_during_callback"}),
         json!({"op":"malformed"}),
     ] {
+        let operation = input["op"].as_str().expect("fixture operation").to_owned();
+        let dispatcher: Arc<dyn AsyncHostRequestDispatcher> =
+            if operation == "terminal_during_callback" {
+                Arc::new(PendingDispatcher)
+            } else {
+                Arc::new(RecordingDispatcher::new(
+                    "fault",
+                    Arc::new(Mutex::new(Vec::new())),
+                ))
+            };
         let before = broker.snapshot()?.generation;
         let mut invocation = broker
             .start_invocation_with_dispatcher(
@@ -856,17 +877,30 @@ async fn protocol_faults_fail_closed_and_restart_lazily() -> Result<()> {
                 PROCESS_WORKFLOW_METHOD,
                 input,
                 INVOCATION_TIMEOUT,
-                Arc::new(RecordingDispatcher::new(
-                    "fault",
-                    Arc::new(Mutex::new(Vec::new())),
-                )),
+                dispatcher,
             )
-            .await?;
+            .await
+            .map_err(|error| {
+                anyhow::anyhow!("fault operation {operation:?}: start failed: {error:?}")
+            })?;
+        let terminal = invocation.result().await.map_err(|error| {
+            anyhow::anyhow!("fault operation {operation:?}: result failed: {error:?}")
+        })?;
         ensure!(
-            invocation.result().await?
-                == InvocationTerminal::ComponentLost(ComponentFailure::Protocol)
+            terminal == InvocationTerminal::ComponentLost(ComponentFailure::Protocol),
+            "fault operation {operation:?}: expected protocol loss, got {terminal:?}; snapshot: {:?}",
+            broker.snapshot()
         );
-        ensure!(broker.snapshot()?.generation == before + 1);
+        let snapshot = broker.snapshot()?;
+        ensure!(
+            snapshot.generation == before + 1,
+            "fault operation {operation:?}: expected generation {}, got {snapshot:?}",
+            before + 1
+        );
+        ensure!(
+            snapshot.pending_callbacks == 0 && snapshot.pending_invocations == 0,
+            "fault operation {operation:?}: reset retained work: {snapshot:?}"
+        );
     }
 
     let before_late = broker.snapshot()?.generation;

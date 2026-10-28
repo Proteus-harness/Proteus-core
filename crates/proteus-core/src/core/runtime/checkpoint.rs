@@ -253,9 +253,13 @@ impl ToolExecutionRecorder for TurnHistoryRecorder {
         if attribution == self.attribution {
             let mut effects = self.pending_effects.lock().await;
             let mut history = self.history.lock().await;
-            let previous = history.clone();
+            let previous = if self.store.is_none() {
+                Some(history.clone())
+            } else {
+                None
+            };
             capture.record(&mut history, result)?;
-            if self.store.is_none() && *history != previous {
+            if previous.is_some_and(|previous| *history != previous) {
                 self.revision
                     .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             }

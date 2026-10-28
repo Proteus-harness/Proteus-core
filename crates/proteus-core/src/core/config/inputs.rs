@@ -7,6 +7,7 @@ use std::{
 };
 
 #[derive(Debug, PartialEq, Eq)]
+#[cfg_attr(test, derive(Clone))]
 enum Stamp {
     Unavailable(ErrorKind),
     Present {
@@ -66,11 +67,13 @@ impl ConfigInputs {
     }
 
     pub(crate) fn is_current(&self) -> bool {
-        self.files.as_ref().is_some_and(|files| {
-            files
-                .iter()
-                .all(|(path, stamp)| Stamp::read(path) == *stamp)
-        })
+        self.is_current_with(Stamp::read)
+    }
+
+    fn is_current_with(&self, mut read: impl FnMut(&Path) -> Stamp) -> bool {
+        self.files
+            .as_ref()
+            .is_some_and(|files| files.iter().all(|(path, stamp)| read(path) == *stamp))
     }
 
     pub(crate) fn observe_plugins(&mut self, config: &crate::domain::AddonConfig, cwd: &Path) {

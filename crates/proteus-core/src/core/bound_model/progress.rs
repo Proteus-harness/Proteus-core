@@ -3,10 +3,10 @@ use std::collections::{HashMap, HashSet};
 use anyhow::{Result, bail};
 
 use crate::{
-    domain::{CallId, MessageId, PartId, ToolSpec},
+    domain::{CallId, MessageId, PartId},
     model_standard::{
-        CanonicalMessage, CanonicalModelRequest, ContentPart, MessageRole, ModelFailure, PartScope,
-        validate_model_tool_call_surface,
+        CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ContentPart, MessageRole,
+        ModelFailure, ModelResponseValidationContext, PartScope,
     },
 };
 
@@ -18,7 +18,7 @@ pub(super) struct CompletedMessageProgress {
     messages: Vec<CanonicalMessage>,
     positions: HashMap<MessageId, usize>,
     call_ids: HashSet<CallId>,
-    tools: Vec<ToolSpec>,
+    response_validation: ModelResponseValidationContext<'static>,
 }
 
 impl CompletedMessageProgress {
@@ -42,7 +42,7 @@ impl CompletedMessageProgress {
                     _ => None,
                 })
                 .collect(),
-            tools: request.tools.clone(),
+            response_validation: ModelResponseValidationContext::from_request(request).into_owned(),
         }
     }
 
@@ -93,7 +93,9 @@ impl CompletedMessageProgress {
                 );
             }
             if let ContentPart::ToolCall { call } = &part.payload {
-                validate_model_tool_call_surface(&self.tools, call).map_err(anyhow::Error::msg)?;
+                self.response_validation
+                    .validate_tool_call(call)
+                    .map_err(anyhow::Error::msg)?;
                 if self.call_ids.contains(&call.id) || !message_call_ids.insert(call.id.clone()) {
                     bail!(
                         "completed model message {} reused tool call id '{}'",
@@ -128,6 +130,9 @@ impl CompletedMessageProgress {
             }
             *terminal = accepted.clone();
         }
+        if response.messages.len() == self.messages.len() {
+            return Ok(());
+        }
         // A provider may omit MessageCompleted entirely, or add a suffix only
         // at terminal time. Apply identical history-safe invariants without
         // publishing synthetic/duplicate completion events.
@@ -141,6 +146,12 @@ impl CompletedMessageProgress {
             }
         }
         Ok(())
+    }
+
+    pub(super) fn validate_response(&self, response: &CanonicalModelResponse) -> Result<()> {
+        self.response_validation
+            .validate_response(response)
+            .map_err(anyhow::Error::msg)
     }
 
     pub(super) fn attach_to_failure(&mut self, mut failure: ModelFailure) -> ModelFailure {

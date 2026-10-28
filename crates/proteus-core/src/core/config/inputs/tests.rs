@@ -28,11 +28,59 @@ async fn watches_directory_members_external_includes_and_instruction_files() {
     std::fs::write(&fragment, "# edit outside the profile directory").unwrap();
     assert!(!inputs.is_current());
     let inputs = loaded(&dir).await;
+    let before = std::fs::metadata(&instructions).unwrap();
     std::fs::write(&instructions, "other").unwrap();
+    // Establish a real file-metadata signal rather than relying on clock granularity.
+    let modified = before
+        .modified()
+        .unwrap()
+        .checked_add(std::time::Duration::from_secs(2))
+        .unwrap();
+    std::fs::File::options()
+        .write(true)
+        .open(&instructions)
+        .unwrap()
+        .set_modified(modified)
+        .unwrap();
+    let after = std::fs::metadata(&instructions).unwrap();
+    assert_eq!(before.len(), after.len(), "retain same-length coverage");
+    assert_ne!(
+        before.modified().unwrap(),
+        after.modified().unwrap(),
+        "fixture requires a read-back metadata change"
+    );
     assert!(!inputs.is_current());
     let inputs = loaded(&dir).await;
     std::fs::write(dir.join("new.toml"), "").unwrap();
-    assert!(!inputs.is_current());
+    // Directory size and timestamps need not change for every addition.
+    // Inject an explicit directory-metadata prerequisite into the SAME comparison
+    // routine; real same-stamp membership discovery is covered by profile_watch.
+    let directory = std::fs::canonicalize(&dir).unwrap();
+    let recorded = inputs.files.as_ref().unwrap();
+    let original = recorded
+        .get(&directory)
+        .expect("directory dependency must be observed");
+    let mut changed = original.clone();
+    match &mut changed {
+        Stamp::Present { modified, .. } => {
+            *modified = Some(
+                modified
+                    .unwrap_or(SystemTime::UNIX_EPOCH)
+                    .checked_add(std::time::Duration::from_secs(2))
+                    .unwrap(),
+            );
+        }
+        _ => panic!("fixture requires a present directory"),
+    }
+    assert_ne!(&changed, original, "injected directory stamp must differ");
+    assert!(inputs.is_current_with(|path| recorded.get(path).unwrap().clone()));
+    assert!(!inputs.is_current_with(|path| {
+        if path == directory.as_path() {
+            changed.clone()
+        } else {
+            recorded.get(path).unwrap().clone()
+        }
+    }));
     let inputs = loaded(&dir).await;
     std::fs::remove_file(dir.join("new.toml")).unwrap();
     assert!(!inputs.is_current());

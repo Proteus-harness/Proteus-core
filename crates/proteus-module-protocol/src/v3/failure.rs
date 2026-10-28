@@ -20,7 +20,11 @@ impl LoopState {
         }
     }
 
-    fn finish_without_admission(&mut self, id: &str, terminal: InvocationTerminal) -> bool {
+    pub(super) fn finish_without_admission(
+        &mut self,
+        id: &str,
+        terminal: InvocationTerminal,
+    ) -> bool {
         let Some(mut pending) = self.pending.remove(id) else {
             return false;
         };
@@ -47,11 +51,7 @@ impl LoopState {
             let Some(id) = self.queued_roots.pop_front() else {
                 break;
             };
-            let Some(pending) = self.pending.get(&id) else {
-                continue;
-            };
-            if pending.invocation.deadline <= Instant::now() {
-                self.finish(&id, InvocationTerminal::TimedOut);
+            if !self.pending.contains_key(&id) {
                 continue;
             }
             self.activate(&id);
@@ -103,6 +103,17 @@ impl LoopState {
     }
 
     pub(super) fn cancel(
+        &mut self,
+        id: &str,
+        generation: u64,
+        cause: CancelCause,
+    ) -> Result<(), ComponentBrokerError> {
+        self.cancel_without_admission(id, generation, cause)?;
+        self.admit_queued_roots();
+        Ok(())
+    }
+
+    pub(super) fn cancel_without_admission(
         &mut self,
         id: &str,
         generation: u64,
@@ -175,7 +186,6 @@ impl LoopState {
                 break;
             }
         }
-        self.admit_queued_roots();
         Ok(())
     }
 

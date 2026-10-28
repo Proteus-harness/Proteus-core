@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::{borrow::Cow, collections::HashSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -157,13 +157,47 @@ pub fn validate_model_response_against_request(
     request: &CanonicalModelRequest,
     response: &CanonicalModelResponse,
 ) -> Result<(), String> {
-    validate_model_response_structure(response)?;
+    ModelResponseValidationContext::from_request(request).validate_response(response)
+}
 
-    for call in &response.tool_calls {
-        validate_model_tool_call_surface(&request.tools, call)?;
+/// Request-specific данные для проверки ответа без удержания истории запроса.
+///
+/// Создаётся из окончательного request после shaping и hooks. Заимствованный
+/// context не копирует tools; `into_owned` делает независимый snapshot для
+/// stream lifetime. Это не request DTO и не кэш между вызовами.
+/// Новые request-specific правила добавляются сюда вместе с snapshot-полями,
+/// чтобы borrowed и owned пути использовали одну реализацию проверки.
+#[derive(Clone)]
+pub struct ModelResponseValidationContext<'a> {
+    tools: Cow<'a, [ToolSpec]>,
+}
+
+impl<'a> ModelResponseValidationContext<'a> {
+    pub fn from_request(request: &'a CanonicalModelRequest) -> Self {
+        Self {
+            tools: Cow::Borrowed(&request.tools),
+        }
     }
 
-    Ok(())
+    pub fn into_owned(self) -> ModelResponseValidationContext<'static> {
+        ModelResponseValidationContext {
+            tools: Cow::Owned(self.tools.into_owned()),
+        }
+    }
+
+    pub fn validate_response(&self, response: &CanonicalModelResponse) -> Result<(), String> {
+        validate_model_response_structure(response)?;
+        for call in &response.tool_calls {
+            self.validate_tool_call(call)?;
+        }
+        Ok(())
+    }
+
+    /// Та же tool surface для MessageCompleted и terminal response.
+    /// Не заменяет workflow visibility/policy или проверку аргументов.
+    pub fn validate_tool_call(&self, call: &ToolCall) -> Result<(), String> {
+        validate_model_tool_call_surface(&self.tools, call)
+    }
 }
 
 /// A completed stream item and a terminal response use the same tool surface.

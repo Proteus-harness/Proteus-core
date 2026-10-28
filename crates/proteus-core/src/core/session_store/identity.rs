@@ -39,7 +39,10 @@ pub(super) fn short_session_directory_name(session_id: SessionId) -> String {
     format!("{:010}", session_id.as_u128() % SHORT_SESSION_ID_MODULUS)
 }
 
-pub(super) fn validate_new_session_target(session_dir: &Path, session_id: SessionId) -> Result<()> {
+pub(super) fn validate_new_session_target(
+    session_dir: &Path,
+    session_id: SessionId,
+) -> Result<bool> {
     match std::fs::symlink_metadata(session_dir) {
         Ok(_) => {
             let existing = resolve_session_identity(session_dir)?;
@@ -51,9 +54,9 @@ pub(super) fn validate_new_session_target(session_dir: &Path, session_id: Sessio
                     session_id
                 );
             }
-            Ok(())
+            Ok(false)
         }
-        Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(true),
         Err(error) => Err(error)
             .with_context(|| format!("failed to inspect session target {}", session_dir.display())),
     }
