@@ -51,11 +51,12 @@ run_and_capture install "${output_dir}/install.txt" "${project_dir}/install.sh"
 
 proteus="${bin_dir}/proteus"
 test -x "${proteus}"
-test -x "${bin_dir}/proteus-reference-module"
+test -x "${bin_dir}/proteus-model-pack-module"
 test ! -e "${bin_dir}/proteus-reference-worker"
 test -L "${runtime_home}/current"
 test -x "${runtime_home}/current/proteus"
-test -x "${runtime_home}/current/proteus-reference-module"
+test -x "${runtime_home}/current/bin/proteus-model-pack-module"
+test ! -e "${runtime_home}/current/proteus-reference-module"
 test -f "${config_home}/configs/config.toml"
 test -f "${config_home}/configs/codex.config.toml"
 test -f "${config_home}/configs/restricted.config.toml"
@@ -82,10 +83,10 @@ run_and_capture version "${output_dir}/version.txt" "${proteus}" --version
 require_text "proteus " "${output_dir}/version.txt"
 
 run_and_capture auth-help "${output_dir}/auth-help.txt" \
-  "${bin_dir}/proteus-reference-module" auth openai_codex login --help
+  "${bin_dir}/proteus-model-pack-module" auth openai_codex login --help
 require_text "--device-auth" "${output_dir}/auth-help.txt"
 run_and_capture auth-status "${output_dir}/auth-status.txt" \
-  "${bin_dir}/proteus-reference-module" auth openai_codex status --auth-file "${smoke_root}/chatgpt.json"
+  "${bin_dir}/proteus-model-pack-module" auth openai_codex status --auth-file "${smoke_root}/chatgpt.json"
 require_text "вход не выполнен" "${output_dir}/auth-status.txt"
 run_and_capture subscription-doctor "${output_dir}/subscription-doctor.txt" \
   "${proteus}" --config codex doctor
@@ -167,14 +168,14 @@ require_text "send_message" "${output_dir}/collaboration-tools.txt"
 require_text "followup_task" "${output_dir}/collaboration-tools.txt"
 
 run_and_capture collaboration-process "${output_dir}/collaboration-process.txt" \
-  env PROTEUS_TEST_BINARY="${runtime_home}/current/proteus" PROTEUS_TEST_REFERENCE_MODULE="${runtime_home}/current/proteus-reference-module" cargo test \
+  env PROTEUS_TEST_BINARY="${runtime_home}/current/proteus" python3 "${project_dir}/scripts/test.py" \
   --manifest-path "${project_dir}/Cargo.toml" \
   -p proteus-core --test process_agent_control \
   process_agents_route_bounded_messages_without_cross_delivery -- --exact
 require_text "test result: ok" "${output_dir}/collaboration-process.txt"
 
 run_and_capture process-peer-surfaces "${output_dir}/process-peer-surfaces.txt" \
-  env PROTEUS_TEST_BINARY="${runtime_home}/current/proteus" PROTEUS_TEST_REFERENCE_MODULE="${runtime_home}/current/proteus-reference-module" cargo test \
+  env PROTEUS_TEST_BINARY="${runtime_home}/current/proteus" python3 "${project_dir}/scripts/test.py" \
   --manifest-path "${project_dir}/Cargo.toml" \
   -p proteus-core --test process_agent_pool \
   process_peers_derive_distinct_tool_surfaces_from_child_configs -- --exact

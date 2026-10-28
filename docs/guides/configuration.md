@@ -279,15 +279,15 @@ OpenCode или отдельный API proxy не требуются.
 После `./install.sh`:
 
 ```bash
-proteus-reference-module auth openai_codex login
-proteus-reference-module auth openai_codex status
+proteus-model-pack-module auth openai_codex login
+proteus-model-pack-module auth openai_codex status
 proteus --config codex
 ```
 
 Для машины без callback в браузере:
 
 ```bash
-proteus-reference-module auth openai_codex login --device-auth
+proteus-model-pack-module auth openai_codex login --device-auth
 ```
 
 Device-code login должен быть разрешён в настройках ChatGPT. Обычный вход
@@ -307,7 +307,7 @@ token автоматически обновляется вместе с access t
 сессию Proteus, не отзывает все сессии ChatGPT.
 
 ```bash
-proteus-reference-module auth openai_codex logout
+proteus-model-pack-module auth openai_codex logout
 ```
 
 Готовый `codex` использует `gpt-5.6-luna` и собственные

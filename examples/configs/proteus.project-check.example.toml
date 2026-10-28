@@ -11,14 +11,47 @@ policy = "ask_write"
 
 # One ordinary component exports the controller and its configured tools. The
 # host still computes authority per active export; this is not union authority.
-[components.reference-controller]
-command = "proteus-reference-module"
+[components.coding-workflow]
+command = "proteus-coding-workflow-module"
 
-[components.reference-controller.exports.workflow."coding.project_check"]
+[components.coding-workflow.exports.workflow."coding.project_check"]
 
-[components.reference-controller.exports.policy.ask_write]
+[components.policy-pack]
+command = "proteus-policy-pack-module"
 
-[components.reference-controller.exports.tool."reference.tools"]
+[components.policy-pack.exports.policy.ask_write]
+
+[components.policy-pack.exports.tool.policy_tools]
+
+[components.file-tools]
+command = "proteus-file-tools-module"
+
+[components.file-tools.exports.tool.file_tools]
+
+[components.git-tools]
+command = "proteus-git-tools-module"
+
+[components.git-tools.exports.tool.git_tools]
+
+[components.shell-tool]
+command = "proteus-shell-tool-module"
+
+[components.shell-tool.exports.tool.shell_tools]
+
+[components.plan-tool]
+command = "proteus-plan-tool-module"
+
+[components.plan-tool.exports.tool.plan_tool]
+
+[components.rust-lsp]
+command = "proteus-rust-lsp-module"
+
+[components.rust-lsp.exports.tool.rust_lsp]
+
+[components.skill-pack]
+command = "proteus-skill-pack-module"
+
+[components.skill-pack.exports.tool.skill_tool]
 
 [tools]
 enabled = ["git_status", "list_dir", "shell"]

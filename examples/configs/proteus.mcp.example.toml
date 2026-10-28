@@ -14,19 +14,25 @@ context = "simple"
 policy = "ask_write"
 
 [components.reference-workflow]
-command = "proteus-reference-module"
+command = "proteus-coding-workflow-module"
 
 [components.reference-workflow.exports.workflow."coding.single_loop"]
 
 [components.reference-context]
-command = "proteus-reference-module"
+command = "proteus-context-pack-module"
 
 [components.reference-context.exports.context.simple]
 
 [components.reference-capabilities]
-command = "proteus-reference-module"
+command = "proteus-policy-pack-module"
 
 [components.reference-capabilities.exports.policy.ask_write]
+
+[components.reference-model]
+command = "proteus-model-pack-module"
+env_allowlist = ["HOME", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy"]
+
+[components.reference-model.exports.model.fake]
 
 [tools]
 enabled = ["request_user_input"]
@@ -63,12 +69,6 @@ workflow_timeout_ms = 14400000
 
 [event_log]
 path = ".proteus/events.jsonl"
-
-[components.reference-model]
-command = "proteus-reference-module"
-env_allowlist = ["HOME", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy"]
-
-[components.reference-model.exports.model.fake]
 
 [module_config.model.fake]
 implementation = "fake"

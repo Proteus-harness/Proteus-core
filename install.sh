@@ -15,11 +15,10 @@ cargo build --locked --release --manifest-path "${project_dir}/Cargo.toml" \
   --target-dir "${build_target}" \
   -p proteus-core
 build_target=$(CDPATH= cd -- "${build_target}" && pwd)
-module_binary=$(python3 "${project_dir}/scripts/build_module.py" --profile release --target-dir "${build_target}")
 
 mkdir -p "${bin_dir}"
 bin_tmp="${bin_path}.tmp.$$"
-module_tmp="${bin_dir}/proteus-reference-module.tmp.$$"
+module_tmp="${bin_dir}/proteus-model-pack-module.tmp.$$"
 release_id=$(date -u +%Y%m%dT%H%M%SZ)-$$
 release_tmp="${releases_dir}/.${release_id}.tmp"
 release_dir="${releases_dir}/${release_id}"
@@ -48,7 +47,7 @@ cat > "${bin_tmp}" <<'WRAPPER'
 #!/usr/bin/env sh
 set -eu
 proteus_home="${PROTEUS_HOME:-${HOME}/.proteus}"
-export PATH="${proteus_home}/current:${PATH}"
+export PATH="${proteus_home}/current/bin:${proteus_home}/current:${PATH}"
 exec "${proteus_home}/current/proteus" "$@"
 WRAPPER
 chmod 755 "${bin_tmp}"
@@ -58,17 +57,15 @@ cat > "${module_tmp}" <<'MODULE_WRAPPER'
 #!/usr/bin/env sh
 set -eu
 proteus_home="${PROTEUS_HOME:-${HOME}/.proteus}"
-exec "${proteus_home}/current/proteus-reference-module" "$@"
+exec "${proteus_home}/current/bin/proteus-model-pack-module" "$@"
 MODULE_WRAPPER
 chmod 755 "${module_tmp}"
 
-# Stage the host and reference module before the `current` symlink makes the
-# build snapshot visible.
+# Stage the host and independent modules before the atomic snapshot switch.
 mkdir -p "${release_tmp}"
 cp "${build_target}/release/proteus" "${release_tmp}/proteus"
-cp "${module_binary}" "${release_tmp}/proteus-reference-module"
+python3 "${project_dir}/scripts/build_module.py" --profile release --bundle "${release_tmp}"
 chmod 755 "${release_tmp}/proteus"
-chmod 755 "${release_tmp}/proteus-reference-module"
 
 mkdir -p "${releases_dir}"
 mv "${release_tmp}" "${release_dir}"
@@ -101,8 +98,8 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 mv "${bin_tmp}" "${bin_path}"
-mv "${module_tmp}" "${bin_dir}/proteus-reference-module"
-rm -f "${bin_dir}/proteus-reference-worker"
+mv "${module_tmp}" "${bin_dir}/proteus-model-pack-module"
+rm -f "${bin_dir}/proteus-reference-worker" "${bin_dir}/proteus-reference-module"
 
 trap - EXIT HUP INT TERM
 
@@ -166,7 +163,7 @@ fi
 
 echo "Installed: ${bin_path}"
 echo "Snapshot:  ${release_dir}"
-echo "Module:    ${current_release}/proteus-reference-module"
+echo "Modules:   ${current_release}/bin"
 echo "Configs:   ${configs_dir}"
 echo "Next:      ${bin_path} --config codex doctor"
 case ":${PATH}:" in

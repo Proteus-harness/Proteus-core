@@ -1,3 +1,5 @@
+# Тестовый aggregate fixture: соберите proteus-reference-module отдельно.
+# В штатную поставку он не входит; рабочие профили используют независимые пакеты.
 active_provider = "fake"
 
 [[instructions]]

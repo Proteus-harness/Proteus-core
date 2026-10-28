@@ -15,24 +15,29 @@ context = "simple"
 policy = "ask_write"
 
 [components.reference-workflow]
-command = "proteus-reference-module"
+command = "proteus-coding-workflow-module"
+
 [components.reference-workflow.exports.workflow."coding.single_loop"]
 
 [components.reference-context]
-command = "proteus-reference-module"
+command = "proteus-context-pack-module"
+
 [components.reference-context.exports.context.simple]
 
 [components.reference-policy]
-command = "proteus-reference-module"
+command = "proteus-policy-pack-module"
+
 [components.reference-policy.exports.policy.ask_write]
 
 [components.reference-model]
-command = "proteus-reference-module"
+command = "proteus-model-pack-module"
+
 [components.reference-model.exports.model.fake]
 
 [components.tgrep-search]
 command = "python3"
 args = ["-B", "examples/modules/tgrep-search/tool.py"]
+
 [components.tgrep-search.exports.tool.tgrep_search]
 timeout_ms = 65000
 

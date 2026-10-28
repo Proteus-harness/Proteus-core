@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Run harness tests with independently built process-module fixtures."""
 import os
+import json
 from pathlib import Path
 import subprocess
 import sys
 import time
 
-from build_module import build
+from build_module import build, build_packages
 from sources import ROOT
 
 
@@ -49,6 +50,12 @@ def main(args):
     start = time.monotonic()
     core = full or "proteus-core" in selected_packages(args)
     if core:
+        if full or "--test" not in args or any(target in args for target in
+                                              ("config_profiles", "capability_environment", "module_swap")):
+            binaries = build_packages(env=env)
+            env["PROTEUS_TEST_MODULE_BINARIES"] = json.dumps(binaries)
+            directories = list(dict.fromkeys(str(Path(path).parent) for path in binaries.values()))
+            env["PATH"] = os.pathsep.join([*directories, env.get("PATH", "")])
         if env.get("PROTEUS_TEST_REFERENCE_MODULE"):
             path = Path(env["PROTEUS_TEST_REFERENCE_MODULE"]).resolve()
             if not path.is_file():

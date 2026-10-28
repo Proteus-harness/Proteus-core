@@ -39,7 +39,7 @@ proteus --config codex doctor
 После настройки подписки ChatGPT:
 
 ```bash
-proteus-reference-module auth openai_codex login
+proteus-model-pack-module auth openai_codex login
 proteus --config codex modules list
 proteus --config codex tools list
 cd /path/to/project

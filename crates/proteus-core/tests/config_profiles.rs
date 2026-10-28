@@ -103,25 +103,30 @@ async fn restricted_profile_preserves_default_behavior_and_trusted_capabilities(
         serde_json::to_value(&default.components["reference-model"]).unwrap(),
         serde_json::to_value(&restricted.components["reference-model"]).unwrap()
     );
-    let mut expected_capabilities =
-        serde_json::to_value(&default.components["reference-capabilities"]).unwrap();
-    for slot in ["policy", "hook"] {
-        expected_capabilities["exports"]
-            .as_object_mut()
-            .unwrap()
-            .remove(slot);
+    for identity in [
+        "file-tools",
+        "git-tools",
+        "shell-tool",
+        "plan-tool",
+        "rust-lsp",
+        "skill-pack",
+        "memory-pack",
+        "codex-patch",
+    ] {
+        assert_eq!(
+            serde_json::to_value(&default.components[identity]).unwrap(),
+            serde_json::to_value(&restricted.components[identity]).unwrap(),
+            "trusted launch/config changed for {identity}"
+        );
     }
-    expected_capabilities["exports"]["tool"]
+    let mut expected_policy = serde_json::to_value(&default.components["policy-pack"]).unwrap();
+    expected_policy["exports"]
         .as_object_mut()
         .unwrap()
-        .remove("rg_search");
-    expected_capabilities["exports"]["context_provider"]
-        .as_object_mut()
-        .unwrap()
-        .remove("rg_search");
+        .remove("policy");
     assert_eq!(
-        serde_json::to_value(&restricted.components["reference-capabilities"]).unwrap(),
-        expected_capabilities
+        serde_json::to_value(&restricted.components["policy-pack"]).unwrap(),
+        expected_policy
     );
     for profile in ["config.toml", "codex.config.toml"] {
         let trusted = AppConfig::load(Some(&root.join("configs").join(profile)))

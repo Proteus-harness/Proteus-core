@@ -21,30 +21,95 @@ policy = "allow_all"
 
 # Один component экспортирует workflow, tools и две независимые hook contributions.
 # Их authority задаётся активным slot; дополнительные contributions включены в этом примере.
-[components.reference-agent]
-command = "proteus-reference-module"
+[components.coding-workflow]
+command = "proteus-coding-workflow-module"
 
-[components.reference-agent.exports.workflow."coding.codex_loop"]
+[components.coding-workflow.exports.workflow."coding.codex_loop"]
 
-[components.reference-agent.exports.tool.rg_search]
+[components.rg-search]
+command = "proteus-rg-search-module"
 
-[components.reference-agent.exports.context_provider.rg_search]
+[components.rg-search.exports.tool.rg_search]
 
-[components.reference-agent.exports.tool.jsonl_memory]
+[components.rg-search.exports.context_provider.rg_search]
 
-[components.reference-agent.exports.context_provider.jsonl_memory]
+[components.memory-pack]
+command = "proteus-memory-pack-module"
 
-[components.reference-agent.exports.context.simple]
+[components.memory-pack.exports.tool.jsonl_memory]
 
-[components.reference-agent.exports.policy.allow_all]
+[components.memory-pack.exports.context_provider.jsonl_memory]
 
-[components.reference-agent.exports.tool.direct_patch]
+[components.direct-patch]
+command = "proteus-direct-patch-module"
 
-[components.reference-agent.exports.hook.codex_compact]
+[components.direct-patch.exports.tool.direct_patch]
 
-[components.reference-agent.exports.hook."tool_selection.dynamic"]
+[components.file-tools]
+command = "proteus-file-tools-module"
 
-[components.reference-agent.exports.tool."reference.tools"]
+[components.file-tools.exports.tool.file_tools]
+
+[components.git-tools]
+command = "proteus-git-tools-module"
+
+[components.git-tools.exports.tool.git_tools]
+
+[components.shell-tool]
+command = "proteus-shell-tool-module"
+
+[components.shell-tool.exports.tool.shell_tools]
+
+[components.plan-tool]
+command = "proteus-plan-tool-module"
+
+[components.plan-tool.exports.tool.plan_tool]
+
+[components.rust-lsp]
+command = "proteus-rust-lsp-module"
+
+[components.rust-lsp.exports.tool.rust_lsp]
+
+[components.skill-pack]
+command = "proteus-skill-pack-module"
+
+[components.skill-pack.exports.tool.skill_tool]
+
+[components.policy-pack]
+command = "proteus-policy-pack-module"
+
+[components.policy-pack.exports.tool.policy_tools]
+
+[components.policy-pack.exports.policy.allow_all]
+
+[components.context-pack]
+command = "proteus-context-pack-module"
+
+[components.context-pack.exports.context.simple]
+
+[components.codex-context-preparation]
+command = "proteus-codex-context-preparation-module"
+
+[components.codex-context-preparation.exports.hook.codex_compact]
+
+[components.tool-selection-hook]
+command = "proteus-tool-selection-hook-module"
+
+[components.tool-selection-hook.exports.hook."tool_selection.dynamic"]
+
+[components.hook-pack]
+command = "proteus-hook-pack-module"
+
+[components.hook-pack.exports.hook."hook.instructions"]
+timeout_ms = 5000
+
+[components.hook-pack.exports.hook."hook.output_budget"]
+timeout_ms = 5000
+
+[components.model-pack]
+command = "proteus-model-pack-module"
+
+[components.model-pack.exports.model.fake]
 
 [tools]
 enabled = ["read_file", "request_user_input", "remember_fact", "recall_memory"]
@@ -75,18 +140,10 @@ workflow_timeout_ms = 30000
 [event_log]
 path = ".proteus/events.jsonl"
 
-[components.reference-agent.exports.model.fake]
-
 [module_config.model.fake]
 implementation = "fake"
 
 # Contributions применяются в порядке modules.hooks; этот профиль opt-in.
-[components.reference-agent.exports.hook."hook.instructions"]
-timeout_ms = 5000
-
-[components.reference-agent.exports.hook."hook.output_budget"]
-timeout_ms = 5000
-
 [module_config.hook."hook.instructions"]
 text = "Перед изменением файлов объясни измеримый ожидаемый результат."
 placement = "append"

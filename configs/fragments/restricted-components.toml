@@ -4,7 +4,7 @@
 # Чистые workflow/policy/compact работают в /usr без доступа к workspace.
 
 [components.reference-workflow]
-command = "proteus-reference-module"
+command = "proteus-coding-workflow-module"
 cwd = "/usr"
 
 [components.reference-workflow.sandbox]
@@ -17,7 +17,7 @@ network = false
 [components.reference-workflow.exports.workflow."coding.codex_loop"]
 
 [components.reference-context]
-command = "proteus-reference-module"
+command = "proteus-context-pack-module"
 
 [components.reference-context.sandbox]
 mode = "restricted"
@@ -26,10 +26,10 @@ read_only = ["/usr", "/lib", "/lib64", "/bin", "."]
 read_write = []
 network = false
 
-[components.reference-context.exports.context."codex_context"]
+[components.reference-context.exports.context.codex_context]
 
 [components.reference-policy]
-command = "proteus-reference-module"
+command = "proteus-policy-pack-module"
 cwd = "/usr"
 
 [components.reference-policy.sandbox]
@@ -39,10 +39,10 @@ read_only = ["/usr", "/lib", "/lib64", "/bin"]
 read_write = []
 network = false
 
-[components.reference-policy.exports.policy."codex_policy"]
+[components.reference-policy.exports.policy.codex_policy]
 
 [components.reference-compact]
-command = "proteus-reference-module"
+command = "proteus-codex-context-preparation-module"
 cwd = "/usr"
 
 [components.reference-compact.sandbox]
@@ -52,10 +52,10 @@ read_only = ["/usr", "/lib", "/lib64", "/bin"]
 read_write = []
 network = false
 
-[components.reference-compact.exports.hook."codex_compact"]
+[components.reference-compact.exports.hook.codex_compact]
 
 [components.reference-search-tool]
-command = "proteus-reference-module"
+command = "proteus-rg-search-module"
 
 [components.reference-search-tool.sandbox]
 mode = "restricted"
@@ -64,10 +64,10 @@ read_only = ["/usr", "/lib", "/lib64", "/bin", "."]
 read_write = []
 network = false
 
-[components.reference-search-tool.exports.tool."rg_search"]
+[components.reference-search-tool.exports.tool.rg_search]
 
 [components.reference-search-provider]
-command = "proteus-reference-module"
+command = "proteus-rg-search-module"
 
 [components.reference-search-provider.sandbox]
 mode = "restricted"
@@ -76,32 +76,61 @@ read_only = ["/usr", "/lib", "/lib64", "/bin", "."]
 read_write = []
 network = false
 
-[components.reference-search-provider.exports.context_provider."rg_search"]
+[components.reference-search-provider.exports.context_provider.rg_search]
 
-# Этот общий процесс сохраняет user skills, запись файлов/памяти, shell и LSP.
-# Его exports не изолированы друг от друга; HOME/PROTEUS_HOME нужны как прежде.
-[components.reference-capabilities]
-command = "proteus-reference-module"
+[components.memory-pack]
+command = "proteus-memory-pack-module"
 env_allowlist = ["HOME", "PROTEUS_HOME"]
 
-[components.reference-capabilities.exports.tool.jsonl_memory]
+[components.memory-pack.exports.tool.jsonl_memory]
 
-[components.reference-capabilities.exports.context_provider.skills]
+[components.codex-patch]
+command = "proteus-codex-patch-module"
+env_allowlist = ["HOME", "PROTEUS_HOME"]
 
-[components.reference-capabilities.exports.tool.codex_patch]
+[components.codex-patch.exports.tool.codex_patch]
 
-# Отдельные паки tools делят тот же процесс и сохраняют прежнюю tool surface.
-[components.reference-capabilities.exports.tool.file_tools]
+[components.file-tools]
+command = "proteus-file-tools-module"
+env_allowlist = ["HOME", "PROTEUS_HOME"]
 
-[components.reference-capabilities.exports.tool.git_tools]
+[components.file-tools.exports.tool.file_tools]
 
-[components.reference-capabilities.exports.tool.shell_tools]
+[components.git-tools]
+command = "proteus-git-tools-module"
+env_allowlist = ["HOME", "PROTEUS_HOME"]
 
-[components.reference-capabilities.exports.tool.plan_tool]
+[components.git-tools.exports.tool.git_tools]
 
-[components.reference-capabilities.exports.tool.rust_lsp]
+[components.shell-tool]
+command = "proteus-shell-tool-module"
+env_allowlist = ["HOME", "PROTEUS_HOME"]
 
-[components.reference-capabilities.exports.tool.skill_tool]
+[components.shell-tool.exports.tool.shell_tools]
 
-[components.reference-capabilities.exports.tool.policy_tools]
+[components.plan-tool]
+command = "proteus-plan-tool-module"
+env_allowlist = ["HOME", "PROTEUS_HOME"]
+
+[components.plan-tool.exports.tool.plan_tool]
+
+[components.rust-lsp]
+command = "proteus-rust-lsp-module"
+env_allowlist = ["HOME", "PROTEUS_HOME"]
+
+[components.rust-lsp.exports.tool.rust_lsp]
+
+[components.skill-pack]
+command = "proteus-skill-pack-module"
+env_allowlist = ["HOME", "PROTEUS_HOME"]
+
+[components.skill-pack.exports.tool.skill_tool]
+
+[components.skill-pack.exports.context_provider.skills]
+
+[components.policy-pack]
+command = "proteus-policy-pack-module"
+env_allowlist = ["HOME", "PROTEUS_HOME"]
+
+[components.policy-pack.exports.tool.policy_tools]
 

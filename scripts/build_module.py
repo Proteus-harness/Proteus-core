@@ -10,6 +10,7 @@ from sources import resolve
 
 
 def build(profile="dev", target_dir=None, env=None):
+    """Build the aggregate test fixture, never the production module delivery."""
     source = resolve("modules")
     command = ["cargo", "build", "--locked", "--manifest-path", str(source / "Cargo.toml"),
                "-p", "proteus-reference-module", "--bin", "proteus-reference-module",
@@ -33,9 +34,26 @@ def build(profile="dev", target_dir=None, env=None):
     return executable
 
 
+def build_packages(profile="dev", target_dir=None, env=None, destination=None, reuse=False):
+    source = resolve("modules")
+    command = [sys.executable, str(source / "package.py"), "--profile", profile]
+    command += ["--bundle", str(destination)] if destination else ["--print-artifacts"]
+    if target_dir:
+        command += ["--target-dir", str(Path(target_dir).resolve())]
+    if reuse:
+        command.append("--no-build")
+    output = subprocess.check_output(command, cwd=source, env=env, text=True)
+    return None if destination else json.loads(output)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--profile", default="dev")
     parser.add_argument("--target-dir")
+    parser.add_argument("--bundle", type=Path, help="deliver independent production modules into this runtime root")
+    parser.add_argument("--no-build", action="store_true", help="reuse recorded production artifacts with --bundle")
     args = parser.parse_args()
-    print(build(args.profile, args.target_dir))
+    if args.bundle:
+        build_packages(args.profile, args.target_dir, destination=args.bundle, reuse=args.no_build)
+    else:
+        print(build(args.profile, args.target_dir))

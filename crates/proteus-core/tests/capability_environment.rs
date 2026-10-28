@@ -100,8 +100,10 @@ async fn worker_scenario() -> Result<()> {
     let cwd = PathBuf::from(std::env::var_os(WORKSPACE).expect("isolated workspace"));
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let profile = AppConfig::load(Some(&root.join("configs/config.toml"))).await?;
-    let mut spec = profile.components["reference-capabilities"].process_spec(&cwd)?;
-    spec.command = std::env::var("PROTEUS_TEST_REFERENCE_MODULE")?;
+    let mut spec = profile.components["skill-pack"].process_spec(&cwd)?;
+    let binaries: std::collections::BTreeMap<String, String> =
+        serde_json::from_str(&std::env::var("PROTEUS_TEST_MODULE_BINARIES")?)?;
+    spec.command = binaries["skill-pack"].clone();
     spec.args.clear();
 
     // Exercise the same launch description through an independent environment
@@ -131,7 +133,7 @@ async fn worker_scenario() -> Result<()> {
     )?;
     let tool = ProcessExportBinding::new(
         "tool",
-        "reference.tools",
+        "skill_tool",
         PROCESS_TOOL_CONTRACT_VERSION,
         json!({}),
     )?;

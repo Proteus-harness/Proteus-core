@@ -540,7 +540,7 @@ Core сохраняет `ModelService`, `BoundModel`, canonical validation и jo
 
 `openai_codex` использует ChatGPT OAuth и подписочный Codex Responses backend.
 Credentials, browser/device login и refresh принадлежат model-pack; команды
-управления вызываются у executable `proteus-reference-module auth openai_codex`.
+управления вызываются у executable `proteus-model-pack-module auth openai_codex`.
 Это локальная management surface поставляемого component, не новый host method
 или slot. Core, workflow и tool authority не различают способ оплаты модели.
 `stream=false` собирает один provider SSE в terminal response. Хранилище,

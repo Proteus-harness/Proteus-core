@@ -84,7 +84,7 @@ Proteus-modules, затем атомарно публикует их в `~/.prot
 поддерживается. Для одной сборки harness достаточно `cargo build --release -p proteus-core`.
 
 ```bash
-proteus-reference-module auth openai_codex login
+proteus-model-pack-module auth openai_codex login
 cd /path/to/project
 proteus --config codex "Расскажи о структуре этого проекта"
 ```
@@ -134,7 +134,7 @@ timeout_ms = 60000
 [components.python-search.exports.context_provider.python_rg]
 
 [components.reference-context]
-command = "proteus-reference-module"
+command = "proteus-context-pack-module"
 
 [components.reference-context.exports.context.simple]
 

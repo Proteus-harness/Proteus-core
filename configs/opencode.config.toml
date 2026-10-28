@@ -26,32 +26,80 @@ context = "codex_context"
 policy = "opencode_policy"
 
 [components.reference-workflow]
-command = "proteus-reference-module"
+command = "proteus-coding-workflow-module"
 
 [components.reference-workflow.exports.workflow."coding.codex_loop"]
 
 [components.reference-context]
-command = "proteus-reference-module"
+command = "proteus-context-pack-module"
 
 [components.reference-context.exports.context.codex_context]
 
-[components.reference-capabilities]
-command = "proteus-reference-module"
+[components.rg-search]
+command = "proteus-rg-search-module"
 env_allowlist = ["HOME", "PROTEUS_HOME"]
 
-[components.reference-capabilities.exports.tool.rg_search]
+[components.rg-search.exports.tool.rg_search]
 
-[components.reference-capabilities.exports.context_provider.rg_search]
+[components.rg-search.exports.context_provider.rg_search]
 
-[components.reference-capabilities.exports.context_provider.skills]
+[components.direct-patch]
+command = "proteus-direct-patch-module"
+env_allowlist = ["HOME", "PROTEUS_HOME"]
 
-[components.reference-capabilities.exports.policy.opencode_policy]
+[components.direct-patch.exports.tool.direct_patch]
 
-[components.reference-capabilities.exports.tool.direct_patch]
+[components.file-tools]
+command = "proteus-file-tools-module"
+env_allowlist = ["HOME", "PROTEUS_HOME"]
 
-[components.reference-capabilities.exports.hook.codex_compact]
+[components.file-tools.exports.tool.file_tools]
 
-[components.reference-capabilities.exports.tool."reference.tools"]
+[components.git-tools]
+command = "proteus-git-tools-module"
+env_allowlist = ["HOME", "PROTEUS_HOME"]
+
+[components.git-tools.exports.tool.git_tools]
+
+[components.shell-tool]
+command = "proteus-shell-tool-module"
+env_allowlist = ["HOME", "PROTEUS_HOME"]
+
+[components.shell-tool.exports.tool.shell_tools]
+
+[components.plan-tool]
+command = "proteus-plan-tool-module"
+env_allowlist = ["HOME", "PROTEUS_HOME"]
+
+[components.plan-tool.exports.tool.plan_tool]
+
+[components.rust-lsp]
+command = "proteus-rust-lsp-module"
+env_allowlist = ["HOME", "PROTEUS_HOME"]
+
+[components.rust-lsp.exports.tool.rust_lsp]
+
+[components.skill-pack]
+command = "proteus-skill-pack-module"
+env_allowlist = ["HOME", "PROTEUS_HOME"]
+
+[components.skill-pack.exports.tool.skill_tool]
+
+[components.skill-pack.exports.context_provider.skills]
+
+[components.policy-pack]
+command = "proteus-policy-pack-module"
+env_allowlist = ["HOME", "PROTEUS_HOME"]
+
+[components.policy-pack.exports.tool.policy_tools]
+
+[components.policy-pack.exports.policy.opencode_policy]
+
+[components.codex-context-preparation]
+command = "proteus-codex-context-preparation-module"
+env_allowlist = ["HOME", "PROTEUS_HOME"]
+
+[components.codex-context-preparation.exports.hook.codex_compact]
 
 [tools]
 enabled = ["skill", "read_file", "read_many_files", "list_dir", "grep", "find_files", "lsp_diagnostics", "edit_file", "write_file", "shell", "update_plan", "request_user_input"]

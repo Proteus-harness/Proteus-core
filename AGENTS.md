@@ -144,17 +144,18 @@ rendering, UI state, tests и provider/module-specific детали.
   `proteus-process-host` — lifecycle stdio процессных модулей.
 - Proteus-modules группирует реализации по `model`, `workflow`, `context`,
   `policy`, `hook`, `tool`, `context_provider`; executable с несколькими
-  exports находится в `components/process-module`, эксперименты — в `research`.
+  exports находится в `components/<id>-module`, общий fixture — в
+  `components/process-module`, эксперименты — в `research`.
 - Proteus-desktop и Proteus-desktop-extensions имеют собственные workspace,
   документацию и проверки; не возвращайте их исходники в harness.
 - `configs` — поставляемые profiles и prompts, источник для `install.sh`.
 - `examples/configs`, `examples/modules`, `examples/mcp` — примеры config,
   внешних модулей и локального MCP server.
 
-Reference crates линкуются только внутрь `proteus-reference-module` и не
-являются отдельным runtime ABI. Installer публикует `proteus` и этот модуль в
-одном release, но любой внешний executable с тем же process contract имеет
-ровно тот же статус. Reference каталог не является standard/default pack.
+Реализации поставляются самостоятельными `proteus-<id>-module` из Modules.
+Общий `proteus-reference-module` — только тестовый fixture; installer его не
+публикует. Любой внешний executable с тем же process contract имеет тот же
+статус. Реализации не становятся отдельным native ABI или builtin pack.
 
 ## Что Нельзя Ломать
 

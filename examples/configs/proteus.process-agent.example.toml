@@ -18,6 +18,12 @@ handshake_timeout_ms = 30000
 
 [components.python-agent.exports.workflow.python_agent_loop]
 
+[components.reference-model]
+command = "proteus-model-pack-module"
+env_allowlist = ["HOME", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy"]
+
+[components.reference-model.exports.model.fake]
+
 [module_config.workflow.python_agent_loop]
 max_tool_rounds = 8
 system_instructions = "You are a small process-hosted modular agent. Use only tools exposed by the host."
@@ -32,12 +38,6 @@ mode = "normal"
 model_timeout_ms = 10800000
 context_timeout_ms = 30000
 workflow_timeout_ms = 14400000
-
-[components.reference-model]
-command = "proteus-reference-module"
-env_allowlist = ["HOME", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy"]
-
-[components.reference-model.exports.model.fake]
 
 [module_config.model.fake]
 implementation = "fake"
