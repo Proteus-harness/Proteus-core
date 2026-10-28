@@ -1,8 +1,9 @@
 //! Длинный синтетический чат для ручной проверки нативной прокрутки.
-//! Запуск: `native_scroll_fixture CONFIG_ROOT WORKSPACE ROWS [--folded-tail]`.
+//! Запуск: `native_scroll_fixture CONFIG_ROOT WORKSPACE ROWS [--folded-tail|--tool-details]`.
 //! Создаёт новую сессию; модели, инструменты и внешние API не вызывает.
 //! `--folded-tail` оставляет в конце 50 пар вызов/результат без финального текста:
 //! нативный клиент сворачивает этот хвост в одну строку цепочки инструментов.
+//! `--tool-details` добавляет разные параметры одноимённых tools и длинный diff.
 
 use anyhow::{Result, ensure};
 use proteus_contracts::{
@@ -13,17 +14,19 @@ use proteus_core::core::SessionStore;
 use std::{fmt::Write, path::PathBuf};
 
 const FOLDED_TOOL_PAIRS: usize = 50;
+const TOOL_DETAILS_MIN_ROWS: usize = 12;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let args: Vec<_> = std::env::args().collect();
     ensure!(
         args.len() == 4 || args.len() == 5,
-        "native_scroll_fixture CONFIG_ROOT WORKSPACE ROWS [--folded-tail]"
+        "native_scroll_fixture CONFIG_ROOT WORKSPACE ROWS [--folded-tail|--tool-details]"
     );
-    let folded_tail = match args.get(4).map(String::as_str) {
-        None => false,
-        Some("--folded-tail") => true,
+    let (folded_tail, tool_details) = match args.get(4).map(String::as_str) {
+        None => (false, false),
+        Some("--folded-tail") => (true, false),
+        Some("--tool-details") => (false, true),
         Some(other) => anyhow::bail!("unknown option: {other}"),
     };
     let root = PathBuf::from(&args[1]);
@@ -35,18 +38,26 @@ async fn main() -> Result<()> {
         "--folded-tail requires ROWS > {}",
         FOLDED_TOOL_PAIRS * 2
     );
+    ensure!(
+        !tool_details || rows >= TOOL_DETAILS_MIN_ROWS,
+        "--tool-details requires ROWS >= {TOOL_DETAILS_MIN_ROWS}"
+    );
     std::fs::create_dir_all(&cwd)?;
     let store = SessionStore::new(&root, &cwd, new_session_id())?;
     let title = format!(
         "{} — {} сообщений",
-        if folded_tail {
+        if tool_details {
+            "Тест параметров инструментов и diff"
+        } else if folded_tail {
             "Тест короткого хвоста"
         } else {
             "Тест прокрутки"
         },
         grouped_number(rows)
     );
-    let text_rows = if folded_tail {
+    let text_rows = if tool_details {
+        rows - (TOOL_DETAILS_MIN_ROWS - 1)
+    } else if folded_tail {
         rows - FOLDED_TOOL_PAIRS * 2
     } else {
         rows
@@ -81,6 +92,13 @@ async fn main() -> Result<()> {
     if folded_tail {
         append_folded_tail(&mut messages);
     }
+    if tool_details {
+        append_tool_details(&mut messages);
+    }
+    ensure!(
+        messages.len() == rows,
+        "generated message count differs from ROWS"
+    );
     // Одна большая запись на 50 000 сообщений превышает лимит journal payload.
     // Сохраняем одну беседу небольшими порциями через тот же typed writer.
     let thread_id = new_thread_id();
@@ -96,6 +114,100 @@ async fn main() -> Result<()> {
         serde_json::json!({"session_dir": store.session_dir(), "rows": saved.len()})
     );
     Ok(())
+}
+
+fn append_tool_details(messages: &mut Vec<CanonicalMessage>) {
+    let mut long_command = String::from("set -eu\n");
+    for index in 0..80 {
+        writeln!(
+            long_command,
+            "printf '%s\\n' 'Синтетическая строка {index:02}: длинный параметр, который только показывается в UI.'"
+        )
+        .expect("writing to String");
+    }
+    let cases = [
+        (
+            "exec_command",
+            serde_json::json!({
+                "cmd": "printf 'Привет, параметры\\n'\nprintf '%s\\n' \"$PWD\"",
+                "cwd": "/synthetic/workspace/проект α",
+                "timeout": 30_000,
+            }),
+        ),
+        (
+            "exec_command",
+            serde_json::json!({
+                "cmd": long_command,
+                "cwd": "/synthetic/workspace/другой проект β",
+                "timeout": 120_000,
+            }),
+        ),
+        (
+            "synthetic_inspect",
+            serde_json::json!({
+                "path": "/synthetic/данные/世界.json",
+                "options": {
+                    "labels": ["Кириллица", "日本語", "emoji 🧪"],
+                    "limits": {"rows": 24, "ratio": 0.5},
+                    "enabled": true,
+                    "note": "Первая строка вложенного параметра.\nВторая строка: кавычки \" и путь C:\\synthetic.\n".repeat(40),
+                },
+                "nullable": null,
+            }),
+        ),
+        (
+            "apply_patch",
+            serde_json::json!({"patch": tool_details_patch()}),
+        ),
+    ];
+    for text in [
+        "Параметры одноимённых tools отличаются; откройте подсказку у exec_command.",
+        "Вложенные параметры содержат Unicode и длинный текст; подсказка ограничена.",
+        "В apply_patch два файла: сравните Unified и Split и сворачивание длинного diff.",
+    ] {
+        messages.push(CanonicalMessage::text(MessageRole::Assistant, text));
+    }
+    for (name, args) in cases {
+        let call = ToolCall::new(new_call_id(), name, args);
+        messages.push(CanonicalMessage::new(
+            MessageRole::Assistant,
+            vec![ContentPart::ToolCall { call: call.clone() }],
+        ));
+        messages.push(
+            CanonicalMessage::new(
+                MessageRole::Tool,
+                vec![ContentPart::ToolResult {
+                    result: ToolResult::ok(
+                        call.id.clone(),
+                        "Синтетический результат; tool не запускался.",
+                    ),
+                }],
+            )
+            .with_tool_call_id(call.id),
+        );
+    }
+}
+
+fn tool_details_patch() -> String {
+    let mut patch = String::from(
+        "*** Begin Patch\n*** Update File: src/пример.rs\n@@\n // Общий контекст до изменений.\n-fn status() -> &'static str { \"старое\" }\n+fn status() -> &'static str { \"новое\" }\n",
+    );
+    for index in 0..80 {
+        writeln!(
+            patch,
+            "-const ITEM_{index:02}: &str = \"старое значение {index}\";"
+        )
+        .expect("writing to String");
+        writeln!(
+            patch,
+            "+const ITEM_{index:02}: &str = \"новое значение {index}\";"
+        )
+        .expect("writing to String");
+    }
+    patch.push_str(
+        " fn stable_context() {}\n*** Update File: settings/пример.toml\n@@\n # Второй файл для сравнения Split и Unified.\n-theme = \"старое\"\n+theme = \"новое\"\n-enabled = false\n+enabled = true\n retries = 3\n*** End Patch",
+    );
+    patch
 }
 
 fn append_folded_tail(messages: &mut Vec<CanonicalMessage>) {

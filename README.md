@@ -216,6 +216,24 @@ cargo run --locked --release -p proteus-core --example native_scroll_fixture -- 
 100 canonical сообщений превращаются в 50 строк инструментов, сворачиваемых
 клиентом в один заголовок. Счётчик строк интерфейса отличается от canonical.
 
+Для проверки параметров инструментов и встроенного diff используйте
+`12 --tool-details` (минимум 12 canonical сообщений). Этот режим содержит
+два `exec_command` с разными `cmd`, `cwd`, `timeout`, длинный многострочный
+параметр, неизвестный инструмент с вложенным Unicode JSON и `apply_patch`
+с двумя файлами и 176 строками patch. Три вводных сообщения идут перед
+четырьмя вызовами: они образуют одну цепочку с повторяющимся `exec_command ×2`.
+`ROWS` остаётся точным:
+большее значение добавляет текстовые сообщения перед этими примерами.
+Вызовы и результаты только записываются в canonical history; команды и patch
+не исполняются. `effective_args` этот fixture не имитирует: это отдельный
+runtime-факт исполнения, отсутствующий в canonical сообщениях.
+
+```bash
+cargo run --locked --release -p proteus-core --example native_scroll_fixture -- \
+  "$PWD/target/verification/tool-details/config" \
+  "$PWD/target/verification/tool-details/workspace" 12 --tool-details
+```
+
 ## Структура Репозитория
 
 | Каталог | Содержимое |
