@@ -164,24 +164,55 @@ async fn restricted_profile_resolves_six_single_export_read_only_process_specs()
     let bin = state.path().join("bin");
     std::fs::create_dir(&workspace).unwrap();
     std::fs::create_dir(&bin).unwrap();
-    // Resolve the shipped command against a private child PATH. No mutation of
-    // the test process environment or dependency on an installed reference binary.
-    std::fs::copy(
-        std::env::current_exe().unwrap(),
-        bin.join("proteus-reference-module"),
+    // Resolve shipped standalone commands against the runner's actual package
+    // fixtures through a private child PATH, without changing the test environment.
+    let binaries: std::collections::BTreeMap<String, PathBuf> = serde_json::from_str(
+        &std::env::var("PROTEUS_TEST_MODULE_BINARIES")
+            .expect("run scripts/test.py for package fixtures"),
     )
     .unwrap();
     let workspace = workspace.canonicalize().unwrap();
     let restricted = [
-        ("reference-workflow", "workflow", "coding.codex_loop", false),
-        ("reference-context", "context", "codex_context", true),
-        ("reference-policy", "policy", "codex_policy", false),
-        ("reference-compact", "hook", "codex_compact", false),
-        ("reference-search-tool", "tool", "rg_search", true),
+        (
+            "reference-workflow",
+            "workflow",
+            "coding.codex_loop",
+            "coding-workflow",
+            false,
+        ),
+        (
+            "reference-context",
+            "context",
+            "codex_context",
+            "context-pack",
+            true,
+        ),
+        (
+            "reference-policy",
+            "policy",
+            "codex_policy",
+            "policy-pack",
+            false,
+        ),
+        (
+            "reference-compact",
+            "hook",
+            "codex_compact",
+            "codex-context-preparation",
+            false,
+        ),
+        (
+            "reference-search-tool",
+            "tool",
+            "rg_search",
+            "rg-search",
+            true,
+        ),
         (
             "reference-search-provider",
             "context_provider",
             "rg_search",
+            "rg-search",
             true,
         ),
     ];
@@ -195,9 +226,20 @@ async fn restricted_profile_resolves_six_single_export_read_only_process_specs()
             .count(),
         restricted.len()
     );
-    for (id, slot, module, workspace_access) in restricted {
+    for (id, slot, module, package, workspace_access) in restricted {
         let component = &config.components[id];
-        assert_eq!(component.command(), "proteus-reference-module");
+        let command = format!("proteus-{package}-module");
+        assert_eq!(component.command(), command);
+        let executable = binaries
+            .get(package)
+            .unwrap_or_else(|| panic!("missing package fixture {package}"))
+            .canonicalize()
+            .unwrap();
+        let child_command = bin.join(&command);
+        if !child_command.exists() {
+            std::os::unix::fs::symlink(&executable, &child_command).unwrap();
+        }
+        assert_eq!(child_command.canonicalize().unwrap(), executable);
         assert_eq!(
             component
                 .exports()
@@ -211,7 +253,7 @@ async fn restricted_profile_resolves_six_single_export_read_only_process_specs()
         value["env"]["PATH"] = json!(bin);
         let component: ProcessComponentConfig = serde_json::from_value(value).unwrap();
         let spec = component.process_spec(&workspace).unwrap();
-        assert_eq!(spec.command, "proteus-reference-module");
+        assert_eq!(spec.command, command);
         assert!(spec.args.is_empty());
         assert_eq!(
             spec.resolved_environment()

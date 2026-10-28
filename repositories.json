@@ -1,7 +1,7 @@
 {
   "modules": {
     "url": "https://github.com/Proteus-harness/Proteus-modules.git",
-    "rev": "5fa8978684a37e8083c64f4d6cf0289e72450c6a",
+    "rev": "ea459a60d8fce621ccabff33ff7ff9dc9d55573a",
     "env": "PROTEUS_MODULES_SOURCE",
     "local": "../Proteus-modules",
     "marker": "Cargo.toml"

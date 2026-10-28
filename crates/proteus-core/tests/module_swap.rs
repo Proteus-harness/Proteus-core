@@ -1,3 +1,5 @@
+#[path = "module_swap/independent.rs"]
+mod independent;
 #[path = "module_swap/patch.rs"]
 mod patch;
 #[path = "support/model.rs"]
@@ -6,8 +8,6 @@ mod test_model;
 mod tool_selection;
 #[path = "module_swap/workflow_checkpoint.rs"]
 mod workflow_checkpoint;
-#[path = "module_swap/independent.rs"]
-mod independent;
 
 use std::{
     path::{Path, PathBuf},
