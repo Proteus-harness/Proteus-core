@@ -32,6 +32,9 @@ pub struct AppTranscriptBase {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct AppTranscriptMessage {
     pub message_id: Option<crate::domain::MessageId>,
+    /// First recorded creation time in Unix milliseconds. Persisted rows use
+    /// canonical journal time; unavailable source dates stay unknown.
+    pub timestamp_ms: Option<i64>,
     pub phase: Option<MessagePhase>,
     pub role: String,
     pub text: String,

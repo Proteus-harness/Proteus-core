@@ -17,6 +17,7 @@ pub(super) struct TurnProgress {
     messages: Vec<AppTranscriptMessage>,
     turn_id: Option<crate::domain::TurnId>,
     submitted: Option<String>,
+    submitted_at: Option<i64>,
     submitted_images: Vec<crate::domain::ImageRef>,
     /// Collaboration-дети, запущенные через `spawn_agent`/`followup_task`,
     /// живут дольше родительского turn-а. Их карточки хранятся отдельно, чтобы
@@ -39,7 +40,10 @@ impl TurnProgress {
                 self.messages.clear();
                 self.turn_id = Some(*turn_id);
                 if let Some(text) = self.submitted.take() {
-                    self.push_user(text);
+                    self.messages.push(Self::user_message(
+                        text,
+                        self.submitted_at.take().or(Some(envelope.timestamp_ms)),
+                    ));
                     if let Some(message) = self.messages.last_mut() {
                         message.images = std::mem::take(&mut self.submitted_images);
                     }
@@ -55,7 +59,7 @@ impl TurnProgress {
                 .turn_thread_id
                 .is_none_or(|thread_id| thread_id == envelope.thread_id) =>
             {
-                self.update_text(*message_id, *phase, text, false);
+                self.update_text(*message_id, *phase, text, false, envelope.timestamp_ms);
             }
             Event::AssistantTextDelta { .. } => {}
             Event::AssistantMessageCompleted {
@@ -66,7 +70,7 @@ impl TurnProgress {
                 .turn_thread_id
                 .is_none_or(|id| id == envelope.thread_id) =>
             {
-                self.update_text(*message_id, *phase, text, true);
+                self.update_text(*message_id, *phase, text, true, envelope.timestamp_ms);
             }
             Event::AssistantMessageCompleted { .. } => {}
             Event::SteeringDelivered {
@@ -76,6 +80,7 @@ impl TurnProgress {
                 ..
             } => {
                 self.messages.push(AppTranscriptMessage {
+                    timestamp_ms: Some(envelope.timestamp_ms),
                     images: images.clone(),
                     message_id: Some(*message_id),
                     phase: None,
@@ -87,7 +92,7 @@ impl TurnProgress {
                 });
             }
             Event::ToolCallRequested { call } => {
-                self.append_tool_call(&envelope.thread_id.to_string(), call);
+                self.append_tool_call(&envelope.thread_id.to_string(), call, envelope.timestamp_ms);
             }
             Event::ToolCallResolved { call } => {
                 for message in self
@@ -132,6 +137,7 @@ impl TurnProgress {
                 child_thread_id,
             } => {
                 let message = AppTranscriptMessage {
+                    timestamp_ms: Some(envelope.timestamp_ms),
                     images: Vec::new(),
                     message_id: None,
                     phase: None,
@@ -183,6 +189,7 @@ impl TurnProgress {
         self.messages.clear();
         self.turn_id = None;
         self.submitted = None;
+        self.submitted_at = None;
     }
 
     pub(super) fn thread_id(&self) -> Option<ThreadId> {
@@ -191,15 +198,16 @@ impl TurnProgress {
 
     pub(super) fn submit_input(&mut self, text: String, images: Vec<crate::domain::ImageRef>) {
         self.submitted = Some(text);
+        self.submitted_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()
+            .and_then(|elapsed| i64::try_from(elapsed.as_millis()).ok());
         self.submitted_images = images;
     }
 
-    fn push_user(&mut self, text: String) {
-        self.messages.push(Self::user_message(text));
-    }
-
-    fn user_message(text: String) -> AppTranscriptMessage {
+    fn user_message(text: String, timestamp_ms: Option<i64>) -> AppTranscriptMessage {
         AppTranscriptMessage {
+            timestamp_ms,
             images: Vec::new(),
             message_id: None,
             phase: None,
@@ -215,7 +223,7 @@ impl TurnProgress {
     pub(super) fn snapshot(&self) -> Vec<AppTranscriptMessage> {
         let mut messages = self.messages.clone();
         if let Some(text) = &self.submitted {
-            let mut message = Self::user_message(text.clone());
+            let mut message = Self::user_message(text.clone(), self.submitted_at);
             message.images = self.submitted_images.clone();
             messages.push(message);
         }
@@ -229,6 +237,7 @@ impl TurnProgress {
         phase: Option<crate::model_standard::MessagePhase>,
         text: &str,
         completed: bool,
+        timestamp_ms: i64,
     ) {
         if let Some(message) = self
             .messages
@@ -255,6 +264,7 @@ impl TurnProgress {
             message.streaming = false;
         }
         self.messages.push(AppTranscriptMessage {
+            timestamp_ms: Some(timestamp_ms),
             images: Vec::new(),
             message_id: Some(message_id),
             phase,
@@ -266,7 +276,7 @@ impl TurnProgress {
         });
     }
 
-    fn append_tool_call(&mut self, thread_id: &str, call: &ToolCall) {
+    fn append_tool_call(&mut self, thread_id: &str, call: &ToolCall, timestamp_ms: i64) {
         if append_subagent_tool(&mut self.background_subagents, thread_id, call, true)
             || append_subagent_tool(&mut self.messages, thread_id, call, false)
         {
@@ -277,6 +287,7 @@ impl TurnProgress {
             message.streaming = false;
         }
         self.messages.push(AppTranscriptMessage {
+            timestamp_ms: Some(timestamp_ms),
             images: Vec::new(),
             message_id: None,
             phase: None,

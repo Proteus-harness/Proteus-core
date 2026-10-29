@@ -94,7 +94,7 @@ fn malformed_versions_and_checksum_are_disposable_misses() {
                     "format"
                 } else {
                     "journal_schema"
-                }] = 0.into();
+                }] = if change == "schema_version" { 1 } else { 0 }.into();
                 let bytes = serde_json::to_vec(&source).unwrap();
                 connection
                     .execute(

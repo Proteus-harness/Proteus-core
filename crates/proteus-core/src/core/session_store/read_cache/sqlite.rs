@@ -5,7 +5,9 @@ use rusqlite::{Connection, OpenFlags, params};
 mod update;
 pub(in crate::core::session_store) use update::Updater;
 
-const FORMAT: i64 = 1;
+// Transcript rows now retain canonical creation timestamps. Old disposable
+// views must be reprojected instead of deserializing absent dates as None.
+const FORMAT: i64 = 2;
 const SCHEMA: &str = "CREATE TABLE records(section TEXT NOT NULL,position INTEGER NOT NULL,
     payload BLOB NOT NULL,checksum BLOB NOT NULL,PRIMARY KEY(section,position)) WITHOUT ROWID";
 

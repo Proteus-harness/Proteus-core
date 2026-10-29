@@ -438,3 +438,33 @@ fn followup_images_are_visible_after_turn_started_before_settlement() {
     assert_eq!(snapshot[0].message_id, Some(message_id));
     assert_eq!(snapshot[0].images[0].id, "followup-image");
 }
+
+#[test]
+fn creation_dates_do_not_follow_text_deltas_completion_or_tool_finish() {
+    let mut progress = TurnProgress::default();
+    let events = [
+        delta("first"),
+        delta(" second"),
+        Event::AssistantMessageCompleted {
+            message_id: uuid::Uuid::from_u128(1),
+            phase: None,
+            text: "complete".into(),
+        },
+        Event::ToolCallRequested {
+            call: ToolCall::new("dated", "probe", json!({})),
+        },
+        Event::ToolFinished {
+            result: ToolResult::ok("dated".into(), "done"),
+        },
+    ];
+    for (index, event) in events.into_iter().enumerate() {
+        let mut item = envelope(root_thread_id(), event);
+        item.timestamp_ms = 10 + index as i64;
+        progress.apply(&item);
+    }
+    let rows = progress.snapshot();
+    assert_eq!(rows[0].timestamp_ms, Some(10));
+    assert_eq!(rows[0].text, "complete");
+    assert_eq!(rows[1].timestamp_ms, Some(13));
+    assert_eq!(rows[1].tool.as_ref().unwrap().status, "done");
+}

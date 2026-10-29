@@ -68,6 +68,7 @@ fn append_transcript_message(
             item.images = images;
         } else {
             transcript.push(AppTranscriptMessage {
+                timestamp_ms: None,
                 message_id: Some(message.id),
                 phase: message.phase,
                 role,
@@ -83,6 +84,7 @@ fn append_transcript_message(
 
 fn append_transcript_tool_call(transcript: &mut Vec<AppTranscriptMessage>, call: &ToolCall) {
     transcript.push(AppTranscriptMessage {
+        timestamp_ms: None,
         images: Vec::new(),
         message_id: None,
         phase: None,
@@ -169,6 +171,7 @@ fn append_hosted_tool_activity(
         _ => None,
     };
     transcript.push(AppTranscriptMessage {
+        timestamp_ms: None,
         images: Vec::new(),
         message_id: None,
         phase: None,
@@ -232,6 +235,7 @@ fn flush_transcript_text(
         return;
     }
     transcript.push(AppTranscriptMessage {
+        timestamp_ms: None,
         images: Vec::new(),
         message_id: Some(message.id),
         phase: message.phase,
@@ -260,6 +264,7 @@ fn append_transcript_tool_result(transcript: &mut Vec<AppTranscriptMessage>, res
     }
 
     transcript.push(AppTranscriptMessage {
+        timestamp_ms: None,
         images: Vec::new(),
         message_id: None,
         phase: None,

@@ -43,6 +43,7 @@ async fn paged_snapshot_full_history_and_revision_checked_pages_agree() {
     let full = server.transcript().await.unwrap();
     assert_eq!(full.len(), 121);
     assert_eq!(full[0].text, "row 0");
+    assert!(full.iter().all(|row| row.timestamp_ms.is_some()));
     let query = format!(
         "session_dir={}&before=71&revision={}",
         store.session_dir().display(),
@@ -100,6 +101,19 @@ async fn paged_snapshot_full_history_and_revision_checked_pages_agree() {
     );
     assert_eq!(std::fs::read(store.journal_path()).unwrap(), before);
     server.shutdown().await;
+    let query = format!(
+        "session_dir={}&before=71&revision={}",
+        store.session_dir().display(),
+        cursor.revision
+    );
+    let reopened = super::super::sessions::history_page_json(Some(&query))
+        .await
+        .unwrap();
+    assert_eq!(
+        serde_json::to_value(&reopened.messages).unwrap(),
+        serde_json::to_value(&full[21..71]).unwrap()
+    );
+    assert_eq!(std::fs::read(store.journal_path()).unwrap(), before);
 }
 
 #[tokio::test]
@@ -298,6 +312,9 @@ async fn live_history_matches_cold_journal_after_turn_settlement() {
         .await
         .expect("live history");
     assert!(live.iter().any(|message| message.role == "assistant"));
+    assert!(live.iter().all(|message| message.timestamp_ms.is_some()));
+    let journal_path = session_dir.join("journal.jsonl");
+    let journal = std::fs::read(&journal_path).unwrap();
 
     server.shutdown().await;
     state.remove_session_server(&session_dir).await;
@@ -308,6 +325,7 @@ async fn live_history_matches_cold_journal_after_turn_settlement() {
         serde_json::to_value(live).unwrap(),
         serde_json::to_value(cold).unwrap()
     );
+    assert_eq!(std::fs::read(journal_path).unwrap(), journal);
 }
 
 #[cfg(unix)]
