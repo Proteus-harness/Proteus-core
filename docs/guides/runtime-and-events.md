@@ -1498,6 +1498,12 @@ stream. Model IO и UI deltas продолжаются во время испо�
 их точные canonical messages в своём prefix и объявляет bindings только для ещё
 ожидаемых результатов. Core переносит оставшийся durable suffix отдельно:
 частичный ACK не требует повторной регистрации завершённого вызова.
+Временные lookup-индексы checkpoint строятся заново для его snapshot и не
+подменяют ordered bindings: повторный history call остаётся неоднозначным,
+уже существующий result запрещает новый binding, а перенос требует полного
+равенства binding и canonical message. Индекс по message id сохраняет первое
+совпадение, как последовательный поиск; порядок suffix задаётся bindings,
+не порядком hash map. Индексы не сохраняются в journal или между checkpoints.
 Выбранный результат tool попадает
 в history вместе с `tool_result_recorded`; потеря ответа между Core и workflow
 его не удаляет. Подтверждённый результат сохраняется и при Cancel, внешнем

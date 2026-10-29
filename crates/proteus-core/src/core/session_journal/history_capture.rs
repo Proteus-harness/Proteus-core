@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use anyhow::{Result, ensure};
 
@@ -42,10 +42,16 @@ impl HistoryCapture {
     ) -> Result<(Self, Vec<CanonicalMessage>)> {
         let mut next = Self::new(proposed, bindings)?;
         let mut history = proposed.to_vec();
+        // new() has already rejected duplicate call IDs. Borrow this checkpoint's
+        // bindings only; the ordered calls vector remains the result authority.
+        let bindings_by_call = bindings
+            .iter()
+            .map(|binding| (binding.call_id.as_str(), binding))
+            .collect::<HashMap<_, _>>();
         for (_, binding, _) in &self.calls {
-            if let Some(reused) = bindings.iter().find(|item| item.call_id == binding.call_id) {
+            if let Some(reused) = bindings_by_call.get(binding.call_id.as_str()) {
                 ensure!(
-                    reused == binding,
+                    *reused == binding,
                     "checkpoint changed a pending tool result binding"
                 );
             }
@@ -62,6 +68,11 @@ impl HistoryCapture {
             self.base + recorded == current.len() && proposed.starts_with(&current[..self.base]),
             "checkpoint discarded committed history without a new compaction"
         );
+        let mut proposed_by_id = HashMap::new();
+        for message in proposed {
+            // Preserve iter().find()'s first match even for repeated message IDs.
+            proposed_by_id.entry(message.id).or_insert(message);
+        }
         for ((_, binding, _), message) in self
             .calls
             .iter()
@@ -73,15 +84,17 @@ impl HistoryCapture {
             // acknowledged messages are now part of the proposed prefix; only
             // the still-pending suffix needs to be carried over. Keep exact
             // canonical identities and payloads rather than synthesizing them.
-            if let Some(accepted) = proposed.iter().find(|item| item.id == message.id) {
+            if let Some(accepted) = proposed_by_id.get(&message.id) {
                 ensure!(
-                    accepted == message,
+                    *accepted == message,
                     "checkpoint changed a committed tool result"
                 );
                 continue;
             }
             ensure!(
-                next.has_binding(binding),
+                bindings_by_call
+                    .get(binding.call_id.as_str())
+                    .is_some_and(|existing| *existing == binding),
                 "checkpoint discarded a committed tool result"
             );
             let result = message
@@ -105,6 +118,12 @@ impl HistoryCapture {
         history: &[CanonicalMessage],
         bindings: &[WorkflowToolResultBinding],
     ) -> Result<Self> {
+        if bindings.is_empty() {
+            return Ok(Self {
+                base: history.len(),
+                calls: Vec::new(),
+            });
+        }
         let mut message_ids = history
             .iter()
             .map(|message| message.id)
@@ -113,6 +132,24 @@ impl HistoryCapture {
             .iter()
             .flat_map(|message| message.parts.iter().map(|part| part.part_id))
             .collect::<HashSet<_>>();
+        let mut history_calls = HashMap::new();
+        let mut history_results = HashSet::new();
+        for part in history.iter().flat_map(|message| &message.parts) {
+            match &part.payload {
+                ContentPart::ToolCall { call } => {
+                    // Presence alone would hide ambiguous calls. Only the second
+                    // occurrence matters, so no count or payload copy is needed.
+                    history_calls
+                        .entry(call.id.as_str())
+                        .and_modify(|ambiguous| *ambiguous = true)
+                        .or_insert(false);
+                }
+                ContentPart::ToolResult { result } => {
+                    history_results.insert(result.call_id.as_str());
+                }
+                _ => {}
+            }
+        }
         let mut seen = HashSet::new();
         let mut calls = Vec::new();
         for binding in bindings {
@@ -129,21 +166,14 @@ impl HistoryCapture {
                 message_ids.insert(binding.message_id) && part_ids.insert(binding.part_id),
                 "checkpoint result identities are not unique"
             );
-            let mut matching = history
-                .iter()
-                .flat_map(|message| &message.parts)
-                .filter_map(|part| match &part.payload {
-                    ContentPart::ToolCall { call } if call.id == binding.call_id => Some(call),
-                    _ => None,
-                });
-            matching.next().ok_or_else(|| {
+            let ambiguous = history_calls.get(binding.call_id.as_str()).ok_or_else(|| {
                 anyhow::anyhow!("checkpoint binding {} has no history call", binding.call_id)
             })?;
+            ensure!(!*ambiguous, "checkpoint binding has ambiguous history call");
             ensure!(
-                matching.next().is_none(),
-                "checkpoint binding has ambiguous history call"
+                !history_results.contains(binding.call_id.as_str()),
+                "checkpoint binding already has a history result"
             );
-            ensure!(!history.iter().flat_map(|message| &message.parts).any(|part| matches!(&part.payload, ContentPart::ToolResult { result } if result.call_id == binding.call_id)), "checkpoint binding already has a history result");
             calls.push((binding.execution_call.clone(), binding.clone(), false));
         }
         Ok(Self {
@@ -195,60 +225,4 @@ impl HistoryCapture {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::model_standard::MessageRole;
-    use serde_json::json;
-
-    #[test]
-    fn rebasing_preserves_exact_results_and_bindings_in_call_order() {
-        let calls = [
-            ToolCall::new("a", "probe", json!({})),
-            ToolCall::new("b", "probe", json!({})),
-        ];
-        let mut prefix = vec![CanonicalMessage::new(
-            MessageRole::Assistant,
-            calls
-                .iter()
-                .cloned()
-                .map(|call| ContentPart::ToolCall { call })
-                .collect(),
-        )];
-        let bindings = calls
-            .into_iter()
-            .map(WorkflowToolResultBinding::new)
-            .collect::<Vec<_>>();
-        let mut capture = HistoryCapture::new(&prefix, &bindings).unwrap();
-        let mut history = prefix.clone();
-        let results = [
-            ToolResult::ok("a".into(), "first"),
-            ToolResult::ok("b".into(), "second"),
-        ];
-        capture.record(&mut history, &results[1]).unwrap();
-        capture.record(&mut history, &results[0]).unwrap();
-        prefix.push(CanonicalMessage::text(
-            MessageRole::Assistant,
-            "later model item",
-        ));
-        let (capture, rebased) = capture.rebase(&history, &prefix, &bindings, false).unwrap();
-        assert_eq!(&rebased[..prefix.len()], &prefix);
-        assert_eq!(
-            &rebased[prefix.len()..],
-            &[
-                bindings[0].message(results[0].clone()),
-                bindings[1].message(results[1].clone())
-            ]
-        );
-        assert!(
-            capture
-                .rebase(&rebased, &prefix, &bindings[..1], false)
-                .is_err()
-        );
-        let mut changed = bindings.clone();
-        changed[0].part_id = crate::domain::new_part_id();
-        assert!(capture.rebase(&rebased, &prefix, &changed, false).is_err());
-        let (_, drained) = capture.rebase(&rebased, &rebased, &[], false).unwrap();
-        assert_eq!(drained, rebased);
-        assert!(capture.rebase(&rebased, &[], &[], false).is_err());
-    }
-}
+mod tests;

@@ -1,6 +1,10 @@
 //! Shared JSON Schema validation for tool execution and every hook contribution.
 use super::{ToolCall, ToolSpec};
 use serde_json::Value;
+use std::borrow::Cow;
+
+mod cache;
+pub(crate) use cache::ToolSchemaCache;
 
 /// Schemas are self-contained; local `$ref` is supported, external retrieval is
 /// disabled. This validation never adds filesystem/network capabilities.
@@ -16,20 +20,31 @@ fn compile_schema(spec: &ToolSpec) -> Result<jsonschema::Validator, String> {
 }
 
 pub fn validate_tool_call_args(call: &ToolCall, spec: &ToolSpec) -> Option<String> {
-    let parsed;
-    let args = if let Some(raw_arguments) = call.raw_arguments.as_deref() {
-        parsed = match serde_json::from_str::<Value>(raw_arguments) {
-            Ok(value) => value,
-            Err(error) => return Some(format!("failed to parse function arguments: {error}")),
-        };
-        &parsed
-    } else {
-        &call.args
+    let args = match tool_call_args(call) {
+        Ok(args) => args,
+        Err(error) => return Some(error),
     };
     let validator = match compile_schema(spec) {
         Ok(validator) => validator,
         Err(error) => return Some(error),
     };
+    validate_args(call, &validator, &args)
+}
+
+fn tool_call_args(call: &ToolCall) -> Result<Cow<'_, Value>, String> {
+    match call.raw_arguments.as_deref() {
+        Some(raw_arguments) => serde_json::from_str::<Value>(raw_arguments)
+            .map(Cow::Owned)
+            .map_err(|error| format!("failed to parse function arguments: {error}")),
+        None => Ok(Cow::Borrowed(&call.args)),
+    }
+}
+
+fn validate_args(
+    call: &ToolCall,
+    validator: &jsonschema::Validator,
+    args: &Value,
+) -> Option<String> {
     validator.validate(args).err().map(|error| {
         format!(
             "tool '{}' arguments violate schema at '{}': {} (schema '{}')",

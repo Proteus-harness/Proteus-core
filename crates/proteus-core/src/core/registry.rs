@@ -290,12 +290,12 @@ impl RuntimeRegistry {
 
     pub(crate) fn tools_for_model(&self, model: Option<&ModelRef>) -> Result<ToolRegistry> {
         let mut tools = ToolRegistry::new();
-        for (source, spec) in self.tools.entries() {
+        for (_source, spec) in self.tools.entries() {
             if !matches!(
                 spec.surface,
                 crate::domain::ToolSurface::ProviderHosted { .. }
             ) {
-                tools.register_arc(source, self.tools.get(&spec.name).expect("registered tool"))?;
+                tools.register_from(&self.tools, &spec.name)?;
             }
         }
         if let Some(model) = model {

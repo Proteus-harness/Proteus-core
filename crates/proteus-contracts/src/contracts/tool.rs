@@ -274,6 +274,7 @@ pub struct ToolEntry {
 #[derive(Clone, Default)]
 pub struct ToolRegistry {
     tools: HashMap<String, ToolEntry>,
+    schema_caches: HashMap<String, Arc<crate::domain::tool_validation::ToolSchemaCache>>,
 }
 
 impl ToolRegistry {
@@ -296,6 +297,33 @@ impl ToolRegistry {
     }
 
     pub fn register_arc(&mut self, source: ToolSource, tool: Arc<dyn Tool>) -> Result<()> {
+        self.register_arc_with_cache(source, tool, Arc::default())
+    }
+
+    /// Re-register the same tool identity while sharing its bounded schema cache.
+    /// All registration checks, including a fresh Tool::spec(), still apply.
+    pub fn register_from(&mut self, registry: &Self, name: &str) -> Result<()> {
+        let entry = registry
+            .tools
+            .get(name)
+            .ok_or_else(|| anyhow!("unknown tool: {name}"))?;
+        let cache = registry
+            .schema_caches
+            .get(name)
+            .expect("registered tool schema cache");
+        self.register_arc_with_cache(
+            entry.source.clone(),
+            Arc::clone(&entry.tool),
+            Arc::clone(cache),
+        )
+    }
+
+    fn register_arc_with_cache(
+        &mut self,
+        source: ToolSource,
+        tool: Arc<dyn Tool>,
+        cache: Arc<crate::domain::tool_validation::ToolSchemaCache>,
+    ) -> Result<()> {
         let spec = tool.spec();
         anyhow::ensure!(
             !matches!(
@@ -313,8 +341,7 @@ impl ToolRegistry {
                 existing.source.label()
             ));
         }
-        crate::domain::tool_validation::validate_tool_input_schema(&spec)
-            .map_err(anyhow::Error::msg)?;
+        cache.validator(&spec).map_err(anyhow::Error::msg)?;
         if let Some(command) = tool.user_command() {
             super::validate_command_name(&command.name)?;
             anyhow::ensure!(
@@ -325,7 +352,7 @@ impl ToolRegistry {
                 "duplicate user command: /{}",
                 command.name
             );
-            if let Some(error) = crate::domain::validate_tool_call_args(
+            if let Some(error) = cache.validate_call_args(
                 &ToolCall::new(
                     "command-validation",
                     &spec.name,
@@ -336,8 +363,18 @@ impl ToolRegistry {
                 return Err(anyhow!("invalid command tool: {error}"));
             }
         }
+        self.schema_caches.insert(spec.name.clone(), cache);
         self.tools.insert(spec.name, ToolEntry { source, tool });
         Ok(())
+    }
+
+    /// Validate fresh arguments against the caller's current captured spec.
+    /// Cached schema compilation is not visibility or execution authority.
+    pub fn validate_call_args(&self, call: &ToolCall, spec: &ToolSpec) -> Option<String> {
+        match self.schema_caches.get(&call.name) {
+            Some(cache) => cache.validate_call_args(call, spec),
+            None => crate::domain::validate_tool_call_args(call, spec),
+        }
     }
 
     pub fn get(&self, name: &str) -> Option<Arc<dyn Tool>> {
@@ -397,3 +434,7 @@ impl ToolRegistry {
             .ok_or_else(|| anyhow!("unknown tool: {name}"))
     }
 }
+
+#[cfg(test)]
+#[path = "tool/schema_cache_tests.rs"]
+mod schema_cache_tests;

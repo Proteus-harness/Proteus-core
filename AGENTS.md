@@ -135,6 +135,23 @@ rendering, UI state, tests и provider/module-specific детали.
   Повтор небольшого кода в самостоятельных modules допустим; канонические
   DTO и общие helpers должны сохранять границы и slot-specific semantics.
 
+## Стоимость Runtime
+
+Следуйте [правилам стоимости runtime](docs/development/testing.md#стоимость-runtime-и-evidence):
+
+- Большие owned данные передавайте move/borrow; snapshot/clone требует
+  конкретного инварианта, например frozen view или rollback.
+- Immutable schema готовьте на bound identity/generation; arguments,
+  policy/approval и authority проверяйте заново на каждом invocation.
+- Сохраняйте typed DTO/`Value` внутри процесса; encoding — на wire/storage.
+- Derived work считайте по изменениям; cache ограничивайте и инвалидируйте
+  явно, с сохранением error semantics; cache не заменяет authority check.
+- Admission и допустимое coalescing — до крупных allocation/clone/encoding,
+  без потери ordering, cancellation, backpressure и обязательных events.
+
+Это не запрет clone/JSON/cache и не повод ослаблять correctness.
+Устранение повторной работы видно по исходникам; runtime-выигрыш требует замера.
+
 ## Workspace Layout
 
 - `crates/proteus-contracts` — публичные traits, DTO и canonical model;

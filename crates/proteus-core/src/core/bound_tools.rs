@@ -13,9 +13,7 @@ use crate::{
         ExecutionPermissionGrants, ExecutionScope, NoopToolExecutionRecorder, PolicyContext,
         PolicyVisibilityContext, RequestOrigin, ToolContext, ToolExecutionRecorder, ToolRegistry,
     },
-    domain::{
-        PolicyDecision, ToolCall, ToolCallResolution, ToolResult, ToolSpec, validate_tool_call_args,
-    },
+    domain::{PolicyDecision, ToolCall, ToolCallResolution, ToolResult, ToolSpec},
 };
 
 use self::support::{metadata_with, truncate_utf8, visibility_decision_allows};
@@ -311,7 +309,7 @@ impl BoundTools {
 
         let tool_spec = self.registry.spec(&call.name).ok();
         if let Some(spec) = tool_spec.as_ref()
-            && let Some(error) = validate_tool_call_args(&call, spec)
+            && let Some(error) = self.registry.validate_call_args(&call, spec)
         {
             self.record_resolution(
                 &call,

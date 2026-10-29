@@ -99,9 +99,11 @@ Runner готовит reference-модуль из отдельного Proteus-m
 файл — ошибка. Отложенный DCP не подготавливается общим runner.
 
 `full` выбирает пять crates harness, включая worker SDK. Реализации проверяются
-своим `python3 scripts/test.py full` в Proteus-modules. В приложении используется
-`python3 scripts/test.py` из Proteus-desktop: он подготавливает отдельный набор
-расширений, затем проверяет GPUI workspace и client-common.
+своим `python3 scripts/test.py full` в Proteus-modules. В приложении обычный
+`python3 scripts/test.py` из Proteus-desktop проверяет только GPUI workspace
+и client-common. Проверки с готовыми расширениями включаются явно через
+`--extensions`; `--build-extensions` сначала собирает расширения, затем включает
+те же проверки.
 
 Defaults runner-а: два build jobs, четыре test threads, loopback в `NO_PROXY`
 и отключённые Python bytecode caches. Явные environment settings сохраняются.
@@ -114,6 +116,58 @@ Dev/test сохраняют line tables для backtraces без тяжёлой 
 На `x86_64-unknown-linux-gnu` настроен установленный `lld` через `cc`;
 для Linux development требуется executable `ld.lld`. Остальные targets,
 включая WASM, используют свои linker settings.
+
+## Стоимость Runtime И Evidence
+
+Стоимость привязывайте к владельцу данных и моменту их изменения, не к числу
+читателей или вызовов. При правке горячего пути сохраняйте эти правила:
+
+- **Ownership.** Если прежний владелец больше не использует большой history
+  или payload, передавайте его move; для чтения используйте borrow. Snapshot
+  допустим для frozen admission, rollback или journal/replay, если он должен
+  пережить изменение исходных данных. Копируйте нужный срез, не весь runtime.
+- **Подготовка и invocation.** Неизменяемые schema/validator и descriptors
+  готовьте один раз на bound identity/generation, включая влияющие config
+  и schema. Rebind/reload/restart не должен наследовать устаревшее состояние.
+  Каждый вызов валидирует свежие arguments и заново проходит policy/approval,
+  authority и cancellation. Ошибка compilation остаётся ошибкой той же
+  публичной операции, а не разрешающим fallback; момент ошибки не меняйте
+  незаметно при переносе работы в constructor.
+- **Представление.** В одном процессе сохраняйте typed DTO/`Value`.
+  Концептуально: `Value → JSON string → Value → handler` заменяется на
+  `Value → handler`; кодируйте один раз на настоящей wire/storage границе.
+  Если внешний API действительно требует JSON string или подпись зависит
+  от точных bytes, кодируйте там. Не отменяйте strict DTO/schema validation.
+- **Derived state и caches.** Новый delta должен обновлять только зависимый
+  срез. Append-only prefix можно переиспользовать; edit/truncate, смена
+  revision/config или reset требуют invalidation. Если соответствие нельзя
+  доказать, явно перестройте из canonical state, не отдавайте stale данные.
+  Для cache задайте ключ, предел entries/bytes, lifetime,
+  eviction/invalidation и поведение при ошибках. Не кешируйте effective
+  authority или решения policy в derived cache. Явные grants/remembered
+  approvals принадлежат policy contract; его владелец заново проверяет
+  их scope/lifetime для каждого invocation.
+- **Очереди.** Сначала проверьте admission/зарезервируйте ёмкость, затем
+  выделяйте крупный payload и сериализуйте. Reservation освобождается по
+  окончании её области владения, не по одному запросу cancel активной
+  записи/effect. До дорогой подготовки объединяйте только события, для которых
+  контракт допускает замену более новым состоянием; journal facts, terminal
+  events, порядок и backpressure от этого не становятся необязательными.
+
+Достаточно кратко назвать исключение рядом с затратной операцией; отдельный
+отчёт или запрет всех `clone`/JSON/cache не нужен. Для изменённой семантики
+используйте существующий boundary target из матрицы: свежие args/permissions,
+смену generation, ошибку или отмену проверяйте там, где это затронуто.
+Сохранение correctness, durability и protocol contracts важнее экономии.
+
+Разделяйте выводы: «убран второй deep clone/parse/compile» подтверждается
+потоком данных в исходниках; «меньше latency/RSS/CPU» требует сопоставимого
+замера с закреплёнными revisions, одинаковыми входами и настройками.
+Укажите размер history/payload, concurrency, cold/warm режим и границу замера;
+вынесенная в startup работа всё ещё имеет цену. Без замера не заявляйте
+величину выигрыша или ускорение полного turn. Используйте существующие
+performance probes, описанные ниже, а не новый обязательный benchmark
+для каждой низкорисковой правки.
 
 ## Каталог Проверок
 
