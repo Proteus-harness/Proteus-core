@@ -91,10 +91,25 @@ impl ProcessExportClient {
             bail!("process module {:?}: {method} was canceled", self.module_id);
         }
         let value = self.encode(method, params)?;
-        let mut handle = self
-            .start(method, value, dispatcher)
-            .await
-            .with_context(|| self.invocation_context(method))?;
+        let mut handle = {
+            let start = self.start(method, value, dispatcher);
+            tokio::pin!(start);
+            let mut cancellation_poll = interval(CANCEL_POLL_INTERVAL);
+            cancellation_poll.set_missed_tick_behavior(MissedTickBehavior::Skip);
+            // Dropping pending admission closes its terminal receiver, including
+            // while the broker is waiting for a restarted worker's handshake.
+            loop {
+                tokio::select! {
+                    result = &mut start => break result,
+                    _ = cancellation_poll.tick() => {
+                        if is_cancelled() {
+                            bail!("process module {:?}: {method} was canceled", self.module_id);
+                        }
+                    }
+                }
+            }
+        }
+        .with_context(|| self.invocation_context(method))?;
         let cancel = handle.cancel_handle();
         let mut terminal = Box::pin(handle.result());
         let mut cancellation_poll = interval(CANCEL_POLL_INTERVAL);
@@ -252,6 +267,10 @@ fn terminal_value(terminal: InvocationTerminal, module_id: &str, method: &str) -
     };
     Err(ProcessInvocationError::new(module_id, method, failure).into())
 }
+
+#[cfg(test)]
+#[path = "client/cancellation_tests.rs"]
+mod cancellation_tests;
 
 #[cfg(test)]
 mod tests {

@@ -716,6 +716,9 @@ timeout и конкретный класс component loss без парсинг�
 receiver проверяется повторно, а недоставленный admission ACK не допускает
 invocation к dispatch. Отмена queued parent сохраняет отмену её nested tree.
 Успешная отправка ACK не доказывает, что caller уже получил handle.
+Slot adapter проверяет отмену также во время ожидания admission, включая
+handshake перезапущенного worker: caller освобождается, не ожидая handshake,
+а закрытый terminal receiver предотвращает последующий dispatch запроса.
 
 Проверка до dispatch не устраняет гонку с более поздней отменой. Если writer
 ещё не забрал request, `cancel_before_write` может атомарно отменить запись.
