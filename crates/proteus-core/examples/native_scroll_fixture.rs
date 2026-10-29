@@ -1,5 +1,5 @@
 //! Длинный синтетический чат для ручной проверки нативной прокрутки.
-//! Запуск: `native_scroll_fixture CONFIG_ROOT WORKSPACE ROWS [--folded-tail|--tool-details]`.
+//! Запуск: `native_scroll_fixture CONFIG_ROOT WORKSPACE ROWS [--folded-tail|--tool-details|--content FILE]`.
 //! Создаёт новую сессию; модели, инструменты и внешние API не вызывает.
 //! `--folded-tail` оставляет в конце 50 пар вызов/результат без финального текста:
 //! нативный клиент сворачивает этот хвост в одну строку цепочки инструментов.
@@ -20,14 +20,17 @@ const TOOL_DETAILS_MIN_ROWS: usize = 12;
 async fn main() -> Result<()> {
     let args: Vec<_> = std::env::args().collect();
     ensure!(
-        args.len() == 4 || args.len() == 5,
-        "native_scroll_fixture CONFIG_ROOT WORKSPACE ROWS [--folded-tail|--tool-details]"
+        (4..=6).contains(&args.len()),
+        "native_scroll_fixture CONFIG_ROOT WORKSPACE ROWS [--folded-tail|--tool-details|--content FILE]"
     );
-    let (folded_tail, tool_details) = match args.get(4).map(String::as_str) {
-        None => (false, false),
-        Some("--folded-tail") => (true, false),
-        Some("--tool-details") => (false, true),
-        Some(other) => anyhow::bail!("unknown option: {other}"),
+    let (folded_tail, tool_details, content) = match args.get(4).map(String::as_str) {
+        None if args.len() == 4 => (false, false, None),
+        Some("--folded-tail") if args.len() == 5 => (true, false, None),
+        Some("--tool-details") if args.len() == 5 => (false, true, None),
+        Some("--content") if args.len() == 6 => {
+            (false, false, Some(std::fs::read_to_string(&args[5])?))
+        }
+        other => anyhow::bail!("invalid fixture option: {other:?}"),
     };
     let root = PathBuf::from(&args[1]);
     let cwd = PathBuf::from(&args[2]);
@@ -71,6 +74,8 @@ async fn main() -> Result<()> {
             };
             let text = if index == 0 {
                 title.clone()
+            } else if index == rows - 1 && content.is_some() {
+                content.as_ref().unwrap().clone()
             } else if index == rows - 1 {
                 code_message(index, 1_000)
             } else {

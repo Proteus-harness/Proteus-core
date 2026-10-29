@@ -234,6 +234,12 @@ cargo run --locked --release -p proteus-core --example native_scroll_fixture -- 
   "$PWD/target/verification/tool-details/workspace" 12 --tool-details
 ```
 
+Для произвольного синтетического ответа используйте `2 --content FILE.md`:
+последнее сообщение ассистента берётся побайтно из UTF-8 файла, остальные
+строки сохраняют обычный корпус разной высоты. Это позволяет держать native
+Markdown/Mermaid/JSON fixtures рядом с клиентом и не редактировать journal вручную.
+Все режимы сверяют сохранённую историю с исходными typed сообщениями.
+
 ## Структура Репозитория
 
 | Каталог | Содержимое |
