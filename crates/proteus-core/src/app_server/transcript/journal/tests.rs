@@ -1,5 +1,7 @@
 use serde_json::json;
 
+mod borrowed_parts;
+
 use super::*;
 use crate::{
     contracts::ModelCallOrigin,
@@ -191,7 +193,8 @@ fn failed_turn_recovers_model_text_tool_card_and_terminal_error_from_journal() {
     }
     let live_projection =
         JournalProjection::build(session_id, records[..7].to_vec()).expect("live projection");
-    let live_transcript = journal_transcript_messages(&live_projection, Some(turn_id));
+    let live_transcript =
+        journal_transcript_messages(live_projection.records.clone(), Some(turn_id));
     assert!(
         live_transcript.is_empty(),
         "live turn belongs entirely to the event projection until settlement"
@@ -199,7 +202,7 @@ fn failed_turn_recovers_model_text_tool_card_and_terminal_error_from_journal() {
 
     let projection = JournalProjection::build(session_id, records).expect("projection");
 
-    let transcript = journal_transcript_messages(&projection, None);
+    let transcript = journal_transcript_messages(projection.records.clone(), None);
 
     assert!(
         transcript
@@ -276,7 +279,7 @@ fn canceled_turn_without_error_recovers_terminal_system_message() {
     ];
 
     let projection = JournalProjection::build(session_id, records).expect("projection");
-    let transcript = journal_transcript_messages(&projection, None);
+    let transcript = journal_transcript_messages(projection.records.clone(), None);
 
     assert_eq!(transcript.len(), 1);
     assert_eq!(transcript[0].role, "system");
@@ -337,9 +340,11 @@ fn replacement_and_compaction_keep_first_dates_of_retained_message_or_part_ids()
             item.timestamp_ms = 100 - index as i64;
             records.push(item);
             let projection = JournalProjection::build(session_id, records.clone()).unwrap();
-            let rows = journal_transcript_messages(&projection, None);
+            let rows = journal_transcript_messages(projection.records.clone(), None);
             assert_eq!(rows.len(), 1);
             assert_eq!(rows[0].timestamp_ms, Some(100));
         }
     }
 }
+
+mod replay_frontier;

@@ -132,12 +132,15 @@ class Worker:
                 if not isinstance(export, dict):
                     self.send_error(request_id, -32602, "invalid component-v3 export")
                     return
+                config = export.get("module_config", {})
+                features = config.get("features_by_generation", {}).get(
+                    request_id.split(":")[1], config.get("features", []))
                 manifest_exports.append({
                     "slot": export.get("slot"),
                     "module_id": export.get("module_id"),
                     "contract_version": export.get("contract_version"),
                     "composition": export.get("composition"),
-                    "module_features": [], "config_schema": export.get("module_config", {}).get("schema_fixture"),
+                    "module_features": features, "config_schema": config.get("schema_fixture"),
                 })
             self.send({
                 "jsonrpc": "2.0",

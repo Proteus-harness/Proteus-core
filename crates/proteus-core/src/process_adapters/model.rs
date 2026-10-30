@@ -6,14 +6,14 @@ use std::{
     sync::{Arc, Mutex as StdMutex},
 };
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
 use futures_util::Stream;
 use proteus_module_protocol::{
     ProcessModuleRpcError,
     v3::{
-        AsyncHostRequestDispatcher, CancelCause, ComponentHostRequest, HostRequestFuture,
-        InvocationCancelHandle,
+        AsyncHostRequestDispatcher, CancelCause, ComponentBrokerErrorKind, ComponentHostRequest,
+        HostRequestFuture, InvocationCancelHandle, InvocationHandle,
     },
 };
 use serde_json::Value;
@@ -38,6 +38,22 @@ pub struct ProcessModel {
 }
 
 impl ProcessModel {
+    async fn start_metadata(&self, method: &str) -> Result<Option<InvocationHandle>> {
+        match self
+            .client
+            .start(
+                method,
+                Value::Null,
+                Arc::new(proteus_module_protocol::v3::NoAsyncHostRequests),
+            )
+            .await
+        {
+            Ok(handle) => Ok(Some(handle)),
+            Err(error) if error.kind == ComponentBrokerErrorKind::UnsupportedFeature => Ok(None),
+            Err(error) => Err(error.into()),
+        }
+    }
+
     pub fn new(
         config: ProcessExportConfig,
         cwd: &Path,
@@ -189,16 +205,20 @@ impl Model for ProcessModel {
     }
 
     async fn catalog(&self) -> Result<Option<crate::contracts::ModelCatalog>> {
-        if !self
-            .client
-            .supports_feature(crate::contracts::MODEL_CATALOG_FEATURE)?
-        {
+        let method = crate::contracts::PROCESS_MODEL_CATALOG_METHOD;
+        let Some(mut handle) = self
+            .start_metadata(method)
+            .await
+            .with_context(|| self.client.invocation_context(method))?
+        else {
             return Ok(None);
-        }
-        let result: Option<crate::contracts::ModelCatalog> = self
-            .client
-            .invoke(crate::contracts::PROCESS_MODEL_CATALOG_METHOD, &Value::Null)
-            .await?;
+        };
+        let terminal = handle
+            .result()
+            .await
+            .with_context(|| self.client.invocation_context(method))?;
+        let result: Option<crate::contracts::ModelCatalog> =
+            self.client.decode(method, terminal)?;
         if let Some(catalog) = &result {
             if let Err(error) = catalog.validate() {
                 self.client.reset();
@@ -209,21 +229,10 @@ impl Model for ProcessModel {
     }
 
     async fn quota(&self) -> Result<Option<crate::contracts::ModelQuotaSnapshot>> {
-        if !self
-            .client
-            .supports_feature(crate::contracts::MODEL_QUOTA_FEATURE)?
-        {
-            return Ok(None);
-        }
         let method = crate::contracts::PROCESS_MODEL_QUOTA_METHOD;
-        let mut handle = self
-            .client
-            .start(
-                method,
-                Value::Null,
-                Arc::new(proteus_module_protocol::v3::NoAsyncHostRequests),
-            )
-            .await?;
+        let Some(mut handle) = self.start_metadata(method).await? else {
+            return Ok(None);
+        };
         let mut guard = CancelOnDrop(Some(handle.cancel_handle()));
         let terminal = handle.result().await?;
         guard.disarm();

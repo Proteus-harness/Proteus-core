@@ -1,5 +1,6 @@
 use std::{
     fmt,
+    io::{self, Write},
     sync::{
         Arc, Mutex,
         atomic::{AtomicU64, Ordering},
@@ -11,6 +12,33 @@ use serde_json::Value;
 use tokio::sync::mpsc;
 
 pub type InvocationNotificationReceiver = mpsc::Receiver<InvocationNotification>;
+
+/// Count the same compact JSON bytes without retaining an encoded payload.
+/// Complete serialization before admission: errors never become partial sizes.
+pub(super) fn serialized_payload_len(value: &impl serde::Serialize) -> serde_json::Result<usize> {
+    let mut counter = JsonByteCounter(0);
+    serde_json::to_writer(&mut counter, value)?;
+    Ok(counter.0)
+}
+
+struct JsonByteCounter(usize);
+
+impl Write for JsonByteCounter {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        // Match the representable length of to_vec's Vec<u8>; do not turn
+        // capacity overflow into a wrapped, saturated or partial byte count.
+        self.0 = self
+            .0
+            .checked_add(bytes.len())
+            .filter(|length| *length <= isize::MAX as usize)
+            .expect("capacity overflow");
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
 
 pub struct InvocationNotification {
     pub method: String,
@@ -142,3 +170,7 @@ impl NotificationSink {
         Arc::clone(&self.dropped)
     }
 }
+
+#[cfg(test)]
+#[path = "notification_tests.rs"]
+mod tests;

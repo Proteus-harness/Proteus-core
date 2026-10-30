@@ -2,7 +2,7 @@ use serde_json::Value;
 
 use crate::{
     domain::{Citation, HostedToolActivity, HostedToolStatus, ToolCall, ToolResult},
-    model_standard::{CanonicalMessage, ContentPart, MessageRole},
+    model_standard::{CanonicalMessage, CanonicalPart, ContentPart, MessageRole},
 };
 
 mod journal;
@@ -26,12 +26,22 @@ fn append_transcript_message(
     transcript: &mut Vec<AppTranscriptMessage>,
     message: &CanonicalMessage,
 ) {
+    append_transcript_parts(transcript, message, &message.parts);
+}
+
+fn append_transcript_parts<'a>(
+    transcript: &mut Vec<AppTranscriptMessage>,
+    message: &CanonicalMessage,
+    parts: impl IntoIterator<Item = &'a CanonicalPart>,
+) {
     let role = transcript_role(&message.role).to_owned();
     let mut text_parts = Vec::new();
-    for part in &message.parts {
+    let mut images = Vec::new();
+    for part in parts {
         match &part.payload {
+            ContentPart::Image { image } => images.push(image.clone()),
             ContentPart::Text { text } if !text.trim().is_empty() => {
-                text_parts.push(text.clone());
+                text_parts.push(text.as_str());
             }
             ContentPart::ToolCall { call } => {
                 flush_transcript_text(transcript, &role, message, &mut text_parts);
@@ -52,14 +62,6 @@ fn append_transcript_message(
         }
     }
     flush_transcript_text(transcript, &role, message, &mut text_parts);
-    let images = message
-        .parts
-        .iter()
-        .filter_map(|p| match &p.payload {
-            ContentPart::Image { image } => Some(image.clone()),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
     if !images.is_empty() {
         if let Some(item) = transcript
             .last_mut()
@@ -229,7 +231,7 @@ fn flush_transcript_text(
     transcript: &mut Vec<AppTranscriptMessage>,
     role: &str,
     message: &CanonicalMessage,
-    text_parts: &mut Vec<String>,
+    text_parts: &mut Vec<&str>,
 ) {
     if text_parts.is_empty() {
         return;

@@ -337,9 +337,7 @@ fn damage_read_index(store: &crate::core::SessionStore, damage: &str) {
         std::fs::remove_file(&path).unwrap();
     }
     store
-        .project_read_model(|projection| {
-            crate::app_server::journal_transcript_messages(projection, None)
-        })
+        .project_read_model(|records| crate::app_server::journal_transcript_messages(records, None))
         .unwrap();
     match damage {
         "missing" => std::fs::remove_file(&path).unwrap(),

@@ -66,6 +66,10 @@ fn run_tests() -> Result<()> {
             writer_frame_and_byte_limits_are_enforced,
         ),
         (
+            "writer_exact_lengths_cover_escaping_and_error_precedence",
+            writer_exact_lengths_cover_escaping_and_error_precedence,
+        ),
+        (
             "slow_transport_consumer_remains_receive_bounded",
             slow_transport_consumer_remains_receive_bounded,
         ),
@@ -390,6 +394,63 @@ fn writer_frame_and_byte_limits_are_enforced() -> Result<()> {
     assert!(matches!(frame_error, SendFrameError::FrameTooLarge { .. }));
     transport.terminate()?;
     let _ = blocker.wait();
+    Ok(())
+}
+
+fn writer_exact_lengths_cover_escaping_and_error_precedence() -> Result<()> {
+    let frame = request(
+        "exact-size",
+        "echo",
+        json!({
+            "\0\n\"\\🦀": [null, true, false, -0.0, u64::MAX, "\u{2028}\u{2029}"],
+            "controls": (0u8..=31).map(char::from).collect::<String>(),
+        }),
+    );
+    let bytes = serde_json::to_vec(&frame)?.len();
+    let spec = mock_spec("newline")?;
+    let limits = ProcessTransportLimits::new(ReceiveLimits::default(), 4)
+        .with_control_queue(2)
+        .with_write_byte_limits(bytes, bytes, bytes);
+    let mut exact =
+        ProcessTransport::spawn_with_limits(&spec, NewlineJsonFraming::default(), limits)?;
+    let writer = exact.frame_writer();
+    writer.send_frame(frame.clone())?;
+    assert_eq!(exact.recv_frame(SHORT_TIMEOUT)?["result"], frame["params"]);
+    writer.send_control_frame(frame.clone())?;
+    assert_eq!(exact.recv_frame(SHORT_TIMEOUT)?["result"], frame["params"]);
+    exact.terminate()?;
+
+    // FrameTooLarge still wins even when the whole frame also exceeds the
+    // lane byte budget. Admission must not stop at the first escape fragment.
+    for (max_frame, max_queue, frame_error) in [(bytes - 1, 1, true), (bytes, bytes - 1, false)] {
+        let limits = ProcessTransportLimits::new(ReceiveLimits::default(), 4)
+            .with_control_queue(2)
+            .with_write_byte_limits(max_frame, max_queue, max_queue);
+        let mut transport =
+            ProcessTransport::spawn_with_limits(&spec, NewlineJsonFraming::default(), limits)?;
+        let writer = transport.frame_writer();
+        for error in [
+            writer.queue_frame(frame.clone()).unwrap_err(),
+            writer.queue_control_frame(frame.clone()).unwrap_err(),
+        ] {
+            if frame_error {
+                assert_eq!(
+                    error,
+                    SendFrameError::FrameTooLarge {
+                        bytes,
+                        max_frame_bytes: max_frame
+                    }
+                );
+            } else {
+                assert!(matches!(error, SendFrameError::QueueBytesFull {
+                    attempted_bytes,
+                    max_queued_bytes,
+                    ..
+                } if attempted_bytes == bytes && max_queued_bytes == max_queue));
+            }
+        }
+        transport.terminate()?;
+    }
     Ok(())
 }
 

@@ -7,14 +7,17 @@ use proteus_module_protocol::v3::{
 };
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
-use tokio::time::{MissedTickBehavior, interval};
+
+use crate::contracts::CancellationToken;
 
 use super::{
     ProcessExportConfig, ProcessInvocationError, ProcessInvocationFailure,
     invocation_scope::{current_parent, scoped_dispatcher},
 };
 
-const CANCEL_POLL_INTERVAL: Duration = Duration::from_millis(10);
+mod cancellation;
+
+use cancellation::CancellationSource;
 
 /// Typed view of one export on a shared multiplexed process component broker.
 pub struct ProcessExportClient {
@@ -87,22 +90,66 @@ impl ProcessExportClient {
         R: DeserializeOwned,
         F: Fn() -> bool,
     {
-        if is_cancelled() {
+        self.invoke_with_cancellation_source(
+            method,
+            params,
+            dispatcher,
+            CancellationSource::Check {
+                check: is_cancelled,
+                poll: None,
+            },
+        )
+        .await
+    }
+
+    /// Reuse the invocation's token rather than waking periodically to poll it.
+    pub async fn invoke_with_dispatcher_and_cancellation<P, R>(
+        &self,
+        method: &str,
+        params: &P,
+        dispatcher: Arc<dyn AsyncHostRequestDispatcher>,
+        cancellation: &CancellationToken,
+    ) -> Result<R>
+    where
+        P: Serialize,
+        R: DeserializeOwned,
+    {
+        self.invoke_with_cancellation_source(
+            method,
+            params,
+            dispatcher,
+            CancellationSource::<fn() -> bool>::Token(cancellation),
+        )
+        .await
+    }
+
+    async fn invoke_with_cancellation_source<P, R, F>(
+        &self,
+        method: &str,
+        params: &P,
+        dispatcher: Arc<dyn AsyncHostRequestDispatcher>,
+        mut cancellation: CancellationSource<'_, F>,
+    ) -> Result<R>
+    where
+        P: Serialize,
+        R: DeserializeOwned,
+        F: Fn() -> bool,
+    {
+        if cancellation.is_cancelled() {
             bail!("process module {:?}: {method} was canceled", self.module_id);
         }
         let value = self.encode(method, params)?;
         let mut handle = {
             let start = self.start(method, value, dispatcher);
             tokio::pin!(start);
-            let mut cancellation_poll = interval(CANCEL_POLL_INTERVAL);
-            cancellation_poll.set_missed_tick_behavior(MissedTickBehavior::Skip);
+            cancellation.begin_wait();
             // Dropping pending admission closes its terminal receiver, including
             // while the broker is waiting for a restarted worker's handshake.
             loop {
                 tokio::select! {
                     result = &mut start => break result,
-                    _ = cancellation_poll.tick() => {
-                        if is_cancelled() {
+                    canceled = cancellation.observe() => {
+                        if canceled {
                             bail!("process module {:?}: {method} was canceled", self.module_id);
                         }
                     }
@@ -112,14 +159,14 @@ impl ProcessExportClient {
         .with_context(|| self.invocation_context(method))?;
         let cancel = handle.cancel_handle();
         let mut terminal = Box::pin(handle.result());
-        let mut cancellation_poll = interval(CANCEL_POLL_INTERVAL);
-        cancellation_poll.set_missed_tick_behavior(MissedTickBehavior::Skip);
+        cancellation.begin_wait();
         let terminal = loop {
             tokio::select! {
                 result = &mut terminal => break result,
-                _ = cancellation_poll.tick() => {
-                    if is_cancelled() {
-                        cancel.cancel(CancelCause::User)
+                canceled = cancellation.observe() => {
+                    if canceled {
+                        cancel.cancel_async(CancelCause::User)
+                            .await
                             .with_context(|| self.invocation_context(method))?;
                         break terminal.await;
                     }
@@ -171,15 +218,6 @@ impl ProcessExportClient {
         &self.module_id
     }
 
-    /// Read the acknowledgement of this export in the current process generation.
-    pub fn supports_feature(&self, feature: &str) -> Result<bool> {
-        Ok(self.broker.manifest()?.exports.iter().any(|export| {
-            export.slot == self.target.slot
-                && export.module_id == self.target.module_id
-                && export.module_features.iter().any(|value| value == feature)
-        }))
-    }
-
     pub(super) async fn start(
         &self,
         method: &str,
@@ -223,7 +261,7 @@ impl ProcessExportClient {
         })
     }
 
-    fn invocation_context(&self, method: &str) -> String {
+    pub(super) fn invocation_context(&self, method: &str) -> String {
         format!(
             "process component {:?} export {:?}: {method} invocation failed",
             self.component_id, self.module_id
@@ -290,7 +328,7 @@ mod tests {
     };
     use crate::{
         contracts::{
-            PROCESS_CONTEXT_BUILD_METHOD, PROCESS_CONTEXT_CONTRACT_VERSION,
+            CancellationToken, PROCESS_CONTEXT_BUILD_METHOD, PROCESS_CONTEXT_CONTRACT_VERSION,
             PROCESS_CONTEXT_PROVIDER_CONTRACT_VERSION, PROCESS_CONTEXT_PROVIDER_METHOD,
             PROCESS_POLICY_CONTRACT_VERSION, PROCESS_POLICY_EVALUATE_METHOD,
         },
@@ -448,15 +486,16 @@ mod tests {
             .expect("policy client"),
         );
 
+        let cancellation = CancellationToken::new();
         let response: Value = context
-            .invoke_with_dispatcher_and_cancel_check(
+            .invoke_with_dispatcher_and_cancellation(
                 PROCESS_CONTEXT_BUILD_METHOD,
                 &json!({"op": "callback"}),
                 Arc::new(NestedProbeDispatcher {
                     search: Arc::clone(&search),
                     policy,
                 }),
-                || false,
+                &cancellation,
             )
             .await
             .expect("outer invocation");

@@ -1048,7 +1048,9 @@ store; stdio остаётся привязанным к одной session пр�
 - `POST /new-session` - регистрирует новый пустой runtime и возвращает его
   `SessionOpened {session_dir, activity}`. Optional `source_session_dir` в body
   явно выбирает live session, от которой берутся workspace и конфигурация;
-  приложение передаёт свой выбранный чат.
+  приложение передаёт свой выбранный чат. Действующий permission mode
+  наследуется как session override и не меняет опубликованный профиль
+  новой сессии.
   Без этого поля используется стартовая конфигурация и workspace сервера.
   Optional `workspace` (существующая папка) задаёт workspace новой сессии,
   так клиент открывает чат в другой папке без перезапуска сервера.
@@ -1333,6 +1335,24 @@ payload-буфера; полный обход и хеширование сохр
 поколение под shared lock, replacement использует exclusive lock. Поэтому
 очистка rollback journal после сбоя не открывает читателю смешанное поколение.
 
+При построении transcript строки до последнего видимого `Replace` без compaction
+не восстанавливаются: эта запись полностью сбрасывает display rows и dedup state.
+`Replace` текущего live turn не является такой границей, а compaction сохраняет
+прежнюю display history. Проверка журнала, root/tool visibility, final results и
+первые даты message/part/call по-прежнему охватывают все records, включая пропущенный
+render-префикс. Это сокращение replay после очистки/замены, не incremental disk
+recovery и не новый источник истины; при отсутствии границы replay начинается с нуля.
+После такой границы индекс дат удерживает только message/part identities исходных
+сообщений replay-суффикса; первые даты по-прежнему ищутся во всём журнале. Call dates
+остаются глобальными, в том числе при совпадении id с hosted card. Отдельной полной
+копии wanted identities нет; при replay с нуля дополнительного прохода отбора нет.
+Usage и model context вычисляются по полным проверенным records до передачи их
+в renderer по владению. После подготовки global display facts renderer освобождает
+payload пропущенных records, затем каждого обработанного record; canonical history
+перемещается в read model без второй копии. Summary по-прежнему читает workspace
+identity и timestamp файла после rendering. Начальный full-parse/fact-building пик
+и allocation заголовков Vec этим не устраняются; это не замер RSS.
+
 Холодные HTTP `/history`, `/conversation`, `/context` и `/usage` используют
 одну свежую read-проекцию, не создавая runtime сессии и не получая writer lease.
 При несовпадении версии эти запросы строго пересчитывают и сохраняют проекцию;
@@ -1399,13 +1419,27 @@ copy-on-write history/payloads. Изменения кандидата изоли
 включая checkpoint с потерянным ACK. Полный журнал с прошлыми model requests
 и tool outputs повторно не разбирается в async-потоке; счётчик compactions
 обновляется вместе с durable history mutation и восстанавливается при replay.
+
+При заполнении объявленного checkpoint result binding валидатор знает точную
+позицию единственного вставленного сообщения. Стабильность его parts проверяется
+по общему индексу `known_parts`, включая identities из model/hook trace; уже
+проверенные неизменные payloads history повторно не хешируются. Полная проверка
+уникальности активных message/part IDs остаётся перед этой сверкой: более поздний
+history append мог занять зарезервированный ID. Это локальное переиспользование
+проверенного состояния writer/replay, а не доверие к display cache и не обход
+строгой валидации входящих history mutations.
+
 Факты model context также обновляются после каждого durable append без хранения
 текстов запросов. `TurnOpened` фиксирует отдельный prefix snapshot: поздние
 responses и последующий clear не меняют context уже принятого хода. Начало
 следующего хода получает этот snapshot writer-а вместо чтения всех старых
 model requests; cold resume и replay используют ту же обработку событий.
 После завершения хода app-server перестраивает transcript/read-index из
-канонического журнала на blocking worker. Когда временные records, JSON и
+канонического журнала на blocking worker. Transcript читает canonical parts
+по ссылке: повторные и скрытые части отбрасываются без копирования их payloads;
+owned данные создаются для выходных строк. Дедупликация и порядок частей не
+меняются, дата сообщения вычисляется по исходным identities до фильтрации.
+Когда временные records, JSON и
 conversation этого построения уже освобождены, Linux/glibc получает один
 `malloc_trim(0)`: свободные страницы возвращаются ОС вместо удержания пиков
 в allocator arenas. Это не меняет live allocations или writer state и не

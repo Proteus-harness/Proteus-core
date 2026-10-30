@@ -108,7 +108,7 @@ impl Tool for ProcessTool {
         let cancellation = ctx.cancellation;
         let response: ProcessToolInvokeResponse = self
             .client
-            .invoke_with_dispatcher_and_cancel_check(
+            .invoke_with_dispatcher_and_cancellation(
                 PROCESS_TOOL_INVOKE_METHOD,
                 &request,
                 Arc::new(host::ToolHost {
@@ -118,7 +118,7 @@ impl Tool for ProcessTool {
                     call: call.clone(),
                     cancellation: cancellation.clone(),
                 }),
-                || cancellation.is_cancelled(),
+                &cancellation,
             )
             .await?;
         Ok(response.result)

@@ -68,11 +68,11 @@ impl ContextBuilder for ProcessContextBuilder {
         });
         let response: ProcessContextResponse = self
             .client
-            .invoke_with_dispatcher_and_cancel_check(
+            .invoke_with_dispatcher_and_cancellation(
                 PROCESS_CONTEXT_BUILD_METHOD,
                 &request,
                 dispatcher,
-                || cancellation.is_cancelled(),
+                &cancellation,
             )
             .await?;
         Ok(response.result)
@@ -158,11 +158,11 @@ impl RepoAwareContextProvider for ProcessContextProvider {
         };
         let response: ProcessContextChunksResponse = self
             .client
-            .invoke_with_dispatcher_and_cancel_check(
+            .invoke_with_dispatcher_and_cancellation(
                 PROCESS_CONTEXT_PROVIDER_METHOD,
                 &request,
                 Arc::new(NoAsyncHostRequests),
-                || context.scope.cancellation.is_cancelled(),
+                &context.scope.cancellation,
             )
             .await?;
         Ok(response.result)

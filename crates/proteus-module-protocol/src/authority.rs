@@ -57,6 +57,8 @@ pub struct ProcessContractAuthority {
     pub contract_version: &'static str,
     pub composition: ProcessModuleComposition,
     pub module_methods: &'static [&'static str],
+    /// Optional method -> per-export acknowledgement required at admission.
+    pub module_method_features: &'static [(&'static str, &'static str)],
     pub host_methods: &'static [&'static str],
     pub host_features: &'static [&'static str],
     pub required_features: &'static [&'static str],
@@ -69,6 +71,12 @@ impl ProcessContractAuthority {
 
     pub fn allows_module_method(self, method: &str) -> bool {
         self.module_methods.contains(&method)
+    }
+
+    pub(crate) fn feature_for_module_method(self, method: &str) -> Option<&'static str> {
+        self.module_method_features
+            .iter()
+            .find_map(|(candidate, feature)| (*candidate == method).then_some(*feature))
     }
 }
 
@@ -86,6 +94,16 @@ pub const PROCESS_CONTRACT_AUTHORITIES: &[ProcessContractAuthority] = &[
             PROCESS_MODEL_QUOTA_METHOD,
             PROCESS_MODEL_STREAM_METHOD,
         ],
+        module_method_features: &[
+            (
+                PROCESS_MODEL_CATALOG_METHOD,
+                proteus_contracts::contracts::MODEL_CATALOG_FEATURE,
+            ),
+            (
+                PROCESS_MODEL_QUOTA_METHOD,
+                proteus_contracts::contracts::MODEL_QUOTA_FEATURE,
+            ),
+        ],
         host_methods: &[MODEL_HOST_EMIT_METHOD],
         host_features: &[
             proteus_contracts::contracts::MODEL_CATALOG_FEATURE,
@@ -98,6 +116,7 @@ pub const PROCESS_CONTRACT_AUTHORITIES: &[ProcessContractAuthority] = &[
         contract_version: PROCESS_HOOK_CONTRACT_VERSION,
         composition: ProcessModuleComposition::OrderedMany,
         module_methods: &[PROCESS_HOOK_INVOKE_METHOD],
+        module_method_features: &[],
         host_methods: OPERATION_HOST_METHODS,
         host_features: NO_PROTOCOL_FEATURES,
         required_features: NO_PROTOCOL_FEATURES,
@@ -107,6 +126,7 @@ pub const PROCESS_CONTRACT_AUTHORITIES: &[ProcessContractAuthority] = &[
         contract_version: PROCESS_POLICY_CONTRACT_VERSION,
         composition: ProcessModuleComposition::SelectOne,
         module_methods: POLICY_METHODS,
+        module_method_features: &[],
         host_methods: NO_HOST_METHODS,
         host_features: NO_PROTOCOL_FEATURES,
         required_features: NO_PROTOCOL_FEATURES,
@@ -116,6 +136,7 @@ pub const PROCESS_CONTRACT_AUTHORITIES: &[ProcessContractAuthority] = &[
         contract_version: PROCESS_CONTEXT_CONTRACT_VERSION,
         composition: ProcessModuleComposition::SelectOne,
         module_methods: CONTEXT_METHODS,
+        module_method_features: &[],
         host_methods: CONTEXT_HOST_METHODS,
         host_features: NO_PROTOCOL_FEATURES,
         required_features: NO_PROTOCOL_FEATURES,
@@ -125,6 +146,7 @@ pub const PROCESS_CONTRACT_AUTHORITIES: &[ProcessContractAuthority] = &[
         contract_version: PROCESS_CONTEXT_PROVIDER_CONTRACT_VERSION,
         composition: ProcessModuleComposition::OrderedMany,
         module_methods: CONTEXT_PROVIDER_METHODS,
+        module_method_features: &[],
         host_methods: NO_HOST_METHODS,
         host_features: NO_PROTOCOL_FEATURES,
         required_features: NO_PROTOCOL_FEATURES,
@@ -134,6 +156,7 @@ pub const PROCESS_CONTRACT_AUTHORITIES: &[ProcessContractAuthority] = &[
         contract_version: PROCESS_TOOL_CONTRACT_VERSION,
         composition: ProcessModuleComposition::OrderedMany,
         module_methods: TOOL_METHODS,
+        module_method_features: &[],
         host_methods: &[
             OPERATION_HOST_COMPLETE_MODEL_METHOD,
             OPERATION_HOST_EXECUTE_TOOL_METHOD,
@@ -148,6 +171,7 @@ pub const PROCESS_CONTRACT_AUTHORITIES: &[ProcessContractAuthority] = &[
         contract_version: PROCESS_WORKFLOW_CONTRACT_VERSION,
         composition: ProcessModuleComposition::SelectOne,
         module_methods: WORKFLOW_METHODS,
+        module_method_features: &[],
         host_methods: WORKFLOW_HOST_METHODS,
         host_features: NO_PROTOCOL_FEATURES,
         required_features: NO_PROTOCOL_FEATURES,
@@ -196,6 +220,15 @@ mod tests {
             "component config requires exactly one current contract per slot"
         );
         for authority in PROCESS_CONTRACT_AUTHORITIES {
+            let mut feature_methods = BTreeSet::new();
+            for (method, feature) in authority.module_method_features {
+                assert!(authority.module_methods.contains(method));
+                assert!(authority.host_features.contains(feature));
+                assert!(
+                    feature_methods.insert(method),
+                    "ambiguous method acknowledgement"
+                );
+            }
             assert!(
                 authority
                     .required_features

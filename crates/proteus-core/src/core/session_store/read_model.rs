@@ -3,7 +3,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     contracts::ConversationSnapshot,
-    core::{JournalProjection, model_context::ModelContextState, session_journal::UsageProjection},
+    core::{
+        JournalProjection, JournalRecord, model_context::ModelContextState,
+        session_journal::UsageProjection,
+    },
     domain::SessionUsageSnapshot,
 };
 use proteus_contracts::app_protocol::{AppSessionSummary, AppTranscriptMessage};
@@ -72,18 +75,21 @@ impl SessionReadModel {
     pub(crate) fn from_projection(
         store: &SessionStore,
         projection: JournalProjection,
-        transcript: Vec<AppTranscriptMessage>,
+        render: impl FnOnce(Vec<JournalRecord>) -> Vec<AppTranscriptMessage>,
     ) -> anyhow::Result<Self> {
-        let summary = super::catalog::session_summary_from_projection(
-            store.session_dir().to_owned(),
-            store.session_id(),
-            &projection,
-        )?;
         let mut usage = UsageProjection::default();
         for record in &projection.records {
             usage.apply(record);
         }
         let model_context = ModelContextState::from_records(&projection.records, None).snapshot();
+        let transcript = render(projection.records);
+        // Preserve the post-render metadata observation without retaining raw
+        // records merely so the summary helper can borrow the projection.
+        let summary = super::catalog::session_summary_from_history(
+            store.session_dir().to_owned(),
+            store.session_id(),
+            &projection.history,
+        )?;
         Ok(Self {
             summary,
             conversation: ConversationSnapshot {
@@ -121,13 +127,12 @@ impl SessionStore {
 
     pub(crate) fn project_read_model(
         &self,
-        render: impl FnOnce(&JournalProjection) -> Vec<AppTranscriptMessage>,
+        render: impl FnOnce(Vec<JournalRecord>) -> Vec<AppTranscriptMessage>,
     ) -> anyhow::Result<SessionReadModel> {
         #[cfg(unix)]
         let source = super::read_cache::SourceFingerprint::read(self.session_dir(), 8192);
         let projection = self.load_projection()?;
-        let transcript = render(&projection);
-        let model = SessionReadModel::from_projection(self, projection, transcript)?;
+        let model = SessionReadModel::from_projection(self, projection, render)?;
         #[cfg(unix)]
         if let Some(source) = source {
             self.save_read_model(&source, &model);

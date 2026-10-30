@@ -58,6 +58,20 @@ impl StartAck {
     }
 }
 
+pub(crate) enum CancelAck {
+    Async(oneshot::Sender<Result<(), ComponentBrokerError>>),
+    Blocking(mpsc::Sender<Result<(), ComponentBrokerError>>),
+}
+
+impl CancelAck {
+    pub(super) fn send(self, result: Result<(), ComponentBrokerError>) -> bool {
+        match self {
+            Self::Async(sender) => sender.send(result).is_ok(),
+            Self::Blocking(sender) => sender.send(result).is_ok(),
+        }
+    }
+}
+
 pub(crate) enum ControlCommand {
     EnsureInitialized {
         ack: mpsc::Sender<Result<proteus_contracts::contracts::ProcessComponentManifest, String>>,
@@ -67,7 +81,7 @@ pub(crate) enum ControlCommand {
         id: String,
         generation: u64,
         cause: CancelCause,
-        ack: mpsc::Sender<Result<(), ComponentBrokerError>>,
+        ack: CancelAck,
     },
     CallbackComplete {
         generation: u64,

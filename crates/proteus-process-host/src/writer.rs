@@ -12,7 +12,11 @@ use std::{
 
 use serde_json::Value;
 
-use crate::{Framing, ProcessLifecycle, ProcessWake, receive::compact_json_len};
+use crate::{Framing, ProcessLifecycle, ProcessWake};
+
+mod size;
+
+use size::compact_json_len;
 
 /// Default number of data frames that may wait for the dedicated stdin writer.
 pub const DEFAULT_MAX_QUEUED_WRITES: usize = 256;

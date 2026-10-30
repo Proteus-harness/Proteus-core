@@ -201,8 +201,8 @@ impl AppServerHandle {
     }
 
     pub async fn set_permission_mode(&self, mode: PermissionMode) {
+        // A session override must not change the published profile's reload baseline.
         self.runtime.set_permission_mode(mode).await;
-        self.config.write().await.permissions.mode = mode;
     }
 
     pub async fn permission_mode(&self) -> PermissionMode {
@@ -485,7 +485,7 @@ impl AgentAppServer {
         let initial_transcript = if let Some(prepared) = resumed_session {
             let (session_store, model, _, stale) = tokio::task::spawn_blocking(move || {
                 let result = prepared
-                    .into_display_view(|projection| journal_transcript_messages(projection, None));
+                    .into_display_view(|records| journal_transcript_messages(records, None));
                 read_model::release_projection_memory();
                 result
             })

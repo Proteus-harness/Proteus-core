@@ -222,7 +222,10 @@ async fn targeted_cancel_keeps_sibling_and_generation() -> Result<()> {
             INVOCATION_TIMEOUT,
         )
         .await?;
-    target.cancel(CancelCause::User)?;
+    target
+        .cancel_handle()
+        .cancel_async(CancelCause::User)
+        .await?;
 
     ensure!(target.result().await? == InvocationTerminal::Canceled);
     ensure!(value(sibling.result().await?)? == json!("sibling"));
@@ -398,7 +401,7 @@ async fn parent_cancel_cascades_during_callback() -> Result<()> {
         )
         .await?;
     wait_for_pending(&broker, 2)?;
-    root.cancel(CancelCause::User)?;
+    root.cancel_handle().cancel_async(CancelCause::User).await?;
     ensure!(root.result().await? == InvocationTerminal::Canceled);
     wait_for_pending(&broker, 0)?;
     ensure!(broker.snapshot()?.pending_callbacks == 0);
@@ -454,7 +457,10 @@ async fn uncooperative_cancel_resets_failure_domain() -> Result<()> {
             .ok_or_else(|| anyhow::anyhow!("worker did not confirm invocation start"))?;
         ensure!(started.params["value"]["started"] == json!(true));
     }
-    target.cancel(CancelCause::Timeout)?;
+    target
+        .cancel_handle()
+        .cancel_async(CancelCause::Timeout)
+        .await?;
     ensure!(target.result().await? == InvocationTerminal::TimedOut);
     ensure!(
         sibling.result().await? == InvocationTerminal::ComponentLost(ComponentFailure::CancelGrace)
@@ -556,30 +562,45 @@ async fn live_notifications_are_routed_by_invocation() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn notification_overflow_does_not_block_terminal() -> Result<()> {
-    let options = ComponentBrokerOptions {
-        notification_limits: ReceiveLimits::new(2, 512),
-        ..ComponentBrokerOptions::default()
-    };
-    let broker = broker(options)?;
-    let mut invocation = broker
-        .start_invocation(
-            &export("workflow", "fixture.workflow"),
-            PROCESS_WORKFLOW_METHOD,
-            json!({"op":"flood", "count":100, "payload":"xxxxxxxxxxxxxxxx"}),
-            INVOCATION_TIMEOUT,
-        )
-        .await?;
-    ensure!(matches!(
-        invocation.result().await?,
-        InvocationTerminal::Success(_)
-    ));
-    ensure!(invocation.dropped_notifications() > 0);
-    let mut notifications = invocation.notifications()?;
-    let mut retained = 0;
-    while notifications.try_recv().is_ok() {
-        retained += 1;
+    let payload = "Кириллица 中文 😀 \"\\\n\t";
+    // Fixture progress wraps this value in {seq, value}. No consumer drains
+    // until terminal, so the exact encoded-payload quota decides retention.
+    let first_bytes = serde_json::to_vec(&json!({"seq": 0, "value": payload}))?.len();
+    for (limits, expected_retained) in [
+        (ReceiveLimits::new(2, 512), 2),
+        (ReceiveLimits::new(64, first_bytes), 1),
+        (ReceiveLimits::new(64, first_bytes - 1), 0),
+    ] {
+        let options = ComponentBrokerOptions {
+            notification_limits: limits,
+            ..ComponentBrokerOptions::default()
+        };
+        let broker = broker(options)?;
+        let mut invocation = broker
+            .start_invocation(
+                &export("workflow", "fixture.workflow"),
+                PROCESS_WORKFLOW_METHOD,
+                json!({"op":"flood", "count":100, "payload":payload}),
+                INVOCATION_TIMEOUT,
+            )
+            .await?;
+        let generation = invocation.generation();
+        ensure!(matches!(
+            invocation.result().await?,
+            InvocationTerminal::Success(_)
+        ));
+        ensure!(invocation.dropped_notifications() == 100 - expected_retained);
+        let mut notifications = invocation.notifications()?;
+        let mut retained = 0;
+        while let Ok(notification) = notifications.try_recv() {
+            ensure!(notification.method == "module.progress");
+            ensure!(notification.params["seq"] == json!(retained));
+            ensure!(notification.params["value"] == payload);
+            retained += 1;
+        }
+        ensure!(retained == expected_retained);
+        ensure!(broker.snapshot()?.generation == generation);
     }
-    ensure!(retained <= 2);
     Ok(())
 }
 

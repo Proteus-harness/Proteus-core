@@ -18,7 +18,7 @@ use tokio::sync::oneshot;
 use crate::ProcessModuleRpcError;
 
 use super::{
-    broker::ControlCommand,
+    broker::{CancelAck, ControlCommand},
     notification::{InvocationNotificationReceiver, NotificationSink},
 };
 
@@ -140,6 +140,8 @@ pub enum ComponentBrokerErrorKind {
     ParentInactive,
     RuntimeUnavailable,
     BootstrapClosed,
+    /// The current generation did not acknowledge this optional export method.
+    UnsupportedFeature,
     Stopped,
 }
 
@@ -199,6 +201,24 @@ pub struct InvocationCancelHandle {
 impl InvocationCancelHandle {
     pub fn cancel(&self, cause: CancelCause) -> Result<(), ComponentBrokerError> {
         cancel_invocation(&self.control_tx, &self.id, self.generation, cause)
+    }
+
+    /// Wait for the broker's cancellation ACK without blocking the executor.
+    ///
+    /// Requires a Tokio runtime with time enabled. The same two-second ACK
+    /// budget starts after enqueue; a successful ACK is not the invocation's
+    /// terminal result. Dropping this future after enqueue only abandons its
+    /// ACK receiver: it does not retract the admitted cancellation command.
+    pub async fn cancel_async(&self, cause: CancelCause) -> Result<(), ComponentBrokerError> {
+        let (ack_tx, ack_rx) = oneshot::channel();
+        enqueue_cancel(
+            &self.control_tx,
+            &self.id,
+            self.generation,
+            cause,
+            CancelAck::Async(ack_tx),
+        )?;
+        wait_for_cancel_ack(ack_rx).await
     }
 }
 
@@ -290,26 +310,51 @@ fn cancel_invocation(
     cause: CancelCause,
 ) -> Result<(), ComponentBrokerError> {
     let (ack_tx, ack_rx) = mpsc::channel();
+    enqueue_cancel(
+        control_tx,
+        id,
+        generation,
+        cause,
+        CancelAck::Blocking(ack_tx),
+    )?;
+    ack_rx
+        .recv_timeout(CONTROL_ACK_TIMEOUT)
+        .map_err(|_| ComponentBrokerError::stopped("component broker did not acknowledge cancel"))?
+}
+
+fn enqueue_cancel(
+    control_tx: &super::signal::CommandSender<ControlCommand>,
+    id: &str,
+    generation: u64,
+    cause: CancelCause,
+    ack: CancelAck,
+) -> Result<(), ComponentBrokerError> {
     match control_tx.try_send(ControlCommand::Cancel {
         id: id.to_owned(),
         generation,
         cause,
-        ack: ack_tx,
+        ack,
     }) {
-        Ok(()) => {}
-        Err(mpsc::TrySendError::Full(_)) => {
-            return Err(ComponentBrokerError::new(
-                ComponentBrokerErrorKind::Admission,
-                "component broker control queue is full; cancel was not admitted",
-            ));
-        }
+        Ok(()) => Ok(()),
+        Err(mpsc::TrySendError::Full(_)) => Err(ComponentBrokerError::new(
+            ComponentBrokerErrorKind::Admission,
+            "component broker control queue is full; cancel was not admitted",
+        )),
         Err(mpsc::TrySendError::Disconnected(_)) => {
-            return Err(ComponentBrokerError::stopped("component broker is stopped"));
+            Err(ComponentBrokerError::stopped("component broker is stopped"))
         }
     }
-    ack_rx
-        .recv_timeout(CONTROL_ACK_TIMEOUT)
-        .map_err(|_| ComponentBrokerError::stopped("component broker did not acknowledge cancel"))?
+}
+
+async fn wait_for_cancel_ack(
+    receiver: oneshot::Receiver<Result<(), ComponentBrokerError>>,
+) -> Result<(), ComponentBrokerError> {
+    match tokio::time::timeout(CONTROL_ACK_TIMEOUT, receiver).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(_)) | Err(_) => Err(ComponentBrokerError::stopped(
+            "component broker did not acknowledge cancel",
+        )),
+    }
 }
 
 impl InvocationHandle {
@@ -367,3 +412,7 @@ impl Drop for TerminalReceiver {
         self.wake.notify();
     }
 }
+
+#[cfg(test)]
+#[path = "invocation/cancellation_tests.rs"]
+mod cancellation_tests;

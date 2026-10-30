@@ -328,6 +328,32 @@ impl LoopState {
         if request.terminal.receiver_dropped() {
             return;
         }
+        if let Some(feature) = authority.feature_for_module_method(&request.method) {
+            let acknowledged = self
+                .worker
+                .as_ref()
+                .expect("initialized worker")
+                .manifest
+                .exports
+                .iter()
+                .any(|export| {
+                    export.slot == request.target.slot
+                        && export.module_id == request.target.module_id
+                        && export.module_features.iter().any(|value| value == feature)
+                });
+            if !acknowledged {
+                // This is an admission disposition, never a worker-supplied
+                // RPC error. Reject before allocating an id or touching siblings.
+                request.ack.send(Err(ComponentBrokerError::new(
+                    ComponentBrokerErrorKind::UnsupportedFeature,
+                    format!(
+                        "component generation {} export {}/{} did not acknowledge {feature:?}",
+                        self.generation, request.target.slot, request.target.module_id
+                    ),
+                )));
+                return;
+            }
+        }
         let id = wire::host_id(self.generation, self.next_host_sequence);
         self.next_host_sequence = self.next_host_sequence.saturating_add(1);
         let root_id = if root_id.is_empty() {

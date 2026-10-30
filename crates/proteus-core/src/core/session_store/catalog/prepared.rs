@@ -94,13 +94,12 @@ impl PreparedSession {
     pub(crate) fn into_display_view(
         self,
         render: impl FnOnce(
-            &JournalProjection,
+            Vec<crate::core::JournalRecord>,
         ) -> Vec<proteus_contracts::app_protocol::AppTranscriptMessage>,
     ) -> Result<(SessionStore, SessionReadView, bool, bool)> {
         let (model, deferred) = match self.history {
             PreparedHistory::Validated(projection) => {
-                let transcript = render(&projection);
-                let model = SessionReadModel::from_projection(&self.store, projection, transcript)?;
+                let model = SessionReadModel::from_projection(&self.store, projection, render)?;
                 #[cfg(unix)]
                 if let Some(source) = &self.source {
                     self.store.save_read_model(source, &model);

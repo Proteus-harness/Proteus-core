@@ -34,6 +34,8 @@ def initialize(params):
 
 def invoke(context, method, params):
     config = settings[context.export["module_id"]]
+    if method in config.get("metadata_errors", {}):
+        raise ProtocolError(config["metadata_errors"][method])
     if method == "describe":
         if not isinstance(params, dict) or set(params) != {"model"} or set(params["model"]) != {"provider", "model"}:
             raise ProtocolError("describe expects a ModelRef")

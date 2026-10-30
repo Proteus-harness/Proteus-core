@@ -7,8 +7,8 @@ use crate::{
     app_server::journal_transcript_messages,
     contracts::{ExecutionAttribution, ModelCallOrigin, OperationOwner},
     core::{
-        JournalEntry, ModelRequestRecorded, ModelResponseOutcome, ModelResponseRecorded,
-        PreparedSession, TurnOpened, TurnSettled, TurnSettlementStatus,
+        JournalEntry, JournalRecord, ModelRequestRecorded, ModelResponseOutcome,
+        ModelResponseRecorded, PreparedSession, TurnOpened, TurnSettled, TurnSettlementStatus,
         session_journal::JournalWriterState,
     },
     domain::{
@@ -21,8 +21,8 @@ use crate::{
     },
 };
 
-fn render(projection: &JournalProjection) -> Vec<AppTranscriptMessage> {
-    journal_transcript_messages(projection, None)
+fn render(records: Vec<JournalRecord>) -> Vec<AppTranscriptMessage> {
+    journal_transcript_messages(records, None)
 }
 
 async fn saved(root: &Path, workspace: &Path, text: &str) -> SessionStore {
@@ -510,3 +510,5 @@ async fn opening_a_display_decodes_only_the_tail_not_the_conversation() {
     assert_eq!(store.conversation_snapshot().unwrap().messages, messages);
     assert_eq!(fs::read(store.journal_path()).unwrap(), journal);
 }
+
+mod consuming;

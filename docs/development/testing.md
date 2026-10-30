@@ -117,6 +117,20 @@ Dev/test сохраняют line tables для backtraces без тяжёлой 
 для Linux development требуется executable `ld.lld`. Остальные targets,
 включая WASM, используют свои linker settings.
 
+Git-штамп Core наблюдает HEAD и текущую ссылку. Для packed ref отсутствующий
+loose-файл не становится постоянным поводом пересобирать Core: наблюдаются
+ближайший существующий каталог внутри `refs` и существующее хранилище ссылок.
+Это сохраняет обновление штампа при новом commit, checkout и в linked worktree;
+изменение соседних ссылок может консервативно вызвать пересборку.
+Short HEAD не включает tags или dirty suffix. Профиль release не меняется.
+
+`python3 -m unittest discover -s scripts -p 'test_build_commit.py'` проверяет
+эту границу на маленьком offline Cargo fixture без сборки настоящего Core
+или модулей: повторная release-сборка, loose/packed, nested branch,
+detached HEAD и linked worktree. Временные checkout и target этого fixture
+создаются внутри `target/verification/build-commit` и удаляются после сценария.
+Это не performance benchmark.
+
 ## Стоимость Runtime И Evidence
 
 Стоимость привязывайте к владельцу данных и моменту их изменения, не к числу

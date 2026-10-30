@@ -135,7 +135,6 @@ struct RuntimeServices {
     events: Arc<EventEmitter>,
     approval: Arc<dyn ApprovalTransport>,
     user_input: Arc<dyn UserInputTransport>,
-    default_reasoning: ReasoningConfig,
 }
 
 struct SessionState {

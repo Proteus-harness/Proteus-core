@@ -1,4 +1,6 @@
 mod build;
+#[cfg(test)]
+mod capture_tests;
 mod part_identity;
 #[cfg(test)]
 mod retention_tests;
@@ -410,11 +412,14 @@ impl JournalValidationState {
                 // The effect is only needed until the final result is checked.
                 lifecycle.effect = None;
                 if record.thread_id.zip(record.turn_id) == self.capture_owner
-                    && self.capture_tool_result(&tool.result)?
+                    && let Some(index) = self.capture_tool_result(&tool.result)?
                 {
                     self.history_revision = self.history_revision.saturating_add(1);
                     validate_active_history_ids(&self.history)?;
-                    Self::validate_part_id_stability(&mut self.known_parts, &self.history)?;
+                    Self::validate_part_id_stability(
+                        &mut self.known_parts,
+                        &self.history[index..index + 1],
+                    )?;
                 }
             }
             JournalEntry::TurnSettled(settled) => {
@@ -434,10 +439,13 @@ impl JournalValidationState {
                         .filter_map(|call| call.effect.clone())
                         .collect::<Vec<_>>();
                     for result in pending {
-                        if self.capture_tool_result(&result)? {
+                        if let Some(index) = self.capture_tool_result(&result)? {
                             self.history_revision = self.history_revision.saturating_add(1);
                             validate_active_history_ids(&self.history)?;
-                            Self::validate_part_id_stability(&mut self.known_parts, &self.history)?;
+                            Self::validate_part_id_stability(
+                                &mut self.known_parts,
+                                &self.history[index..index + 1],
+                            )?;
                         }
                     }
                 }
@@ -467,11 +475,14 @@ impl JournalValidationState {
     fn capture_tool_result(
         &mut self,
         result: &proteus_contracts::domain::ToolResult,
-    ) -> Result<bool> {
+    ) -> Result<Option<usize>> {
         if !self.capture.contains_call(&result.call_id) {
-            return Ok(false);
+            return Ok(None);
         }
-        Arc::make_mut(&mut self.capture).record(Arc::make_mut(&mut self.history), result)
+        // record_at inserts one message and does not mutate any retained part.
+        // Those parts are already stable; keep the full ID check at the caller
+        // before validating only the new payload against all known identities.
+        Arc::make_mut(&mut self.capture).record_at(Arc::make_mut(&mut self.history), result)
     }
 
     pub(crate) fn interrupted_turns(

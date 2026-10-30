@@ -102,3 +102,44 @@ async fn atomic_save_preserves_the_profile_symlink() {
         PermissionMode::Plan
     );
 }
+
+#[tokio::test]
+async fn first_profile_save_does_not_persist_a_session_mode_override() {
+    let home = tempfile::tempdir().unwrap();
+    let source = home.path().join("config.toml");
+    let mut config = crate::test_model::config();
+    config.permissions.mode = PermissionMode::Normal;
+    let server = AgentAppServer::launch(config, home.path().into(), Some(&source))
+        .await
+        .unwrap();
+    server.set_permission_mode(PermissionMode::Plan).await;
+    assert!(!source.exists());
+    assert_eq!(
+        server.local_config_summary().await["permission_mode"],
+        "Plan"
+    );
+    assert_eq!(
+        server.config_builder_snapshot().await.permission_mode,
+        "normal"
+    );
+
+    server
+        .set_config_builder(BTreeMap::new(), None, BTreeMap::new(), None, None, None)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        AppConfig::load(Some(&source))
+            .await
+            .unwrap()
+            .permissions
+            .mode,
+        PermissionMode::Normal
+    );
+    assert_eq!(
+        server.config.read().await.permissions.mode,
+        PermissionMode::Normal
+    );
+    assert_eq!(server.permission_mode().await, PermissionMode::Plan);
+    server.shutdown().await;
+}

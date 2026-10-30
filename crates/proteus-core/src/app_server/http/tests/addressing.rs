@@ -400,6 +400,11 @@ async fn lifecycle_uses_the_explicit_source_workspace_and_keeps_deletion_in_the_
     let config = read_json_at(&state, &scoped_path("/config", &created_server)).await;
     assert_eq!(config["cwd"], workspace_b.path().to_str().unwrap());
     assert_eq!(config["permission_mode"], "Auto");
+    assert_eq!(
+        created_server.config.read().await.permissions.mode,
+        PermissionMode::Normal,
+        "inherited session overrides must not rewrite the published profile"
+    );
     assert!(created_dir.starts_with(config_dir.path()));
     let elsewhere = tempfile::tempdir().unwrap();
     let opened = command_value(
@@ -421,6 +426,11 @@ async fn lifecycle_uses_the_explicit_source_workspace_and_keeps_deletion_in_the_
             .unwrap()
     );
     assert_eq!(config["permission_mode"], "Auto");
+    assert_eq!(
+        opened_server.config.read().await.permissions.mode,
+        PermissionMode::Normal,
+        "workspace selection must preserve the published profile baseline"
+    );
     assert!(
         command_value(
             post_at(

@@ -44,7 +44,7 @@ impl Framing for NewlineJsonFraming {
     }
 
     fn read_frame<R: BufRead>(&self, reader: &mut R) -> Result<Value> {
-        let mut line = Vec::with_capacity(self.max_frame_bytes.min(8192));
+        let mut line = Vec::new();
         loop {
             let buffer = reader.fill_buf()?;
             if buffer.is_empty() {
@@ -65,6 +65,18 @@ impl Framing for NewlineJsonFraming {
                 );
             }
 
+            if line.is_empty() && buffer[bytes_to_take - 1] == b'\n' {
+                // Value owns its strings: no borrow escapes reader.consume.
+                // Consume malformed complete lines too, just as the buffered
+                // path does before reporting its UTF-8 or JSON parse error.
+                let value = parse_newline_json(&buffer[..bytes_to_take]);
+                reader.consume(bytes_to_take);
+                return value;
+            }
+
+            if line.is_empty() {
+                line = Vec::with_capacity(self.max_frame_bytes.min(8192));
+            }
             line.extend_from_slice(&buffer[..bytes_to_take]);
             reader.consume(bytes_to_take);
 
@@ -73,16 +85,19 @@ impl Framing for NewlineJsonFraming {
             }
         }
 
-        if line.last() == Some(&b'\n') {
-            line.pop();
-        }
-        if line.last() == Some(&b'\r') {
-            line.pop();
-        }
-
-        let line = std::str::from_utf8(&line)?;
-        serde_json::from_str(line).map_err(Into::into)
+        parse_newline_json(&line)
     }
+}
+
+fn parse_newline_json(mut line: &[u8]) -> Result<Value> {
+    if let Some(body) = line.strip_suffix(b"\n") {
+        line = body;
+    }
+    if let Some(body) = line.strip_suffix(b"\r") {
+        line = body;
+    }
+    let line = std::str::from_utf8(line)?;
+    serde_json::from_str(line).map_err(Into::into)
 }
 
 /// LSP-style `Content-Length: N\r\n\r\n` framing with a JSON body.
@@ -183,6 +198,9 @@ fn read_content_length<R: BufRead>(reader: &mut R, max_frame_bytes: usize) -> Re
         }
     }
 }
+
+#[cfg(test)]
+mod newline_tests;
 
 #[cfg(test)]
 mod tests {

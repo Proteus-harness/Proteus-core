@@ -1,11 +1,17 @@
-use std::collections::{HashMap, HashSet};
+use std::{
+    borrow::Borrow,
+    collections::{HashMap, HashSet},
+};
+
+#[cfg(test)]
+use crate::core::JournalProjection;
 
 mod timestamps;
 use timestamps::TranscriptTimestamps;
 
 use crate::{
     core::{
-        HistoryMutationKind, JournalEntry, JournalProjection, ModelResponseOutcome,
+        HistoryMutationKind, JournalEntry, JournalRecord, ModelResponseOutcome,
         ToolCallRecordPhase, TurnSettled, TurnSettlementStatus,
     },
     domain::{CallId, PartId, ThreadId, ToolCallResolution, TurnId},
@@ -13,7 +19,7 @@ use crate::{
 };
 
 use super::{
-    AppTranscriptMessage, append_transcript_message, append_transcript_tool_call,
+    AppTranscriptMessage, append_transcript_parts, append_transcript_tool_call,
     append_transcript_tool_result, finalize_interrupted_tools,
 };
 
@@ -21,98 +27,159 @@ use super::{
 /// turn проецируется отдельно через in-memory `turn_progress`: здесь records
 /// уже являются единственным durable источником фактов.
 pub(crate) fn journal_transcript_messages(
-    projection: &JournalProjection,
+    records: Vec<JournalRecord>,
     live_turn_id: Option<TurnId>,
 ) -> Vec<AppTranscriptMessage> {
-    let visibility = TranscriptVisibility::from_projection(projection);
-    let mut state = TranscriptProjectionState {
-        timestamps: TranscriptTimestamps::from_projection(projection),
-        ..Default::default()
-    };
-    let final_results = projection
-        .records
-        .iter()
-        .filter_map(|record| match &record.entry {
-            JournalEntry::ToolResultRecorded(tool) => Some(tool.result.call_id.clone()),
-            _ => None,
-        })
-        .collect::<HashSet<_>>();
+    let start = replay_start(&records, live_turn_id);
+    let replay = TranscriptReplay::new(&records, start);
+    // Facts own their identities/dates. Drop skipped record payloads before the
+    // first rendered item, then each consumed record after its rows are built.
+    replay.render(records.into_iter().skip(start), live_turn_id)
+}
 
-    for record in &projection.records {
-        // The live turn is owned by the inline event projection until settlement.
-        if live_turn_id.is_some() && record.turn_id == live_turn_id {
-            continue;
-        }
-        match &record.entry {
-            JournalEntry::HistoryMutated(mutation) => {
-                if mutation.mutation == HistoryMutationKind::Replace
-                    && mutation.compaction.is_none()
-                {
-                    state.reset();
-                }
-                let hide_compactor_parts = mutation.mutation != HistoryMutationKind::Append
-                    && mutation.compaction.is_some();
-                for message in &mutation.messages {
-                    state.append_message(message, hide_compactor_parts);
-                }
-            }
-            JournalEntry::ModelResponseRecorded(response)
-                if record.turn_id != live_turn_id
-                    && visibility.is_root_record(record.thread_id, record.turn_id)
-                    && visibility
-                        .visible_model_responses
-                        .contains(&response.exchange_id) =>
-            {
-                if let ModelResponseOutcome::Response { response } = &response.outcome {
-                    for message in &response.messages {
-                        state.append_message(message, false);
-                    }
-                }
-            }
-            JournalEntry::ToolCallRecorded(tool)
-                if record.turn_id != live_turn_id
-                    && visibility.is_root_record(record.thread_id, record.turn_id)
-                    && visibility.visible_tool_calls.contains(&tool.call.id) =>
-            {
-                match &tool.phase {
-                    ToolCallRecordPhase::Requested { .. } => state.append_tool_call(&tool.call),
-                    ToolCallRecordPhase::Resolved { resolution } => {
-                        state.apply_resolution(&tool.call, resolution)
-                    }
-                    ToolCallRecordPhase::ApprovalRequested { .. } => {}
-                }
-            }
-            JournalEntry::ToolResultRecorded(tool)
-                if record.turn_id != live_turn_id
-                    && visibility.is_root_record(record.thread_id, record.turn_id)
-                    && visibility.visible_tool_calls.contains(&tool.result.call_id) =>
-            {
-                if state.seen_results.insert(tool.result.call_id.clone()) {
-                    state.append_tool_result(&tool.result);
-                }
-            }
-            JournalEntry::ToolEffectRecorded(tool)
-                if record.turn_id != live_turn_id
-                    && visibility.is_root_record(record.thread_id, record.turn_id)
-                    && !final_results.contains(&tool.result.call_id)
-                    && visibility.visible_tool_calls.contains(&tool.result.call_id) =>
-            {
-                if state.seen_results.insert(tool.result.call_id.clone()) {
-                    state.append_tool_result(&tool.result);
-                }
-            }
-            JournalEntry::TurnSettled(settled)
-                if record.turn_id != live_turn_id
-                    && visibility.is_root_record(record.thread_id, record.turn_id) =>
-            {
-                state.append_turn_failure(settled, record.timestamp_ms);
-            }
-            _ => {}
+/// A visible, non-compaction Replace resets every mutable render/dedup field.
+/// Earlier rows cannot survive it, even when later facts reveal old responses.
+/// This is only a render frontier: validation, visibility, final results and
+/// first-occurrence dates must still cover the entire committed projection.
+fn replay_start(records: &[JournalRecord], live_turn_id: Option<TurnId>) -> usize {
+    records
+        .iter()
+        .rposition(|record| {
+            !(live_turn_id.is_some() && record.turn_id == live_turn_id)
+                && matches!(
+                    &record.entry,
+                    JournalEntry::HistoryMutated(mutation)
+                        if mutation.mutation == HistoryMutationKind::Replace
+                            && mutation.compaction.is_none()
+                )
+        })
+        .unwrap_or(0)
+}
+
+#[cfg(test)]
+fn replay_transcript(
+    projection: &JournalProjection,
+    live_turn_id: Option<TurnId>,
+    start: usize,
+) -> Vec<AppTranscriptMessage> {
+    TranscriptReplay::new(&projection.records, start)
+        .render(projection.records[start..].iter(), live_turn_id)
+}
+
+struct TranscriptReplay {
+    state: TranscriptProjectionState,
+    visibility: TranscriptVisibility,
+    final_results: HashSet<CallId>,
+}
+
+impl TranscriptReplay {
+    fn new(records: &[JournalRecord], start: usize) -> Self {
+        let visibility = TranscriptVisibility::from_records(records, start);
+        let state = TranscriptProjectionState {
+            timestamps: TranscriptTimestamps::for_records(records, start),
+            ..Default::default()
+        };
+        let final_results = records
+            .iter()
+            .filter_map(|record| match &record.entry {
+                JournalEntry::ToolResultRecorded(tool) => Some(tool.result.call_id.clone()),
+                _ => None,
+            })
+            .collect::<HashSet<_>>();
+        Self {
+            state,
+            visibility,
+            final_results,
         }
     }
 
-    finalize_interrupted_tools(&mut state.transcript);
-    state.transcript
+    fn render<R: Borrow<JournalRecord>>(
+        self,
+        records: impl IntoIterator<Item = R>,
+        live_turn_id: Option<TurnId>,
+    ) -> Vec<AppTranscriptMessage> {
+        let Self {
+            mut state,
+            visibility,
+            final_results,
+        } = self;
+        for record in records {
+            let record: &JournalRecord = record.borrow();
+            // The live turn is owned by the inline event projection until settlement.
+            if live_turn_id.is_some() && record.turn_id == live_turn_id {
+                continue;
+            }
+            match &record.entry {
+                JournalEntry::HistoryMutated(mutation) => {
+                    if mutation.mutation == HistoryMutationKind::Replace
+                        && mutation.compaction.is_none()
+                    {
+                        state.reset();
+                    }
+                    let hide_compactor_parts = mutation.mutation != HistoryMutationKind::Append
+                        && mutation.compaction.is_some();
+                    for message in &mutation.messages {
+                        state.append_message(message, hide_compactor_parts);
+                    }
+                }
+                JournalEntry::ModelResponseRecorded(response)
+                    if record.turn_id != live_turn_id
+                        && visibility.is_root_record(record.thread_id, record.turn_id)
+                        && visibility
+                            .visible_model_responses
+                            .contains(&response.exchange_id) =>
+                {
+                    if let ModelResponseOutcome::Response { response } = &response.outcome {
+                        for message in &response.messages {
+                            state.append_message(message, false);
+                        }
+                    }
+                }
+                JournalEntry::ToolCallRecorded(tool)
+                    if record.turn_id != live_turn_id
+                        && visibility.is_root_record(record.thread_id, record.turn_id)
+                        && visibility.visible_tool_calls.contains(&tool.call.id) =>
+                {
+                    match &tool.phase {
+                        ToolCallRecordPhase::Requested { .. } => state.append_tool_call(&tool.call),
+                        ToolCallRecordPhase::Resolved { resolution } => {
+                            state.apply_resolution(&tool.call, resolution)
+                        }
+                        ToolCallRecordPhase::ApprovalRequested { .. } => {}
+                    }
+                }
+                JournalEntry::ToolResultRecorded(tool)
+                    if record.turn_id != live_turn_id
+                        && visibility.is_root_record(record.thread_id, record.turn_id)
+                        && visibility.visible_tool_calls.contains(&tool.result.call_id) =>
+                {
+                    if state.seen_results.insert(tool.result.call_id.clone()) {
+                        state.append_tool_result(&tool.result);
+                    }
+                }
+                JournalEntry::ToolEffectRecorded(tool)
+                    if record.turn_id != live_turn_id
+                        && visibility.is_root_record(record.thread_id, record.turn_id)
+                        && !final_results.contains(&tool.result.call_id)
+                        && visibility.visible_tool_calls.contains(&tool.result.call_id) =>
+                {
+                    if state.seen_results.insert(tool.result.call_id.clone()) {
+                        state.append_tool_result(&tool.result);
+                    }
+                }
+                JournalEntry::TurnSettled(settled)
+                    if record.turn_id != live_turn_id
+                        && visibility.is_root_record(record.thread_id, record.turn_id) =>
+                {
+                    state.append_turn_failure(settled, record.timestamp_ms);
+                }
+                _ => {}
+            }
+        }
+
+        finalize_interrupted_tools(&mut state.transcript);
+        state.transcript
+    }
 }
 
 #[derive(Default)]
@@ -123,12 +190,12 @@ struct TranscriptVisibility {
 }
 
 impl TranscriptVisibility {
-    fn from_projection(projection: &JournalProjection) -> Self {
+    fn from_records(records: &[JournalRecord], replay_start: usize) -> Self {
         let mut root_threads = HashMap::new();
         let mut committed_parts = HashSet::new();
         let mut root_lifecycle_calls = HashSet::new();
 
-        for record in &projection.records {
+        for record in records {
             if matches!(record.entry, JournalEntry::TurnOpened(_))
                 && let Some(turn_id) = record.turn_id
                 && let Some(thread_id) = record.thread_id
@@ -142,7 +209,7 @@ impl TranscriptVisibility {
             }
         }
 
-        for record in &projection.records {
+        for record in records {
             if let JournalEntry::ToolCallRecorded(tool) = &record.entry
                 && matches!(
                     &tool.phase,
@@ -157,7 +224,9 @@ impl TranscriptVisibility {
         }
 
         let mut visible_model_responses = HashSet::new();
-        for record in &projection.records {
+        // Only replayed responses need an eligibility decision. Their part and
+        // lifecycle dependencies above still include facts before the frontier.
+        for record in &records[replay_start..] {
             let JournalEntry::ModelResponseRecorded(response) = &record.entry else {
                 continue;
             };
@@ -223,25 +292,30 @@ impl TranscriptProjectionState {
 
     fn append_message(&mut self, message: &CanonicalMessage, hide_compactor_parts: bool) {
         let timestamp_ms = self.timestamps.message(message);
-        let mut message = message.clone();
-        message.parts.retain(|part| {
-            if !self.seen_parts.insert(part.part_id)
-                || part.scope != PartScope::Conversation
-                || (hide_compactor_parts && part.provenance == PartProvenance::Compactor)
-            {
-                return false;
-            }
-            match &part.payload {
-                ContentPart::ToolCall { call } => self.seen_calls.insert(call.id.clone()),
-                ContentPart::ToolResult { result } => {
-                    self.seen_results.insert(result.call_id.clone())
+        // Keep canonical payloads borrowed: duplicate checkpoints and hidden
+        // parts must not be copied merely to discard them before rendering.
+        let mut parts = message
+            .parts
+            .iter()
+            .filter(|part| {
+                if !self.seen_parts.insert(part.part_id)
+                    || part.scope != PartScope::Conversation
+                    || (hide_compactor_parts && part.provenance == PartProvenance::Compactor)
+                {
+                    return false;
                 }
-                _ => true,
-            }
-        });
-        if !message.parts.is_empty() {
+                match &part.payload {
+                    ContentPart::ToolCall { call } => self.seen_calls.insert(call.id.clone()),
+                    ContentPart::ToolResult { result } => {
+                        self.seen_results.insert(result.call_id.clone())
+                    }
+                    _ => true,
+                }
+            })
+            .peekable();
+        if parts.peek().is_some() {
             let start = self.transcript.len();
-            append_transcript_message(&mut self.transcript, &message);
+            append_transcript_parts(&mut self.transcript, message, parts);
             for row in &mut self.transcript[start..] {
                 row.timestamp_ms = row
                     .tool

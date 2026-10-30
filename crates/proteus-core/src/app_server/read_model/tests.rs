@@ -25,7 +25,7 @@ async fn fixture(
         store.clear_history(thread).await.unwrap();
     }
     store
-        .project_read_model(|projection| journal_transcript_messages(projection, None))
+        .project_read_model(|records| journal_transcript_messages(records, None))
         .unwrap();
     let page = store.saved_transcript_page(None, None).unwrap();
     (root, workspace, store, page)

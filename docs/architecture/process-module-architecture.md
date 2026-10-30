@@ -624,6 +624,14 @@ Child exit наблюдается отдельно от frame queue, а terminat
 read. Один reader маршрутизирует out-of-order terminal responses, callbacks и
 live notifications по host-owned invocation records.
 
+Byte-бюджет live notifications считает полный compact JSON payload тем же
+serializer без промежуточного encoded buffer. Проверки envelope, метода,
+generation и видимости invocation остаются до подсчёта; reservation — после
+полного вызова serializer с прежней обработкой ошибок. Лимит учитывает UTF-8
+bytes и JSON escaping, а не число символов. Permit удерживается до drop
+notification, включая время после
+извлечения из очереди; переполнение notification budget не блокирует terminal.
+
 Idle broker и writer блокируются на общем revision/Condvar уведомлении:
 enqueue, frame, completion, child exit и закрытие terminal receiver будят
 ожидание; pending deadlines ограничивают время сна. Снимок revision берётся
@@ -632,10 +640,25 @@ enqueue, frame, completion, child exit и закрытие terminal receiver б�
 ядро или платформа не поддерживает pidfd. Per-component потоки и failure
 domains сохраняются; это не общий process/I/O pool.
 
+Outbound byte admission целиком измеряет принадлежащий вызову `serde_json::Value`
+до атомарного резервирования lane budget. Для compact JSON строк и контейнеров
+считаются UTF-8 bytes, escape expansion и punctuation без генерации промежуточных
+JSON fragments; числа форматируются самим `serde_json`. Это по-прежнему полный
+обход, а не size hint и не ранняя остановка по quota. Receive accounting сохраняет
+свой serializer counter. Data/control queues, framing callbacks и момент
+освобождения permits не меняются: нет staging lane, partial reservations или
+ожидания чужой сериализации. Sole writer затем сериализует принятый `Value`;
+его активный JSON buffer сохраняется. Byte budgets ограничивают compact JSON,
+а не полный RSS/allocator overhead процесса.
+
 Initialize использует один `handshake_timeout_ms` для подготовки, записи
 кадра и получения ответа; зависшая запись завершает конкретное поколение.
 Лимит Content-Length headers действует во время накопления байтов, включая
-общий бюджет строк. При естественном завершении Unix leader lifecycle
+общий бюджет строк. Полный newline-JSON frame, уже доступный в read buffer,
+парсится прямо из него без промежуточной копии; разделённый между read chunks
+frame по-прежнему накапливается в bounded buffer. Лимит включает newline,
+а malformed frame потребляется до возврата прежней UTF-8/JSON ошибки.
+При естественном завершении Unix leader lifecycle
 останавливает принадлежащую ему группу до reaping, чтобы потомки с
 унаследованными pipes не удерживали cleanup. Повторный terminate возвращает
 terminal state без сигналов сохранённому PID.
@@ -719,6 +742,24 @@ invocation к dispatch. Отмена queued parent сохраняет отмен
 Slot adapter проверяет отмену также во время ожидания admission, включая
 handshake перезапущенного worker: caller освобождается, не ожидая handshake,
 а закрытый terminal receiver предотвращает последующий dispatch запроса.
+
+Adapters `workflow`, `tool`, `context` и `context_provider` ожидают
+`CancellationToken::cancelled()` из уже связанного invocation scope без
+периодического опроса. Для `HookHost`, который предоставляет только
+`is_cancelled()`, сохраняется опрос раз в 10 мс; новый token или отдельный
+источник authority ради оптимизации не создаётся. Обе формы используют один
+admission/terminal path: после получения handle отмена отправляет control
+request; после его подтверждения ожидается исходный terminal, а не локальный
+синтетический `Canceled`. Ошибка control ACK сохраняет прежний error path.
+Async slot adapter ожидает этот ACK через `InvocationCancelHandle::cancel_async`
+на Tokio runtime с включённым time driver. Таймер ACK ограничен прежними 2 с
+после enqueue; это не grace period и не доказательство завершения invocation.
+Очередь, broker validation и точка отправки ACK не меняются. Timeout или drop
+ACK waiter не отзывает уже принятый cancel; после успешного ACK по-прежнему
+ожидается terminal. Синхронный `cancel` остаётся для sync callers и Drop guards;
+в async flow не блокируйте executor ожиданием sync ACK.
+При добавлении ожидания отмены используйте доступный wake source, сохраняя
+проверку до encode/admission, закрытие pending receiver и владение terminal.
 
 Проверка до dispatch не устраняет гонку с более поздней отменой. Если writer
 ещё не забрал request, `cancel_before_write` может атомарно отменить запись.
@@ -835,6 +876,12 @@ feature допустимо, неизвестное или повторное п�
 В `model/v12` `describe` и `stream` составляют обязательное ядро;
 `model.catalog.v1` и `model.quota.v1` разрешают соответствующие optional вызовы.
 Без подтверждения host не вызывает метод и возвращает отсутствие данных.
+Связь method→feature задаётся общей таблицей slot contracts. Broker проверяет
+acknowledgement именно текущего generation/export при admission, после lazy
+restart и до создания invocation; отдельный предварительный manifest read не
+разрешает вызов в другом поколении. Отсутствие подтверждения — typed admission
+result без dispatch/reset: оно не ломает sibling exports или активный parent.
+Только этот результат адаптер превращает в отсутствие optional metadata.
 Подтверждённый метод может вернуть `null`, если сейчас данных нет; его ошибка
 или неверный DTO остаются ошибкой и не превращаются в отсутствие поддержки.
 Reference module подтверждает только предложенные ему возможности.

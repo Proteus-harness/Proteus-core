@@ -11,6 +11,7 @@ use super::{
     ComponentFrame, WireDirection,
     broker::ControlCommand,
     invocation::ComponentHostRequest,
+    notification::serialized_payload_len,
     parse_component_frame, parse_wire_id,
     pending::{LoopState, PendingCallback},
     wire::{self, CallbackParams, NotificationParams},
@@ -344,7 +345,7 @@ impl LoopState {
             ));
             return;
         }
-        let bytes = serde_json::to_vec(&params.payload).map_or(usize::MAX, |bytes| bytes.len());
+        let bytes = serialized_payload_len(&params.payload).unwrap_or(usize::MAX);
         let _delivery = pending
             .notifications
             .try_send(method, params.payload, bytes);

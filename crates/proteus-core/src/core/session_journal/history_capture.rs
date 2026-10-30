@@ -201,12 +201,22 @@ impl HistoryCapture {
         history: &mut Vec<CanonicalMessage>,
         result: &ToolResult,
     ) -> Result<bool> {
+        self.record_at(history, result).map(|index| index.is_some())
+    }
+
+    /// Insert exactly one message without changing the retained prefix/suffix.
+    /// The index identifies the only new payload that projection must validate.
+    pub(crate) fn record_at(
+        &mut self,
+        history: &mut Vec<CanonicalMessage>,
+        result: &ToolResult,
+    ) -> Result<Option<usize>> {
         let Some(index) = self
             .calls
             .iter()
             .position(|(_, binding, _)| binding.call_id == result.call_id)
         else {
-            return Ok(false);
+            return Ok(None);
         };
         let offset = self.calls[..index]
             .iter()
@@ -218,9 +228,10 @@ impl HistoryCapture {
             self.base + offset <= history.len(),
             "checkpoint history suffix was lost"
         );
-        history.insert(self.base + offset, binding.message(result.clone()));
+        let position = self.base + offset;
+        history.insert(position, binding.message(result.clone()));
         *recorded = true;
-        Ok(true)
+        Ok(Some(position))
     }
 }
 

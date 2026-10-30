@@ -104,8 +104,7 @@ fn rebuild_transcript(
     );
     // Strict journal validation is mandatory; cached conversation state is not
     // an authority. project_read_model saves the index only on a stable source.
-    let model =
-        store.project_read_model(|projection| journal_transcript_messages(projection, None))?;
+    let model = store.project_read_model(|records| journal_transcript_messages(records, None))?;
     anyhow::ensure!(
         SourceFingerprint::read(store.session_dir(), 8192).as_ref() == Some(&source),
         "history source changed during recovery; refresh the session snapshot"
@@ -119,9 +118,7 @@ fn rebuild_transcript(
 pub(super) fn current_read_model(store: &SessionStore) -> anyhow::Result<SessionReadModel> {
     match store.fresh_read_model() {
         Some(model) => Ok(model),
-        None => {
-            store.project_read_model(|projection| journal_transcript_messages(projection, None))
-        }
+        None => store.project_read_model(|records| journal_transcript_messages(records, None)),
     }
 }
 
@@ -132,7 +129,7 @@ pub(super) fn project_completed_transcript(
     // returning free pages. The completed page and writer's live state survive.
     let result = (|| {
         let model =
-            store.project_read_model(|projection| journal_transcript_messages(projection, None))?;
+            store.project_read_model(|records| journal_transcript_messages(records, None))?;
         Ok(CompletedTranscript::from_model(
             store,
             model.transcript,
@@ -179,8 +176,9 @@ pub(super) fn refresh_in_background(server: &AppServerHandle) {
             };
             let transcript = tokio::task::spawn_blocking(move || {
                 let store = SessionStore::open(dir)?;
-                let transcript = journal_transcript_messages(&projection, None);
-                let model = SessionReadModel::from_projection(&store, projection, transcript)?;
+                let model = SessionReadModel::from_projection(&store, projection, |records| {
+                    journal_transcript_messages(records, None)
+                })?;
                 #[cfg(unix)]
                 if let Some(source) = source {
                     store.save_read_model(&source, &model);

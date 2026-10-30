@@ -33,3 +33,22 @@ async fn unacknowledged_optional_methods_are_not_called_and_stream_still_works()
         );
     }
 }
+
+#[tokio::test]
+async fn acknowledged_metadata_errors_cannot_masquerade_as_missing_features() {
+    let cwd = tempfile::tempdir().unwrap();
+    let mut settings = settings();
+    settings["metadata_errors"] = json!({
+        "catalog": "UnsupportedFeature: model.catalog.v1 was not acknowledged",
+        "quota": "UnsupportedFeature: model.quota.v1 was not acknowledged"
+    });
+    let adapter = model(&config("claimed", settings), cwd.path()).unwrap();
+    let catalog_error = adapter.catalog().await.unwrap_err();
+    let quota_error = adapter.quota().await.unwrap_err();
+    assert!(format!("{catalog_error:#}").contains("UnsupportedFeature"));
+    assert!(format!("{quota_error:#}").contains("UnsupportedFeature"));
+    assert_eq!(
+        adapter.complete(request("claimed")).await.unwrap(),
+        response()
+    );
+}

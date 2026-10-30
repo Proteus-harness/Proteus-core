@@ -172,8 +172,16 @@ pub(super) fn session_summary_from_projection(
     session_id: crate::domain::SessionId,
     projection: &JournalProjection,
 ) -> Result<AppSessionSummary> {
+    session_summary_from_history(session_dir, session_id, &projection.history)
+}
+
+pub(super) fn session_summary_from_history(
+    session_dir: PathBuf,
+    session_id: crate::domain::SessionId,
+    history: &[CanonicalMessage],
+) -> Result<AppSessionSummary> {
     let workspace_path = workspace_path_from_session_dir(&session_dir)?;
-    let (message_count, preview) = messages_summary(&projection.history);
+    let (message_count, preview) = messages_summary(history);
     let updated_at_ms = session_updated_at_ms(&journal_path(&session_dir));
 
     Ok(AppSessionSummary::new(

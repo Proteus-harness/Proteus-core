@@ -258,7 +258,6 @@ impl AgentRuntimeBuilder {
             .as_ref()
             .map(|cfg| cfg.reasoning.clone())
             .unwrap_or_default();
-        let default_reasoning = reasoning.clone();
         let images = super::images::ImageStore::new(
             session_store
                 .as_ref()
@@ -318,7 +317,6 @@ impl AgentRuntimeBuilder {
                 events,
                 approval,
                 user_input,
-                default_reasoning,
             },
             session: Arc::new(session),
         })

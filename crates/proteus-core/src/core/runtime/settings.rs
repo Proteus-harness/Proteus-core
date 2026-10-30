@@ -105,13 +105,14 @@ impl AgentRuntime {
     pub async fn set_reasoning_enabled(&self, enabled: bool) {
         let _guard = self.services.reload_lock.lock().await;
         let mut state = self.services.execution_state.write().await;
+        let default_reasoning = state.configured_reasoning();
         let reasoning = &mut state.reasoning;
         if enabled {
             if reasoning.effort.is_none() || reasoning.effort.as_deref() == Some("none") {
-                reasoning.effort = self.services.default_reasoning.effort.clone();
+                reasoning.effort = default_reasoning.effort;
             }
-            reasoning.summary = self.services.default_reasoning.summary;
-            reasoning.budget_tokens = self.services.default_reasoning.budget_tokens;
+            reasoning.summary = default_reasoning.summary;
+            reasoning.budget_tokens = default_reasoning.budget_tokens;
         } else {
             reasoning.effort = None;
             reasoning.summary = false;
@@ -144,6 +145,7 @@ impl AgentRuntime {
                 model.id
             );
         }
+        let default_reasoning = state.configured_reasoning();
         let reasoning = &mut state.reasoning;
         match effort.as_deref() {
             // «none» — первоклассное значение effort: выключает рассуждения
@@ -157,8 +159,8 @@ impl AgentRuntime {
             // выключены: summary/budget возвращаются к дефолтам конфига.
             Some(value) => {
                 if !reasoning.is_enabled() {
-                    reasoning.summary = self.services.default_reasoning.summary;
-                    reasoning.budget_tokens = self.services.default_reasoning.budget_tokens;
+                    reasoning.summary = default_reasoning.summary;
+                    reasoning.budget_tokens = default_reasoning.budget_tokens;
                 }
                 reasoning.effort = Some(value.to_owned());
             }
@@ -170,5 +172,18 @@ impl AgentRuntime {
 
     pub async fn reasoning(&self) -> ReasoningConfig {
         self.services.execution_state.read().await.reasoning.clone()
+    }
+}
+
+impl RuntimeExecutionState {
+    fn configured_reasoning(&self) -> ReasoningConfig {
+        // Defaults belong to the published assembly, not the runtime's first
+        // provider. Reading them under execution_state preserves reload rollback.
+        self.runtime
+            .registry
+            .model_config
+            .as_ref()
+            .map(|config| config.reasoning.clone())
+            .unwrap_or_default()
     }
 }

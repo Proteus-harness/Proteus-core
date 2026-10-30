@@ -52,20 +52,31 @@ pub(super) async fn execute_new_session(
                 Ok(path)
             })
             .transpose()?;
-        let (config, cwd, config_path) = match source_session_dir {
+        let (config, cwd, config_path, permission_mode) = match source_session_dir {
             Some(path) => {
                 let source = super::sessions::server_for_session(state, path).await?;
                 let config = source.config.read().await.clone();
-                (config, source.cwd.clone(), source.config_path.clone())
+                (
+                    config,
+                    source.cwd.clone(),
+                    source.config_path.clone(),
+                    Some(source.permission_mode().await),
+                )
             }
             None => (
                 state.launch.config.clone(),
                 state.launch.cwd.clone(),
                 state.launch.config_path.clone(),
+                None,
             ),
         };
         let cwd = workspace.unwrap_or(cwd);
         let next = AgentAppServer::launch(config, cwd, config_path.as_deref()).await?;
+        // Inherit the source session override without changing the published
+        // profile that config saves and unrelated reloads use as their baseline.
+        if let Some(mode) = permission_mode {
+            next.set_permission_mode(mode).await;
+        }
         next.start_session().await?;
         state.remember_server(next.clone()).await;
         session_opened(state, &next).await

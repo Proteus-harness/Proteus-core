@@ -3,7 +3,7 @@ use crate::{
     app_server::AgentAppServer,
     app_server::AppServerEvent,
     contracts::CancellationToken,
-    domain::{ToolCall, new_call_id},
+    domain::{PermissionMode, ToolCall, new_call_id},
 };
 
 async fn next_reload(events: &mut tokio::sync::broadcast::Receiver<AppServerEvent>) {
@@ -62,6 +62,7 @@ async fn file_and_ui_updates_reach_other_open_sessions_and_bad_source_preserves_
     )
     .unwrap();
     let mut config = crate::test_model::config();
+    config.permissions.mode = PermissionMode::Normal;
     config.components.insert("capabilities".into(),serde_json::from_value(serde_json::json!({
         "command":crate::test_model::reference_module(),"exports":{"tool":{"reference.tools":{}},"context_provider":{"skills":{}},"policy":{"allow_all":{}}}
     })).unwrap());
@@ -93,6 +94,8 @@ async fn file_and_ui_updates_reach_other_open_sessions_and_bad_source_preserves_
     .unwrap();
     let mut first_events = first.subscribe();
     let mut second_events = second.subscribe();
+    first.set_permission_mode(PermissionMode::Auto).await;
+    second.set_permission_mode(PermissionMode::Plan).await;
     assert!(skill(&first).await.ok);
     assert!(skill(&second).await.ok);
     // Includes are read through the same parser, not a special watcher schema.
@@ -107,6 +110,8 @@ async fn file_and_ui_updates_reach_other_open_sessions_and_bad_source_preserves_
     );
     assert!(!skill(&first).await.ok);
     assert!(!skill(&second).await.ok);
+    assert_eq!(first.permission_mode().await, PermissionMode::Auto);
+    assert_eq!(second.permission_mode().await, PermissionMode::Plan);
     let epoch = first.runtime.module_epoch().await;
     std::fs::write(&fragment, "[modules]\npolicy='not-registered'\n").unwrap();
     tokio::join!(
@@ -114,6 +119,8 @@ async fn file_and_ui_updates_reach_other_open_sessions_and_bad_source_preserves_
         next_error(&mut second_events)
     );
     assert_eq!(first.runtime.module_epoch().await, epoch);
+    assert_eq!(first.permission_mode().await, PermissionMode::Auto);
+    assert_eq!(second.permission_mode().await, PermissionMode::Plan);
     assert!(
         !skill(&first).await.ok,
         "bad profile must not undo the last valid availability"
@@ -126,6 +133,8 @@ async fn file_and_ui_updates_reach_other_open_sessions_and_bad_source_preserves_
     );
     assert!(skill(&first).await.ok);
     assert!(first.addons_snapshot().await.reload_error.is_none());
+    assert_eq!(first.permission_mode().await, PermissionMode::Auto);
+    assert_eq!(second.permission_mode().await, PermissionMode::Plan);
     let mut update = first.addons_snapshot().await.settings;
     update.addons.disabled_skills = vec!["review".into()];
     first.set_addons(update).await.unwrap();
@@ -134,6 +143,30 @@ async fn file_and_ui_updates_reach_other_open_sessions_and_bad_source_preserves_
         !skill(&second).await.ok,
         "UI save must propagate through the profile to another session"
     );
+    assert_eq!(first.permission_mode().await, PermissionMode::Auto);
+    assert_eq!(second.permission_mode().await, PermissionMode::Plan);
+    assert_eq!(
+        AppConfig::load(Some(&path)).await.unwrap().permissions.mode,
+        PermissionMode::Normal,
+        "unrelated saves must not persist either session's override"
+    );
+
+    // An actual profile-default change still replaces both session overrides.
+    second.set_permission_mode(PermissionMode::Normal).await;
+    first
+        .set_config_builder(
+            Default::default(),
+            None,
+            Default::default(),
+            None,
+            None,
+            Some(PermissionMode::Plan),
+        )
+        .await
+        .unwrap();
+    next_reload(&mut second_events).await;
+    assert_eq!(first.permission_mode().await, PermissionMode::Plan);
+    assert_eq!(second.permission_mode().await, PermissionMode::Plan);
     first.shutdown().await;
     second.shutdown().await;
 }

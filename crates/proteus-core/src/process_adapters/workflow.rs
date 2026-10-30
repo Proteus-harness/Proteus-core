@@ -88,11 +88,11 @@ impl Workflow for ProcessWorkflowAdapter {
 
         let response: Result<ProcessWorkflowResponse> = self
             .client
-            .invoke_with_dispatcher_and_cancel_check(
+            .invoke_with_dispatcher_and_cancellation(
                 PROCESS_WORKFLOW_METHOD,
                 &input,
                 dispatcher,
-                || cancellation.is_cancelled(),
+                &cancellation,
             )
             .await;
         let unfinished = runtime.close_model_stream().await;
