@@ -1,5 +1,5 @@
 use super::*;
-use crate::{core::session_journal::UsageProjection, domain::SessionUsageSnapshot};
+use crate::{core::session_journal::load_validated_usage, domain::SessionUsageSnapshot};
 
 impl SessionStore {
     /// Живой writer отдаёт готовую проекцию; cold read валидирует журнал без
@@ -19,12 +19,7 @@ impl SessionStore {
             if let Some(usage) = store.fresh_read_usage() {
                 return Ok(usage);
             }
-            let projection = store.load_projection()?;
-            let mut usage = UsageProjection::default();
-            for record in &projection.records {
-                usage.apply(record);
-            }
-            Ok(usage.snapshot(store.session_id))
+            load_validated_usage(&store.session_dir, store.session_id)
         })
         .await?;
         drop(writer);

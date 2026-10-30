@@ -19,8 +19,13 @@ mod append;
 mod initialize;
 mod ownership;
 pub(crate) use initialize::{initialize_writer_projection, initialize_writer_state};
+mod derived;
 mod read;
 pub(crate) use append::append_record;
+pub(crate) use derived::{
+    load_validated_conversation, load_validated_history, load_validated_history_revision,
+    load_validated_usage,
+};
 pub(crate) use read::load_records;
 mod recovery;
 mod redaction;

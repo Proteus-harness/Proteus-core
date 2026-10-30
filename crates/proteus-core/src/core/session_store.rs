@@ -13,6 +13,7 @@ use crate::{
         DEFAULT_BLOB_THRESHOLD_BYTES, HistoryMutated, HistoryMutationKind, JournalEntry,
         JournalProjection, JournalRecord, JournalRecordAttribution, JournalWriterState,
         WriterRetirement, append_record, initialize_writer_state, journal_path, load_records,
+        load_validated_conversation, load_validated_history, load_validated_history_revision,
     },
     domain::{ExecutionId, HistoryCompactionReport, SessionId, ThreadId, TurnId},
     model_standard::CanonicalMessage,
@@ -121,7 +122,7 @@ impl SessionStore {
     }
 
     pub fn load_messages(&self) -> Result<Vec<CanonicalMessage>> {
-        Ok(self.load_projection()?.history)
+        load_validated_history(&self.session_dir, self.session_id)
     }
 
     /// Read the current canonical conversation, without replay or a writer lease.
@@ -130,15 +131,7 @@ impl SessionStore {
         if let Some(conversation) = read_model::sqlite_conversation(self) {
             return Ok(conversation);
         }
-        let projection = self.load_projection()?;
-        let model_context =
-            super::model_context::ModelContextState::from_records(&projection.records, None)
-                .snapshot();
-        Ok(crate::contracts::ConversationSnapshot {
-            revision: projection.history_revision,
-            messages: projection.history,
-            model_context,
-        })
+        load_validated_conversation(&self.session_dir, self.session_id)
     }
 
     pub fn load_records(&self) -> Result<Vec<JournalRecord>> {
@@ -155,7 +148,7 @@ impl SessionStore {
         if let Some(cached) = self.cached_read_metadata() {
             return Ok(cached.revision);
         }
-        Ok(self.load_projection()?.history_revision)
+        load_validated_history_revision(&self.session_dir, self.session_id)
     }
 
     pub fn load_projection(&self) -> Result<JournalProjection> {

@@ -1410,6 +1410,17 @@ Blob payload после проверки размера и SHA-256 читает�
 Проверка известных `part_id` сравнивает содержимое, но сохраняет копию только новой части;
 неизменившиеся части не копируются заново на каждом model request.
 
+Чтения только производных данных — `load_messages`, холодные fallback-и
+`conversation_snapshot`, `usage_snapshot`, `history_revision` и сводки каталога —
+применяют тот же строгий валидатор построчно, без отдельного накопления всех
+`JournalRecord`. Usage и model context сворачиваются только там, где нужны
+результату; canonical history и необходимые validation indices остаются в памяти.
+После первой semantic error чтение всё равно проверяет оставшиеся полные записи
+и blobs: более поздняя ошибка parse/hydration сохраняет прежний приоритет.
+Это не обход validation, writer lease или source rechecks. Raw inspection/replay
+и read-model renderer с произвольным callback по-прежнему получают полные records.
+Удаление промежуточного Vec не задаёт общий предел памяти и не является замером RSS.
+
 Кандидат следующего append использует структурно разделяемые индексы и
 copy-on-write history/payloads. Изменения кандидата изолированы до успешного
 `sync_data`; ошибка validation или записи не изменяет committed state.

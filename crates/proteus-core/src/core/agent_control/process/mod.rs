@@ -376,9 +376,9 @@ impl RunnerInner {
         let is_resume = resume.is_some();
 
         let permit = tokio::select! {
-            permit = role.permits.clone().acquire_owned() => {
-                permit.map_err(|_| anyhow!("agent profile process pool is closed"))?
-            }
+            // Cancellation already visible at admission must not consume a
+            // ready permit and discard a resumable peer on its first write.
+            biased;
             _ = child_ctx.execution.scope.cancellation.cancelled() => {
                 let _ = mailbox.close_and_discard();
                 let resumable = match resume.as_ref() {
@@ -397,6 +397,9 @@ impl RunnerInner {
                         resumable,
                     )
                     .await;
+            }
+            permit = role.permits.clone().acquire_owned() => {
+                permit.map_err(|_| anyhow!("agent profile process pool is closed"))?
             }
         };
 

@@ -20,7 +20,8 @@ pub(crate) use storage::redacted_history;
 pub(crate) use storage::{
     JournalRecordAttribution, JournalWriterState, SessionWriteOwnership, WriterRetirement,
     append_record, initialize_writer_projection, initialize_writer_state, journal_path,
-    load_records,
+    load_records, load_validated_conversation, load_validated_history,
+    load_validated_history_revision, load_validated_usage,
 };
 
 #[cfg(test)]

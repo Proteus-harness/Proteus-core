@@ -16,6 +16,10 @@ pub(crate) struct ModelContextProjection {
 }
 
 impl ModelContextProjection {
+    pub(crate) fn snapshot(&self) -> Vec<ModelContextObservation> {
+        self.context.snapshot()
+    }
+
     pub(crate) fn before_turn(&self, turn: TurnId) -> Option<Vec<ModelContextObservation>> {
         self.before_latest_turn
             .as_ref()

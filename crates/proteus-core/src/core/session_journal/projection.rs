@@ -499,6 +499,10 @@ impl JournalValidationState {
         &self.history
     }
 
+    pub(crate) fn into_history(self) -> Vec<CanonicalMessage> {
+        Arc::unwrap_or_clone(self.history)
+    }
+
     pub(crate) fn committed_history(
         &self,
         thread_id: ThreadId,

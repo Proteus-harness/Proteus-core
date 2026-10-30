@@ -7,7 +7,7 @@ use anyhow::{Context, Result};
 use proteus_contracts::app_protocol::AppSessionSummary;
 
 use crate::{
-    core::session_journal::{JournalProjection, journal_path, load_records},
+    core::session_journal::{JournalProjection, journal_path, load_validated_history},
     model_standard::{CanonicalMessage, ContentPart, MessageRole},
 };
 
@@ -163,8 +163,8 @@ fn warn_unusable_session(session_dir: &Path, error: &anyhow::Error) {
 
 fn session_summary_from_dir(session_dir: PathBuf) -> Result<AppSessionSummary> {
     let session_id = resolve_session_identity(&session_dir)?.session_id;
-    let projection = JournalProjection::build(session_id, load_records(&session_dir, session_id)?)?;
-    session_summary_from_projection(session_dir, session_id, &projection)
+    let history = load_validated_history(&session_dir, session_id)?;
+    session_summary_from_history(session_dir, session_id, &history)
 }
 
 pub(super) fn session_summary_from_projection(
