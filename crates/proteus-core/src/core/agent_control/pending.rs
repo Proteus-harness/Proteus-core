@@ -36,8 +36,14 @@ pub(super) struct PendingChild {
 
 #[derive(Default)]
 pub(super) struct PendingOutcome {
-    result: Mutex<Option<std::result::Result<AgentControlResult, String>>>,
+    state: Mutex<PendingOutcomeState>,
     notify: Notify,
+}
+
+#[derive(Default)]
+struct PendingOutcomeState {
+    result: Option<std::result::Result<AgentControlResult, String>>,
+    consumed: bool,
 }
 
 impl PendingChildren {
@@ -122,17 +128,18 @@ impl PendingChildren {
         Ok(entry.outcome.clone())
     }
 
-    /// Помечает terminal result забранным. Вызывается только после await:
-    /// отменённый waiter не потребляет handle, а два конкурентных waiter-а
-    /// всё равно не могут оба успешно вернуть один результат.
-    pub(super) fn consume(&mut self, spawn_id: &str) -> Result<()> {
-        let entry = self.entries.get(spawn_id).ok_or_else(|| {
-            anyhow!("unknown subagent spawn_id (never spawned, already waited, or evicted)")
-        })?;
-        if !entry.outcome.is_ready() {
-            bail!("subagent result is not ready to consume");
+    /// Claims the outcome already acquired by a waiter, even if cap pressure
+    /// evicted its ready index entry. Cancellation before this point does not
+    /// consume it; concurrent waiters still cannot both return the result.
+    pub(super) fn consume(&mut self, spawn_id: &str, outcome: &Arc<PendingOutcome>) -> Result<()> {
+        outcome.consume()?;
+        if self
+            .entries
+            .get(spawn_id)
+            .is_some_and(|entry| Arc::ptr_eq(&entry.outcome, outcome))
+        {
+            self.entries.remove(spawn_id);
         }
-        self.entries.remove(spawn_id);
         Ok(())
     }
 
@@ -172,18 +179,34 @@ impl PendingChildren {
 
 impl PendingOutcome {
     fn is_ready(&self) -> bool {
-        self.result
+        self.state
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .result
             .is_some()
     }
 
     fn complete(&self, result: std::result::Result<AgentControlResult, String>) {
-        *self
-            .result
+        self.state
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(result);
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .result = Some(result);
         self.notify.notify_waiters();
+    }
+
+    fn consume(&self) -> Result<()> {
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if state.result.is_none() {
+            bail!("subagent result is not ready to consume");
+        }
+        if state.consumed {
+            bail!("subagent result was already consumed");
+        }
+        state.consumed = true;
+        Ok(())
     }
 
     pub(super) async fn wait(&self) -> Result<AgentControlResult> {
@@ -192,9 +215,10 @@ impl PendingOutcome {
             tokio::pin!(notified);
             notified.as_mut().enable();
             if let Some(result) = self
-                .result
+                .state
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .result
                 .clone()
             {
                 return result.map_err(anyhow::Error::msg);
@@ -310,5 +334,100 @@ mod tests {
             .expect("cancel during wait");
         assert!(token.is_cancelled());
         let _ = outcome.wait().await;
+    }
+
+    #[tokio::test]
+    async fn active_waiter_claims_terminal_result_after_ready_entry_is_evicted() {
+        let mut pending = PendingChildren::default();
+        pending
+            .reserve("a", CancellationToken::new(), mailbox(), None, 1, true)
+            .unwrap();
+        let outcome = pending.outcome("a").unwrap();
+        outcome.complete(Ok(AgentControlResult::new(
+            "finished",
+            AgentLifecycleStatus::Completed,
+        )));
+
+        // The monitor completed, but another admission runs before the waiter.
+        pending
+            .reserve("b", CancellationToken::new(), mailbox(), None, 1, true)
+            .unwrap();
+        assert!(
+            pending.outcome("a").is_err(),
+            "the old handle is no longer discoverable"
+        );
+        let result = outcome.wait().await.unwrap();
+        pending.consume("a", &outcome).unwrap();
+        assert_eq!(result.summary, "finished");
+        assert!(pending.outcome("b").is_ok());
+        assert!(pending.consume("a", &outcome).is_err());
+    }
+
+    #[tokio::test]
+    async fn concurrent_waiters_claim_a_terminal_error_only_once() {
+        let mut pending = PendingChildren::default();
+        pending
+            .reserve("a", CancellationToken::new(), mailbox(), None, 1, true)
+            .unwrap();
+        let first = pending.outcome("a").unwrap();
+        let second = pending.outcome("a").unwrap();
+        assert!(pending.consume("a", &first).is_err(), "not terminal yet");
+        first.complete(Err("child failed".to_owned()));
+        assert_eq!(first.wait().await.unwrap_err().to_string(), "child failed");
+        assert_eq!(second.wait().await.unwrap_err().to_string(), "child failed");
+        pending.consume("a", &first).unwrap();
+        assert!(pending.consume("a", &second).is_err());
+    }
+
+    #[tokio::test]
+    async fn old_outcome_claim_does_not_remove_a_replacement_entry() {
+        let mut pending = PendingChildren::default();
+        pending
+            .reserve("a", CancellationToken::new(), mailbox(), None, 1, true)
+            .unwrap();
+        let old = pending.outcome("a").unwrap();
+        old.complete(Ok(AgentControlResult::new(
+            "old",
+            AgentLifecycleStatus::Completed,
+        )));
+        pending
+            .reserve("b", CancellationToken::new(), mailbox(), None, 1, true)
+            .unwrap();
+        pending.release("b");
+        pending
+            .reserve("a", CancellationToken::new(), mailbox(), None, 1, true)
+            .unwrap();
+        let replacement = pending.outcome("a").unwrap();
+
+        assert_eq!(old.wait().await.unwrap().summary, "old");
+        pending.consume("a", &old).unwrap();
+        assert!(Arc::ptr_eq(&pending.outcome("a").unwrap(), &replacement));
+        assert!(!replacement.is_ready());
+    }
+
+    #[tokio::test]
+    async fn dropped_wait_future_does_not_consume_later_terminal_result() {
+        let mut pending = PendingChildren::default();
+        pending
+            .reserve("a", CancellationToken::new(), mailbox(), None, 1, true)
+            .unwrap();
+        let outcome = pending.outcome("a").unwrap();
+        {
+            let wait = outcome.wait();
+            tokio::pin!(wait);
+            tokio::select! {
+                biased;
+                result = &mut wait => panic!("result is not terminal yet: {result:?}"),
+                _ = std::future::ready(()) => {}
+            }
+        }
+        outcome.complete(Ok(AgentControlResult::new(
+            "later",
+            AgentLifecycleStatus::Completed,
+        )));
+        let later = pending.outcome("a").unwrap();
+        assert_eq!(later.wait().await.unwrap().summary, "later");
+        pending.consume("a", &later).unwrap();
+        assert!(pending.outcome("a").is_err());
     }
 }

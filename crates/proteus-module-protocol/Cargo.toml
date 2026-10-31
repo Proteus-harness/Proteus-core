@@ -3,11 +3,20 @@ name = "proteus-module-protocol"
 version = "0.1.0-alpha.2"
 edition = "2024"
 
+[features]
+default = []
+conformance-cli = ["dep:clap"]
+
+[[bin]]
+name = "proteus-component-conformance"
+path = "src/bin/proteus-component-conformance.rs"
+required-features = ["conformance-cli"]
+
 [dependencies]
 proteus-contracts = { path = "../proteus-contracts" }
 proteus-process-host = { path = "../proteus-process-host" }
 anyhow = "1"
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive"], optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt", "sync", "time"] }

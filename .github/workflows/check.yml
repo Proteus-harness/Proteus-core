@@ -57,11 +57,13 @@ jobs:
           restore-keys: deps-${{ runner.os }}-${{ runner.arch }}-rust1.95-node22-
       - name: Formatting
         run: cargo fmt --all -- --check
+      - name: Test runner feature selection
+        run: python3 -m unittest discover -s scripts -p 'test_conformance_selection.py'
       - name: Workspace gate with real process fixtures
         run: python3 scripts/test.py full
       - name: Standalone Rust SDK starter and process conformance
         run: |
           export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$PWD/target}"
           cargo build --locked --manifest-path examples/modules/rust-tool/Cargo.toml
-          cargo build --locked -p proteus-module-protocol --bin proteus-component-conformance
+          cargo build --locked -p proteus-module-protocol --features conformance-cli --bin proteus-component-conformance
           python3 examples/modules/rust-tool/smoke.py --module "$CARGO_TARGET_DIR/debug/proteus-rust-tool-example" --conformance "$CARGO_TARGET_DIR/debug/proteus-component-conformance"

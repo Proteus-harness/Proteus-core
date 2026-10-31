@@ -48,7 +48,7 @@ workflow и context. Если `[tools]` уже существует, добав�
 Из корня Core соберите публичный conformance CLI один раз:
 
 ```bash
-cargo build --locked -p proteus-module-protocol --bin proteus-component-conformance
+cargo build --locked -p proteus-module-protocol --features conformance-cli --bin proteus-component-conformance
 python3 examples/modules/rust-tool/smoke.py \
   --conformance target/debug/proteus-component-conformance \
   --module examples/modules/rust-tool/target/debug/proteus-rust-tool-example

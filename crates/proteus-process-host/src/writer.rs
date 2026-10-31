@@ -509,8 +509,14 @@ where
         control_budget,
     };
     let thread = thread::spawn(move || {
-        while !stopping.load(Ordering::Acquire) {
+        loop {
+            // Snapshot before every wait predicate, including shutdown. A stop
+            // notification between checking the flag and reading the revision
+            // could otherwise be consumed before this idle writer starts waiting.
             let observed = wake.revision();
+            if stopping.load(Ordering::Acquire) {
+                break;
+            }
             let command = match control_commands.try_recv() {
                 Ok(command) => command,
                 Err(_) => match data_commands.try_recv() {

@@ -140,6 +140,13 @@ Stdout каждого peer буферизуется отдельно от collab
 - `task` является синхронным `spawn + wait`, а collaboration tools используют
   тот же runtime instance через `AgentControlToolHost`.
 
+Waiter, уже получивший shared terminal outcome, сохраняет право однократно
+забрать его после вытеснения готовой записи из bounded pending index.
+Одновременные waiter-ы не могут оба успешно потребить один result, а отмена
+ожидания до потребления не забирает result. Новый `wait` по уже вытесненному
+handle по-прежнему отклоняется: shared outcome не превращает index в durable
+хранилище или неограниченный cache.
+
 Один mailbox ограничен 32 сообщениями, 64 000 байт суммарно и 16 000 байт на
 сообщение. В contract v1 source всегда равен `/root`, а target обязан точно
 совпадать с адресом, привязанным root control plane к handle; подменённые

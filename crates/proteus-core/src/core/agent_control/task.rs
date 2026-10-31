@@ -11,8 +11,8 @@ use serde_json::{Value, json};
 
 use crate::{
     contracts::{
-        AgentControlRequest, AgentControlResult, AgentProfile, Tool, ToolContext, ToolRegistry,
-        ToolSource,
+        AgentControlRequest, AgentControlResult, AgentIsolation, AgentProfile, Tool, ToolContext,
+        ToolRegistry, ToolSource,
     },
     domain::{ToolCall, ToolResult, ToolSpec},
 };
@@ -24,9 +24,7 @@ mod workspace_lifecycle;
 mod tests;
 
 use spec::{is_parallel_eligible, task_tool_spec};
-use workspace_lifecycle::{
-    child_task_id, error_result_with_workspace, finalize_workspace, prepare_workspace,
-};
+use workspace_lifecycle::child_task_id;
 
 pub const TASK_TOOL: &str = "task";
 
@@ -77,30 +75,33 @@ impl Tool for TaskTool {
             .clone()
             .ok_or_else(|| anyhow!("task tool requires AgentControlToolHost capability"))?;
         let role = self.role(call).cloned();
-        let mut request = match parse_task_call(call, parent_task) {
+        let request = match parse_task_call(call, parent_task) {
             Ok(request) => request,
-            Err(message) => return Ok(task_error(call, message)),
+            Err(message) => return Ok(task_error(&call.id, message)),
         };
         let Some(role) = role else {
             return Ok(task_error(
-                call,
+                &call.id,
                 format!("unknown agent profile '{}'", request.role),
             ));
         };
 
-        let workspace =
-            match prepare_workspace(&mut request, call, &role, agent_control.session_id()).await {
-                Ok(workspace) => workspace,
-                Err(message) => return Ok(task_error(call, message)),
-            };
+        if role.isolation == AgentIsolation::Worktree {
+            return workspace_lifecycle::run_owned(
+                call.id.clone(),
+                request,
+                role,
+                agent_control,
+                ctx.cancellation,
+            )
+            .await;
+        }
         match agent_control.run_agent(request).await {
             Ok(result) => {
-                let note = finalize_workspace(workspace, &result).await;
-                Ok(result_to_tool_result(call, result, note))
+                let task_id = child_task_id(&result);
+                Ok(result_to_tool_result(&call.id, result, task_id, None))
             }
-            Err(error) => {
-                Ok(error_result_with_workspace(call, format!("{error:#}"), workspace).await)
-            }
+            Err(error) => Ok(task_error(&call.id, format!("{error:#}"))),
         }
     }
 }
@@ -151,16 +152,16 @@ pub(crate) fn calls_are_parallel_eligible(calls: &[ToolCall], roles: &[AgentProf
         })
 }
 
-fn task_error(call: &ToolCall, message: String) -> ToolResult {
-    ToolResult::error(call.id.clone(), message).with_metadata(json!({ "tool": TASK_TOOL }))
+fn task_error(call_id: &str, message: String) -> ToolResult {
+    ToolResult::error(call_id.to_owned(), message).with_metadata(json!({ "tool": TASK_TOOL }))
 }
 
 fn result_to_tool_result(
-    call: &ToolCall,
+    call_id: &str,
     result: AgentControlResult,
+    task_id: Option<String>,
     workspace_note: Option<String>,
 ) -> ToolResult {
-    let task_id = child_task_id(&result);
     let mut output = result.summary;
     if let Some(task_id) = task_id {
         output.push_str(&format!("\n\n[task_id: {task_id}]"));
@@ -170,7 +171,7 @@ fn result_to_tool_result(
         output.push_str(&note);
     }
 
-    ToolResult::ok(call.id.clone(), output).with_metadata(json!({
+    ToolResult::ok(call_id.to_owned(), output).with_metadata(json!({
         "tool": TASK_TOOL,
         "status": result.status,
         "child_thread_id": result.child_thread_id,

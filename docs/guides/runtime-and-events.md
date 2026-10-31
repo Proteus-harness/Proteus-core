@@ -1353,6 +1353,15 @@ payload пропущенных records, затем каждого обработ
 identity и timestamp файла после rendering. Начальный full-parse/fact-building пик
 и allocation заголовков Vec этим не устраняются; это не замер RSS.
 
+Внутри одного rendering временный lookup `call_id -> последняя строка` обновляется
+при добавлении каждой tool/hosted card и сбрасывается вместе с display rows.
+Поздний result и resolution находят карточку без обратного прохода по всем строкам;
+при повторном id обновляется последняя карточка, как и прежде. Lookup не хранится
+в session/cache, не меняет timestamp и не подменяет поиск карточки для citation:
+тот по-прежнему учитывает актуальные `name` и `metadata.provider_hosted`.
+Дополнительная память пропорциональна числу различных tool id текущего rendering;
+это не incremental projection между чтениями и не измеренный runtime-выигрыш.
+
 Холодные HTTP `/history`, `/conversation`, `/context` и `/usage` используют
 одну свежую read-проекцию, не создавая runtime сессии и не получая writer lease.
 При несовпадении версии эти запросы строго пересчитывают и сохраняют проекцию;

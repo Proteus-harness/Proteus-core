@@ -6,6 +6,8 @@ use crate::{
 };
 
 mod journal;
+mod rows;
+use rows::TranscriptRows;
 
 pub(crate) use journal::journal_transcript_messages;
 
@@ -14,23 +16,20 @@ pub use proteus_contracts::app_protocol::{
 };
 
 pub(super) fn transcript_messages(messages: &[CanonicalMessage]) -> Vec<AppTranscriptMessage> {
-    let mut transcript = Vec::new();
+    let mut transcript = TranscriptRows::default();
     for message in messages {
         append_transcript_message(&mut transcript, message);
     }
-    finalize_interrupted_tools(&mut transcript);
-    transcript
+    finalize_interrupted_tools(&mut transcript.rows);
+    transcript.rows
 }
 
-fn append_transcript_message(
-    transcript: &mut Vec<AppTranscriptMessage>,
-    message: &CanonicalMessage,
-) {
+fn append_transcript_message(transcript: &mut TranscriptRows, message: &CanonicalMessage) {
     append_transcript_parts(transcript, message, &message.parts);
 }
 
 fn append_transcript_parts<'a>(
-    transcript: &mut Vec<AppTranscriptMessage>,
+    transcript: &mut TranscriptRows,
     message: &CanonicalMessage,
     parts: impl IntoIterator<Item = &'a CanonicalPart>,
 ) {
@@ -56,7 +55,7 @@ fn append_transcript_parts<'a>(
                 append_hosted_tool_activity(transcript, activity);
             }
             ContentPart::Citation { citation } => {
-                append_citation_metadata(transcript, citation);
+                append_citation_metadata(&mut transcript.rows, citation);
             }
             _ => {}
         }
@@ -64,6 +63,7 @@ fn append_transcript_parts<'a>(
     flush_transcript_text(transcript, &role, message, &mut text_parts);
     if !images.is_empty() {
         if let Some(item) = transcript
+            .rows
             .last_mut()
             .filter(|item| item.message_id == Some(message.id))
         {
@@ -84,7 +84,7 @@ fn append_transcript_parts<'a>(
     }
 }
 
-fn append_transcript_tool_call(transcript: &mut Vec<AppTranscriptMessage>, call: &ToolCall) {
+fn append_transcript_tool_call(transcript: &mut TranscriptRows, call: &ToolCall) {
     transcript.push(AppTranscriptMessage {
         timestamp_ms: None,
         images: Vec::new(),
@@ -120,10 +120,7 @@ fn finalize_interrupted_tools(transcript: &mut [AppTranscriptMessage]) {
     }
 }
 
-fn append_hosted_tool_activity(
-    transcript: &mut Vec<AppTranscriptMessage>,
-    activity: &HostedToolActivity,
-) {
+fn append_hosted_tool_activity(transcript: &mut TranscriptRows, activity: &HostedToolActivity) {
     let status = match activity.status() {
         HostedToolStatus::Completed => "done",
         HostedToolStatus::Failed => "failed",
@@ -228,7 +225,7 @@ fn append_citation_metadata(transcript: &mut [AppTranscriptMessage], citation: &
 }
 
 fn flush_transcript_text(
-    transcript: &mut Vec<AppTranscriptMessage>,
+    transcript: &mut TranscriptRows,
     role: &str,
     message: &CanonicalMessage,
     text_parts: &mut Vec<&str>,
@@ -250,15 +247,10 @@ fn flush_transcript_text(
     text_parts.clear();
 }
 
-fn append_transcript_tool_result(transcript: &mut Vec<AppTranscriptMessage>, result: &ToolResult) {
+fn append_transcript_tool_result(transcript: &mut TranscriptRows, result: &ToolResult) {
     let status = if result.ok { "done" } else { "failed" }.to_owned();
     let result_text = result.text_or_status();
-    if let Some(tool) = transcript
-        .iter_mut()
-        .rev()
-        .filter_map(|message| message.tool.as_mut())
-        .find(|tool| tool.call_id == result.call_id)
-    {
+    if let Some(tool) = transcript.tool_mut(&result.call_id) {
         tool.status = status;
         tool.result = Some(result_text);
         tool.metadata = result.metadata.clone();

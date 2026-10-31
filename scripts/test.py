@@ -43,7 +43,8 @@ def main(args):
         return 0 if args else 2
     full = args[0] == "full"
     if full:
-        args = ["--workspace", "--no-fail-fast", *args[1:]]
+        args = ["--workspace", "--no-fail-fast",
+                "--features", "proteus-module-protocol/conformance-cli", *args[1:]]
     elif not selected_packages(args):
         raise SystemExit("Select -p PACKAGE, or full for the harness workspace gate")
     env = test_env()

@@ -74,6 +74,10 @@ fn run_tests() -> Result<()> {
             slow_transport_consumer_remains_receive_bounded,
         ),
         (
+            "idle_transport_termination_joins_with_writer_clone_alive",
+            idle_transport_termination_joins_with_writer_clone_alive,
+        ),
+        (
             "terminate_wakes_reader_and_exit_waiters",
             terminate_wakes_reader_and_exit_waiters,
         ),
@@ -1133,4 +1137,33 @@ fn write_error<F: Framing, W: Write>(
             "error": { "code": -32601, "message": message },
         }),
     )
+}
+
+// Exercises the actual transport/writer shutdown path, not a mirrored loop.
+// The exact load/revision race is not forced by this lifecycle regression.
+fn idle_transport_termination_joins_with_writer_clone_alive() -> Result<()> {
+    let mut transport =
+        ProcessTransport::spawn(&mock_spec("newline")?, NewlineJsonFraming::default())?;
+    // Keep the data/control senders connected throughout terminate's join:
+    // channel disconnection must not accidentally rescue an idle writer.
+    let writer = transport.frame_writer();
+    // Reap the real mock child before the bounded join probe. If that probe
+    // fails, it cannot leave a live fixture process waiting for stdin.
+    transport.lifecycle().terminate()?;
+    let (done_tx, done_rx) = std::sync::mpsc::channel();
+    let shutdown = thread::spawn(move || {
+        let result = transport.terminate();
+        let _ = done_tx.send(result);
+    });
+    let result = done_rx
+        .recv_timeout(Duration::from_secs(3))
+        .map_err(|error| anyhow!("idle transport shutdown did not finish: {error}"))?;
+    result?;
+    shutdown
+        .join()
+        .map_err(|_| anyhow!("idle shutdown thread panicked"))?;
+    assert!(writer.queue_frame(json!({"after": "shutdown"})).is_err());
+    // The watchdog bounds this test's wait, not reclamation of a failed writer
+    // or its joining thread. Run this target under an outer process timeout.
+    Ok(())
 }

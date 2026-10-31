@@ -98,6 +98,14 @@ Runner готовит reference-модуль из отдельного Proteus-m
 и в полном gate; его свежесть обеспечивает вызывающий сценарий. Отсутствующий
 файл — ошибка. Отложенный DCP не подготавливается общим runner.
 
+Conformance CLI включается feature `proteus-module-protocol/conformance-cli`.
+`full` включает её явно, сохраняя unit tests бинарника. Для отдельной проверки:
+`./scripts/test.py -p proteus-module-protocol --features conformance-cli`.
+Обычная зависимость от protocol не включает CLI parser; wire, authority,
+cancellation и schema validation не меняются. Cargo features объединяются:
+отдельно проверьте normal dependency tree выбранного worker, а не только
+workspace tests. `Cargo.lock` может сохранять clap для других targets.
+
 `full` выбирает пять crates harness, включая worker SDK. Реализации проверяются
 своим `python3 scripts/test.py full` в Proteus-modules. В приложении обычный
 `python3 scripts/test.py` из Proteus-desktop проверяет только GPUI workspace

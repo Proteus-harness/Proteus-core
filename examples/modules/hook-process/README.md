@@ -228,7 +228,7 @@ contract. Они не считаются успешно перенесённым
 ```bash
 node --test examples/modules/hook-process/tests/*.test.mjs
 ./scripts/test.py -p proteus-core --test hook_runtime --test module_swap
-cargo run -p proteus-module-protocol --bin proteus-component-conformance -- \
+cargo run -p proteus-module-protocol --features conformance-cli --bin proteus-component-conformance -- \
   --component-id js-hooks \
   --export '{"slot":"hook","module_id":"ported-pi","contract_version":"v6","module_config":{"entry":"examples/modules/hook-process/entries/pi.ts"}}' \
   --probe-export hook/ported-pi --probe-method hook.invoke \

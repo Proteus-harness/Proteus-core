@@ -61,30 +61,33 @@ fn filtered_parts_preserve_text_groups_tool_updates_and_image_attachment() {
         message, original,
         "projection must not mutate canonical data"
     );
-    assert_eq!(state.transcript.len(), 4);
-    assert_eq!(state.transcript[0].text, "before\nsame group");
-    assert_eq!(state.transcript[2].text, "between");
-    assert_eq!(state.transcript[3].text, "after");
+    assert_eq!(state.transcript.rows.len(), 4);
+    assert_eq!(state.transcript.rows[0].text, "before\nsame group");
+    assert_eq!(state.transcript.rows[2].text, "between");
+    assert_eq!(state.transcript.rows[3].text, "after");
     assert!(
-        state.transcript[..3]
+        state.transcript.rows[..3]
             .iter()
             .all(|row| row.images.is_empty())
     );
-    assert_eq!(state.transcript[3].images, images);
+    assert_eq!(state.transcript.rows[3].images, images);
     for index in [0, 2, 3] {
-        assert_eq!(state.transcript[index].message_id, Some(message.id));
-        assert_eq!(state.transcript[index].phase, message.phase);
-        assert_eq!(state.transcript[index].role, "assistant");
+        assert_eq!(state.transcript.rows[index].message_id, Some(message.id));
+        assert_eq!(state.transcript.rows[index].phase, message.phase);
+        assert_eq!(state.transcript.rows[index].role, "assistant");
     }
-    let tool = state.transcript[1].tool.as_ref().unwrap();
+    let tool = state.transcript.rows[1].tool.as_ref().unwrap();
     assert_eq!(tool.call_id, call.id);
     assert_eq!(tool.status, "done");
     assert_eq!(tool.result.as_deref(), Some("finished"));
     assert_eq!(tool.metadata["source"], "canonical");
 
-    let previous = serde_json::to_value(&state.transcript).unwrap();
+    let previous = serde_json::to_value(&state.transcript.rows).unwrap();
     state.append_message(&message, false);
-    assert_eq!(serde_json::to_value(&state.transcript).unwrap(), previous);
+    assert_eq!(
+        serde_json::to_value(&state.transcript.rows).unwrap(),
+        previous
+    );
     assert_eq!(state.seen_parts.len(), message.parts.len());
     assert_eq!(state.seen_calls.len(), 1);
     assert_eq!(state.seen_results.len(), 1);
@@ -110,25 +113,25 @@ fn all_filtered_parts_still_consume_identities_until_reset() {
     hidden.parts[2].scope = PartScope::Request;
     let mut state = TranscriptProjectionState::default();
     state.append_message(&hidden, true);
-    assert!(state.transcript.is_empty());
+    assert!(state.transcript.rows.is_empty());
     assert_eq!(state.seen_parts.len(), hidden.parts.len());
     assert!(state.seen_calls.is_empty());
 
     // A later non-compaction visit must not reveal an already-seen part.
     state.append_message(&hidden, false);
-    assert!(state.transcript.is_empty());
+    assert!(state.transcript.rows.is_empty());
     state.reset();
     state.append_message(&hidden, false);
-    assert_eq!(state.transcript.len(), 1);
-    assert_eq!(state.transcript[0].text, "summary");
+    assert_eq!(state.transcript.rows.len(), 1);
+    assert_eq!(state.transcript.rows[0].text, "summary");
 
     // Filtering a trace-only call did not consume the call ID itself.
     let visible =
         CanonicalMessage::new(MessageRole::Assistant, vec![ContentPart::ToolCall { call }]);
     state.append_message(&visible, false);
-    assert_eq!(state.transcript.len(), 2);
+    assert_eq!(state.transcript.rows.len(), 2);
     assert_eq!(
-        state.transcript[1].tool.as_ref().unwrap().call_id,
+        state.transcript.rows[1].tool.as_ref().unwrap().call_id,
         "hidden-call"
     );
 }
@@ -179,15 +182,15 @@ fn filtered_citations_update_prior_hosted_card_without_moving_images() {
     state.append_message(&second, false);
     state.append_message(&second, false);
 
-    assert_eq!(state.transcript.len(), 3);
-    let hosted = state.transcript[0].tool.as_ref().unwrap();
+    assert_eq!(state.transcript.rows.len(), 3);
+    let hosted = state.transcript.rows[0].tool.as_ref().unwrap();
     assert_eq!(hosted.metadata["citations"].as_array().unwrap().len(), 1);
     assert_eq!(hosted.metadata["citations"][0]["type"], "url");
-    assert!(state.transcript[0].images.is_empty());
-    assert_eq!(state.transcript[1].message_id, Some(first.id));
-    assert_eq!(state.transcript[1].images, vec![image("first")]);
-    assert_eq!(state.transcript[2].message_id, Some(second.id));
-    assert_eq!(state.transcript[2].images, vec![image("second")]);
+    assert!(state.transcript.rows[0].images.is_empty());
+    assert_eq!(state.transcript.rows[1].message_id, Some(first.id));
+    assert_eq!(state.transcript.rows[1].images, vec![image("first")]);
+    assert_eq!(state.transcript.rows[2].message_id, Some(second.id));
+    assert_eq!(state.transcript.rows[2].images, vec![image("second")]);
 }
 
 #[test]
@@ -231,8 +234,8 @@ fn filtered_out_old_part_still_dates_a_rehosted_message() {
     };
     state.append_message(&old, false);
     state.append_message(&rehosted, false);
-    assert_eq!(state.transcript.len(), 2);
-    assert_eq!(state.transcript[1].text, "new text");
-    assert_eq!(state.transcript[1].timestamp_ms, Some(100));
-    assert_eq!(state.transcript[1].message_id, Some(rehosted.id));
+    assert_eq!(state.transcript.rows.len(), 2);
+    assert_eq!(state.transcript.rows[1].text, "new text");
+    assert_eq!(state.transcript.rows[1].timestamp_ms, Some(100));
+    assert_eq!(state.transcript.rows[1].message_id, Some(rehosted.id));
 }

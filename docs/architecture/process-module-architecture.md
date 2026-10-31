@@ -855,7 +855,7 @@ JS/TS [`hook-process`](../../examples/modules/hook-process/README.md) испол
 Новый component проверяется CLI:
 
 ```bash
-cargo run -p proteus-module-protocol --bin proteus-component-conformance -- \
+cargo run -p proteus-module-protocol --features conformance-cli --bin proteus-component-conformance -- \
   --component-id python-search \
   --export '{"slot":"tool","module_id":"python_rg","contract_version":"v6","module_config":{}}' \
   --probe-export tool/python_rg \

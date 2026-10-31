@@ -113,21 +113,28 @@ struct BrokerInner {
     control_tx: CommandSender<ControlCommand>,
     binding: ProcessComponentBinding,
     options: ComponentBrokerOptions,
-    stopped: AtomicBool,
+    stopped: Arc<AtomicBool>,
     thread: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl Drop for BrokerInner {
     fn drop(&mut self) {
-        self.stopped.store(true, Ordering::Release);
-        let _ = self.control_tx.send(ControlCommand::Shutdown);
         if let Some(thread) = self
             .thread
             .lock()
             .expect("component broker thread mutex poisoned")
             .take()
         {
-            let _ = thread.join();
+            if thread.thread().id() == thread::current().id() {
+                // A pending host dispatcher can be the final owner after its
+                // runtime is retired. Never block on our own queue or join self.
+                self.stopped.store(true, Ordering::Release);
+                self.control_tx.wake().notify();
+            } else {
+                // Preserve FIFO handling of controls already queued by callers.
+                let _ = self.control_tx.send(ControlCommand::Shutdown);
+                let _ = thread.join();
+            }
         }
     }
 }
@@ -171,12 +178,14 @@ impl ComponentBroker {
         let (control_tx, control_rx) = signal::channel(options.control_command_capacity, &wake);
         let thread_control_tx = control_tx.clone();
         let thread_binding = binding.clone();
+        let stopped = Arc::new(AtomicBool::new(false));
+        let thread_stopped = Arc::clone(&stopped);
         let thread = thread::Builder::new()
             .name(format!("component-v3-{}", binding.component_id))
             .spawn(move || {
                 let mut state =
                     LoopState::new(spec, thread_binding, options, thread_control_tx, wake);
-                state.run(root_rx, control_rx);
+                state.run(root_rx, control_rx, &thread_stopped);
             })?;
         let broker = Self {
             inner: Arc::new(BrokerInner {
@@ -184,7 +193,7 @@ impl ComponentBroker {
                 control_tx,
                 binding,
                 options,
-                stopped: AtomicBool::new(false),
+                stopped,
                 thread: Mutex::new(Some(thread)),
             }),
         };
@@ -543,3 +552,7 @@ fn validate_call(method: &str, timeout: Duration) -> Result<(), ComponentBrokerE
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "broker/drop_tests.rs"]
+mod drop_tests;

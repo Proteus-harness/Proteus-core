@@ -56,12 +56,30 @@ pub fn create_worktree(parent_cwd: &Path, name: &str) -> Result<WorkspaceInfo> {
     Ok(WorkspaceInfo::new(repo_root, path, branch, base_commit))
 }
 
-/// Убирает worktree, если ребёнок ничего не изменил: чистый `git status`
-/// и HEAD ветки и checkout == base_commit → `git worktree remove` + безопасное удаление ветки,
-/// возвращает `true`. Изменения есть — worktree остаётся мержить родителю,
-/// возвращает `false`. При отсутствующем checkout прибирает bookkeeping,
-/// но проверяет сохранённую ветку перед удалением.
-pub fn cleanup_worktree_if_unchanged(info: &WorkspaceInfo) -> Result<bool> {
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum CleanupOutcome {
+    Retained,
+    Removed,
+    // The checkout is absent, but cancellation or unique commits kept the branch.
+    // This must not be published as a resumable checkout.
+    BranchRetained,
+}
+
+/// Убирает неизменённый checkout и безопасно удаляет его ветку. Отмена
+/// наблюдается до inspections и непосредственно перед каждой Git mutation;
+/// уже запущенную команду проверка не останавливает и не откатывает.
+/// Отсутствующий checkout с сохранённой веткой — отдельный исход, не resume.
+pub(super) fn cleanup_worktree_if_unchanged(
+    info: &WorkspaceInfo,
+    mut is_cancelled: impl FnMut() -> bool,
+) -> Result<CleanupOutcome> {
+    if is_cancelled() {
+        return Ok(if info.path.exists() {
+            CleanupOutcome::Retained
+        } else {
+            CleanupOutcome::BranchRetained
+        });
+    }
     let branch_tip = run_git(
         &info.repo_root,
         &[
@@ -72,39 +90,48 @@ pub fn cleanup_worktree_if_unchanged(info: &WorkspaceInfo) -> Result<bool> {
     )
     .with_context(|| format!("failed to resolve saved worktree branch {}", info.branch))?;
     if !info.path.exists() {
+        if is_cancelled() {
+            return Ok(CleanupOutcome::BranchRetained);
+        }
         run_git(&info.repo_root, &["worktree", "prune"])
             .context("failed to prune missing worktree bookkeeping")?;
-        if branch_tip != info.base_commit {
-            return Ok(false);
+        if branch_tip != info.base_commit || is_cancelled() {
+            return Ok(CleanupOutcome::BranchRetained);
         }
         run_git(&info.repo_root, &["branch", "-d", &info.branch])
             .context("failed to safely delete missing worktree branch; branch preserved")?;
-        return Ok(true);
+        return Ok(CleanupOutcome::Removed);
     }
     if branch_tip != info.base_commit {
-        return Ok(false);
+        return Ok(CleanupOutcome::Retained);
     }
 
     let status = run_git(&info.path, &["status", "--porcelain"])
         .context("failed to check worktree status")?;
     if !status.is_empty() {
-        return Ok(false);
+        return Ok(CleanupOutcome::Retained);
     }
     let head =
         run_git(&info.path, &["rev-parse", "HEAD"]).context("failed to resolve worktree HEAD")?;
     if head != info.base_commit {
-        return Ok(false);
+        return Ok(CleanupOutcome::Retained);
     }
 
     let path = info
         .path
         .to_str()
         .with_context(|| format!("non-UTF-8 worktree path: {}", info.path.display()))?;
+    if is_cancelled() {
+        return Ok(CleanupOutcome::Retained);
+    }
     run_git(&info.repo_root, &["worktree", "remove", path])
         .context("failed to remove git worktree")?;
+    if is_cancelled() {
+        return Ok(CleanupOutcome::BranchRetained);
+    }
     run_git(&info.repo_root, &["branch", "-d", &info.branch])
         .context("failed to safely delete worktree branch; branch preserved")?;
-    Ok(true)
+    Ok(CleanupOutcome::Removed)
 }
 
 /// Имя идёт в путь и в имя ветки — только безопасный алфавит.
@@ -203,7 +230,10 @@ mod tests {
             ""
         );
 
-        assert!(cleanup_worktree_if_unchanged(&info).expect("cleanup"));
+        assert_eq!(
+            cleanup_worktree_if_unchanged(&info, || false).expect("cleanup"),
+            CleanupOutcome::Removed
+        );
         assert!(!info.path.exists());
         assert!(
             run_git(repo.path(), &["branch", "--list", &info.branch])
@@ -218,7 +248,10 @@ mod tests {
         let info = create_worktree(repo.path(), "task-2").expect("worktree");
         fs::write(info.path.join("file.txt"), "changed\n").expect("edit");
 
-        assert!(!cleanup_worktree_if_unchanged(&info).expect("cleanup"));
+        assert_eq!(
+            cleanup_worktree_if_unchanged(&info, || false).expect("cleanup"),
+            CleanupOutcome::Retained
+        );
         assert!(info.path.is_dir());
     }
 
@@ -230,7 +263,10 @@ mod tests {
         git(&info.path, &["add", "."]);
         git(&info.path, &["commit", "-q", "-m", "child work"]);
 
-        assert!(!cleanup_worktree_if_unchanged(&info).expect("cleanup"));
+        assert_eq!(
+            cleanup_worktree_if_unchanged(&info, || false).expect("cleanup"),
+            CleanupOutcome::Retained
+        );
         assert!(info.path.is_dir());
     }
 
@@ -240,12 +276,106 @@ mod tests {
         let info = create_worktree(repo.path(), "task-4").expect("worktree");
         fs::remove_dir_all(&info.path).expect("manual removal");
 
-        assert!(cleanup_worktree_if_unchanged(&info).expect("cleanup"));
+        assert_eq!(
+            cleanup_worktree_if_unchanged(&info, || false).expect("cleanup"),
+            CleanupOutcome::Removed
+        );
         assert!(
             run_git(repo.path(), &["branch", "--list", &info.branch])
                 .unwrap()
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn cancellation_before_inspection_or_remove_preserves_clean_checkout() {
+        for cancel_at in [1, 2] {
+            let repo = init_repo();
+            let info = create_worktree(repo.path(), "cancel-clean").unwrap();
+            let cancellation = crate::contracts::CancellationToken::new();
+            let mut observations = 0;
+            let outcome = cleanup_worktree_if_unchanged(&info, || {
+                observations += 1;
+                // The second observation is after status/HEAD inspections,
+                // immediately before removal. No scheduler timing is needed.
+                if observations == cancel_at {
+                    cancellation.cancel();
+                }
+                cancellation.is_cancelled()
+            })
+            .unwrap();
+            assert_eq!(observations, cancel_at);
+            assert_eq!(outcome, CleanupOutcome::Retained);
+            assert!(info.path.is_dir());
+            assert_eq!(
+                run_git(repo.path(), &["rev-parse", &info.branch]).unwrap(),
+                info.base_commit
+            );
+        }
+    }
+
+    #[test]
+    fn cancellation_before_prune_preserves_missing_checkout_bookkeeping() {
+        let repo = init_repo();
+        let info = create_worktree(repo.path(), "cancel-prune").unwrap();
+        fs::remove_dir_all(&info.path).unwrap();
+        let before = run_git(repo.path(), &["worktree", "list", "--porcelain"]).unwrap();
+        let cancellation = crate::contracts::CancellationToken::new();
+        let mut observations = 0;
+        let outcome = cleanup_worktree_if_unchanged(&info, || {
+            observations += 1;
+            if observations == 2 {
+                cancellation.cancel();
+            }
+            cancellation.is_cancelled()
+        })
+        .unwrap();
+        assert_eq!(observations, 2);
+        assert_eq!(outcome, CleanupOutcome::BranchRetained);
+        assert_eq!(
+            run_git(repo.path(), &["worktree", "list", "--porcelain"]).unwrap(),
+            before
+        );
+        assert_eq!(
+            run_git(repo.path(), &["rev-parse", &info.branch]).unwrap(),
+            info.base_commit
+        );
+    }
+
+    #[test]
+    fn cancellation_after_remove_or_prune_keeps_branch_without_claiming_checkout() {
+        for checkout_missing in [false, true] {
+            let repo = init_repo();
+            let info = create_worktree(repo.path(), "cancel-branch").unwrap();
+            if checkout_missing {
+                fs::remove_dir_all(&info.path).unwrap();
+            }
+            let cancellation = crate::contracts::CancellationToken::new();
+            let mut observations = 0;
+            let outcome = cleanup_worktree_if_unchanged(&info, || {
+                observations += 1;
+                if observations == 3 {
+                    cancellation.cancel();
+                }
+                cancellation.is_cancelled()
+            })
+            .unwrap();
+            assert_eq!(observations, 3);
+            assert_eq!(outcome, CleanupOutcome::BranchRetained);
+            assert!(
+                !info.path.exists(),
+                "already dispatched removal is not undone"
+            );
+            assert!(
+                !run_git(repo.path(), &["worktree", "list", "--porcelain"])
+                    .unwrap()
+                    .contains(info.path.to_str().unwrap())
+            );
+            assert_eq!(
+                run_git(repo.path(), &["rev-parse", &info.branch]).unwrap(),
+                info.base_commit
+            );
+        }
     }
 
     #[test]
@@ -265,7 +395,14 @@ mod tests {
             } else {
                 git(&info.path, &["checkout", "--detach", &info.base_commit]);
             }
-            assert!(!cleanup_worktree_if_unchanged(&info).unwrap());
+            assert_eq!(
+                cleanup_worktree_if_unchanged(&info, || false).unwrap(),
+                if remove_checkout {
+                    CleanupOutcome::BranchRetained
+                } else {
+                    CleanupOutcome::Retained
+                }
+            );
             assert_eq!(
                 run_git(repo.path(), &["rev-parse", &info.branch]).unwrap(),
                 tip

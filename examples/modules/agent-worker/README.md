@@ -31,7 +31,7 @@ executable + config-ом без Rust adapter под конкретный `module
 Из корня репозитория:
 
 ```bash
-cargo run -p proteus-module-protocol --bin proteus-component-conformance -- \
+cargo run -p proteus-module-protocol --features conformance-cli --bin proteus-component-conformance -- \
   --component-id python-agent \
   --export '{"slot":"workflow","module_id":"python_agent_loop","contract_version":"v20","module_config":{}}' \
   -- python3 -B examples/modules/agent-worker/agent.py

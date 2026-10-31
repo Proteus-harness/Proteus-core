@@ -597,7 +597,9 @@ impl AgentControl for ProcessAgentControl {
     async fn wait(&self, handle: &AgentControlHandle) -> Result<AgentControlResult> {
         let outcome = self.inner.lock_pending()?.outcome(&handle.spawn_id)?;
         let result = outcome.wait().await;
-        self.inner.lock_pending()?.consume(&handle.spawn_id)?;
+        self.inner
+            .lock_pending()?
+            .consume(&handle.spawn_id, &outcome)?;
         result
     }
 

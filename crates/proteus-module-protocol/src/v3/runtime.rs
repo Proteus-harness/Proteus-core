@@ -1,5 +1,8 @@
 use std::{
-    sync::mpsc::{Receiver, TryRecvError},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc::{Receiver, TryRecvError},
+    },
     time::Instant,
 };
 
@@ -26,31 +29,28 @@ impl LoopState {
         &mut self,
         root_rx: Receiver<StartRequest>,
         control_rx: Receiver<ControlCommand>,
+        stopped: &AtomicBool,
     ) {
-        let mut shutdown = false;
-        while !shutdown {
+        'broker: loop {
             let observed = self.wake.revision();
+            if stopped.load(Ordering::Acquire) {
+                break;
+            }
             let mut active_tick = false;
             for _ in 0..MAX_CONTROL_COMMANDS_PER_TICK {
                 match control_rx.try_recv() {
                     Ok(command) => {
                         active_tick = true;
-                        if self.handle_control(command) {
-                            shutdown = true;
-                            break;
+                        if self.handle_control(command) || stopped.load(Ordering::Acquire) {
+                            break 'broker;
                         }
                     }
                     Err(TryRecvError::Empty) => break,
                     Err(TryRecvError::Disconnected) => {
-                        shutdown = true;
-                        break;
+                        break 'broker;
                     }
                 }
             }
-            if shutdown {
-                break;
-            }
-
             self.enforce_deadlines();
 
             for _ in 0..MAX_ROOT_COMMANDS_PER_TICK {

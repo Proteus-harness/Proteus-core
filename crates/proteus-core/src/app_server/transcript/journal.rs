@@ -19,7 +19,7 @@ use crate::{
 };
 
 use super::{
-    AppTranscriptMessage, append_transcript_parts, append_transcript_tool_call,
+    AppTranscriptMessage, TranscriptRows, append_transcript_parts, append_transcript_tool_call,
     append_transcript_tool_result, finalize_interrupted_tools,
 };
 
@@ -177,8 +177,8 @@ impl TranscriptReplay {
             }
         }
 
-        finalize_interrupted_tools(&mut state.transcript);
-        state.transcript
+        finalize_interrupted_tools(&mut state.transcript.rows);
+        state.transcript.rows
     }
 }
 
@@ -276,7 +276,7 @@ fn is_root_record(
 #[derive(Default)]
 struct TranscriptProjectionState {
     timestamps: TranscriptTimestamps,
-    transcript: Vec<AppTranscriptMessage>,
+    transcript: TranscriptRows,
     seen_parts: HashSet<PartId>,
     seen_calls: HashSet<CallId>,
     seen_results: HashSet<CallId>,
@@ -314,9 +314,9 @@ impl TranscriptProjectionState {
             })
             .peekable();
         if parts.peek().is_some() {
-            let start = self.transcript.len();
+            let start = self.transcript.rows.len();
             append_transcript_parts(&mut self.transcript, message, parts);
-            for row in &mut self.transcript[start..] {
+            for row in &mut self.transcript.rows[start..] {
                 row.timestamp_ms = row
                     .tool
                     .as_ref()
@@ -330,6 +330,7 @@ impl TranscriptProjectionState {
         if self.seen_calls.insert(call.id.clone()) {
             append_transcript_tool_call(&mut self.transcript, call);
             self.transcript
+                .rows
                 .last_mut()
                 .expect("appended call")
                 .timestamp_ms = self.timestamps.call(&call.id);
@@ -337,10 +338,10 @@ impl TranscriptProjectionState {
     }
 
     fn append_tool_result(&mut self, result: &crate::domain::ToolResult) {
-        let start = self.transcript.len();
+        let start = self.transcript.rows.len();
         append_transcript_tool_result(&mut self.transcript, result);
-        if self.transcript.len() > start {
-            self.transcript[start].timestamp_ms = self.timestamps.call(&result.call_id);
+        if self.transcript.rows.len() > start {
+            self.transcript.rows[start].timestamp_ms = self.timestamps.call(&result.call_id);
         }
     }
 
@@ -349,13 +350,7 @@ impl TranscriptProjectionState {
         call: &crate::domain::ToolCall,
         resolution: &ToolCallResolution,
     ) {
-        let Some(tool) = self
-            .transcript
-            .iter_mut()
-            .rev()
-            .filter_map(|message| message.tool.as_mut())
-            .find(|tool| tool.call_id == call.id)
-        else {
+        let Some(tool) = self.transcript.tool_mut(&call.id) else {
             return;
         };
         if resolution.permits_side_effect() {

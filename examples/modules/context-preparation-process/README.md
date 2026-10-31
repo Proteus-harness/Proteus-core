@@ -62,7 +62,7 @@ Model request nullable: алгоритм работает и без модели
 можно проверить отдельно от core:
 
 ```bash
-cargo run -p proteus-module-protocol --bin proteus-component-conformance -- \
+cargo run -p proteus-module-protocol --features conformance-cli --bin proteus-component-conformance -- \
   --component-id python-compactor \
   --export '{"slot":"hook","module_id":"python_suffix","contract_version":"v6","module_config":{"trigger_messages":12,"retain_user_turns":2}}' \
   -- python3 examples/modules/context-preparation-process/prepare.py
