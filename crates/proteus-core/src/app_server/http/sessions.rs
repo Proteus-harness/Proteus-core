@@ -334,3 +334,30 @@ fn hex_value(byte: u8) -> Option<u8> {
         _ => None,
     }
 }
+
+/// Compact read never activates a runtime or rebuilds the canonical projection.
+pub(super) async fn tool_state_json(
+    query: Option<&str>,
+) -> Result<proteus_contracts::app_protocol::AppLatestToolState> {
+    let dir = canonicalize_session_dir_path(required_session_query(query)?)?;
+    let [name] = super::workspace::query_params(query, ["name"])?;
+    let name = name.ok_or_else(|| anyhow!("name query parameter is required"))?;
+    anyhow::ensure!(
+        !name.is_empty() && !name.chars().any(char::is_control),
+        "name must be nonempty and contain no control characters"
+    );
+    tokio::task::spawn_blocking(move || {
+        let store = SessionStore::open(dir)?;
+        #[cfg(unix)]
+        {
+            crate::app_server::read_model::latest_tool_state(&store, &name)
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = (store, name);
+            anyhow::bail!("tool state requires a source fingerprint on this platform")
+        }
+    })
+    .await
+    .map_err(|error| anyhow!("tool state task failed: {error}"))?
+}

@@ -9,7 +9,9 @@ pub(in crate::core::session_store) use update::Updater;
 // views must be reprojected instead of deserializing absent dates as None.
 const FORMAT: i64 = 2;
 const SCHEMA: &str = "CREATE TABLE records(section TEXT NOT NULL,position INTEGER NOT NULL,
-    payload BLOB NOT NULL,checksum BLOB NOT NULL,PRIMARY KEY(section,position)) WITHOUT ROWID";
+    payload BLOB NOT NULL,checksum BLOB NOT NULL,PRIMARY KEY(section,position)) WITHOUT ROWID;
+    CREATE TABLE keyed_records(section TEXT NOT NULL,key TEXT NOT NULL,
+    payload BLOB NOT NULL,checksum BLOB NOT NULL,PRIMARY KEY(section,key)) WITHOUT ROWID";
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -77,6 +79,21 @@ impl Reader {
         end: usize,
     ) -> Option<Vec<T>> {
         read_page(&self.conn, section, start, end)
+    }
+
+    pub(in crate::core::session_store) fn keyed<T: DeserializeOwned>(
+        &self,
+        section: &str,
+        key: &str,
+    ) -> Option<Option<T>> {
+        read_keyed(&self.conn, section, key)
+    }
+
+    pub(in crate::core::session_store) fn keyed_fingerprint(
+        &self,
+        section: &str,
+    ) -> Option<(usize, [u8; 32])> {
+        keyed_fingerprint(&self.conn, section)
     }
 
     pub(in crate::core::session_store) fn revision(&self) -> Option<String> {
@@ -187,6 +204,22 @@ impl Writer {
             )
             .ok()?;
         Some(hash)
+    }
+
+    pub(in crate::core::session_store) fn keyed<T: Serialize>(
+        &self,
+        section: &str,
+        key: &str,
+        data: &T,
+    ) -> Option<()> {
+        write_keyed(self.conn.as_ref()?, section, key, data)
+    }
+
+    pub(in crate::core::session_store) fn keyed_fingerprint(
+        &self,
+        section: &str,
+    ) -> Option<(usize, [u8; 32])> {
+        keyed_fingerprint(self.conn.as_ref()?, section)
     }
 
     pub(in crate::core::session_store) fn finish(mut self) -> Option<()> {
@@ -336,4 +369,68 @@ impl Drop for Writer {
         self.conn.take();
         let _ = fs::remove_file(&self.temp);
     }
+}
+
+fn read_keyed<T: DeserializeOwned>(
+    conn: &Connection,
+    section: &str,
+    key: &str,
+) -> Option<Option<T>> {
+    let mut statement = conn
+        .prepare_cached("SELECT payload,checksum FROM keyed_records WHERE section=?1 AND key=?2")
+        .ok()?;
+    let mut rows = statement.query(params![section, key]).ok()?;
+    let Some(row) = rows.next().ok()? else {
+        return Some(None);
+    };
+    let bytes = row.get_ref(0).ok()?.as_blob().ok()?;
+    let checksum = row.get_ref(1).ok()?.as_blob().ok()?;
+    if bytes.len() > MAX_BYTES || digest(&SHA256, bytes).as_ref() != checksum {
+        return None;
+    }
+    Some(Some(serde_json::from_slice(bytes).ok()?))
+}
+
+fn write_keyed<T: Serialize>(conn: &Connection, section: &str, key: &str, data: &T) -> Option<()> {
+    let bytes = serialize_bounded(data)?;
+    conn.prepare_cached(
+        "INSERT INTO keyed_records VALUES(?1,?2,?3,?4)
+        ON CONFLICT(section,key) DO UPDATE SET payload=excluded.payload,checksum=excluded.checksum",
+    )
+    .ok()?
+    .execute(params![
+        section,
+        key,
+        &bytes,
+        digest(&SHA256, &bytes).as_ref()
+    ])
+    .ok()?;
+    Some(())
+}
+
+/// Bind the complete key set to its payload checksums, in primary-key order.
+/// Counting rows alone cannot distinguish an absent key from a damaged key.
+/// Read only compact identities/checksums; payload verification stays on access.
+fn keyed_fingerprint(conn: &Connection, section: &str) -> Option<(usize, [u8; 32])> {
+    let mut statement = conn
+        .prepare_cached("SELECT key,checksum FROM keyed_records WHERE section=?1 ORDER BY key")
+        .ok()?;
+    let mut rows = statement.query(params![section]).ok()?;
+    let mut hash = ring::digest::Context::new(&SHA256);
+    hash.update(b"proteus/read-cache/keyed/v1\0");
+    hash.update(&u64::try_from(section.len()).ok()?.to_le_bytes());
+    hash.update(section.as_bytes());
+    let mut count = 0usize;
+    while let Some(row) = rows.next().ok()? {
+        let key = row.get_ref(0).ok()?.as_str().ok()?.as_bytes();
+        let checksum = row.get_ref(1).ok()?.as_blob().ok()?;
+        if checksum.len() != 32 {
+            return None;
+        }
+        hash.update(&u64::try_from(key.len()).ok()?.to_le_bytes());
+        hash.update(key);
+        hash.update(checksum);
+        count = count.checked_add(1)?;
+    }
+    Some((count, hash.finish().as_ref().try_into().ok()?))
 }

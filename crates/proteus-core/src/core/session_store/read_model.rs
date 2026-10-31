@@ -225,6 +225,14 @@ impl SessionStore {
     }
 
     #[cfg(unix)]
+    pub(crate) fn saved_tool_state(
+        &self,
+        name: &str,
+    ) -> Option<proteus_contracts::app_protocol::AppLatestToolState> {
+        sqlite::tool_state(self, name)
+    }
+
+    #[cfg(unix)]
     pub(crate) fn saved_transcript(&self, revision: &str) -> Option<Vec<AppTranscriptMessage>> {
         sqlite::transcript(self, revision)
     }
@@ -232,6 +240,8 @@ impl SessionStore {
 
 #[cfg(test)]
 mod tests;
+#[cfg(all(test, unix))]
+mod tool_state_tests;
 
 #[cfg(unix)]
 #[derive(Debug, Clone)]

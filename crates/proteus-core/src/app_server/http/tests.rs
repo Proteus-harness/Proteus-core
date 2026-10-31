@@ -281,6 +281,7 @@ mod session_reads;
 mod sessions;
 mod slash;
 mod sse;
+mod tool_state;
 mod turns;
 
 mod workspace;

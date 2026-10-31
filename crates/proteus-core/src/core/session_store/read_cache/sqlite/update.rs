@@ -46,6 +46,11 @@ impl Updater {
         if previous.format != FORMAT || previous.journal_schema != JOURNAL_SCHEMA_VERSION {
             return None;
         }
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS keyed_records(section TEXT NOT NULL,key TEXT NOT NULL,
+            payload BLOB NOT NULL,checksum BLOB NOT NULL,PRIMARY KEY(section,key)) WITHOUT ROWID",
+        )
+        .ok()?;
         Some(Self {
             conn: Some(conn),
             dir: dir.into(),
@@ -60,6 +65,15 @@ impl Updater {
         section: &str,
     ) -> Option<T> {
         read_page(self.conn.as_ref()?, section, 0, 1)?.pop()
+    }
+
+    pub(in crate::core::session_store) fn page<T: DeserializeOwned>(
+        &self,
+        section: &str,
+        start: usize,
+        end: usize,
+    ) -> Option<Vec<T>> {
+        read_page(self.conn.as_ref()?, section, start, end)
     }
 
     pub(in crate::core::session_store) fn revision(&self) -> Option<String> {
@@ -122,6 +136,33 @@ impl Updater {
             .prepare_cached("DELETE FROM records WHERE section=?1 AND position>=?2")
             .ok()?
             .execute(params![section, i64::try_from(length).ok()?])
+            .ok()?;
+        Some(())
+    }
+
+    pub(in crate::core::session_store) fn keyed<T: Serialize>(
+        &self,
+        section: &str,
+        key: &str,
+        data: &T,
+    ) -> Option<()> {
+        write_keyed(self.conn.as_ref()?, section, key, data)
+    }
+
+    pub(in crate::core::session_store) fn keyed_fingerprint(
+        &self,
+        section: &str,
+    ) -> Option<(usize, [u8; 32])> {
+        keyed_fingerprint(self.conn.as_ref()?, section)
+    }
+
+    pub(in crate::core::session_store) fn clear_keyed(&self, section: &str) -> Option<()> {
+        self.conn
+            .as_ref()?
+            .execute(
+                "DELETE FROM keyed_records WHERE section=?1",
+                params![section],
+            )
             .ok()?;
         Some(())
     }

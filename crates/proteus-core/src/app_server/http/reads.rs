@@ -25,7 +25,14 @@ pub(super) async fn route_get(
 ) -> HttpResponse {
     match read(state, path, query).await {
         Ok(response) => response,
-        Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),
+        Err(error) => error_response(
+            if error.is::<crate::app_server::read_model::ToolStateNotReady>() {
+                StatusCode::CONFLICT
+            } else {
+                StatusCode::BAD_REQUEST
+            },
+            &format!("{error:#}"),
+        ),
     }
 }
 
@@ -50,6 +57,10 @@ async fn read(state: &HttpAppState, path: &str, query: Option<&str>) -> Result<H
         "/history/page" => json_response(
             StatusCode::OK,
             &super::sessions::history_page_json(query).await?,
+        ),
+        "/history/tool-state" => json_response(
+            StatusCode::OK,
+            &super::sessions::tool_state_json(query).await?,
         ),
         "/conversation" => json_response(StatusCode::OK, &conversation_json(state, query).await?),
         "/context" => json_response(StatusCode::OK, &context_map_json(state, query).await?),

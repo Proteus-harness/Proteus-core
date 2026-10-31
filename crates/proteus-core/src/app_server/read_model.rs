@@ -212,3 +212,25 @@ pub(super) fn refresh_in_background(server: &AppServerHandle) {
 
 #[cfg(all(test, unix))]
 mod tests;
+
+/// A current validated display must exist before compact tool state is readable.
+#[derive(Debug)]
+pub(super) struct ToolStateNotReady;
+
+impl std::fmt::Display for ToolStateNotReady {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("tool state is not ready; refresh the session history snapshot before retrying")
+    }
+}
+
+impl std::error::Error for ToolStateNotReady {}
+
+#[cfg(unix)]
+pub(super) fn latest_tool_state(
+    store: &SessionStore,
+    name: &str,
+) -> anyhow::Result<proteus_contracts::app_protocol::AppLatestToolState> {
+    store
+        .saved_tool_state(name)
+        .ok_or_else(|| ToolStateNotReady.into())
+}

@@ -70,12 +70,18 @@ fn write(
                 common_prefix: 0,
             },
         );
+    writer.clear_tools()?;
     writer.one("usage", &model.usage)?;
     for (index, message) in model.conversation.messages.iter().enumerate() {
         writer.row("conversation", index, message)?;
     }
     for (index, message) in model.transcript.iter().enumerate() {
         let unchanged = writer.row("transcript", index, message)?;
+        if let Some(tool) = &message.tool
+            && accepted(&tool.status)
+        {
+            writer.tool(tool)?;
+        }
         if let Some(base) = &mut base
             && base.common_prefix == index
             && unchanged
@@ -99,6 +105,7 @@ fn write(
         base,
     };
     writer.one("header", &header)?;
+    writer.one("tool-state-index", &writer.tool_fingerprint()?)?;
     // A full writer without a cursor cannot leave an older checkpoint bound
     // to its new rows. Both invalidation and publication share the row commit.
     writer.truncate("projection", 0)?;
@@ -145,6 +152,28 @@ impl Write {
         match self {
             Self::Update(writer) => writer.truncate(section, length),
             Self::Replace { .. } => Some(()),
+        }
+    }
+
+    fn clear_tools(&self) -> Option<()> {
+        match self {
+            Self::Update(writer) => writer.clear_keyed(TOOL_STATE),
+            Self::Replace { .. } => Some(()),
+        }
+    }
+
+    fn tool(&self, tool: &proteus_contracts::app_protocol::AppTranscriptTool) -> Option<()> {
+        let state = proteus_contracts::app_protocol::AppToolState::from(tool);
+        match self {
+            Self::Update(writer) => writer.keyed(TOOL_STATE, &tool.name, &state),
+            Self::Replace { writer, .. } => writer.keyed(TOOL_STATE, &tool.name, &state),
+        }
+    }
+
+    fn tool_fingerprint(&self) -> Option<(usize, [u8; 32])> {
+        match self {
+            Self::Update(writer) => writer.keyed_fingerprint(TOOL_STATE),
+            Self::Replace { writer, .. } => writer.keyed_fingerprint(TOOL_STATE),
         }
     }
 

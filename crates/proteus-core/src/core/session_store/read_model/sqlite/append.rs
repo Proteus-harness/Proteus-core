@@ -87,6 +87,7 @@ pub(in crate::core::session_store::read_model) fn append(
     {
         return None;
     }
+    super::tool_state::ensure_index(&writer, header.transcript_len)?;
     for (index, message) in state.history[header.conversation_len..].iter().enumerate() {
         writer.row("conversation", header.conversation_len + index, message)?;
     }
@@ -96,6 +97,17 @@ pub(in crate::core::session_store::read_model) fn append(
             header.transcript_len.checked_add(index)?,
             message,
         )?;
+    }
+    for row in &suffix.transcript {
+        if let Some(tool) = &row.tool
+            && accepted(&tool.status)
+        {
+            writer.keyed(
+                TOOL_STATE,
+                &tool.name,
+                &proteus_contracts::app_protocol::AppToolState::from(tool),
+            )?;
+        }
     }
     let context = state.model_context.snapshot();
     for (index, observation) in context.iter().enumerate() {
@@ -116,6 +128,7 @@ pub(in crate::core::session_store::read_model) fn append(
         }),
     };
     writer.one("header", &next)?;
+    writer.one("tool-state-index", &writer.keyed_fingerprint(TOOL_STATE)?)?;
     writer.one("projection", &ProjectionCheckpoint::new(&next, cursor)?)?;
     writer.finish()
 }

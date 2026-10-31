@@ -71,3 +71,34 @@ pub struct AppTranscriptSubagent {
     pub iterations: Option<u32>,
     pub tools: Vec<AppTranscriptTool>,
 }
+
+/// Latest accepted tool row in one source-validated display revision.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AppLatestToolState {
+    pub revision: String,
+    pub tool: Option<AppToolState>,
+}
+
+/// Compact tool input state; output bodies and rendering metadata are excluded.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AppToolState {
+    pub call_id: String,
+    pub name: String,
+    pub status: String,
+    pub args: Value,
+    pub effective_args: Option<Value>,
+}
+
+impl From<&AppTranscriptTool> for AppToolState {
+    fn from(tool: &AppTranscriptTool) -> Self {
+        Self {
+            call_id: tool.call_id.clone(),
+            name: tool.name.clone(),
+            status: tool.status.clone(),
+            args: tool.args.clone(),
+            effective_args: tool.effective_args.clone(),
+        }
+    }
+}

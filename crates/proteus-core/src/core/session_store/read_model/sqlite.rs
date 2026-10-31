@@ -181,3 +181,7 @@ fn page_inner(
         base: header.base,
     })
 }
+
+mod tool_state;
+pub(super) use tool_state::tool_state;
+use tool_state::{TOOL_STATE, accepted};
