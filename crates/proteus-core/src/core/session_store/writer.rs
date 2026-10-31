@@ -78,8 +78,10 @@ impl SessionStore {
     }
 
     /// First continuation acquires the existing writer lease and reuses its strict
-    /// recovery projection. Display caches never initialize writer validation.
-    pub(crate) async fn prepare_resume_projection(&self) -> Result<JournalProjection> {
+    /// recovery state. Display caches never initialize writer validation.
+    pub(crate) async fn prepare_resume_state(
+        &self,
+    ) -> Result<crate::core::session_journal::JournalResumeState> {
         let mut writer = self.writer.clone().lock_owned().await;
         let store = self.clone();
         tokio::task::spawn_blocking(move || {
@@ -87,14 +89,11 @@ impl SessionStore {
             store.prepare_lease_parent()?;
             writer.with_ownership_preflight(&store.session_dir, store.session_id, |writer| {
                 store.materialize_for_write()?;
-                match crate::core::session_journal::initialize_writer_projection(
+                crate::core::session_journal::initialize_writer_resume(
                     &store.session_dir,
                     store.session_id,
                     writer,
-                )? {
-                    Some(projection) => Ok(projection),
-                    None => store.load_projection(),
-                }
+                )
             })
         })
         .await

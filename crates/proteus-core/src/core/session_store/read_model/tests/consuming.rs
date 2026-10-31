@@ -1,7 +1,7 @@
 use super::*;
 
 #[tokio::test]
-async fn consuming_render_keeps_non_transcript_sections_and_accepts_local_closures() {
+async fn streamed_render_keeps_non_transcript_sections_and_accepts_local_closures() {
     let root = tempfile::tempdir().unwrap();
     let workspace = tempfile::tempdir().unwrap();
     let store = saved(root.path(), workspace.path(), "owned projection").await;
@@ -22,7 +22,7 @@ async fn consuming_render_keeps_non_transcript_sections_and_accepts_local_closur
         &projection,
     )
     .unwrap();
-    let expected_rows = render(projection.records.clone());
+    let expected_rows = journal_transcript_messages(projection.records.clone(), None);
     let expected_ids = projection
         .records
         .iter()
@@ -30,16 +30,15 @@ async fn consuming_render_keeps_non_transcript_sections_and_accepts_local_closur
         .collect::<Vec<_>>();
     let calls = Cell::new(0);
     let model = store
-        .project_read_model(|records| {
+        .project_read_model(|source| {
             calls.set(calls.get() + 1);
-            assert_eq!(
-                records
-                    .iter()
-                    .map(|record| record.record_id)
-                    .collect::<Vec<_>>(),
-                expected_ids,
-            );
-            render(records)
+            let mut actual_ids = Vec::new();
+            source.scan(|record| {
+                actual_ids.push(record.record_id);
+                Ok(())
+            })?;
+            assert_eq!(actual_ids, expected_ids);
+            render(source)
         })
         .unwrap();
     assert_eq!(calls.get(), 1);
@@ -53,7 +52,7 @@ async fn consuming_render_keeps_non_transcript_sections_and_accepts_local_closur
 }
 
 #[tokio::test]
-async fn consuming_render_still_precedes_summary_metadata_observation() {
+async fn streamed_render_still_precedes_summary_metadata_observation() {
     let root = tempfile::tempdir().unwrap();
     let workspace = tempfile::tempdir().unwrap();
     let store = saved(root.path(), workspace.path(), "metadata order").await;
@@ -88,7 +87,7 @@ async fn consuming_render_still_precedes_summary_metadata_observation() {
 }
 
 #[tokio::test]
-async fn consuming_render_still_precedes_fallible_workspace_resolution() {
+async fn streamed_render_still_precedes_fallible_workspace_resolution() {
     let root = tempfile::tempdir().unwrap();
     let workspace = tempfile::tempdir().unwrap();
     let store = saved(root.path(), workspace.path(), "workspace order").await;

@@ -342,16 +342,20 @@ impl AgentRuntime {
             let result = async {
                 if let Some(store) = &session.session_store {
                     if let Err(error) = store.clear_history(session.thread_id).await {
-                        let projection = store.load_projection().map_err(|recovery| {
+                        let recovery_store = store.clone();
+                        let state = tokio::task::spawn_blocking(move || {
+                            crate::core::session_journal::ValidatedJournalRead::open(
+                                recovery_store.session_dir(), recovery_store.session_id(),
+                            ).map(|read| read.into_resume_state())
+                        }).await.map_err(|recovery| {
+                            anyhow::anyhow!("{error:#}; additionally failed to recover history after clear: {recovery:#}")
+                        })?.map_err(|recovery| {
                             anyhow::anyhow!("{error:#}; additionally failed to recover history after clear: {recovery:#}")
                         })?;
-                        history::refresh_committed_history(&mut *session.history.lock().await, projection.history)?;
-                        *session.model_context.lock().await =
-                            crate::core::model_context::ModelContextState::from_records(&projection.records, None);
-                        *session.history_turn.lock().await = projection.records.iter().rev().find_map(|record| {
-                            matches!(&record.entry, crate::core::JournalEntry::HistoryMutated(_)).then_some(record.turn_id)
-                        }).flatten();
-                        *session.interrupted_turns.lock().await = projection.interrupted_turns;
+                        history::refresh_committed_history(&mut *session.history.lock().await, state.history)?;
+                        *session.model_context.lock().await = state.model_context;
+                        *session.history_turn.lock().await = state.last_history_turn;
+                        *session.interrupted_turns.lock().await = state.interrupted_turns;
                         return Err(error);
                     }
                 }

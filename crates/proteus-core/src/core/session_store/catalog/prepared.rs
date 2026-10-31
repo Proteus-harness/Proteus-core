@@ -6,7 +6,10 @@ use anyhow::Result;
 #[cfg(unix)]
 use super::super::read_cache::SourceFingerprint;
 use super::super::read_model::{SessionReadModel, SessionReadView};
-use crate::core::{SessionStore, session_journal::JournalProjection};
+use crate::core::{
+    SessionStore,
+    session_journal::{JournalReadSnapshot, ValidatedJournalRead},
+};
 
 use super::{session_updated_at_ms, warn_unusable_session, workspace_session_dirs};
 
@@ -19,7 +22,7 @@ pub(crate) struct PreparedSession {
 }
 
 enum PreparedHistory {
-    Validated(JournalProjection),
+    Validated(ValidatedJournalRead),
     #[cfg(unix)]
     Cached(SessionReadView),
 }
@@ -43,13 +46,11 @@ impl PreparedSession {
             super::cache::prime_from_read(&session_dir, || {
                 let prepared = Self::load(&session_dir)?;
                 let summary = match &prepared.history {
-                    PreparedHistory::Validated(projection) => {
-                        super::session_summary_from_projection(
-                            prepared.session_dir().to_owned(),
-                            prepared.store.session_id(),
-                            projection,
-                        )?
-                    }
+                    PreparedHistory::Validated(read) => super::session_summary_from_history(
+                        prepared.session_dir().to_owned(),
+                        prepared.store.session_id(),
+                        read.history(),
+                    )?,
                     PreparedHistory::Cached(model) => model.summary.clone(),
                 };
                 Ok((prepared, summary))
@@ -63,10 +64,10 @@ impl PreparedSession {
         let store = SessionStore::open(session_dir.to_owned())?;
         #[cfg(unix)]
         let source = SourceFingerprint::read(session_dir, 8192);
-        let projection = store.load_projection()?;
+        let read = ValidatedJournalRead::open(store.session_dir(), store.session_id())?;
         Ok(Self {
             store,
-            history: PreparedHistory::Validated(projection),
+            history: PreparedHistory::Validated(read),
             stale: false,
             #[cfg(unix)]
             source: source.filter(|before| {
@@ -85,7 +86,7 @@ impl PreparedSession {
 
     pub(crate) fn message_count(&self) -> usize {
         match &self.history {
-            PreparedHistory::Validated(projection) => projection.history.len(),
+            PreparedHistory::Validated(read) => read.history().len(),
             #[cfg(unix)]
             PreparedHistory::Cached(model) => model.summary.message_count,
         }
@@ -94,14 +95,15 @@ impl PreparedSession {
     pub(crate) fn into_display_view(
         self,
         render: impl FnOnce(
-            Vec<crate::core::JournalRecord>,
-        ) -> Vec<proteus_contracts::app_protocol::AppTranscriptMessage>,
+            &mut JournalReadSnapshot,
+        )
+            -> Result<Vec<proteus_contracts::app_protocol::AppTranscriptMessage>>,
     ) -> Result<(SessionStore, SessionReadView, bool, bool)> {
         #[cfg(feature = "memory-diagnostics")]
         let memory = crate::memory_diagnostics::Scope::new("prepared.into_display_view");
         let (model, deferred) = match self.history {
-            PreparedHistory::Validated(projection) => {
-                let model = SessionReadModel::from_projection(&self.store, projection, render)?;
+            PreparedHistory::Validated(read) => {
+                let model = SessionReadModel::from_validated(&self.store, read, render)?;
                 #[cfg(unix)]
                 if let Some(source) = &self.source {
                     self.store.save_read_model(source, &model);

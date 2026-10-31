@@ -1,6 +1,9 @@
 //! Cached display state is reconciled before its first execution, under the
 //! existing OS writer lease. A read-only background refresh never takes it.
-use crate::core::{JournalEntry, JournalProjection, model_context::ModelContextState};
+use crate::core::{
+    model_context::ModelContextState,
+    session_journal::{JournalResumeState, ValidatedJournalRead},
+};
 
 use super::AgentRuntime;
 
@@ -16,14 +19,16 @@ impl AgentRuntime {
             return Ok(());
         }
         if let Some(store) = &self.session.session_store {
-            let projection = store.prepare_resume_projection().await?;
-            self.apply_resumed_projection(&projection, true).await;
+            let state = store.prepare_resume_state().await?;
+            self.apply_resumed_state(state).await;
         }
         *deferred = false;
         Ok(())
     }
 
-    pub(crate) async fn refresh_cached_resume(&self) -> anyhow::Result<Option<JournalProjection>> {
+    pub(crate) async fn refresh_cached_resume(
+        &self,
+    ) -> anyhow::Result<Option<ValidatedJournalRead>> {
         let deferred = self.session.deferred_resume_validation.lock().await;
         if !*deferred {
             return Ok(None);
@@ -31,68 +36,62 @@ impl AgentRuntime {
         let Some(store) = self.session.session_store.clone() else {
             return Ok(None);
         };
-        let projection = tokio::task::spawn_blocking(move || store.load_projection()).await??;
-        self.apply_resumed_projection(&projection, false).await;
-        // A refreshed display is still not a writer-authorized continuation.
-        Ok(Some(projection))
-    }
-
-    async fn apply_resumed_projection(&self, projection: &JournalProjection, materialize: bool) {
+        let read = tokio::task::spawn_blocking(move || {
+            ValidatedJournalRead::open(store.session_dir(), store.session_id())
+        })
+        .await??;
         let mut history = self.session.history.lock().await;
         let mut model_context = self.session.model_context.lock().await;
-        self.session.history_count.store(
-            projection.history.len(),
-            std::sync::atomic::Ordering::SeqCst,
-        );
-        if materialize
-            || self
-                .session
-                .history_resident
-                .load(std::sync::atomic::Ordering::SeqCst)
+        self.session
+            .history_count
+            .store(read.history().len(), std::sync::atomic::Ordering::SeqCst);
+        if self
+            .session
+            .history_resident
+            .load(std::sync::atomic::Ordering::SeqCst)
         {
-            #[cfg(feature = "memory-diagnostics")]
-            let memory = crate::memory_diagnostics::Scope::new("resume.materialize");
-            #[cfg(feature = "memory-diagnostics")]
-            memory.sample(
-                "resume.before_history_clone",
-                &[
-                    ("records", projection.records.len()),
-                    ("history", projection.history.len()),
-                ],
-            );
-            *history = projection.history.clone();
-            #[cfg(feature = "memory-diagnostics")]
-            memory.sample("resume.after_history_clone", &[("history", history.len())]);
-            *model_context = ModelContextState::from_records(&projection.records, None);
-            #[cfg(feature = "memory-diagnostics")]
-            memory.sample("resume.after_model_context", &[("history", history.len())]);
-            self.session
-                .history_resident
-                .store(true, std::sync::atomic::Ordering::SeqCst);
+            *history = read.history().to_vec();
+            *model_context = ModelContextState::from_snapshot(read.model_context());
         }
-        self.session.history_revision.store(
-            projection.history_revision,
-            std::sync::atomic::Ordering::SeqCst,
-        );
-        *self.session.history_turn.lock().await = projection
-            .records
-            .iter()
-            .rev()
-            .find_map(|record| {
-                matches!(record.entry, JournalEntry::HistoryMutated(_)).then_some(record.turn_id)
-            })
-            .flatten();
-        *self.session.interrupted_turns.lock().await = projection.interrupted_turns.clone();
+        self.session
+            .history_revision
+            .store(read.history_revision(), std::sync::atomic::Ordering::SeqCst);
+        *self.session.history_turn.lock().await = read.last_history_turn();
+        *self.session.interrupted_turns.lock().await = read.interrupted_turns();
         #[cfg(unix)]
         if let Some(store) = &self.session.session_store {
-            let mut usage = crate::core::session_journal::UsageProjection::default();
-            for record in &projection.records {
-                usage.apply(record);
-            }
-            store.set_read_metadata(
-                projection.history_revision,
-                usage.snapshot(store.session_id()),
-            );
+            store.set_read_metadata(read.history_revision(), read.usage());
         }
+        // A refreshed display is still not a writer-authorized continuation.
+        Ok(Some(read))
+    }
+
+    async fn apply_resumed_state(&self, state: JournalResumeState) {
+        let mut history = self.session.history.lock().await;
+        let mut model_context = self.session.model_context.lock().await;
+        self.session
+            .history_count
+            .store(state.history.len(), std::sync::atomic::Ordering::SeqCst);
+        // The writer owns validation history; this is the sole additional owned
+        // history for execution. No raw projection or third copy is created.
+        *history = state.history;
+        *model_context = state.model_context;
+        self.session
+            .history_resident
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        self.session
+            .history_revision
+            .store(state.history_revision, std::sync::atomic::Ordering::SeqCst);
+        *self.session.history_turn.lock().await = state.last_history_turn;
+        *self.session.interrupted_turns.lock().await = state.interrupted_turns;
+        #[cfg(unix)]
+        if let Some(store) = &self.session.session_store {
+            store.set_read_metadata(state.history_revision, state.usage);
+        }
+        #[cfg(feature = "memory-diagnostics")]
+        crate::memory_diagnostics::point(
+            "resume.compact_state_moved",
+            &[("history", history.len())],
+        );
     }
 }

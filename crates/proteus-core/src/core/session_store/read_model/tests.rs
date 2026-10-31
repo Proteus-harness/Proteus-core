@@ -4,12 +4,13 @@ use std::{cell::Cell, fs, path::Path, sync::Arc};
 
 use super::*;
 use crate::{
-    app_server::journal_transcript_messages,
+    app_server::{journal_transcript_from_source, journal_transcript_messages},
     contracts::{ExecutionAttribution, ModelCallOrigin, OperationOwner},
     core::{
-        JournalEntry, JournalRecord, ModelRequestRecorded, ModelResponseOutcome,
-        ModelResponseRecorded, PreparedSession, TurnOpened, TurnSettled, TurnSettlementStatus,
-        session_journal::JournalWriterState,
+        JournalEntry, ModelRequestRecorded, ModelResponseOutcome, ModelResponseRecorded,
+        PreparedSession, TurnOpened, TurnSettled, TurnSettlementStatus,
+        model_context::ModelContextState, session_journal::JournalWriterState,
+        session_journal::UsageProjection,
     },
     domain::{
         AgentTask, ModelRef, new_exchange_id, new_execution_id, new_session_id, new_thread_id,
@@ -21,8 +22,8 @@ use crate::{
     },
 };
 
-fn render(records: Vec<JournalRecord>) -> Vec<AppTranscriptMessage> {
-    journal_transcript_messages(records, None)
+fn render(source: &mut JournalReadSnapshot) -> anyhow::Result<Vec<AppTranscriptMessage>> {
+    journal_transcript_from_source(source, None)
 }
 
 async fn saved(root: &Path, workspace: &Path, text: &str) -> SessionStore {

@@ -40,6 +40,7 @@ impl TranscriptTimestamps {
     /// Restrict message/part keys to the replay suffix, but find their dates in
     /// the entire journal. Seed the same maps that will hold dates: no separate
     /// full-size wanted set or retained record payloads.
+    #[cfg(test)]
     pub(super) fn for_records(records: &[JournalRecord], start: usize) -> Self {
         if start == 0 {
             return Self::default().collect::<false>(records);
@@ -65,7 +66,7 @@ impl TranscriptTimestamps {
         index.collect::<true>(records)
     }
 
-    fn require_message(&mut self, message: &CanonicalMessage) {
+    pub(super) fn require_message(&mut self, message: &CanonicalMessage) {
         self.messages.entry(message.id).or_default();
         // Dates use all original parts, including hidden and duplicate parts.
         for part in &message.parts {
@@ -73,41 +74,47 @@ impl TranscriptTimestamps {
         }
     }
 
+    #[cfg(test)]
     fn collect<const SCOPED: bool>(mut self, records: &[JournalRecord]) -> Self {
         for record in records {
-            let at = RecordedAt {
-                sequence: Some(
-                    NonZeroU64::new(record.session_seq)
-                        .expect("validated journal sequences start at one"),
-                ),
-                timestamp_ms: record.timestamp_ms,
-            };
-            match &record.entry {
-                JournalEntry::HistoryMutated(mutation) => {
-                    for message in &mutation.messages {
+            self.collect_record::<SCOPED>(record);
+        }
+
+        self
+    }
+
+    pub(super) fn collect_record<const SCOPED: bool>(&mut self, record: &JournalRecord) {
+        let at = RecordedAt {
+            sequence: Some(
+                NonZeroU64::new(record.session_seq)
+                    .expect("validated journal sequences start at one"),
+            ),
+            timestamp_ms: record.timestamp_ms,
+        };
+        match &record.entry {
+            JournalEntry::HistoryMutated(mutation) => {
+                for message in &mutation.messages {
+                    self.record_message::<SCOPED>(message, at);
+                }
+            }
+            JournalEntry::ModelMessageRecorded(item) => {
+                self.record_message::<SCOPED>(&item.message, at);
+            }
+            JournalEntry::ModelResponseRecorded(item) => {
+                if let ModelResponseOutcome::Response { response } = &item.outcome {
+                    for message in &response.messages {
                         self.record_message::<SCOPED>(message, at);
                     }
                 }
-                JournalEntry::ModelMessageRecorded(item) => {
-                    self.record_message::<SCOPED>(&item.message, at);
-                }
-                JournalEntry::ModelResponseRecorded(item) => {
-                    if let ModelResponseOutcome::Response { response } = &item.outcome {
-                        for message in &response.messages {
-                            self.record_message::<SCOPED>(message, at);
-                        }
-                    }
-                }
-                JournalEntry::ToolCallRecorded(item) => {
-                    self.calls.entry(item.call.id.clone()).or_insert(at);
-                }
-                JournalEntry::ToolResultRecorded(item) | JournalEntry::ToolEffectRecorded(item) => {
-                    self.calls.entry(item.result.call_id.clone()).or_insert(at);
-                }
-                _ => {}
             }
+            JournalEntry::ToolCallRecorded(item) => {
+                self.calls.entry(item.call.id.clone()).or_insert(at);
+            }
+            JournalEntry::ToolResultRecorded(item) | JournalEntry::ToolEffectRecorded(item) => {
+                self.calls.entry(item.result.call_id.clone()).or_insert(at);
+            }
+            _ => {}
         }
-        self
     }
 
     fn record_message<const SCOPED: bool>(&mut self, message: &CanonicalMessage, at: RecordedAt) {

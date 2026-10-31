@@ -110,6 +110,10 @@ class MemoryTraceTests(unittest.TestCase):
             proof = validate_memory_trace(trace, cycles, tree)
             self.assertTrue(proof["validated"])
             self.assertFalse(proof["restart_raw_load_required"])
+            streamed = [dict(row) for row in rows]
+            streamed[0]["phase"] = "journal.stream_validated"
+            trace.write_text("".join(json.dumps(row) + "\n" for row in streamed))
+            self.assertTrue(validate_memory_trace(trace, cycles, tree)["validated"])
             for invalid in (rows[:1], rows[1:], rows + [{"pid": 333, "phase": "x", "wall_time_ns": 3}]):
                 trace.write_text("".join(json.dumps(row) + "\n" for row in invalid))
                 with self.assertRaises(ValueError):

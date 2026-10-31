@@ -499,6 +499,10 @@ impl JournalValidationState {
         &self.history
     }
 
+    pub(crate) fn last_history_turn(&self) -> Option<TurnId> {
+        self.history_turn
+    }
+
     pub(crate) fn into_history(self) -> Vec<CanonicalMessage> {
         Arc::unwrap_or_clone(self.history)
     }

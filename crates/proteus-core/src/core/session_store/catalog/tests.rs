@@ -250,7 +250,7 @@ async fn prepared_latest_matches_catalog_millisecond_tie_order() {
         .unwrap();
     assert_eq!(prepared.session_dir(), expected[0].session_dir);
     assert_eq!(prepared.workspace_path().unwrap(), workspace.path());
-    let (store, model, deferred, stale) = prepared.into_display_view(|_| Vec::new()).unwrap();
+    let (store, model, deferred, stale) = prepared.into_display_view(|_| Ok(Vec::new())).unwrap();
     assert_eq!(store.session_id(), expected[0].session_id);
     assert_eq!(
         model.summary.message_count,

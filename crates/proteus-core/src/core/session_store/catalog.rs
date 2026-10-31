@@ -7,7 +7,7 @@ use anyhow::{Context, Result};
 use proteus_contracts::app_protocol::AppSessionSummary;
 
 use crate::{
-    core::session_journal::{JournalProjection, journal_path, load_validated_history},
+    core::session_journal::{journal_path, load_validated_history},
     model_standard::{CanonicalMessage, ContentPart, MessageRole},
 };
 
@@ -167,10 +167,11 @@ fn session_summary_from_dir(session_dir: PathBuf) -> Result<AppSessionSummary> {
     session_summary_from_history(session_dir, session_id, &history)
 }
 
+#[cfg(test)]
 pub(super) fn session_summary_from_projection(
     session_dir: PathBuf,
     session_id: crate::domain::SessionId,
-    projection: &JournalProjection,
+    projection: &crate::core::JournalProjection,
 ) -> Result<AppSessionSummary> {
     session_summary_from_history(session_dir, session_id, &projection.history)
 }

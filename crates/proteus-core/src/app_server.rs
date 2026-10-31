@@ -58,6 +58,8 @@ pub use config_builder::{
 pub use config_history::{ConfigHistory, ConfigRevision};
 use context_map::{ContextMapInput, build_context_map_snapshot};
 use path_utils::paths_equal;
+pub(crate) use transcript::journal_transcript_from_source;
+#[cfg(test)]
 pub(crate) use transcript::journal_transcript_messages;
 use transcript::transcript_messages;
 pub use transcript::{AppTranscriptMessage, AppTranscriptSubagent, AppTranscriptTool};
@@ -485,7 +487,7 @@ impl AgentAppServer {
         let initial_transcript = if let Some(prepared) = resumed_session {
             let (session_store, model, _, stale) = tokio::task::spawn_blocking(move || {
                 let result = prepared
-                    .into_display_view(|records| journal_transcript_messages(records, None));
+                    .into_display_view(|source| journal_transcript_from_source(source, None));
                 read_model::release_projection_memory();
                 result
             })

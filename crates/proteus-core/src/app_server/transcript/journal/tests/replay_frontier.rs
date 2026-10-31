@@ -473,3 +473,122 @@ fn reset_does_not_allow_reusing_an_exchange_identity() {
             .contains("duplicate model exchange response")
     );
 }
+
+#[test]
+fn denied_tool_lifecycle_and_uncommitted_response_match_at_every_prefix() {
+    let mut fixture = Fixture::new();
+    fixture.history(
+        HistoryMutationKind::Append,
+        vec![CanonicalMessage::text(
+            MessageRole::User,
+            "discarded before frontier",
+        )],
+        false,
+        false,
+    );
+    fixture.open();
+    fixture.history(HistoryMutationKind::Replace, vec![], false, false);
+    let exchange_id = new_exchange_id();
+    let call = ToolCall::new("denied", "probe", json!({"query": "value"}));
+    fixture.push(
+        JournalEntry::ModelRequestRecorded(ModelRequestRecorded {
+            exchange_id,
+            origin: ModelCallOrigin::Direct,
+            owner: crate::contracts::OperationOwner::Workflow,
+            request: CanonicalModelRequest::new(ModelRef::new("fake", "model"), vec![]),
+        }),
+        true,
+        true,
+    );
+    fixture.push(
+        JournalEntry::ModelResponseRecorded(ModelResponseRecorded {
+            exchange_id,
+            outcome: ModelResponseOutcome::Response {
+                response: CanonicalModelResponse::new(
+                    CanonicalMessage::new(
+                        MessageRole::Assistant,
+                        vec![
+                            ContentPart::Text {
+                                text: "requesting a tool".into(),
+                            },
+                            ContentPart::ToolCall { call: call.clone() },
+                        ],
+                    ),
+                    vec![call.clone()],
+                    FinishReason::ToolCalls,
+                ),
+            },
+        }),
+        true,
+        true,
+    );
+    // No committed message parts: only a later root lifecycle makes the
+    // response eligible. Before this record the response remains invisible.
+    fixture.push(
+        JournalEntry::ToolCallRecorded(ToolCallRecorded {
+            call: call.clone(),
+            phase: ToolCallRecordPhase::Requested {
+                owner: crate::contracts::OperationOwner::Workflow,
+            },
+        }),
+        true,
+        true,
+    );
+    let hook_event = crate::contracts::HookEvent::BeforeTool {
+        call: call.clone(),
+        spec: None,
+        blocked: None,
+    };
+    fixture.push(
+        JournalEntry::HookInvoked(crate::contracts::HookTrace {
+            owner: crate::contracts::OperationOwner::Workflow,
+            input: crate::contracts::HookInput {
+                conversation: None,
+                event: hook_event.clone(),
+                attribution: crate::contracts::ExecutionAttribution::for_turn(
+                    fixture.execution,
+                    fixture.session,
+                    fixture.thread,
+                    fixture.turn,
+                ),
+                cwd: "/tmp/workspace".into(),
+            },
+            steps: vec![],
+            output: Some(hook_event),
+        }),
+        true,
+        true,
+    );
+    fixture.push(
+        JournalEntry::ToolCallRecorded(ToolCallRecorded {
+            call,
+            phase: ToolCallRecordPhase::Resolved {
+                resolution: ToolCallResolution::PolicyDenied {
+                    reason: "denied by policy".into(),
+                },
+            },
+        }),
+        true,
+        true,
+    );
+    // Selected scans omit both the model request and hook, retaining durable
+    // sequence gaps on both sides of the response/lifecycle records.
+    assert!(
+        fixture
+            .records
+            .iter()
+            .any(|record| matches!(record.entry, JournalEntry::HookInvoked(_)))
+    );
+    assert!(
+        fixture
+            .records
+            .iter()
+            .any(|record| matches!(record.entry, JournalEntry::ModelRequestRecorded(_)))
+    );
+    fixture.assert_prefixes(&[None, Some(fixture.turn), Some(new_turn_id())]);
+    let rows = journal_transcript_messages(fixture.records, None);
+    assert_eq!(rows[0].text, "requesting a tool");
+    let tool = rows[1].tool.as_ref().unwrap();
+    assert_eq!(tool.status, "failed");
+    assert_eq!(tool.result.as_deref(), Some("denied by policy"));
+}

@@ -11,22 +11,25 @@ use ring::digest::{SHA256, digest};
 use serde::{Deserialize, Serialize};
 
 use super::{
-    projection::{JournalProjection, JournalValidationState},
+    projection::JournalValidationState,
     types::{JOURNAL_SCHEMA_VERSION, JournalEntry, JournalKind, JournalRecord},
 };
+
+#[cfg(test)]
+use super::projection::JournalProjection;
 
 mod append;
 mod initialize;
 mod ownership;
-pub(crate) use initialize::{initialize_writer_projection, initialize_writer_state};
+pub(crate) use initialize::{initialize_writer_resume, initialize_writer_state};
 mod derived;
 mod read;
 pub(crate) use append::append_record;
 pub(crate) use derived::{
-    load_validated_conversation, load_validated_history, load_validated_history_revision,
-    load_validated_usage,
+    JournalResumeState, ValidatedJournalRead, load_validated_conversation, load_validated_history,
+    load_validated_history_revision, load_validated_usage,
 };
-pub(crate) use read::load_records;
+pub(crate) use read::{JournalReadSnapshot, load_records};
 mod recovery;
 mod redaction;
 mod retirement;

@@ -138,10 +138,43 @@ fn reference(dir: &Path, session: SessionId) -> Result<JournalProjection> {
 
 fn assert_derived(dir: &Path, session: SessionId) {
     let projection = reference(dir, session).unwrap();
+    let read = ValidatedJournalRead::open(dir, session).unwrap();
+    assert_eq!(read.history(), projection.history);
+    assert_eq!(read.history_revision(), projection.history_revision);
+    assert_eq!(read.interrupted_turns(), projection.interrupted_turns);
+    assert_eq!(
+        read.last_history_turn(),
+        projection
+            .records
+            .iter()
+            .rev()
+            .find_map(|record| {
+                matches!(record.entry, JournalEntry::HistoryMutated(_)).then_some(record.turn_id)
+            })
+            .flatten()
+    );
+    let expected_history_pointer = read.history().as_ptr();
+    let (mut source, resumed) = read.into_parts();
+    // Validated state has one owner: consuming it moves current history.
+    assert_eq!(resumed.history.as_ptr(), expected_history_pointer);
+    assert_eq!(resumed.history, projection.history);
+    let mut streamed = Vec::new();
+    source
+        .scan(|record| {
+            streamed.push(record);
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(streamed, projection.records);
     let mut usage = UsageProjection::default();
     for record in &projection.records {
         usage.apply(record);
     }
+    assert_eq!(resumed.usage, usage.snapshot(session));
+    assert_eq!(
+        resumed.model_context.snapshot(),
+        ModelContextState::from_records(&projection.records, None).snapshot()
+    );
     let conversation = ConversationSnapshot {
         revision: projection.history_revision,
         messages: projection.history.clone(),
@@ -169,6 +202,10 @@ fn assert_same_error(dir: &Path, session: SessionId, expected: &str) {
     let reference = format!("{:#}", reference(dir, session).unwrap_err());
     assert!(reference.contains(expected), "{reference}");
     let errors = [
+        format!(
+            "{:#}",
+            ValidatedJournalRead::open(dir, session).unwrap_err()
+        ),
         format!("{:#}", load_validated_history(dir, session).unwrap_err()),
         format!(
             "{:#}",

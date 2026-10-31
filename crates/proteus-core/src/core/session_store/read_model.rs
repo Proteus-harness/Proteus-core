@@ -3,10 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     contracts::ConversationSnapshot,
-    core::{
-        JournalProjection, JournalRecord, model_context::ModelContextState,
-        session_journal::UsageProjection,
-    },
+    core::session_journal::{JournalReadSnapshot, ValidatedJournalRead},
     domain::SessionUsageSnapshot,
 };
 use proteus_contracts::app_protocol::{AppSessionSummary, AppTranscriptMessage};
@@ -82,40 +79,28 @@ impl SessionReadView {
 }
 
 impl SessionReadModel {
-    pub(crate) fn from_projection(
+    pub(crate) fn from_validated(
         store: &SessionStore,
-        projection: JournalProjection,
-        render: impl FnOnce(Vec<JournalRecord>) -> Vec<AppTranscriptMessage>,
+        read: ValidatedJournalRead,
+        render: impl FnOnce(&mut JournalReadSnapshot) -> anyhow::Result<Vec<AppTranscriptMessage>>,
     ) -> anyhow::Result<Self> {
         #[cfg(feature = "memory-diagnostics")]
-        let memory = crate::memory_diagnostics::Scope::new("read_model.from_projection");
-        #[cfg(feature = "memory-diagnostics")]
-        memory.sample(
-            "read_model.before_model_context",
-            &[
-                ("records", projection.records.len()),
-                ("history", projection.history.len()),
-            ],
-        );
-        let mut usage = UsageProjection::default();
-        for record in &projection.records {
-            usage.apply(record);
-        }
-        let model_context = ModelContextState::from_records(&projection.records, None).snapshot();
+        let memory = crate::memory_diagnostics::Scope::new("read_model.from_validated");
+        let (mut source, state) = read.into_parts();
+        let model_context = state.model_context.snapshot();
         #[cfg(feature = "memory-diagnostics")]
         memory.sample(
             "read_model.before_render",
-            &[
-                ("records", projection.records.len()),
-                ("history", projection.history.len()),
-            ],
+            &[("history", state.history.len())],
         );
-        let transcript = render(projection.records);
+        // Validation has completed before calling the renderer. Each renderer
+        // pass reads the same complete prefix and drops one payload at a time.
+        let transcript = render(&mut source)?;
         #[cfg(feature = "memory-diagnostics")]
         memory.sample(
-            "read_model.after_render_raw_dropped",
+            "read_model.after_render",
             &[
-                ("history", projection.history.len()),
+                ("history", state.history.len()),
                 ("transcript", transcript.len()),
             ],
         );
@@ -124,17 +109,17 @@ impl SessionReadModel {
         let summary = super::catalog::session_summary_from_history(
             store.session_dir().to_owned(),
             store.session_id(),
-            &projection.history,
+            &state.history,
         )?;
         Ok(Self {
             summary,
             conversation: ConversationSnapshot {
-                revision: projection.history_revision,
-                messages: projection.history,
+                revision: state.history_revision,
+                messages: state.history,
                 model_context,
             },
             transcript,
-            usage: usage.snapshot(store.session_id()),
+            usage: state.usage,
         })
     }
 
@@ -163,12 +148,12 @@ impl SessionStore {
 
     pub(crate) fn project_read_model(
         &self,
-        render: impl FnOnce(Vec<JournalRecord>) -> Vec<AppTranscriptMessage>,
+        render: impl FnOnce(&mut JournalReadSnapshot) -> anyhow::Result<Vec<AppTranscriptMessage>>,
     ) -> anyhow::Result<SessionReadModel> {
         #[cfg(unix)]
         let source = super::read_cache::SourceFingerprint::read(self.session_dir(), 8192);
-        let projection = self.load_projection()?;
-        let model = SessionReadModel::from_projection(self, projection, render)?;
+        let read = ValidatedJournalRead::open(self.session_dir(), self.session_id())?;
+        let model = SessionReadModel::from_validated(self, read, render)?;
         #[cfg(unix)]
         if let Some(source) = source {
             self.save_read_model(&source, &model);

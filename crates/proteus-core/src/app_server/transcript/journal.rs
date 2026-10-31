@@ -1,10 +1,13 @@
-use std::{
-    borrow::Borrow,
-    collections::{HashMap, HashSet},
-};
+use std::collections::{HashMap, HashSet};
+
+#[cfg(test)]
+use std::borrow::Borrow;
 
 #[cfg(test)]
 use crate::core::JournalProjection;
+
+mod source;
+pub(crate) use source::journal_transcript_from_source;
 
 mod timestamps;
 use timestamps::TranscriptTimestamps;
@@ -26,21 +29,29 @@ use super::{
 /// Строит завершённый web transcript из canonical journal. Active streaming
 /// turn проецируется отдельно через in-memory `turn_progress`: здесь records
 /// уже являются единственным durable источником фактов.
+#[cfg(test)]
 pub(crate) fn journal_transcript_messages(
     records: Vec<JournalRecord>,
     live_turn_id: Option<TurnId>,
 ) -> Vec<AppTranscriptMessage> {
+    let streamed = source::from_records(&records, live_turn_id).expect("streamed transcript");
     let start = replay_start(&records, live_turn_id);
     let replay = TranscriptReplay::new(&records, start);
     // Facts own their identities/dates. Drop skipped record payloads before the
     // first rendered item, then each consumed record after its rows are built.
-    replay.render(records.into_iter().skip(start), live_turn_id)
+    let rows = replay.render(records.into_iter().skip(start), live_turn_id);
+    assert_eq!(
+        serde_json::to_value(&streamed).unwrap(),
+        serde_json::to_value(&rows).unwrap()
+    );
+    rows
 }
 
 /// A visible, non-compaction Replace resets every mutable render/dedup field.
 /// Earlier rows cannot survive it, even when later facts reveal old responses.
 /// This is only a render frontier: validation, visibility, final results and
 /// first-occurrence dates must still cover the entire committed projection.
+#[cfg(test)]
 fn replay_start(records: &[JournalRecord], live_turn_id: Option<TurnId>) -> usize {
     records
         .iter()
@@ -73,6 +84,7 @@ struct TranscriptReplay {
 }
 
 impl TranscriptReplay {
+    #[cfg(test)]
     fn new(records: &[JournalRecord], start: usize) -> Self {
         let visibility = TranscriptVisibility::from_records(records, start);
         let state = TranscriptProjectionState {
@@ -93,92 +105,100 @@ impl TranscriptReplay {
         }
     }
 
+    #[cfg(test)]
     fn render<R: Borrow<JournalRecord>>(
         self,
         records: impl IntoIterator<Item = R>,
         live_turn_id: Option<TurnId>,
     ) -> Vec<AppTranscriptMessage> {
+        let mut replay = self;
+        for record in records {
+            replay.render_record(record.borrow(), live_turn_id);
+        }
+        replay.finish()
+    }
+
+    fn render_record(&mut self, record: &JournalRecord, live_turn_id: Option<TurnId>) {
         let Self {
-            mut state,
+            state,
             visibility,
             final_results,
         } = self;
-        for record in records {
-            let record: &JournalRecord = record.borrow();
-            // The live turn is owned by the inline event projection until settlement.
-            if live_turn_id.is_some() && record.turn_id == live_turn_id {
-                continue;
-            }
-            match &record.entry {
-                JournalEntry::HistoryMutated(mutation) => {
-                    if mutation.mutation == HistoryMutationKind::Replace
-                        && mutation.compaction.is_none()
-                    {
-                        state.reset();
-                    }
-                    let hide_compactor_parts = mutation.mutation != HistoryMutationKind::Append
-                        && mutation.compaction.is_some();
-                    for message in &mutation.messages {
-                        state.append_message(message, hide_compactor_parts);
-                    }
-                }
-                JournalEntry::ModelResponseRecorded(response)
-                    if record.turn_id != live_turn_id
-                        && visibility.is_root_record(record.thread_id, record.turn_id)
-                        && visibility
-                            .visible_model_responses
-                            .contains(&response.exchange_id) =>
-                {
-                    if let ModelResponseOutcome::Response { response } = &response.outcome {
-                        for message in &response.messages {
-                            state.append_message(message, false);
-                        }
-                    }
-                }
-                JournalEntry::ToolCallRecorded(tool)
-                    if record.turn_id != live_turn_id
-                        && visibility.is_root_record(record.thread_id, record.turn_id)
-                        && visibility.visible_tool_calls.contains(&tool.call.id) =>
-                {
-                    match &tool.phase {
-                        ToolCallRecordPhase::Requested { .. } => state.append_tool_call(&tool.call),
-                        ToolCallRecordPhase::Resolved { resolution } => {
-                            state.apply_resolution(&tool.call, resolution)
-                        }
-                        ToolCallRecordPhase::ApprovalRequested { .. } => {}
-                    }
-                }
-                JournalEntry::ToolResultRecorded(tool)
-                    if record.turn_id != live_turn_id
-                        && visibility.is_root_record(record.thread_id, record.turn_id)
-                        && visibility.visible_tool_calls.contains(&tool.result.call_id) =>
-                {
-                    if state.seen_results.insert(tool.result.call_id.clone()) {
-                        state.append_tool_result(&tool.result);
-                    }
-                }
-                JournalEntry::ToolEffectRecorded(tool)
-                    if record.turn_id != live_turn_id
-                        && visibility.is_root_record(record.thread_id, record.turn_id)
-                        && !final_results.contains(&tool.result.call_id)
-                        && visibility.visible_tool_calls.contains(&tool.result.call_id) =>
-                {
-                    if state.seen_results.insert(tool.result.call_id.clone()) {
-                        state.append_tool_result(&tool.result);
-                    }
-                }
-                JournalEntry::TurnSettled(settled)
-                    if record.turn_id != live_turn_id
-                        && visibility.is_root_record(record.thread_id, record.turn_id) =>
-                {
-                    state.append_turn_failure(settled, record.timestamp_ms);
-                }
-                _ => {}
-            }
+        // The live turn is owned by the inline event projection until settlement.
+        if live_turn_id.is_some() && record.turn_id == live_turn_id {
+            return;
         }
+        match &record.entry {
+            JournalEntry::HistoryMutated(mutation) => {
+                if mutation.mutation == HistoryMutationKind::Replace
+                    && mutation.compaction.is_none()
+                {
+                    state.reset();
+                }
+                let hide_compactor_parts = mutation.mutation != HistoryMutationKind::Append
+                    && mutation.compaction.is_some();
+                for message in &mutation.messages {
+                    state.append_message(message, hide_compactor_parts);
+                }
+            }
+            JournalEntry::ModelResponseRecorded(response)
+                if record.turn_id != live_turn_id
+                    && visibility.is_root_record(record.thread_id, record.turn_id)
+                    && visibility
+                        .visible_model_responses
+                        .contains(&response.exchange_id) =>
+            {
+                if let ModelResponseOutcome::Response { response } = &response.outcome {
+                    for message in &response.messages {
+                        state.append_message(message, false);
+                    }
+                }
+            }
+            JournalEntry::ToolCallRecorded(tool)
+                if record.turn_id != live_turn_id
+                    && visibility.is_root_record(record.thread_id, record.turn_id)
+                    && visibility.visible_tool_calls.contains(&tool.call.id) =>
+            {
+                match &tool.phase {
+                    ToolCallRecordPhase::Requested { .. } => state.append_tool_call(&tool.call),
+                    ToolCallRecordPhase::Resolved { resolution } => {
+                        state.apply_resolution(&tool.call, resolution)
+                    }
+                    ToolCallRecordPhase::ApprovalRequested { .. } => {}
+                }
+            }
+            JournalEntry::ToolResultRecorded(tool)
+                if record.turn_id != live_turn_id
+                    && visibility.is_root_record(record.thread_id, record.turn_id)
+                    && visibility.visible_tool_calls.contains(&tool.result.call_id) =>
+            {
+                if state.seen_results.insert(tool.result.call_id.clone()) {
+                    state.append_tool_result(&tool.result);
+                }
+            }
+            JournalEntry::ToolEffectRecorded(tool)
+                if record.turn_id != live_turn_id
+                    && visibility.is_root_record(record.thread_id, record.turn_id)
+                    && !final_results.contains(&tool.result.call_id)
+                    && visibility.visible_tool_calls.contains(&tool.result.call_id) =>
+            {
+                if state.seen_results.insert(tool.result.call_id.clone()) {
+                    state.append_tool_result(&tool.result);
+                }
+            }
+            JournalEntry::TurnSettled(settled)
+                if record.turn_id != live_turn_id
+                    && visibility.is_root_record(record.thread_id, record.turn_id) =>
+            {
+                state.append_turn_failure(settled, record.timestamp_ms);
+            }
+            _ => {}
+        }
+    }
 
-        finalize_interrupted_tools(&mut state.transcript.rows);
-        state.transcript.rows
+    fn finish(mut self) -> Vec<AppTranscriptMessage> {
+        finalize_interrupted_tools(&mut self.state.transcript.rows);
+        self.state.transcript.rows
     }
 }
 
@@ -190,6 +210,7 @@ struct TranscriptVisibility {
 }
 
 impl TranscriptVisibility {
+    #[cfg(test)]
     fn from_records(records: &[JournalRecord], replay_start: usize) -> Self {
         let mut root_threads = HashMap::new();
         let mut committed_parts = HashSet::new();

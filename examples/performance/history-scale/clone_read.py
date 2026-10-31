@@ -251,8 +251,8 @@ def validate_memory_trace(path, cycles, tree):
             actual = found[owners[row["pid"]]]
             actual["records"] += 1
             actual["phases"].add(row["phase"])
-    if "journal.raw_records_loaded" not in found["first"]["phases"]:
-        raise ValueError("cold trace lacks raw journal load")
+    if not found["first"]["phases"].intersection({"journal.raw_records_loaded", "journal.stream_validated"}):
+        raise ValueError("cold trace lacks a complete journal read")
     prepared_phases = {"prepared.into_display_view", "prepared.full_model_dropped",
                        "read_view.from_model", "read_view.page_selected"}
     if not found["restart"]["phases"].intersection(prepared_phases):

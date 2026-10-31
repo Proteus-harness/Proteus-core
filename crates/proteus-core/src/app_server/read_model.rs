@@ -1,5 +1,5 @@
 //! Stale display state refreshes independently, without acquiring write ownership.
-use super::{AppServerEvent, AppServerHandle, journal_transcript_messages};
+use super::{AppServerEvent, AppServerHandle, journal_transcript_from_source};
 use crate::core::{SessionReadModel, SessionStore};
 
 use proteus_contracts::app_protocol::{AppTranscriptCursor, AppTranscriptMessage};
@@ -104,7 +104,7 @@ fn rebuild_transcript(
     );
     // Strict journal validation is mandatory; cached conversation state is not
     // an authority. project_read_model saves the index only on a stable source.
-    let model = store.project_read_model(|records| journal_transcript_messages(records, None))?;
+    let model = store.project_read_model(|source| journal_transcript_from_source(source, None))?;
     anyhow::ensure!(
         SourceFingerprint::read(store.session_dir(), 8192).as_ref() == Some(&source),
         "history source changed during recovery; refresh the session snapshot"
@@ -118,7 +118,7 @@ fn rebuild_transcript(
 pub(super) fn current_read_model(store: &SessionStore) -> anyhow::Result<SessionReadModel> {
     match store.fresh_read_model() {
         Some(model) => Ok(model),
-        None => store.project_read_model(|records| journal_transcript_messages(records, None)),
+        None => store.project_read_model(|source| journal_transcript_from_source(source, None)),
     }
 }
 
@@ -129,14 +129,18 @@ pub(super) fn project_completed_transcript(
     // returning free pages. The completed page and writer's live state survive.
     let result = (|| {
         let model =
-            store.project_read_model(|records| journal_transcript_messages(records, None))?;
+            store.project_read_model(|source| journal_transcript_from_source(source, None))?;
         Ok(CompletedTranscript::from_model(
             store,
             model.transcript,
             false,
         ))
     })();
+    #[cfg(feature = "memory-diagnostics")]
+    crate::memory_diagnostics::point("completed.full_model_dropped", &[]);
     release_projection_memory();
+    #[cfg(feature = "memory-diagnostics")]
+    crate::memory_diagnostics::point("completed.after_trim", &[]);
     result
 }
 
@@ -171,13 +175,13 @@ pub(super) fn refresh_in_background(server: &AppServerHandle) {
                 })
                 .await?
             };
-            let Some(projection) = server.runtime.refresh_cached_resume().await? else {
+            let Some(read) = server.runtime.refresh_cached_resume().await? else {
                 return Ok(());
             };
             let transcript = tokio::task::spawn_blocking(move || {
                 let store = SessionStore::open(dir)?;
-                let model = SessionReadModel::from_projection(&store, projection, |records| {
-                    journal_transcript_messages(records, None)
+                let model = SessionReadModel::from_validated(&store, read, |source| {
+                    journal_transcript_from_source(source, None)
                 })?;
                 #[cfg(unix)]
                 if let Some(source) = source {

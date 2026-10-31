@@ -9,6 +9,8 @@ mod journal;
 mod rows;
 use rows::TranscriptRows;
 
+pub(crate) use journal::journal_transcript_from_source;
+#[cfg(test)]
 pub(crate) use journal::journal_transcript_messages;
 
 pub use proteus_contracts::app_protocol::{

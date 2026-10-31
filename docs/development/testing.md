@@ -169,6 +169,14 @@ detached HEAD и linked worktree. Временные checkout и target этог
   authority или решения policy в derived cache. Явные grants/remembered
   approvals принадлежат policy contract; его владелец заново проверяет
   их scope/lifetime для каждого invocation.
+- **Journal reads.** Для metadata, display и продолжения сессии используйте
+  общий `JournalReadSnapshot` и строгие typed folds. Не накапливайте все
+  гидратированные записи ради производного результата. Полный `JournalProjection`
+  допустим для явно запрошенных replay/inspection. Проверяйте не только число
+  сообщений, но и объём старых hook/request/checkpoint payload, размер одной
+  записи и semantic identity indexes. Renderer получает источник после полной
+  validation; повторные проходы читают тот же complete prefix. Бюджет страницы
+  SQLite не является пределом памяти восстановления.
 - **Очереди.** Сначала проверьте admission/зарезервируйте ёмкость, затем
   выделяйте крупный payload и сериализуйте. Reservation освобождается по
   окончании её области владения, не по одному запросу cancel активной

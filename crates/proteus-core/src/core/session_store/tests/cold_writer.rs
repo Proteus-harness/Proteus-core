@@ -2,7 +2,7 @@
 use super::*;
 
 #[tokio::test]
-async fn cold_writer_keeps_retired_part_guards_and_resume_retains_all_records() {
+async fn cold_writer_keeps_retired_part_guards_and_resume_matches_strict_state() {
     for threshold in [1, usize::MAX] {
         let config = tempfile::tempdir().unwrap();
         let workspace = tempfile::tempdir().unwrap();
@@ -72,14 +72,22 @@ async fn cold_writer_keeps_retired_part_guards_and_resume_retains_all_records() 
         assert_eq!(strict.history, vec![current, continuation]);
         assert_eq!(strict.history_revision, 3);
         drop(reopened);
-        let resumed = SessionStore::open(path)
+        let resumed = SessionStore::open(path.clone())
             .unwrap()
-            .prepare_resume_projection()
+            .prepare_resume_state()
             .await
             .unwrap();
-        assert_eq!(resumed.records, strict.records);
         assert_eq!(resumed.history, strict.history);
         assert_eq!(resumed.history_revision, strict.history_revision);
+        assert_eq!(resumed.interrupted_turns, strict.interrupted_turns);
+        assert_eq!(resumed.last_history_turn, None);
+        let read = crate::core::session_journal::ValidatedJournalRead::open(
+            &path,
+            strict.records[0].session_id,
+        )
+        .unwrap();
+        assert_eq!(resumed.usage, read.usage());
+        assert_eq!(resumed.model_context.snapshot(), read.model_context());
     }
 }
 
@@ -213,4 +221,52 @@ async fn recovered_writer_rejects_changed_parts_and_commits_a_following_valid_ap
     assert_eq!(projection.history_revision, 2);
     assert_eq!(projection.records.len(), 2);
     assert_eq!(projection.records[1].session_seq, 2);
+}
+
+#[tokio::test]
+async fn compact_resume_preserves_writer_fail_fast_precedence_and_reuses_recovery() {
+    let config = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    let store = test_store(config.path(), workspace.path());
+    let thread = new_thread_id();
+    store
+        .append_history(
+            thread,
+            None,
+            &[CanonicalMessage::text(MessageRole::User, "seed")],
+        )
+        .await
+        .unwrap();
+    let path = store.session_dir().to_owned();
+    let journal = store.journal_path();
+    let original = std::fs::read(&journal).unwrap();
+    drop(store);
+    let mut first: serde_json::Value =
+        serde_json::from_slice(original.split(|b| *b == b'\n').next().unwrap()).unwrap();
+    first["session_seq"] = serde_json::json!(2);
+    let mut invalid = serde_json::to_vec(&first).unwrap();
+    invalid.extend_from_slice(b"\n{malformed}\n");
+    std::fs::write(&journal, &invalid).unwrap();
+    let reopened = SessionStore::open(path).unwrap();
+    let error = reopened.prepare_resume_state().await.unwrap_err();
+    assert!(error.to_string().contains("sequence mismatch"), "{error:#}");
+    assert!(reopened.writer.lock().await.execution_state().is_none());
+    assert_eq!(std::fs::read(&journal).unwrap(), invalid);
+    // Read-only decode policy remains distinct: late malformed storage wins.
+    let error = crate::core::session_journal::ValidatedJournalRead::open(
+        reopened.session_dir(),
+        reopened.session_id(),
+    )
+    .unwrap_err();
+    assert!(
+        format!("{error:#}").contains("failed to parse journal"),
+        "{error:#}"
+    );
+    std::fs::write(&journal, original).unwrap();
+    let recovered = reopened.prepare_resume_state().await.unwrap();
+    let scans = reopened.writer.lock().await.initial_recovery_scans();
+    let cached = reopened.prepare_resume_state().await.unwrap();
+    assert_eq!(cached.history, recovered.history);
+    assert_eq!(cached.history_revision, recovered.history_revision);
+    assert_eq!(reopened.writer.lock().await.initial_recovery_scans(), scans);
 }

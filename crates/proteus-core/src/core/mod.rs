@@ -70,6 +70,7 @@ pub use runtime::{
     AgentRuntime, AgentRuntimeBuilder, ModuleEpoch, RuntimeReloadReport, RuntimeSnapshot,
     config_store_root, event_log_path,
 };
+pub(crate) use session_journal::JournalReadSnapshot;
 pub use session_journal::{
     ContextRequestRecorded, ContextResponseRecorded, DEFAULT_BLOB_THRESHOLD_BYTES, HistoryMutated,
     HistoryMutationKind, JOURNAL_FILE, JOURNAL_SCHEMA_VERSION, JournalEntry, JournalKind,
