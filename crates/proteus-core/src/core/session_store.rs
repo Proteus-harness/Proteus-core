@@ -152,6 +152,8 @@ impl SessionStore {
     }
 
     pub fn load_projection(&self) -> Result<JournalProjection> {
+        #[cfg(feature = "memory-diagnostics")]
+        let _memory = crate::memory_diagnostics::Scope::new("store.load_projection");
         JournalProjection::build(self.session_id, self.load_records()?)
     }
 

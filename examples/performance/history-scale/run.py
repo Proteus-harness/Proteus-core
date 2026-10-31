@@ -16,8 +16,10 @@ ROOT = HERE.parents[2]
 
 def run_verifier(args, case, command, prefix):
     from active import abort_unobserved_group
+    environment = dict(args.env)
+    environment.pop("PROTEUS_MEMORY_TRACE", None)
     with (case / f"{prefix}.stdout.log").open("w") as output, (case / f"{prefix}.stderr.log").open("w") as error:
-        process = subprocess.Popen(command, cwd=args.fixtures / "workspace", env=args.env,
+        process = subprocess.Popen(command, cwd=args.fixtures / "workspace", env=environment,
                                    stdout=output, stderr=error, start_new_session=True)
         try:
             process.wait(timeout=args.timeout)
@@ -49,6 +51,12 @@ def arguments():
     parser.add_argument("--rounds", type=int, default=3, help="active AgentControl turns per peer")
     parser.add_argument("--idle-seconds", type=float, default=10)
     parser.add_argument("--text-repeats", type=int, default=4)
+    parser.add_argument("--seed-model-requests", type=int, default=0,
+                        help="resume-idle only: typed auxiliary requests stored without adding display rows")
+    parser.add_argument("--request-payload-kib", type=int, default=0,
+                        help="synthetic System payload in EACH stored auxiliary request")
+    parser.add_argument("--memory-trace", action="store_true",
+                        help="enable phase JSONL for a Core built with memory-diagnostics; no automatic build")
     parser.add_argument("--payload-kib", type=int, default=32)
     parser.add_argument("--delay-ms", type=int, default=500)
     parser.add_argument("--interval", type=float, default=0.2)
@@ -57,6 +65,13 @@ def arguments():
     args = parser.parse_args()
     if args.link_fixtures and args.mode != "resume-idle":
         parser.error("--link-fixtures is allowed only for read-only resume-idle")
+    if not (0 <= args.seed_model_requests <= 128 and 0 <= args.request_payload_kib <= 8192
+            and args.seed_model_requests * args.request_payload_kib <= 1024 * 1024):
+        parser.error("stored requests must be 0..128, payload 0..8192 KiB, total extra payload <=1 GiB")
+    if args.request_payload_kib and not args.seed_model_requests:
+        parser.error("--request-payload-kib requires --seed-model-requests")
+    if args.seed_model_requests and args.mode != "resume-idle":
+        parser.error("stored auxiliary requests are a separate read-only seed; use resume-idle")
     if not 1 <= args.peers <= 10 or not 1 <= args.repeats <= 20 or not 1 <= args.rounds <= 20:
         parser.error("peers must be 1..10, repeats/rounds 1..20")
     if not args.messages or len(set(args.messages)) != len(args.messages) or not all(1 <= rows <= 50000 for rows in args.messages):
@@ -88,6 +103,11 @@ def main():
         path.mkdir(parents=True)
         args.env[key] = str(path)
     args.env.update(NO_PROXY="localhost,127.0.0.1,::1", no_proxy="localhost,127.0.0.1,::1")
+    # Only the measured runtime receives probes. Seed generation and replay/UI
+    # verification use their own subprocess environment without this variable.
+    args.env.pop("PROTEUS_MEMORY_TRACE", None)
+    if args.memory_trace:
+        args.env["PROTEUS_MEMORY_TRACE"] = str(args.output / "memory-trace.jsonl")
     names = ["binary", "module", "seeder"] + (["driver"] if args.mode == "agent-control" else [])
     binaries = {name: dict(path=str(getattr(args, name)), sha256=digest(getattr(args, name))) for name in names}
     sources = {str(path.relative_to(ROOT)): digest(path) for path in sorted(HERE.glob("*.py"))}

@@ -56,15 +56,46 @@ def message_digest(messages):
     return count, value.hexdigest()
 
 
-def seed_summary(session, expected_rows, text_repeats, model_history_rows=None):
+def seed_summary(session, expected_rows, text_repeats, model_history_rows=None,
+                 seed_model_requests=0, request_payload_kib=0):
     if model_history_rows is not None and not 1 <= model_history_rows <= expected_rows:
         raise ValueError("model history must retain 1..ROWS messages")
     seed = None
     mutations = 0
+    requests, responses = set(), set()
     for record, payload in records(session):
-        mutations += 1
-        if record["kind"] != "history_mutated":
+        kind = record["kind"]
+        if kind == "model_request_recorded" and seed_model_requests:
+            if (seed is None or record.get("turn_id") is not None or payload.get("origin") != "auxiliary"
+                    or payload.get("owner") != {"owner": "workflow"}):
+                raise ValueError("unexpected synthetic auxiliary request attribution")
+            exchange = payload["exchange_id"]
+            messages = payload["request"]["messages"]
+            if (exchange in requests or len(requests) >= seed_model_requests or not messages
+                    or message_digest(messages[:-1]) != (seed["model_history_rows"], seed["model_messages_sha256"])):
+                raise ValueError("synthetic request lost canonical history or duplicated an exchange")
+            extra = messages[-1]
+            content = text(extra)
+            size = request_payload_kib * 1024
+            prefix = "SYNTHETIC_REQUEST_PAYLOAD_"
+            if (extra["role"] != "System" or len(extra["parts"]) != 1 or not content.isascii()
+                    or len(content) != size or (size and (not content.startswith(prefix)
+                                                         or content[len(prefix):].strip("x")))):
+                raise ValueError("synthetic request payload differs from declared bytes")
+            requests.add(exchange)
+            continue
+        if kind == "model_response_recorded" and seed_model_requests:
+            exchange = payload["exchange_id"]
+            if (exchange not in requests or exchange in responses or record.get("turn_id") is not None
+                    or payload["outcome"].get("status") != "response"):
+                raise ValueError("synthetic response lifecycle mismatch")
+            responses.add(exchange)
+            continue
+        if kind != "history_mutated":
             raise ValueError("expected only typed-seeder history mutations")
+        if requests:
+            raise ValueError("synthetic exchanges must follow immutable history mutations")
+        mutations += 1
         messages = payload["messages"]
         if seed is not None:
             report = payload.get("compaction") or {}
@@ -96,7 +127,11 @@ def seed_summary(session, expected_rows, text_repeats, model_history_rows=None):
         raise ValueError("empty canonical seed journal")
     if mutations != (2 if model_history_rows is not None else 1):
         raise ValueError("declared synthetic compaction is missing")
+    if len(requests) != seed_model_requests or responses != requests:
+        raise ValueError("declared synthetic model exchanges are missing")
     seed["history_mutations"] = mutations
+    seed["stored_model_requests"] = len(requests)
+    seed["stored_request_extra_payload_bytes"] = len(requests) * request_payload_kib * 1024
     return seed
 
 

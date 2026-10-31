@@ -9,11 +9,15 @@ pub(crate) fn load_records(
     session_dir: &Path,
     session_id: SessionId,
 ) -> Result<Vec<JournalRecord>> {
+    #[cfg(feature = "memory-diagnostics")]
+    let memory = crate::memory_diagnostics::Scope::new("journal.load_records");
     let mut records = Vec::new();
     scan_records(session_dir, session_id, |record| {
         records.push(record);
         Ok(())
     })?;
+    #[cfg(feature = "memory-diagnostics")]
+    memory.sample("journal.raw_records_loaded", &[("records", records.len())]);
     Ok(records)
 }
 

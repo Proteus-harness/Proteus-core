@@ -42,6 +42,8 @@ pub(crate) struct SessionReadView {
 
 impl SessionReadView {
     pub(crate) fn from_model(store: &SessionStore, model: SessionReadModel, stale: bool) -> Self {
+        #[cfg(feature = "memory-diagnostics")]
+        let memory = crate::memory_diagnostics::Scope::new("read_view.from_model");
         #[cfg(unix)]
         let page = if stale {
             store.saved_display_page()
@@ -61,6 +63,14 @@ impl SessionReadView {
             ),
             None => (model.transcript, None),
         };
+        #[cfg(feature = "memory-diagnostics")]
+        memory.sample(
+            "read_view.page_selected",
+            &[
+                ("history", model.conversation.messages.len()),
+                ("page_messages", transcript.len()),
+            ],
+        );
         Self {
             summary: model.summary,
             revision: model.conversation.revision,
@@ -77,12 +87,38 @@ impl SessionReadModel {
         projection: JournalProjection,
         render: impl FnOnce(Vec<JournalRecord>) -> Vec<AppTranscriptMessage>,
     ) -> anyhow::Result<Self> {
+        #[cfg(feature = "memory-diagnostics")]
+        let memory = crate::memory_diagnostics::Scope::new("read_model.from_projection");
+        #[cfg(feature = "memory-diagnostics")]
+        memory.sample(
+            "read_model.before_model_context",
+            &[
+                ("records", projection.records.len()),
+                ("history", projection.history.len()),
+            ],
+        );
         let mut usage = UsageProjection::default();
         for record in &projection.records {
             usage.apply(record);
         }
         let model_context = ModelContextState::from_records(&projection.records, None).snapshot();
+        #[cfg(feature = "memory-diagnostics")]
+        memory.sample(
+            "read_model.before_render",
+            &[
+                ("records", projection.records.len()),
+                ("history", projection.history.len()),
+            ],
+        );
         let transcript = render(projection.records);
+        #[cfg(feature = "memory-diagnostics")]
+        memory.sample(
+            "read_model.after_render_raw_dropped",
+            &[
+                ("history", projection.history.len()),
+                ("transcript", transcript.len()),
+            ],
+        );
         // Preserve the post-render metadata observation without retaining raw
         // records merely so the summary helper can borrow the projection.
         let summary = super::catalog::session_summary_from_history(
@@ -146,7 +182,17 @@ impl SessionStore {
         source: &super::read_cache::SourceFingerprint,
         model: &SessionReadModel,
     ) {
+        #[cfg(feature = "memory-diagnostics")]
+        let memory = crate::memory_diagnostics::Scope::new("read_model.save");
         sqlite::save(self, source, model);
+        #[cfg(feature = "memory-diagnostics")]
+        memory.sample(
+            "read_model.after_sqlite_save",
+            &[
+                ("history", model.conversation.messages.len()),
+                ("transcript", model.transcript.len()),
+            ],
+        );
         super::read_cache::save(self.session_dir(), "summary", source, &model.summary);
     }
 

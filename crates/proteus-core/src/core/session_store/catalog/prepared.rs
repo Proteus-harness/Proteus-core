@@ -97,6 +97,8 @@ impl PreparedSession {
             Vec<crate::core::JournalRecord>,
         ) -> Vec<proteus_contracts::app_protocol::AppTranscriptMessage>,
     ) -> Result<(SessionStore, SessionReadView, bool, bool)> {
+        #[cfg(feature = "memory-diagnostics")]
+        let memory = crate::memory_diagnostics::Scope::new("prepared.into_display_view");
         let (model, deferred) = match self.history {
             PreparedHistory::Validated(projection) => {
                 let model = SessionReadModel::from_projection(&self.store, projection, render)?;
@@ -112,6 +114,11 @@ impl PreparedSession {
             #[cfg(unix)]
             PreparedHistory::Cached(model) => (model, true),
         };
+        #[cfg(feature = "memory-diagnostics")]
+        memory.sample(
+            "prepared.full_model_dropped",
+            &[("page_messages", model.transcript.len())],
+        );
         #[cfg(unix)]
         let store = match self.source {
             Some(_) => self

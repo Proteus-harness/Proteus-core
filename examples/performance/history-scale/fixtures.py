@@ -19,13 +19,16 @@ def prepare_fixtures(args):
     root = args.fixtures
     path = root / "fixtures.json"
     spec = dict(version=1, messages=args.messages, peers=args.peers, text_repeats=args.text_repeats,
-                payload_kib=args.payload_kib, model_history_rows=args.model_history_rows)
+                payload_kib=args.payload_kib, model_history_rows=args.model_history_rows,
+                seed_model_requests=args.seed_model_requests, request_payload_kib=args.request_payload_kib)
     if path.is_file():
         manifest = json.loads(path.read_text())
         # Previously generated uncompacted fixtures had no optional tail field.
         # An omitted field means precisely the unchanged full-history scenario.
         existing_spec = dict(manifest["spec"])
         existing_spec.setdefault("model_history_rows", None)
+        existing_spec.setdefault("seed_model_requests", 0)
+        existing_spec.setdefault("request_payload_kib", 0)
         if existing_spec != spec:
             raise ValueError("existing fixture specification differs; choose another --fixtures directory")
         if Path(manifest["workspace"]).resolve() != root / "workspace" or digest(root / "workspace/payload.txt") != manifest["payload_sha256"]:
@@ -49,9 +52,14 @@ def prepare_fixtures(args):
             command = [str(args.seeder), str(config_root), str(workspace), str(rows), str(args.text_repeats)]
             if args.model_history_rows is not None:
                 command.append(str(args.model_history_rows))
+            if args.seed_model_requests:
+                command += ["--model-request-repeats", str(args.seed_model_requests),
+                            "--request-payload-kib", str(args.request_payload_kib)]
+            environment = dict(args.env)
+            environment.pop("PROTEUS_MEMORY_TRACE", None)
             seeded = subprocess.run(command,
                                     check=True, capture_output=True, text=True, timeout=args.timeout,
-                                    env=args.env)
+                                    env=environment)
             (config_root.parent / "seeder.stdout.json").write_text(seeded.stdout)
             (config_root.parent / "seeder.stderr.log").write_text(seeded.stderr)
             info = json.loads(seeded.stdout)
@@ -64,8 +72,11 @@ def prepare_fixtures(args):
                               str(rows), str(args.text_repeats), str(summary_path)]
             if args.model_history_rows is not None:
                 verify_command += ["--model-history-rows", str(args.model_history_rows)]
+            if args.seed_model_requests:
+                verify_command += ["--seed-model-requests", str(args.seed_model_requests),
+                                   "--request-payload-kib", str(args.request_payload_kib)]
             subprocess.run(verify_command,
-                           check=True, capture_output=True, text=True, timeout=args.timeout, env=args.env)
+                           check=True, capture_output=True, text=True, timeout=args.timeout, env=environment)
             canonical = {str(file.relative_to(session)): digest(file)
                          for file in sorted(session.rglob("*"))
                          if file.is_file() and (file.name == "journal.jsonl" or "blobs" in file.relative_to(session).parts)}

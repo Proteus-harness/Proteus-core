@@ -3,7 +3,14 @@ use super::*;
 
 impl JournalProjection {
     pub fn build(session_id: SessionId, records: Vec<JournalRecord>) -> Result<Self> {
+        #[cfg(feature = "memory-diagnostics")]
+        let memory = crate::memory_diagnostics::Scope::new("projection.validate");
         let state = validate_records(session_id, &records)?;
+        #[cfg(feature = "memory-diagnostics")]
+        memory.sample(
+            "projection.validated",
+            &[("records", records.len()), ("history", state.history.len())],
+        );
         Ok(Self::from_validated(records, state))
     }
 
@@ -11,6 +18,13 @@ impl JournalProjection {
         records: Vec<JournalRecord>,
         state: JournalValidationState,
     ) -> Self {
+        #[cfg(feature = "memory-diagnostics")]
+        let memory = crate::memory_diagnostics::Scope::new("projection.from_validated");
+        #[cfg(feature = "memory-diagnostics")]
+        memory.sample(
+            "projection.before_history_unwrap",
+            &[("records", records.len()), ("history", state.history.len())],
+        );
         let mut interrupted_model_exchanges = state
             .model_requests
             .keys()

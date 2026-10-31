@@ -206,3 +206,93 @@ provider или качество ответов модели.
 Timeout и memory limit сохраняют partial evidence и завершают только
 наблюдённые собственные PID с совпадающим starttime; уничтожения по имени
 процесса нет. HOME не переопределяется; служебные Proteus/XDG paths изолированы.
+
+## Локализация Пика Полного Журнала
+
+Число сообщений не ограничивает объём journal: сохранённые model requests
+могут многократно содержать одну большую историю. Для отдельного read-only
+сценария есть `--seed-model-requests N --request-payload-kib K`. Новый typed
+seeder добавляет N auxiliary request/response pairs после исходной истории.
+Каждый request содержит неизменённую активную историю и ещё одно System
+сообщение ровно K×1024 ASCII bytes. Exchange IDs уникальны; окончательная
+canonical/display history не пополняется. Это проверка хранения и чтения
+журнала, без вызова модели и без утверждения о workflow replay.
+
+Размеры ограничены: N 0..128, K 0..8192 KiB, дополнительный payload до 1 GiB;
+каждый сериализованный request также ограничен 64 MiB. Начинайте с 16×1024 KiB
+и одного процесса, увеличивайте только после анализа первого результата.
+Лимит N×K учитывает только дополнительное System сообщение. Повторённая
+active history входит в каждый request сверх этого объёма: это не предел
+общего размера journal или расхода RAM при seed validation.
+Этот корпус разрешён только в `resume-idle`; активные turns используют
+обычные fixtures и отдельный verifier. Спецификация, SHA и counts сохраняются,
+совпадение payload и пар exchange проверяется независимо по journal/blob.
+Обычные старые fixtures означают N=K=0.
+
+Для внутренних фаз есть opt-in Cargo feature `memory-diagnostics`.
+Изменение typed seeder требует сборки именно этого example; диагностические
+метки требуют отдельного Core. Desktop, renderer extensions и runtime
+modules для этого не собираются. Используйте готовый reference module:
+
+```sh
+CARGO_BUILD_JOBS=2 cargo build --locked --release -p proteus-core \
+  --features memory-diagnostics --bin proteus --example session_index_fixture
+
+python3 examples/performance/history-scale/run.py \
+  --mode resume-idle --memory-trace \
+  --binary /absolute/diagnostic/proteus \
+  --module /absolute/ready/proteus-reference-module \
+  --seeder /absolute/diagnostic/session_index_fixture \
+  --output /absolute/new-output --fixtures /absolute/new-fixtures \
+  --messages 216 --peers 1 --repeats 1 --idle-seconds 3 --interval .05 \
+  --seed-model-requests 16 --request-payload-kib 1024 --link-fixtures
+```
+
+`--memory-trace` задаёт `PROTEUS_MEMORY_TRACE=OUTPUT/memory-trace.jsonl` только
+измеряемым runtime subprocesses. Создание seed и нетаймируемые verification,
+replay/UI probes получают environment без этой переменной. Наличие feature
+в готовом binary runner автоматически не определяет: проверяйте, что trace
+создан и содержит PID измеренного backend. Без feature production runtime
+вообще не компилирует logger или probe calls; runtime flags/wire не меняются.
+
+JSONL содержит static phase, PID, scope/parent IDs, `wall_time_ns` для
+сопоставления с samples, process-local monotonic `elapsed_us`, RSS/VmHWM и
+`glibc_allocator_totals_proxy`: arena/uordblks/fordblks/hblkhd. Это общие totals
+glibc, не профиль владельцев Rust objects; mmap учитывается отдельно hblkhd.
+Нет содержимого сообщений, аргументов tools или путей сессий. Метки стоят
+между полным чтением, validation, model-context/render, SQLite save, page
+selection/drop и восстановлением/освобождением runtime history. У async
+release отдельные point events; синхронные parent scopes не пересекают await.
+Запись меток влияет на время и немного на allocation, поэтому trace нужен
+для локализации фаз, а latency сравнивайте также без logger на том же binary.
+
+Для проверки формы уже существующего журнала есть отдельный read-only
+`clone_read.py`. Он создаёт приватную копию canonical `session.json`,
+`journal.jsonl` и blobs, без derived SQLite/cache. Исходник не открывается
+runtime на запись. Используется только текущий session/journal format;
+старые форматы не преобразуются. Указанный в metadata workspace должен
+существовать. Source spec храните локально с правами 0600 вне tracked files:
+
+```json
+{"source_session_dir":"/absolute/session/directory","source_identity":"opaque-label"}
+```
+
+```sh
+python3 examples/performance/history-scale/clone_read.py \
+  --source-spec /absolute/private-source.json \
+  --binary /absolute/diagnostic/proteus \
+  --module /absolute/ready/proteus-reference-module \
+  --output /absolute/new-private-output --memory-trace \
+  --idle-seconds 2 --interval .05 --max-pss-mib 3072 --timeout 180
+```
+
+Первый запуск строит read model заново, restart сохраняет созданные derived
+файлы; фактическое попадание в cache проверяйте по phase trace.
+Оба работают с одним backend и synthetic profile без hooks/tools, модель
+не вызывается. HTTP ограничен loopback health/events/shutdown. Snapshot
+проверяется в памяти: session identity, counts, transcript digest и отсутствие
+активного execution. В отчёте остаются hashes/counts, не текст сообщений.
+SHA canonical файлов проверяется до/после чтения и у источника, и у копии.
+Output имеет права 0700: внутри остаются сама копия и приватный stderr,
+поэтому его нельзя публиковать целиком. Убедитесь, что source spec и output
+исключены из Git. Установленный Core этот стенд не заменяет.

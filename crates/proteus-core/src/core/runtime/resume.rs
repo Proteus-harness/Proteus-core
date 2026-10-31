@@ -50,8 +50,22 @@ impl AgentRuntime {
                 .history_resident
                 .load(std::sync::atomic::Ordering::SeqCst)
         {
+            #[cfg(feature = "memory-diagnostics")]
+            let memory = crate::memory_diagnostics::Scope::new("resume.materialize");
+            #[cfg(feature = "memory-diagnostics")]
+            memory.sample(
+                "resume.before_history_clone",
+                &[
+                    ("records", projection.records.len()),
+                    ("history", projection.history.len()),
+                ],
+            );
             *history = projection.history.clone();
+            #[cfg(feature = "memory-diagnostics")]
+            memory.sample("resume.after_history_clone", &[("history", history.len())]);
             *model_context = ModelContextState::from_records(&projection.records, None);
+            #[cfg(feature = "memory-diagnostics")]
+            memory.sample("resume.after_model_context", &[("history", history.len())]);
             self.session
                 .history_resident
                 .store(true, std::sync::atomic::Ordering::SeqCst);

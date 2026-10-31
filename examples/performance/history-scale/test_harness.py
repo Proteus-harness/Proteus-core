@@ -95,11 +95,44 @@ class PreservationTests(unittest.TestCase):
                           workspace=str(workspace), payload_sha256=digest(payload), sessions=[])
             (root / "fixtures.json").write_text(json.dumps(stored))
             args = SimpleNamespace(fixtures=root, messages=[8], peers=1, text_repeats=1, payload_kib=1,
-                                   model_history_rows=None)
+                                   model_history_rows=None, seed_model_requests=0, request_payload_kib=0)
             self.assertEqual(prepare_fixtures(args), stored)
             args.model_history_rows = 3
             with self.assertRaisesRegex(ValueError, "specification differs"):
                 prepare_fixtures(args)
+            args.model_history_rows = None
+            args.seed_model_requests = 1
+            with self.assertRaisesRegex(ValueError, "specification differs"):
+                prepare_fixtures(args)
+
+    def test_auxiliary_payload_seed_verifies_bytes_and_paired_exchanges(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            session = Path(temporary)
+            messages = [message(index) for index in range(4)]
+            initial = inline("history_mutated", dict(mutation="append", messages=messages, compaction=None), 1)
+            extra = message(99)
+            extra["role"] = "System"
+            extra["parts"][0]["payload"]["Text"]["text"] = "SYNTHETIC_REQUEST_PAYLOAD_".ljust(1024, "x")
+            request = inline("model_request_recorded", dict(exchange_id="exchange", origin="auxiliary",
+                             owner={"owner": "workflow"}, request=dict(messages=messages + [extra])), 2)
+            response = inline("model_response_recorded", dict(exchange_id="exchange", outcome=dict(status="response")), 3)
+            journal = session / "journal.jsonl"
+            def write(rows):
+                journal.write_text("".join(json.dumps(row) + "\n" for row in rows))
+            write([initial, request, response])
+            summary = seed_summary(session, 4, 1, seed_model_requests=1, request_payload_kib=1)
+            self.assertEqual(summary["stored_request_extra_payload_bytes"], 1024)
+            self.assertEqual(summary["rows"], 4)
+            with self.assertRaisesRegex(ValueError, "only typed-seeder"):
+                seed_summary(session, 4, 1)
+            write([initial, request])
+            with self.assertRaisesRegex(ValueError, "exchanges are missing"):
+                seed_summary(session, 4, 1, seed_model_requests=1, request_payload_kib=1)
+            changed = copy.deepcopy(request)
+            changed["payload"]["value"]["request"]["messages"][-1]["parts"][0]["payload"]["Text"]["text"] = "x" * 1024
+            write([initial, changed, response])
+            with self.assertRaisesRegex(ValueError, "payload differs"):
+                seed_summary(session, 4, 1, seed_model_requests=1, request_payload_kib=1)
 
     def test_compacted_seed_keeps_full_display_and_exact_active_tail(self):
         with tempfile.TemporaryDirectory() as temporary:

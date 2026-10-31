@@ -38,6 +38,13 @@ fn recover(
     state: &mut JournalWriterState,
     include_projection: bool,
 ) -> Result<Option<JournalProjection>> {
+    #[cfg(feature = "memory-diagnostics")]
+    let memory = crate::memory_diagnostics::Scope::new("writer.recover");
+    #[cfg(feature = "memory-diagnostics")]
+    memory.sample(
+        "writer.recovery_started",
+        &[("projection_requested", usize::from(include_projection))],
+    );
     let path = journal_path(session_dir);
     recovery::repair_unterminated_tail(&path)?;
     #[cfg(test)]
@@ -61,9 +68,27 @@ fn recover(
         }
         Ok(())
     })?;
+    #[cfg(feature = "memory-diagnostics")]
+    memory.sample(
+        "writer.recovery_scan_complete",
+        &[
+            ("records", records.as_ref().map_or(0, Vec::len)),
+            ("history", validation.history().len()),
+        ],
+    );
     let committed_offset = journal_len(&path)?;
+    #[cfg(feature = "memory-diagnostics")]
+    memory.sample(
+        "writer.before_validation_clone",
+        &[("history", validation.history().len())],
+    );
     let projection =
         records.map(|records| JournalProjection::from_validated(records, validation.clone()));
+    #[cfg(feature = "memory-diagnostics")]
+    memory.sample(
+        "writer.after_projection_build",
+        &[("history", validation.history().len())],
+    );
     state.next_seq = next_seq;
     state.validation = validation;
     state.usage = usage;

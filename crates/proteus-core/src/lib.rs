@@ -2,6 +2,8 @@ pub(crate) use proteus_contracts::{contracts, domain, model_standard};
 
 pub mod app_server;
 pub mod core;
+#[cfg(feature = "memory-diagnostics")]
+pub(crate) mod memory_diagnostics;
 pub mod process_adapters;
 pub(crate) mod stubs;
 pub(crate) mod tools;

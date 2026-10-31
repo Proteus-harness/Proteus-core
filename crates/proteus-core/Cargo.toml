@@ -7,6 +7,10 @@ edition = "2024"
 name = "proteus"
 path = "src/main.rs"
 
+[features]
+# Synthetic memory investigations only; production builds keep probes absent.
+memory-diagnostics = []
+
 [dependencies]
 agent-client-protocol = "=2.1.0"
 rmcp = { version = "=3.3.0", default-features = false, features = ["client"] }

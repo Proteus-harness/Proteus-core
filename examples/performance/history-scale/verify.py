@@ -70,6 +70,8 @@ def main():
     seed.add_argument("text_repeats", type=int)
     seed.add_argument("output", type=Path)
     seed.add_argument("--model-history-rows", type=int)
+    seed.add_argument("--seed-model-requests", type=int, default=0)
+    seed.add_argument("--request-payload-kib", type=int, default=0)
     case = commands.add_parser("case")
     case.add_argument("manifest", type=Path)
     case.add_argument("mode", choices=("resume-idle", "agent-control"))
@@ -79,7 +81,8 @@ def main():
     preflight.add_argument("output", type=Path)
     args = parser.parse_args()
     if args.command == "seed":
-        result = seed_summary(args.session, args.rows, args.text_repeats, args.model_history_rows)
+        result = seed_summary(args.session, args.rows, args.text_repeats, args.model_history_rows,
+                              args.seed_model_requests, args.request_payload_kib)
     else:
         result = verify_case(args.manifest, args.mode if args.command == "case" else "agent-control",
                              preflight=args.command == "preflight")

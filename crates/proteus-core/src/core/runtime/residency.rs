@@ -13,12 +13,27 @@ impl super::SessionState {
         if self.history_resident.load(Ordering::SeqCst) {
             self.history_count.store(history.len(), Ordering::SeqCst);
         }
+        #[cfg(feature = "memory-diagnostics")]
+        crate::memory_diagnostics::point(
+            "release.before_history_drop",
+            &[("history", history.len())],
+        );
         *history = Vec::new();
+        #[cfg(feature = "memory-diagnostics")]
+        crate::memory_diagnostics::point("release.after_history_drop", &[]);
         *self.model_context.lock().await = Default::default();
+        #[cfg(feature = "memory-diagnostics")]
+        crate::memory_diagnostics::point("release.after_model_context_drop", &[]);
         self.history_resident.store(false, Ordering::SeqCst);
         store.hibernate_writer().await;
+        #[cfg(feature = "memory-diagnostics")]
+        crate::memory_diagnostics::point("release.after_writer_hibernate", &[]);
         drop(history);
+        #[cfg(feature = "memory-diagnostics")]
+        crate::memory_diagnostics::point("release.before_trim", &[]);
         release_unused_pages();
+        #[cfg(feature = "memory-diagnostics")]
+        crate::memory_diagnostics::point("release.after_trim", &[]);
     }
 }
 
