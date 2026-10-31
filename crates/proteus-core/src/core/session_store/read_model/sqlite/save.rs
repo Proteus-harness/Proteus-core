@@ -15,12 +15,33 @@ pub(in crate::core::session_store::read_model) fn save(
     source: &SourceFingerprint,
     model: &SessionReadModel,
 ) -> bool {
+    save_inner(store, source, model, None)
+}
+
+pub(in crate::core::session_store::read_model) fn save_with_cursor(
+    store: &SessionStore,
+    source: &SourceFingerprint,
+    model: &SessionReadModel,
+    cursor: &crate::core::session_journal::JournalReadCursor,
+) -> bool {
+    save_inner(store, source, model, Some(cursor))
+}
+
+fn save_inner(
+    store: &SessionStore,
+    source: &SourceFingerprint,
+    model: &SessionReadModel,
+    cursor: Option<&crate::core::session_journal::JournalReadCursor>,
+) -> bool {
     let update = || {
         let writer = Updater::new(store.session_dir(), VIEW_CACHE, source)?;
         let header = writer.previous::<Header>("header")?;
         matches(store, &header).then_some(Write::Update(writer))
     };
-    if update().and_then(|writer| write(writer, model)).is_some() {
+    if update()
+        .and_then(|writer| write(writer, model, cursor))
+        .is_some()
+    {
         return true;
     }
     // Failed updates roll back before replacement tries the same cache lock.
@@ -32,12 +53,16 @@ pub(in crate::core::session_store::read_model) fn save(
                 .one::<Header>("header")
                 .is_some_and(|header| matches(store, &header))
         });
-        write(Write::Replace { writer, previous }, model)
+        write(Write::Replace { writer, previous }, model, cursor)
     };
     replace().is_some()
 }
 
-fn write(writer: Write, model: &SessionReadModel) -> Option<()> {
+fn write(
+    writer: Write,
+    model: &SessionReadModel,
+    cursor: Option<&crate::core::session_journal::JournalReadCursor>,
+) -> Option<()> {
     let mut base =
         writer.revision().map(
             |revision| proteus_contracts::app_protocol::AppTranscriptBase {
@@ -64,18 +89,25 @@ fn write(writer: Write, model: &SessionReadModel) -> Option<()> {
     writer.truncate("conversation", model.conversation.messages.len())?;
     writer.truncate("transcript", model.transcript.len())?;
     writer.truncate("context", model.conversation.model_context.len())?;
-    writer.one(
-        "header",
-        &Header {
-            summary: model.summary.clone(),
-            revision: model.conversation.revision,
-            conversation_len: model.conversation.messages.len(),
-            transcript_len: model.transcript.len(),
-            context_len: model.conversation.model_context.len(),
-            context_summary: crate::core::summarize_context_history(&model.conversation.messages),
-            base,
-        },
-    )?;
+    let header = Header {
+        summary: model.summary.clone(),
+        revision: model.conversation.revision,
+        conversation_len: model.conversation.messages.len(),
+        transcript_len: model.transcript.len(),
+        context_len: model.conversation.model_context.len(),
+        context_summary: crate::core::summarize_context_history(&model.conversation.messages),
+        base,
+    };
+    writer.one("header", &header)?;
+    // A full writer without a cursor cannot leave an older checkpoint bound
+    // to its new rows. Both invalidation and publication share the row commit.
+    writer.truncate("projection", 0)?;
+    if let Some(cursor) = cursor {
+        writer.one(
+            "projection",
+            &super::append::ProjectionCheckpoint::new(&header, cursor)?,
+        )?;
+    }
     writer.finish()
 }
 

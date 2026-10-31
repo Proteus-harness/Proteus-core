@@ -62,6 +62,7 @@ pub(crate) struct JournalResumeState {
 pub(crate) struct ValidatedJournalRead {
     snapshot: read::JournalReadSnapshot,
     validation: JournalValidationState,
+    prefix_history_fingerprints: Option<Vec<[u8; 32]>>,
     context: ModelContextProjection,
     usage: UsageProjection,
     session_id: SessionId,
@@ -69,20 +70,43 @@ pub(crate) struct ValidatedJournalRead {
 
 impl ValidatedJournalRead {
     pub(crate) fn open(session_dir: &Path, session_id: SessionId) -> Result<Self> {
+        Self::open_with_cursor(session_dir, session_id, None).map(|(read, _)| read)
+    }
+
+    pub(crate) fn open_with_cursor(
+        session_dir: &Path,
+        session_id: SessionId,
+        previous: Option<&read::JournalReadCursor>,
+    ) -> Result<(Self, bool)> {
         let mut snapshot = read::JournalReadSnapshot::open(session_dir, session_id)?;
         let mut context = ModelContextProjection::default();
         let mut usage = UsageProjection::default();
-        let validation = scan_validated_snapshot(&mut snapshot, session_id, |record| {
-            context.apply(record);
-            usage.apply(record);
-        })?;
-        Ok(Self {
-            snapshot,
-            validation,
-            context,
-            usage,
-            session_id,
-        })
+        let (validation, matches, prefix_history_fingerprints) =
+            scan_validated_snapshot_with_cursor(&mut snapshot, session_id, previous, |record| {
+                context.apply(record);
+                usage.apply(record);
+            })?;
+        Ok((
+            Self {
+                snapshot,
+                validation,
+                prefix_history_fingerprints,
+                context,
+                usage,
+                session_id,
+            },
+            matches,
+        ))
+    }
+
+    pub(crate) fn cursor(&self) -> read::JournalReadCursor {
+        self.snapshot.cursor()
+    }
+
+    /// Baseline uses the validator's exact rebased history at the matched cursor.
+    /// It is exposed only after the entire snapshot passes strict validation.
+    pub(crate) fn take_prefix_history_fingerprints(&mut self) -> Option<Vec<[u8; 32]>> {
+        self.prefix_history_fingerprints.take()
     }
 
     pub(crate) fn history(&self) -> &[CanonicalMessage] {
@@ -135,17 +159,45 @@ fn scan_validated(
 fn scan_validated_snapshot(
     snapshot: &mut read::JournalReadSnapshot,
     session_id: SessionId,
-    mut fold: impl FnMut(&JournalRecord),
+    fold: impl FnMut(&JournalRecord),
 ) -> Result<JournalValidationState> {
+    scan_validated_snapshot_with_cursor(snapshot, session_id, None, fold).map(|(state, _, _)| state)
+}
+
+fn scan_validated_snapshot_with_cursor(
+    snapshot: &mut read::JournalReadSnapshot,
+    session_id: SessionId,
+    previous: Option<&read::JournalReadCursor>,
+    mut fold: impl FnMut(&JournalRecord),
+) -> Result<(JournalValidationState, bool, Option<Vec<[u8; 32]>>)> {
     #[cfg(feature = "memory-diagnostics")]
     let memory = crate::memory_diagnostics::Scope::new("journal.validate_stream");
     let mut state = JournalValidationState::default();
     let mut next_seq = 1;
     let mut semantic_error = None;
-    snapshot.scan(|record| {
+    let mut fingerprint_error = None;
+    let mut prefix_history_fingerprints = previous
+        .filter(|cursor| cursor.last_session_seq() == 0)
+        .map(|_| Vec::new());
+    let matches = snapshot.scan_with_cursor(previous, |record| {
         if semantic_error.is_none() {
             match state.apply_sequenced(session_id, &record, &mut next_seq) {
-                Ok(()) => fold(&record),
+                Ok(()) => {
+                    fold(&record);
+                    if previous
+                        .is_some_and(|cursor| cursor.last_session_seq() == record.session_seq)
+                    {
+                        match state
+                            .history()
+                            .iter()
+                            .map(history_message_sha256)
+                            .collect::<Result<Vec<_>>>()
+                        {
+                            Ok(fingerprints) => prefix_history_fingerprints = Some(fingerprints),
+                            Err(error) => fingerprint_error = Some(error),
+                        }
+                    }
+                }
                 Err(error) => semantic_error = Some(error),
             }
         }
@@ -161,7 +213,12 @@ fn scan_validated_snapshot(
         "journal.stream_validated",
         &[("history", state.history().len())],
     );
-    Ok(state)
+    if !matches {
+        prefix_history_fingerprints = None;
+    } else if let Some(error) = fingerprint_error {
+        return Err(error);
+    }
+    Ok((state, matches, prefix_history_fingerprints))
 }
 
 #[cfg(test)]

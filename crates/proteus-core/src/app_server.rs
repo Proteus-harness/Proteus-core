@@ -58,11 +58,13 @@ pub use config_builder::{
 pub use config_history::{ConfigHistory, ConfigRevision};
 use context_map::{ContextMapInput, build_context_map_snapshot};
 use path_utils::paths_equal;
-pub(crate) use transcript::journal_transcript_from_source;
 #[cfg(test)]
 pub(crate) use transcript::journal_transcript_messages;
 use transcript::transcript_messages;
 pub use transcript::{AppTranscriptMessage, AppTranscriptSubagent, AppTranscriptTool};
+pub(crate) use transcript::{
+    journal_transcript_append_from_source, journal_transcript_from_source,
+};
 use turn_progress::TurnProgress;
 mod startup;
 

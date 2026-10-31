@@ -9,9 +9,9 @@ mod journal;
 mod rows;
 use rows::TranscriptRows;
 
-pub(crate) use journal::journal_transcript_from_source;
 #[cfg(test)]
 pub(crate) use journal::journal_transcript_messages;
+pub(crate) use journal::{journal_transcript_append_from_source, journal_transcript_from_source};
 
 pub use proteus_contracts::app_protocol::{
     AppTranscriptMessage, AppTranscriptSubagent, AppTranscriptTool,

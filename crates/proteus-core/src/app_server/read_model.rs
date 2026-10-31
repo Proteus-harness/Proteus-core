@@ -1,5 +1,8 @@
 //! Stale display state refreshes independently, without acquiring write ownership.
-use super::{AppServerEvent, AppServerHandle, journal_transcript_from_source};
+use super::{
+    AppServerEvent, AppServerHandle, journal_transcript_append_from_source,
+    journal_transcript_from_source,
+};
 use crate::core::{SessionReadModel, SessionStore};
 
 use proteus_contracts::app_protocol::{AppTranscriptCursor, AppTranscriptMessage};
@@ -125,16 +128,17 @@ pub(super) fn current_read_model(store: &SessionStore) -> anyhow::Result<Session
 pub(super) fn project_completed_transcript(
     store: &SessionStore,
 ) -> anyhow::Result<CompletedTranscript> {
-    // Drop replay records, JSON trees and the full cached conversation before
-    // returning free pages. The completed page and writer's live state survive.
+    // The incremental path retains only the new display rows and the bounded
+    // completed page. Uncertain dependencies use the full verified projector.
     let result = (|| {
-        let model =
-            store.project_read_model(|source| journal_transcript_from_source(source, None))?;
-        Ok(CompletedTranscript::from_model(
-            store,
-            model.transcript,
-            false,
-        ))
+        let view = store.project_read_view(
+            |source| journal_transcript_from_source(source, None),
+            journal_transcript_append_from_source,
+        )?;
+        Ok(CompletedTranscript {
+            messages: view.transcript,
+            cursor: view.cursor,
+        })
     })();
     #[cfg(feature = "memory-diagnostics")]
     crate::memory_diagnostics::point("completed.full_model_dropped", &[]);

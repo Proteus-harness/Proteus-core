@@ -513,3 +513,5 @@ async fn opening_a_display_decodes_only_the_tail_not_the_conversation() {
 }
 
 mod consuming;
+mod incremental;
+mod incremental_checkpoints;

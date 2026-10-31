@@ -3,7 +3,9 @@ use super::*;
 use crate::core::session_store::read_cache::{Reader, SourceFingerprint};
 
 mod save;
-pub(super) use save::save;
+pub(super) use save::{save, save_with_cursor};
+mod append;
+pub(super) use append::{append, checkpoint};
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

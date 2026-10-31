@@ -66,6 +66,13 @@ impl Updater {
         self.previous.revision()
     }
 
+    pub(in crate::core::session_store) fn source_matches(
+        &self,
+        source: &SourceFingerprint,
+    ) -> bool {
+        &self.previous == source
+    }
+
     /// Returns true only when the existing payload and checksum both match.
     /// Unchanged rows avoid a full serialized payload allocation and SQL write.
     pub(in crate::core::session_store) fn row<T: Serialize>(

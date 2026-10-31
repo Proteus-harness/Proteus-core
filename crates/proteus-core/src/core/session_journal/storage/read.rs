@@ -21,6 +21,27 @@ pub(crate) fn load_records(
     Ok(records)
 }
 
+/// Identity of an exact, strictly validated complete journal prefix.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct JournalReadCursor {
+    session_id: SessionId,
+    complete_len: u64,
+    last_session_seq: u64,
+    prefix_sha256: [u8; 32],
+}
+
+impl JournalReadCursor {
+    #[cfg(test)]
+    pub(crate) fn complete_len(&self) -> u64 {
+        self.complete_len
+    }
+
+    pub(crate) fn last_session_seq(&self) -> u64 {
+        self.last_session_seq
+    }
+}
+
 /// A fixed complete prefix on one open journal inode. Repeated serial passes
 /// cannot observe later appends or a replacement journal at the same path.
 #[derive(Debug)]
@@ -31,6 +52,7 @@ pub(crate) struct JournalReadSnapshot {
     session_id: SessionId,
     complete_len: u64,
     scanned_prefix: Option<ring::digest::Digest>,
+    last_session_seq: u64,
 }
 
 impl JournalReadSnapshot {
@@ -59,11 +81,30 @@ impl JournalReadSnapshot {
             session_id,
             complete_len,
             scanned_prefix: None,
+            last_session_seq: 0,
         })
     }
 
     pub(crate) fn scan(&mut self, consume: impl FnMut(JournalRecord) -> Result<()>) -> Result<()> {
-        self.scan_inner(|_| true, consume)
+        self.scan_inner(|_| true, consume, None, None).map(|_| ())
+    }
+
+    pub(super) fn scan_with_cursor(
+        &mut self,
+        previous: Option<&JournalReadCursor>,
+        consume: impl FnMut(JournalRecord) -> Result<()>,
+    ) -> Result<bool> {
+        self.scan_inner(|_| true, consume, None, previous)
+    }
+
+    pub(super) fn cursor(&self) -> JournalReadCursor {
+        let prefix = self.scanned_prefix.as_ref().expect("typed scan completed");
+        JournalReadCursor {
+            session_id: self.session_id,
+            complete_len: self.complete_len,
+            last_session_seq: self.last_session_seq,
+            prefix_sha256: prefix.as_ref().try_into().expect("SHA256 digest length"),
+        }
     }
 
     /// Derived passes may omit payload hydration only after a full typed scan.
@@ -77,7 +118,22 @@ impl JournalReadSnapshot {
             self.scanned_prefix.is_some(),
             "selected journal scan requires a complete typed scan"
         );
-        self.scan_inner(select, consume)
+        self.scan_inner(select, consume, None, None).map(|_| ())
+    }
+
+    /// Hash the old prefix in bounded blocks; decode and hydrate only its suffix.
+    pub(crate) fn scan_selected_after(
+        &mut self,
+        previous: &JournalReadCursor,
+        select: fn(JournalKind) -> bool,
+        consume: impl FnMut(JournalRecord) -> Result<()>,
+    ) -> Result<()> {
+        anyhow::ensure!(
+            self.scanned_prefix.is_some(),
+            "selected journal scan requires a complete typed scan"
+        );
+        self.scan_inner(select, consume, Some(previous), None)
+            .map(|_| ())
     }
 
     fn verify_prefix(&mut self, actual: ring::digest::Digest) -> Result<()> {
@@ -97,10 +153,25 @@ impl JournalReadSnapshot {
         &mut self,
         select: fn(JournalKind) -> bool,
         mut consume: impl FnMut(JournalRecord) -> Result<()>,
-    ) -> Result<()> {
+        after: Option<&JournalReadCursor>,
+        candidate: Option<&JournalReadCursor>,
+    ) -> Result<bool> {
         let mut prefix = ring::digest::Context::new(&SHA256);
+        let mut candidate_matches = candidate.is_some_and(|cursor| {
+            cursor.session_id == self.session_id
+                && cursor.complete_len == 0
+                && cursor.last_session_seq == 0
+                && cursor.prefix_sha256.as_slice() == prefix.clone().finish().as_ref()
+        });
         let Some(file) = self.file.as_mut() else {
-            return self.verify_prefix(prefix.finish());
+            if let Some(cursor) = after {
+                anyhow::ensure!(
+                    candidate_matches_empty(cursor, self.session_id),
+                    "journal cursor does not match snapshot prefix"
+                );
+            }
+            self.verify_prefix(prefix.finish())?;
+            return Ok(candidate_matches);
         };
         file.seek(SeekFrom::Start(0))?;
         let path = &self.path;
@@ -108,8 +179,38 @@ impl JournalReadSnapshot {
         let expected_session_id = self.session_id;
         let complete_len = self.complete_len;
         let mut reader = BufReader::with_capacity(64 * 1024, file.take(complete_len));
-        let mut line = Vec::new();
         let mut index = 0;
+        let mut offset = 0;
+        let mut last_session_seq = 0;
+        if let Some(cursor) = after {
+            anyhow::ensure!(
+                cursor.session_id == expected_session_id && cursor.complete_len <= complete_len,
+                "journal cursor does not match snapshot prefix"
+            );
+            let mut buffer = [0_u8; 64 * 1024];
+            let mut last_byte = None;
+            while offset < cursor.complete_len {
+                let count = (cursor.complete_len - offset).min(buffer.len() as u64) as usize;
+                reader.read_exact(&mut buffer[..count]).with_context(|| {
+                    format!("journal {} shortened during snapshot read", path.display())
+                })?;
+                prefix.update(&buffer[..count]);
+                index += buffer[..count]
+                    .iter()
+                    .filter(|byte| **byte == b'\n')
+                    .count() as u64;
+                last_byte = Some(buffer[count - 1]);
+                offset += count as u64;
+            }
+            anyhow::ensure!(
+                (offset == 0 || last_byte == Some(b'\n'))
+                    && index == cursor.last_session_seq
+                    && prefix.clone().finish().as_ref() == cursor.prefix_sha256,
+                "journal cursor does not match snapshot prefix"
+            );
+            last_session_seq = cursor.last_session_seq;
+        }
+        let mut line = Vec::new();
         loop {
             line.clear();
             if reader
@@ -123,9 +224,12 @@ impl JournalReadSnapshot {
                     path.display()
                 );
                 drop(reader);
-                return self.verify_prefix(prefix.finish());
+                self.verify_prefix(prefix.finish())?;
+                self.last_session_seq = last_session_seq;
+                return Ok(candidate_matches);
             }
             prefix.update(&line);
+            offset += line.len() as u64;
             index += 1;
             if !line.ends_with(b"\n") {
                 bail!("journal {} lost a complete snapshot line", path.display());
@@ -159,6 +263,12 @@ impl JournalReadSnapshot {
                     expected_session_id
                 );
             }
+            last_session_seq = stored.session_seq;
+            if let Some(cursor) = candidate.filter(|cursor| cursor.complete_len == offset) {
+                candidate_matches = cursor.session_id == expected_session_id
+                    && cursor.last_session_seq == stored.session_seq
+                    && prefix.clone().finish().as_ref() == cursor.prefix_sha256;
+            }
             if !select(stored.kind) {
                 continue;
             }
@@ -183,6 +293,13 @@ impl JournalReadSnapshot {
             })?;
         }
     }
+}
+
+fn candidate_matches_empty(cursor: &JournalReadCursor, session_id: SessionId) -> bool {
+    cursor.session_id == session_id
+        && cursor.complete_len == 0
+        && cursor.last_session_seq == 0
+        && cursor.prefix_sha256.as_slice() == digest(&SHA256, b"").as_ref()
 }
 
 pub(super) fn scan_records(

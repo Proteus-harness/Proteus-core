@@ -35,7 +35,7 @@ pub(crate) fn journal_transcript_from_source(
 // Full strict validation already hydrated every entry. Repeated display passes
 // may omit unrelated request/hook payloads; the fixed prefix and durable
 // session_seq keep frontier comparisons independent of those omissions.
-fn is_display_kind(kind: JournalKind) -> bool {
+pub(super) fn is_display_kind(kind: JournalKind) -> bool {
     matches!(
         kind,
         JournalKind::HistoryMutated
@@ -49,7 +49,7 @@ fn is_display_kind(kind: JournalKind) -> bool {
     )
 }
 
-fn transcript_from_scan(
+pub(super) fn transcript_from_scan(
     mut scan: impl FnMut(&mut dyn FnMut(JournalRecord) -> Result<()>) -> Result<()>,
     live_turn_id: Option<TurnId>,
 ) -> Result<Vec<AppTranscriptMessage>> {

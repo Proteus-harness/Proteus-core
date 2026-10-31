@@ -47,7 +47,7 @@ use identity::{
     short_session_directory_name, validate_new_session_target,
 };
 use path_identity::canonicalize_unmaterialized_path;
-pub(crate) use read_model::SessionReadModel;
+pub(crate) use read_model::{SessionReadModel, SessionTranscriptAppend};
 use workspace_dir::workspace_path_from_session_dir;
 pub use workspace_dir::{decode_workspace_path, encode_workspace_path};
 

@@ -9,6 +9,9 @@ use crate::core::JournalProjection;
 mod source;
 pub(crate) use source::journal_transcript_from_source;
 
+mod append;
+pub(crate) use append::journal_transcript_append_from_source;
+
 mod timestamps;
 use timestamps::TranscriptTimestamps;
 
@@ -34,6 +37,9 @@ pub(crate) fn journal_transcript_messages(
     records: Vec<JournalRecord>,
     live_turn_id: Option<TurnId>,
 ) -> Vec<AppTranscriptMessage> {
+    if live_turn_id.is_none() {
+        append::tests::assert_split_equivalence(&records);
+    }
     let streamed = source::from_records(&records, live_turn_id).expect("streamed transcript");
     let start = replay_start(&records, live_turn_id);
     let replay = TranscriptReplay::new(&records, start);

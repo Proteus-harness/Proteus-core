@@ -10,6 +10,8 @@ use proteus_contracts::app_protocol::{AppSessionSummary, AppTranscriptMessage};
 
 use super::SessionStore;
 
+mod incremental;
+
 pub(crate) const VIEW_CACHE: &str = "view";
 
 #[cfg(unix)]
@@ -35,6 +37,13 @@ pub(crate) struct SessionReadView {
     pub usage: SessionUsageSnapshot,
     pub transcript: Vec<AppTranscriptMessage>,
     pub cursor: Option<proteus_contracts::app_protocol::AppTranscriptCursor>,
+}
+
+/// A renderer-certified suffix that cannot change previously projected rows.
+#[derive(Debug)]
+pub(crate) struct SessionTranscriptAppend {
+    pub transcript: Vec<AppTranscriptMessage>,
+    pub conversation_appended: usize,
 }
 
 impl SessionReadView {

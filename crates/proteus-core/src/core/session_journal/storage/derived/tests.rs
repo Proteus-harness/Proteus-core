@@ -142,6 +142,26 @@ fn assert_derived(dir: &Path, session: SessionId) {
     assert_eq!(read.history(), projection.history);
     assert_eq!(read.history_revision(), projection.history_revision);
     assert_eq!(read.interrupted_turns(), projection.interrupted_turns);
+    // Full projection is the oracle, including HistoryCapture rebasing of tool results.
+    let (mut with_baseline, matches) =
+        ValidatedJournalRead::open_with_cursor(dir, session, Some(&read.cursor())).unwrap();
+    assert!(matches);
+    let expected: Vec<[u8; 32]> = projection
+        .history
+        .iter()
+        .map(|message| {
+            digest(&SHA256, &serde_json::to_vec(message).unwrap())
+                .as_ref()
+                .try_into()
+                .unwrap()
+        })
+        .collect();
+    assert_eq!(
+        with_baseline.take_prefix_history_fingerprints(),
+        Some(expected)
+    );
+    assert_eq!(with_baseline.take_prefix_history_fingerprints(), None);
+    drop(with_baseline);
     assert_eq!(
         read.last_history_turn(),
         projection
@@ -529,3 +549,5 @@ fn empty_and_invalid_file_reads_do_not_materialize_or_repair_storage() {
     assert_same_error(root.path(), session, "not a regular file");
     assert!(journal_path(root.path()).is_dir());
 }
+
+mod cursor;

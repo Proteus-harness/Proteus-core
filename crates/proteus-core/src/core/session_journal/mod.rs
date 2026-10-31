@@ -16,14 +16,14 @@ pub use recorder::{SessionExecutionRecorder, SessionToolExecutionRecorder};
 pub use storage::{DEFAULT_BLOB_THRESHOLD_BYTES, JOURNAL_FILE};
 pub use types::*;
 
-pub(crate) use storage::redacted_history;
 pub(crate) use storage::{
-    JournalReadSnapshot, JournalRecordAttribution, JournalResumeState, JournalWriterState,
-    SessionWriteOwnership, ValidatedJournalRead, WriterRetirement, append_record,
-    initialize_writer_resume, initialize_writer_state, journal_path, load_records,
+    JournalReadCursor, JournalReadSnapshot, JournalRecordAttribution, JournalResumeState,
+    JournalWriterState, SessionWriteOwnership, ValidatedJournalRead, WriterRetirement,
+    append_record, initialize_writer_resume, initialize_writer_state, journal_path, load_records,
     load_validated_conversation, load_validated_history, load_validated_history_revision,
     load_validated_usage,
 };
+pub(crate) use storage::{history_message_sha256, redacted_history};
 
 #[cfg(test)]
 mod context_tests;

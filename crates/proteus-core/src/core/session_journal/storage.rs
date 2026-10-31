@@ -23,13 +23,15 @@ mod initialize;
 mod ownership;
 pub(crate) use initialize::{initialize_writer_resume, initialize_writer_state};
 mod derived;
+mod message_hash;
+pub(crate) use message_hash::history_message_sha256;
 mod read;
 pub(crate) use append::append_record;
 pub(crate) use derived::{
     JournalResumeState, ValidatedJournalRead, load_validated_conversation, load_validated_history,
     load_validated_history_revision, load_validated_usage,
 };
-pub(crate) use read::{JournalReadSnapshot, load_records};
+pub(crate) use read::{JournalReadCursor, JournalReadSnapshot, load_records};
 mod recovery;
 mod redaction;
 mod retirement;

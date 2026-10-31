@@ -70,7 +70,8 @@ pub use runtime::{
     AgentRuntime, AgentRuntimeBuilder, ModuleEpoch, RuntimeReloadReport, RuntimeSnapshot,
     config_store_root, event_log_path,
 };
-pub(crate) use session_journal::JournalReadSnapshot;
+#[cfg(test)]
+pub(crate) use session_journal::ModelMessageRecorded;
 pub use session_journal::{
     ContextRequestRecorded, ContextResponseRecorded, DEFAULT_BLOB_THRESHOLD_BYTES, HistoryMutated,
     HistoryMutationKind, JOURNAL_FILE, JOURNAL_SCHEMA_VERSION, JournalEntry, JournalKind,
@@ -79,12 +80,13 @@ pub use session_journal::{
     ToolCallRecordPhase, ToolCallRecorded, ToolResultRecorded, TurnOpened, TurnSettled,
     TurnSettlementStatus,
 };
+pub(crate) use session_journal::{JournalReadCursor, JournalReadSnapshot, history_message_sha256};
 #[cfg(unix)]
 pub(crate) use session_store::read_cache as session_read_cache;
 #[cfg(unix)]
 pub(crate) use session_store::subscribe_catalog_updates;
 pub(crate) use session_store::{
-    PreparedSession, SessionReadModel, prepare_latest_workspace_session,
+    PreparedSession, SessionReadModel, SessionTranscriptAppend, prepare_latest_workspace_session,
 };
 pub use session_store::{
     SessionStore, canonicalize_session_dir_path, decode_workspace_path, delete_workspace_session,
