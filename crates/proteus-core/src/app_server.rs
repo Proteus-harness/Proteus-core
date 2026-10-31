@@ -44,6 +44,7 @@ mod model_selection;
 mod path_utils;
 mod queued_messages;
 mod runs;
+mod session_selection;
 mod session_settings;
 pub mod stdio;
 mod transcript;
@@ -214,15 +215,20 @@ impl AppServerHandle {
     }
 
     pub async fn set_model_name(&self, model: String) -> Result<()> {
-        self.runtime.set_model_name(model).await
+        self.update_selection(session_selection::SelectionUpdate::Model(model))
+            .await
     }
 
-    pub async fn set_reasoning_enabled(&self, enabled: bool) {
-        self.runtime.set_reasoning_enabled(enabled).await;
+    pub async fn set_reasoning_enabled(&self, enabled: bool) -> Result<()> {
+        self.update_selection(session_selection::SelectionUpdate::ReasoningEnabled(
+            enabled,
+        ))
+        .await
     }
 
     pub async fn set_reasoning_effort(&self, effort: Option<String>) -> Result<()> {
-        self.runtime.set_reasoning_effort(effort).await
+        self.update_selection(session_selection::SelectionUpdate::ReasoningEffort(effort))
+            .await
     }
 
     pub async fn topology_snapshot(&self) -> TopologySnapshot {
@@ -458,6 +464,8 @@ impl AgentAppServer {
             cwd = session_store.workspace_path()?;
         }
 
+        let selection_is_new = resumed_session.is_none();
+        let selection_config = config.clone();
         let config_snapshot = Arc::new(RwLock::new(config.clone()));
         let config_path_snapshot = config_path.map(Path::to_path_buf);
         let cwd_snapshot = cwd.clone();
@@ -513,6 +521,8 @@ impl AgentAppServer {
             builder = builder.with_module_catalog(module_catalog);
         }
         let runtime = Arc::new(builder.build_async().await?);
+        session_selection::restore(&runtime, &selection_config, config_path, selection_is_new)
+            .await?;
         let events = AppEventPublisher::new(
             1024,
             runtime.session_id(),

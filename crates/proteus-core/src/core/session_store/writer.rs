@@ -133,6 +133,33 @@ impl SessionStore {
         .context("session journal transaction worker failed")?
     }
 
+    /// Materialize identity for bounded metadata without hydrating history.
+    #[cfg(test)]
+    pub(crate) async fn prepare_metadata(&self) -> Result<()> {
+        self.with_metadata_transaction(|_| Ok(())).await
+    }
+
+    /// Keep the writer lease and deletion exclusion through every metadata I/O.
+    /// Preferences do not initialize canonical history, but cannot resurrect a
+    /// retired/deleted session or race another writer's identity replacement.
+    pub(crate) async fn with_metadata_transaction<T: Send + 'static>(
+        &self,
+        operation: impl FnOnce(&std::path::Path) -> Result<T> + Send + 'static,
+    ) -> Result<T> {
+        let mut writer = self.writer.clone().lock_owned().await;
+        let store = self.clone();
+        tokio::task::spawn_blocking(move || {
+            writer.ensure_active()?;
+            store.prepare_lease_parent()?;
+            writer.with_ownership_preflight(&store.session_dir, store.session_id, |_| {
+                store.materialize_for_write()?;
+                operation(&store.session_dir)
+            })
+        })
+        .await
+        .context("session metadata worker failed")?
+    }
+
     /// Admission may write image bytes before the first journal record. Create
     /// the canonical session identity and acquire its writer lease first.
     pub(crate) async fn prepare_attachments(&self) -> Result<()> {

@@ -32,6 +32,19 @@ impl AgentRuntime {
     }
 
     pub async fn set_model_name(&self, model: String) -> Result<()> {
+        self.set_model_name_with_commit(model, |_, _, _| async { Ok(()) })
+            .await
+    }
+
+    pub(crate) async fn set_model_name_with_commit<F, Fut>(
+        &self,
+        model: String,
+        commit: F,
+    ) -> Result<()>
+    where
+        F: FnOnce(AppConfig, ModelRef, ReasoningConfig) -> Fut,
+        Fut: std::future::Future<Output = Result<()>>,
+    {
         let _guard = self.services.reload_lock.lock().await;
         let model = model.trim();
         anyhow::ensure!(!model.is_empty(), "model name must not be empty");
@@ -55,29 +68,31 @@ impl AgentRuntime {
             })
             .transpose()?;
         let tools = snapshot.registry.tools_for_model(Some(&model_ref))?;
-        let mut state = self.services.execution_state.write().await;
-        anyhow::ensure!(
-            state.runtime.epoch == snapshot.epoch,
-            "model provider changed during catalog lookup; retry selection"
-        );
-        state.model_ref = Some(model_ref);
-        state.runtime.registry.tools = tools;
+        let mut reasoning = admission.reasoning;
         if let Some(selected) = selected {
-            if state
-                .reasoning
+            if reasoning
                 .effort
                 .as_ref()
                 .is_none_or(|effort| !selected.reasoning_efforts.contains(effort))
             {
-                state.reasoning.effort = selected.default_reasoning_effort.clone();
+                reasoning.effort = selected.default_reasoning_effort.clone();
             }
-            if state.reasoning.effort.as_deref() == Some("none")
-                || selected.reasoning_efforts.is_empty()
+            if reasoning.effort.as_deref() == Some("none") || selected.reasoning_efforts.is_empty()
             {
-                state.reasoning.summary = false;
-                state.reasoning.budget_tokens = None;
+                reasoning.summary = false;
+                reasoning.budget_tokens = None;
             }
         }
+        commit(
+            snapshot.assembly_plan.config().clone(),
+            model_ref.clone(),
+            reasoning.clone(),
+        )
+        .await?;
+        let mut state = self.services.execution_state.write().await;
+        state.model_ref = Some(model_ref);
+        state.runtime.registry.tools = tools;
+        state.reasoning = reasoning;
         Ok(())
     }
 
@@ -103,10 +118,25 @@ impl AgentRuntime {
     }
 
     pub async fn set_reasoning_enabled(&self, enabled: bool) {
+        // This no-I/O wrapper cannot fail for a configured runtime.
+        self.set_reasoning_enabled_with_commit(enabled, |_, _, _| async { Ok(()) })
+            .await
+            .expect("in-memory reasoning update");
+    }
+
+    pub(crate) async fn set_reasoning_enabled_with_commit<F, Fut>(
+        &self,
+        enabled: bool,
+        commit: F,
+    ) -> Result<()>
+    where
+        F: FnOnce(AppConfig, ModelRef, ReasoningConfig) -> Fut,
+        Fut: std::future::Future<Output = Result<()>>,
+    {
         let _guard = self.services.reload_lock.lock().await;
-        let mut state = self.services.execution_state.write().await;
+        let state = self.services.execution_state.read().await;
         let default_reasoning = state.configured_reasoning();
-        let reasoning = &mut state.reasoning;
+        let mut reasoning = state.reasoning.clone();
         if enabled {
             if reasoning.effort.is_none() || reasoning.effort.as_deref() == Some("none") {
                 reasoning.effort = default_reasoning.effort;
@@ -118,13 +148,34 @@ impl AgentRuntime {
             reasoning.summary = false;
             reasoning.budget_tokens = None;
         }
+        let model = state.model_ref.clone();
+        let config = state.runtime.assembly_plan.config().clone();
+        drop(state);
+        if let Some(model) = model {
+            commit(config, model, reasoning.clone()).await?;
+        }
+        self.services.execution_state.write().await.reasoning = reasoning;
+        Ok(())
     }
 
     pub async fn set_reasoning_effort(&self, effort: Option<String>) -> Result<()> {
+        self.set_reasoning_effort_with_commit(effort, |_, _, _| async { Ok(()) })
+            .await
+    }
+
+    pub(crate) async fn set_reasoning_effort_with_commit<F, Fut>(
+        &self,
+        effort: Option<String>,
+        commit: F,
+    ) -> Result<()>
+    where
+        F: FnOnce(AppConfig, ModelRef, ReasoningConfig) -> Fut,
+        Fut: std::future::Future<Output = Result<()>>,
+    {
         let _guard = self.services.reload_lock.lock().await;
         let snapshot = self.snapshot().await;
         let catalog = snapshot.registry.model_catalog().await?;
-        let mut state = self.services.execution_state.write().await;
+        let state = self.services.execution_state.read().await;
         anyhow::ensure!(
             state.runtime.epoch == snapshot.epoch,
             "model provider changed during catalog lookup; retry selection"
@@ -146,7 +197,7 @@ impl AgentRuntime {
             );
         }
         let default_reasoning = state.configured_reasoning();
-        let reasoning = &mut state.reasoning;
+        let mut reasoning = state.reasoning.clone();
         match effort.as_deref() {
             // «none» — первоклассное значение effort: выключает рассуждения
             // целиком. Веб-клиент шлёт его вместо пары /reasoning + /effort.
@@ -167,6 +218,40 @@ impl AgentRuntime {
             // null — «auto»: явного effort нет, остальное не трогаем.
             None => reasoning.effort = None,
         }
+        let model = state.model_ref.clone();
+        let config = state.runtime.assembly_plan.config().clone();
+        drop(state);
+        if let Some(model) = model {
+            commit(config, model, reasoning.clone()).await?;
+        }
+        self.services.execution_state.write().await.reasoning = reasoning;
+        Ok(())
+    }
+
+    /// Restore a previously validated user choice before exposing the runtime.
+    /// No catalog request is required: a temporary discovery outage must not
+    /// replace a durable selection with the configured default.
+    pub(crate) async fn restore_model_selection(
+        &self,
+        model: ModelRef,
+        reasoning: ReasoningConfig,
+    ) -> Result<()> {
+        let _guard = self.services.reload_lock.lock().await;
+        let snapshot = self.snapshot().await;
+        let configured = snapshot
+            .registry
+            .model_config
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("saved selection has no active model provider"))?;
+        anyhow::ensure!(
+            configured.provider == model.provider,
+            "saved model provider does not match active provider"
+        );
+        let tools = snapshot.registry.tools_for_model(Some(&model))?;
+        let mut state = self.services.execution_state.write().await;
+        state.model_ref = Some(model);
+        state.reasoning = reasoning;
+        state.runtime.registry.tools = tools;
         Ok(())
     }
 

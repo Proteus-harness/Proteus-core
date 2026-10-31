@@ -261,11 +261,11 @@ pub async fn run_stdio_app_server(
                 .await;
             }
             StdioRequest::SetReasoningEnabled { enabled, .. } => {
-                server.set_reasoning_enabled(enabled).await;
+                let result = server.set_reasoning_enabled(enabled).await;
                 send_stdio_response(
                     &output_tx,
                     id,
-                    Ok(Some(serde_json::json!({ "enabled": enabled }))),
+                    result.map(|_| Some(serde_json::json!({ "enabled": enabled }))),
                 )
                 .await;
             }

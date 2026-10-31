@@ -134,10 +134,10 @@ async fn execute_session_request(
             .set_reasoning_effort(effort.clone())
             .await
             .map(|_| Some(json!({ "effort": effort }))),
-        StdioRequest::SetReasoningEnabled { enabled, .. } => {
-            server.set_reasoning_enabled(enabled).await;
-            Ok(Some(json!({ "enabled": enabled })))
-        }
+        StdioRequest::SetReasoningEnabled { enabled, .. } => server
+            .set_reasoning_enabled(enabled)
+            .await
+            .map(|_| Some(json!({ "enabled": enabled }))),
         StdioRequest::ConfigSummary { .. } => Ok(Some(server.config_summary().await)),
         StdioRequest::ReloadTools { .. } => server.reload_tools().await.and_then(|report| {
             serde_json::to_value(report)
@@ -307,7 +307,7 @@ pub(super) async fn execute_set_reasoning_enabled(
 ) -> StdioOutput {
     let result = async {
         let server = server_for_session(state, session_dir).await?;
-        server.set_reasoning_enabled(enabled).await;
+        server.set_reasoning_enabled(enabled).await?;
         Ok(Some(json!({ "enabled": enabled })))
     }
     .await;
