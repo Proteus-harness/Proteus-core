@@ -20,6 +20,17 @@ pub struct ConfigField {
     pub required: bool,
     pub advanced: bool,
     pub unit: Option<String>,
+    /// Presentation grouping among sibling fields; never a configuration path.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub section: Option<ConfigSection>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ConfigSection {
+    pub id: String,
+    pub title: String,
+    pub description: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -65,6 +76,7 @@ impl ConfigField {
             required: false,
             advanced: false,
             unit: None,
+            section: None,
         }
     }
     pub fn with_default(mut self, value: impl Into<Value>) -> Self {
@@ -81,6 +93,14 @@ impl ConfigField {
     }
     pub fn unit(mut self, unit: &str) -> Self {
         self.unit = Some(unit.into());
+        self
+    }
+    pub fn section(mut self, id: &str, title: &str, description: &str) -> Self {
+        self.section = Some(ConfigSection {
+            id: id.into(),
+            title: title.into(),
+            description: description.into(),
+        });
         self
     }
 }
@@ -125,6 +145,7 @@ impl ModuleConfigSchema {
 
 fn validate_fields(fields: &[ConfigField], depth: usize) -> Result<(), String> {
     let mut keys = std::collections::BTreeSet::new();
+    let mut sections = std::collections::BTreeMap::new();
     for field in fields {
         if field.key.trim().is_empty() || field.title.trim().is_empty() || !keys.insert(&field.key)
         {
@@ -132,6 +153,22 @@ fn validate_fields(fields: &[ConfigField], depth: usize) -> Result<(), String> {
                 "config schema has an empty or duplicate field {:?}",
                 field.key
             ));
+        }
+        if let Some(section) = &field.section {
+            if section.id.trim().is_empty() || section.title.trim().is_empty() {
+                return Err(format!(
+                    "config schema has an empty section id or title for {:?}",
+                    field.key
+                ));
+            }
+            if let Some(previous) = sections.insert(&section.id, section) {
+                if previous != section {
+                    return Err(format!(
+                        "config schema has conflicting metadata for section {:?}",
+                        section.id
+                    ));
+                }
+            }
         }
         validate_type(&field.value, depth)?;
         if let Some(value) = &field.default {
@@ -208,6 +245,83 @@ fn validate_value(schema: &ConfigValueSchema, value: &Value) -> Result<(), Strin
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn boolean(key: &str) -> ConfigField {
+        ConfigField::new(key, key, "", ConfigValueSchema::Boolean {})
+    }
+
+    #[test]
+    fn optional_sections_round_trip_without_changing_field_paths() {
+        let plain = boolean("enabled").with_default(true);
+        let encoded = serde_json::to_value(&plain).unwrap();
+        assert!(encoded.get("section").is_none());
+        assert_eq!(
+            serde_json::from_value::<ConfigField>(encoded).unwrap(),
+            plain
+        );
+
+        let grouped = ModuleConfigSchema {
+            fields: vec![
+                boolean("enabled").section("network", "Сеть", "Параметры транспорта"),
+                boolean("retry")
+                    .advanced()
+                    .section("network", "Сеть", "Параметры транспорта"),
+            ],
+        };
+        grouped.validate().unwrap();
+        let encoded = serde_json::to_value(&grouped).unwrap();
+        assert_eq!(encoded["fields"][0]["key"], "enabled");
+        assert_eq!(encoded["fields"][1]["key"], "retry");
+        assert_eq!(encoded["fields"][0]["section"]["id"], "network");
+        assert_eq!(
+            serde_json::from_value::<ModuleConfigSchema>(encoded).unwrap(),
+            grouped
+        );
+    }
+
+    #[test]
+    fn section_metadata_is_consistent_within_each_sibling_scope() {
+        for (id, title) in [(" ", "Сеть"), ("network", " ")] {
+            assert!(
+                ModuleConfigSchema {
+                    fields: vec![boolean("enabled").section(id, title, "")]
+                }
+                .validate()
+                .is_err()
+            );
+        }
+        for (title, description) in [("Другая группа", ""), ("Сеть", "Другое описание")]
+        {
+            assert!(
+                ModuleConfigSchema {
+                    fields: vec![
+                        boolean("a").section("network", "Сеть", ""),
+                        boolean("b").section("network", title, description),
+                    ]
+                }
+                .validate()
+                .unwrap_err()
+                .contains("conflicting metadata")
+            );
+        }
+        // Sections group siblings, so a nested object may reuse an id independently.
+        ModuleConfigSchema {
+            fields: vec![
+                boolean("enabled").section("network", "Сеть", ""),
+                ConfigField::new(
+                    "nested",
+                    "Вложенное",
+                    "",
+                    ConfigValueSchema::Object {
+                        fields: vec![boolean("enabled").section("network", "Другая группа", "")],
+                    },
+                ),
+            ],
+        }
+        .validate()
+        .unwrap();
+    }
+
     #[test]
     fn schema_rejects_bad_defaults_duplicates_and_unknown_shapes() {
         let field = ConfigField::new("enabled", "Включено", "", ConfigValueSchema::Boolean {})
