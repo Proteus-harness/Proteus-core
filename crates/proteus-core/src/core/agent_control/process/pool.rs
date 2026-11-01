@@ -32,6 +32,7 @@ pub(super) struct PooledChild {
     pub cwd: PathBuf,
     pub id: u64,
     pub role: String,
+    pub parent_session_id: SessionId,
     pub used: bool,
 }
 
@@ -186,7 +187,7 @@ impl ProcessPool {
         })
     }
 
-    /// Leases a same-role/same-cwd idle process for a fresh task or spawns a
+    /// Leases a same-parent/same-role/same-cwd idle process for a fresh task or spawns a
     /// new one. Reserved and leased children are never considered.
     pub(super) fn lease_fresh(
         &mut self,
@@ -194,6 +195,7 @@ impl ProcessPool {
         role_name: &str,
         role: &ProcessRoleConfig,
         cwd: &Path,
+        parent_session_id: SessionId,
     ) -> Result<PooledChild> {
         let cwd_key = canonical_cwd(cwd);
         let mut index = 0;
@@ -203,7 +205,10 @@ impl ProcessPool {
                 self.purge_process(dead.id);
                 continue;
             }
-            if self.idle[index].child.role == role_name && self.idle[index].child.cwd == cwd_key {
+            if self.idle[index].child.parent_session_id == parent_session_id
+                && self.idle[index].child.role == role_name
+                && self.idle[index].child.cwd == cwd_key
+            {
                 let child = self.idle.swap_remove(index).child;
                 // Fresh leasing forfeits the previous history before ClearHistory
                 // or a concurrent follow-up can observe its old resume binding.
@@ -216,14 +221,16 @@ impl ProcessPool {
 
         let id = self.next_process_id;
         self.next_process_id = self.next_process_id.wrapping_add(1);
-        let child = ChildProcess::spawn(binary, &role.config, &role.args, cwd)
-            .with_context(|| format!("failed to spawn process agent profile {role_name}"))?;
+        let child =
+            ChildProcess::spawn(binary, &role.config, &role.args, cwd, parent_session_id)
+                .with_context(|| format!("failed to spawn process agent profile {role_name}"))?;
         self.leased.insert(id);
         Ok(PooledChild {
             id,
             child,
             cwd: cwd_key,
             role: role_name.to_owned(),
+            parent_session_id,
             used: false,
         })
     }

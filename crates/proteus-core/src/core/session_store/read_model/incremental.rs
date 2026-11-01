@@ -57,6 +57,7 @@ impl SessionStore {
                 let summary = super::super::catalog::session_summary_from_history(
                     self.session_dir().to_owned(),
                     self.session_id(),
+                    self.parent_session_id(),
                     &state.history,
                 )?;
                 if sqlite::append(self, source, previous, &cursor, &state, &summary, &suffix)
@@ -84,6 +85,7 @@ impl SessionStore {
             let summary = super::super::catalog::session_summary_from_history(
                 self.session_dir().to_owned(),
                 self.session_id(),
+                self.parent_session_id(),
                 &state.history,
             )?;
             let model = SessionReadModel {

@@ -83,17 +83,20 @@ async fn known_session_summary(
 ) -> Result<Option<AppSessionSummary>> {
     let transcript = server.transcript().await?;
     let message_count = transcript.len();
-    Ok(Some(
-        AppSessionSummary::new(
-            session_dir.to_path_buf(),
-            server.session_id(),
-            server.cwd_path().to_path_buf(),
-            message_count,
-            Some(current_time_ms()),
-            transcript_preview(&transcript),
-        )
-        .with_activity(activity),
-    ))
+    let mut summary = AppSessionSummary::new(
+        session_dir.to_path_buf(),
+        server.session_id(),
+        server.cwd_path().to_path_buf(),
+        message_count,
+        Some(current_time_ms()),
+        transcript_preview(&transcript),
+    )
+    .with_activity(activity);
+    summary.parent_session_id = server
+        .runtime
+        .session_store()
+        .and_then(|store| store.parent_session_id());
+    Ok(Some(summary))
 }
 
 fn transcript_preview(transcript: &[AppTranscriptMessage]) -> Option<String> {

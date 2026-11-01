@@ -90,6 +90,7 @@ async fn reserved_and_leased_children_are_never_idle_eviction_victims() {
         id: 1,
         child: ChildProcess::test_fixture(),
         cwd: cwd.clone(),
+        parent_session_id: session_id,
         role: "helper".to_owned(),
         used: true,
     };
@@ -110,6 +111,7 @@ async fn reserved_and_leased_children_are_never_idle_eviction_victims() {
         id: 2,
         child: ChildProcess::test_fixture(),
         cwd: cwd.clone(),
+        parent_session_id: session_id,
         role: "helper".to_owned(),
         used: true,
     };
@@ -134,6 +136,7 @@ async fn reserved_and_leased_children_are_never_idle_eviction_victims() {
         id: 3,
         child: ChildProcess::test_fixture(),
         cwd,
+        parent_session_id: session_id,
         role: "helper".to_owned(),
         used: true,
     };

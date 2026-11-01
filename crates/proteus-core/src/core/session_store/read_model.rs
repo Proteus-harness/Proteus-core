@@ -118,6 +118,7 @@ impl SessionReadModel {
         let summary = super::catalog::session_summary_from_history(
             store.session_dir().to_owned(),
             store.session_id(),
+            store.parent_session_id(),
             &state.history,
         )?;
         Ok(Self {
@@ -134,6 +135,7 @@ impl SessionReadModel {
 
     pub(crate) fn matches(&self, store: &SessionStore) -> bool {
         self.summary.session_id == store.session_id()
+            && self.summary.parent_session_id == store.parent_session_id()
             && self.usage.session_id == store.session_id()
             && self.summary.session_dir == store.session_dir()
             && store

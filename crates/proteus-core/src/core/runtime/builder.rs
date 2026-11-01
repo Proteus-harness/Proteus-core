@@ -33,6 +33,7 @@ pub struct AgentRuntimeBuilder {
     approval: Option<Arc<dyn ApprovalTransport>>,
     user_input: Option<Arc<dyn UserInputTransport>>,
     session_id: Option<SessionId>,
+    parent_session_id: Option<SessionId>,
     thread_id: Option<ThreadId>,
     resumed_session: Option<SessionStore>,
     resumed_history: Option<crate::contracts::ConversationSnapshot>,
@@ -51,6 +52,7 @@ impl AgentRuntimeBuilder {
             approval: None,
             user_input: None,
             session_id: None,
+            parent_session_id: None,
             thread_id: None,
             resumed_session: None,
             resumed_history: None,
@@ -81,6 +83,12 @@ impl AgentRuntimeBuilder {
 
     pub fn with_user_input(mut self, user_input: Arc<dyn UserInputTransport>) -> Self {
         self.user_input = Some(user_input);
+        self
+    }
+
+    /// Immutable origin for a newly created durable child session.
+    pub fn with_parent_session_id(mut self, parent_session_id: SessionId) -> Self {
+        self.parent_session_id = Some(parent_session_id);
         self
     }
 
@@ -160,6 +168,7 @@ impl AgentRuntimeBuilder {
             approval,
             user_input,
             session_id,
+            parent_session_id,
             thread_id,
             resumed_session,
             resumed_history,
@@ -167,6 +176,10 @@ impl AgentRuntimeBuilder {
             deferred_resume_validation,
         } = self;
 
+        anyhow::ensure!(
+            parent_session_id.is_none() || resumed_session.is_none(),
+            "parent session can only be set for a new session"
+        );
         let cwd = match resumed_session.as_ref() {
             Some(store) => store.workspace_path()?,
             None => cwd,
@@ -214,7 +227,9 @@ impl AgentRuntimeBuilder {
             config_path
                 .as_deref()
                 .map(config_store_root)
-                .map(|config_dir| SessionStore::new(&config_dir, &cwd, session_id))
+                .map(|config_dir| {
+                    SessionStore::new_with_parent(&config_dir, &cwd, session_id, parent_session_id)
+                })
                 .transpose()?
         };
         let config_snapshot = session_store.as_ref().map(|_| {

@@ -77,7 +77,7 @@ cargo run -- server http --port 8787
 ```
 
 `server stdio` читает JSONL-команды из stdin и пишет JSONL-события/ответы в stdout. Это транспортный слой в `crates/proteus-core/src/app_server/stdio.rs` поверх `crates/proteus-core/src/app_server.rs`, а не новая runtime-логика.
-Без флагов `server stdio` возобновляет последнюю workspace session; `--new-session` принудительно стартует свежую (так subagent process runner запускает детей), `--resume-session <dir>` возобновляет конкретную. Флаги взаимоисключающие.
+Без флагов `server stdio` возобновляет последнюю workspace session; `--new-session` принудительно стартует свежую (так subagent process runner запускает детей), `--resume-session <dir>` возобновляет конкретную. Флаги взаимоисключающие. Для дочернего процесса runner передаёт `--parent-session-id <UUID>`; этот аргумент допустим только вместе с `--new-session server stdio`. Непосредственный родитель сохраняется в необязательном `parent_session_id` файла `session.json` и в кратком каталоге сессий. Resume и ClearHistory сохраняют эту связь; повторно использовать idle-процесс можно только внутри той же родительской сессии, роли и workspace. Обычный запуск последней сессии пропускает дочерние сессии.
 Обычный one-shot и line-oriented REPL сами запускают локальный
 `server stdio`: product turns больше не строят `AgentRuntime` в CLI. Финальный
 `AgentOutput`, progress, approval и typed user-input проходят JSONL protocol,

@@ -21,6 +21,8 @@ pub struct AppBootstrap {
 pub struct AppSessionSummary {
     pub session_dir: PathBuf,
     pub session_id: SessionId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_session_id: Option<SessionId>,
     pub workspace_path: PathBuf,
     pub message_count: usize,
     pub updated_at_ms: Option<u64>,
@@ -40,6 +42,7 @@ impl AppSessionSummary {
         Self {
             session_dir,
             session_id,
+            parent_session_id: None,
             workspace_path,
             message_count,
             updated_at_ms,
@@ -150,6 +153,16 @@ mod tests {
         )
         .with_activity(AppSessionActivity::from_counts(1, 0, 0));
 
+        let ordinary = serde_json::to_value(&summary).expect("ordinary summary JSON");
+        assert!(ordinary.get("parent_session_id").is_none());
+        assert_eq!(
+            serde_json::from_value::<AppSessionSummary>(ordinary)
+                .unwrap()
+                .parent_session_id,
+            None
+        );
+        let mut summary = summary;
+        summary.parent_session_id = Some(new_session_id());
         let value = serde_json::to_value(&summary).expect("summary JSON");
         assert_eq!(value["activity"]["status"], "running");
 

@@ -117,7 +117,7 @@ fn v4_metadata_round_trips_identity() {
     std::fs::create_dir(&session_dir).expect("session dir");
     let workspace = root.path().join("workspace");
 
-    write_metadata(&session_dir, session_id, &workspace).expect("write metadata");
+    write_metadata(&session_dir, session_id, None, &workspace).expect("write metadata");
     let identity = resolve_session_identity(&session_dir).expect("identity");
 
     assert_eq!(identity.session_id, session_id);

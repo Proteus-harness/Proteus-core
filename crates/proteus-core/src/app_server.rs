@@ -407,7 +407,24 @@ impl AgentAppServer {
         cwd: PathBuf,
         config_path: Option<&Path>,
     ) -> Result<AppServerHandle> {
-        Self::launch_inner(config, cwd, config_path, None, None).await
+        Self::launch_inner(config, cwd, config_path, None, None, None).await
+    }
+
+    pub(crate) async fn launch_child(
+        config: AppConfig,
+        cwd: PathBuf,
+        config_path: Option<&Path>,
+        parent_session_id: crate::domain::SessionId,
+    ) -> Result<AppServerHandle> {
+        Self::launch_inner(
+            config,
+            cwd,
+            config_path,
+            None,
+            None,
+            Some(parent_session_id),
+        )
+        .await
     }
 
     pub async fn launch_or_resume_latest(
@@ -426,7 +443,7 @@ impl AgentAppServer {
         } else {
             None
         };
-        Self::launch_inner(config, cwd, config_path, None, resumed).await
+        Self::launch_inner(config, cwd, config_path, None, resumed, None).await
     }
 
     pub async fn launch_resumed(
@@ -440,7 +457,7 @@ impl AgentAppServer {
         })
         .await
         .map_err(|error| anyhow!("session restore task failed: {error}"))??;
-        Self::launch_inner(config, cwd, config_path, None, Some(resumed)).await
+        Self::launch_inner(config, cwd, config_path, None, Some(resumed), None).await
     }
 
     #[cfg(test)]
@@ -450,7 +467,7 @@ impl AgentAppServer {
         config_path: Option<&Path>,
         module_catalog: ModuleCatalog,
     ) -> Result<AppServerHandle> {
-        Self::launch_inner(config, cwd, config_path, Some(module_catalog), None).await
+        Self::launch_inner(config, cwd, config_path, Some(module_catalog), None, None).await
     }
 
     async fn launch_inner(
@@ -459,6 +476,7 @@ impl AgentAppServer {
         config_path: Option<&Path>,
         module_catalog: Option<ModuleCatalog>,
         resumed_session: Option<crate::core::PreparedSession>,
+        parent_session_id: Option<crate::domain::SessionId>,
     ) -> Result<AppServerHandle> {
         if let Some(session_store) = resumed_session.as_ref() {
             cwd = session_store.workspace_path()?;
@@ -493,6 +511,9 @@ impl AgentAppServer {
             .with_event_sink(event_sink)
             .with_approval(Arc::new(approval_transport))
             .with_user_input(Arc::new(user_input_transport));
+        if let Some(parent_session_id) = parent_session_id {
+            builder = builder.with_parent_session_id(parent_session_id);
+        }
         let mut refresh_stale_view = false;
         let initial_transcript = if let Some(prepared) = resumed_session {
             let (session_store, model, _, stale) = tokio::task::spawn_blocking(move || {

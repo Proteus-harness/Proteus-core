@@ -162,9 +162,15 @@ fn warn_unusable_session(session_dir: &Path, error: &anyhow::Error) {
 }
 
 fn session_summary_from_dir(session_dir: PathBuf) -> Result<AppSessionSummary> {
-    let session_id = resolve_session_identity(&session_dir)?.session_id;
+    let identity = resolve_session_identity(&session_dir)?;
+    let session_id = identity.session_id;
     let history = load_validated_history(&session_dir, session_id)?;
-    session_summary_from_history(session_dir, session_id, &history)
+    session_summary_from_history(
+        session_dir,
+        session_id,
+        identity.parent_session_id,
+        &history,
+    )
 }
 
 #[cfg(test)]
@@ -173,26 +179,35 @@ pub(super) fn session_summary_from_projection(
     session_id: crate::domain::SessionId,
     projection: &crate::core::JournalProjection,
 ) -> Result<AppSessionSummary> {
-    session_summary_from_history(session_dir, session_id, &projection.history)
+    let parent_session_id = resolve_session_identity(&session_dir)?.parent_session_id;
+    session_summary_from_history(
+        session_dir,
+        session_id,
+        parent_session_id,
+        &projection.history,
+    )
 }
 
 pub(super) fn session_summary_from_history(
     session_dir: PathBuf,
     session_id: crate::domain::SessionId,
+    parent_session_id: Option<crate::domain::SessionId>,
     history: &[CanonicalMessage],
 ) -> Result<AppSessionSummary> {
     let workspace_path = workspace_path_from_session_dir(&session_dir)?;
     let (message_count, preview) = messages_summary(history);
     let updated_at_ms = session_updated_at_ms(&journal_path(&session_dir));
 
-    Ok(AppSessionSummary::new(
+    let mut summary = AppSessionSummary::new(
         session_dir,
         session_id,
         workspace_path,
         message_count,
         updated_at_ms,
         preview,
-    ))
+    );
+    summary.parent_session_id = parent_session_id;
+    Ok(summary)
 }
 
 fn messages_summary(messages: &[CanonicalMessage]) -> (usize, Option<String>) {

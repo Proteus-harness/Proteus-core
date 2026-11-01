@@ -178,6 +178,12 @@ async fn process_agent_pool_round_trips_turn_resume_and_fresh_task() {
         first.summary
     );
     assert_eq!(first.metadata["resumable"], json!(true));
+    let summaries =
+        proteus_core::core::list_workspace_session_summaries(config_home.path(), workspace.path())
+            .unwrap();
+    assert_eq!(summaries.len(), 1);
+    let physical_child = summaries[0].session_id;
+    assert_eq!(summaries[0].parent_session_id, Some(ctx.session_id));
     let child_thread_id = first.child_thread_id.expect("child thread id");
     assert_ne!(child_thread_id, parent_thread_id);
 
@@ -212,13 +218,46 @@ async fn process_agent_pool_round_trips_turn_resume_and_fresh_task() {
     // история ребёнка сбрасывается через ClearHistory.
     let fresh = runner
         .run(
-            AgentControlRequest::new("helper", "brand new task", task),
-            ctx,
+            AgentControlRequest::new("helper", "brand new task", task.clone()),
+            ctx.clone(),
         )
         .await
         .expect("fresh child turn");
     assert_eq!(fresh.status, AgentLifecycleStatus::Completed);
     assert_ne!(fresh.child_thread_id, Some(child_thread_id));
+    let summaries =
+        proteus_core::core::list_workspace_session_summaries(config_home.path(), workspace.path())
+            .unwrap();
+    assert_eq!(
+        summaries.len(),
+        1,
+        "same-parent fresh tasks reuse the durable process session"
+    );
+    assert_eq!(summaries[0].session_id, physical_child);
+    assert_eq!(summaries[0].parent_session_id, Some(ctx.session_id));
+    // A nested caller's actual durable identity is the immediate parent.
+    let mut nested_ctx = ctx;
+    nested_ctx.session_id = physical_child;
+    runner
+        .run(
+            AgentControlRequest::new("helper", "nested task", task),
+            nested_ctx,
+        )
+        .await
+        .unwrap();
+    let summaries =
+        proteus_core::core::list_workspace_session_summaries(config_home.path(), workspace.path())
+            .unwrap();
+    assert_eq!(
+        summaries.len(),
+        2,
+        "another parent must not reuse the root's child"
+    );
+    assert!(
+        summaries
+            .iter()
+            .any(|row| row.parent_session_id == Some(physical_child))
+    );
 }
 
 /// Parent role metadata carries only the child config reference. Two real

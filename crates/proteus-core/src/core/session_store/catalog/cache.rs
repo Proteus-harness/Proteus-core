@@ -133,8 +133,10 @@ fn load_with_status(
     let valid = |summary: &AppSessionSummary| {
         summary.session_dir == dir
             && summary.workspace_path == workspace
-            && super::resolve_session_identity(&dir)
-                .is_ok_and(|identity| summary.session_id == identity.session_id)
+            && super::resolve_session_identity(&dir).is_ok_and(|identity| {
+                summary.session_id == identity.session_id
+                    && summary.parent_session_id == identity.parent_session_id
+            })
             && summary.activity.is_none()
     };
     let before = SourceFingerprint::read(&dir, MAX_DISK_BLOBS);

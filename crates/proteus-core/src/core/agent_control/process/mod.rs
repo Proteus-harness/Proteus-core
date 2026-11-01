@@ -225,11 +225,18 @@ impl RunnerInner {
         role: &RoleState,
         resume: Option<&ResumeReservation>,
         cwd: &std::path::Path,
+        parent_session_id: crate::domain::SessionId,
     ) -> Result<PooledChild> {
         let mut pool = self.lock_pool()?;
         match resume {
             Some(reservation) => pool.lease_reserved(reservation),
-            None => pool.lease_fresh(&self.binary, role_name, &role.config, cwd),
+            None => pool.lease_fresh(
+                &self.binary,
+                role_name,
+                &role.config,
+                cwd,
+                parent_session_id,
+            ),
         }
     }
 
@@ -410,24 +417,29 @@ impl RunnerInner {
             role: profile.name.clone(),
         };
 
-        let mut leased =
-            match self.lease_process(&profile.name, role, resume.as_ref(), &request.task.cwd) {
-                Ok(leased) => leased,
-                Err(error) => {
-                    history.expire();
-                    let _ = mailbox.close_and_discard();
-                    drop(permit);
-                    let _ = ctx
-                        .emit(Event::SubagentFinished {
-                            role: profile.name.clone(),
-                            status: "errored".into(),
-                            iterations: 0,
-                            child_thread_id,
-                        })
-                        .await;
-                    return Err(error);
-                }
-            };
+        let mut leased = match self.lease_process(
+            &profile.name,
+            role,
+            resume.as_ref(),
+            &request.task.cwd,
+            ctx.session_id,
+        ) {
+            Ok(leased) => leased,
+            Err(error) => {
+                history.expire();
+                let _ = mailbox.close_and_discard();
+                drop(permit);
+                let _ = ctx
+                    .emit(Event::SubagentFinished {
+                        role: profile.name.clone(),
+                        status: "errored".into(),
+                        iterations: 0,
+                        child_thread_id,
+                    })
+                    .await;
+                return Err(error);
+            }
+        };
 
         let body_result = self
             .run_leased_turn(

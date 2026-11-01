@@ -33,6 +33,7 @@ impl ChildProcess {
         config_ref: &str,
         extra_args: &[String],
         cwd: &Path,
+        parent_session_id: crate::domain::SessionId,
     ) -> Result<Self> {
         let mut command = Command::new(binary);
         command
@@ -41,6 +42,8 @@ impl ChildProcess {
             .arg("--cwd")
             .arg(cwd)
             .arg("--new-session")
+            .arg("--parent-session-id")
+            .arg(parent_session_id.to_string())
             .args(extra_args)
             .arg("server")
             .arg("stdio")

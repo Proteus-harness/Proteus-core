@@ -318,3 +318,101 @@ async fn prepared_latest_returns_none_for_missing_or_empty_workspace() {
         0
     );
 }
+
+#[tokio::test]
+async fn durable_parent_survives_resume_and_catalog_caches_without_becoming_default() {
+    let root = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    let main = saved_store(root.path(), workspace.path(), "main").await;
+    let child = SessionStore::new_with_parent(
+        root.path(),
+        workspace.path(),
+        new_session_id(),
+        Some(main.session_id()),
+    )
+    .unwrap();
+    assert!(!child.session_dir().exists(), "creation remains lazy");
+    child
+        .append_history(
+            new_thread_id(),
+            None,
+            &[CanonicalMessage::text(MessageRole::User, "child")],
+        )
+        .await
+        .unwrap();
+    let nested = SessionStore::new_with_parent(
+        root.path(),
+        workspace.path(),
+        new_session_id(),
+        Some(child.session_id()),
+    )
+    .unwrap();
+    nested
+        .append_history(
+            new_thread_id(),
+            None,
+            &[CanonicalMessage::text(MessageRole::User, "nested")],
+        )
+        .await
+        .unwrap();
+    let bytes = std::fs::read(child.session_dir().join(SESSION_METADATA_FILE)).unwrap();
+    let resumed = SessionStore::open(child.session_dir().to_owned()).unwrap();
+    assert_eq!(resumed.parent_session_id(), Some(main.session_id()));
+    resumed
+        .replace_history(new_thread_id(), None, &[], None)
+        .await
+        .unwrap();
+    assert_eq!(
+        std::fs::read(child.session_dir().join(SESSION_METADATA_FILE)).unwrap(),
+        bytes
+    );
+    assert!(
+        SessionStore::new_with_parent(
+            root.path(),
+            workspace.path(),
+            child.session_id(),
+            Some(nested.session_id())
+        )
+        .is_err()
+    );
+    resumed
+        .append_history(
+            new_thread_id(),
+            None,
+            &[CanonicalMessage::text(MessageRole::User, "new child task")],
+        )
+        .await
+        .unwrap();
+    for _ in 0..2 {
+        let (opened, view, _, _) = PreparedSession::from_dir(child.session_dir().to_owned())
+            .unwrap()
+            .into_display_view(|_| Ok(Vec::new()))
+            .unwrap();
+        assert_eq!(opened.parent_session_id(), Some(main.session_id()));
+        assert_eq!(view.summary.parent_session_id, Some(main.session_id()));
+        let summaries = list_workspace_session_summaries(root.path(), workspace.path()).unwrap();
+        assert_eq!(
+            summaries
+                .iter()
+                .find(|row| row.session_id == child.session_id())
+                .unwrap()
+                .parent_session_id,
+            Some(main.session_id())
+        );
+        assert_eq!(
+            summaries
+                .iter()
+                .find(|row| row.session_id == nested.session_id())
+                .unwrap()
+                .parent_session_id,
+            Some(child.session_id())
+        );
+        assert_eq!(
+            prepare_latest_workspace_session(root.path(), workspace.path())
+                .unwrap()
+                .unwrap()
+                .session_dir(),
+            main.session_dir()
+        );
+    }
+}

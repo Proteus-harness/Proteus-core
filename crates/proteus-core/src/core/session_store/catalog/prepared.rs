@@ -49,6 +49,7 @@ impl PreparedSession {
                     PreparedHistory::Validated(read) => super::session_summary_from_history(
                         prepared.session_dir().to_owned(),
                         prepared.store.session_id(),
+                        prepared.store.parent_session_id(),
                         read.history(),
                     )?,
                     PreparedHistory::Cached(model) => model.summary.clone(),
@@ -146,6 +147,16 @@ pub(crate) fn prepare_latest_workspace_session(
         .collect::<Vec<_>>();
     candidates.sort_by(|left, right| right.cmp(left));
     for (_, session_dir) in candidates {
+        // Inspect only identity metadata before preparing a history/read model.
+        // Subagent activity must not become the default main conversation.
+        match super::resolve_session_identity(&session_dir) {
+            Ok(identity) if identity.parent_session_id.is_some() => continue,
+            Ok(_) => {}
+            Err(error) => {
+                warn_unusable_session(&session_dir, &error);
+                continue;
+            }
+        }
         match PreparedSession::from_dir(session_dir.clone()) {
             // A previously empty view may have been populated by another client.
             // Display it provisionally and let the background refresh reconcile it.

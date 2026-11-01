@@ -23,6 +23,7 @@ pub(super) enum SessionDirectoryKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct ResolvedSessionIdentity {
     pub session_id: SessionId,
+    pub parent_session_id: Option<SessionId>,
     pub directory_kind: SessionDirectoryKind,
 }
 
@@ -31,6 +32,8 @@ pub(super) struct ResolvedSessionIdentity {
 struct SessionMetadata {
     schema_version: u32,
     session_id: SessionId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    parent_session_id: Option<SessionId>,
     workspace_path: PathBuf,
     journal_schema_version: u32,
 }
@@ -100,6 +103,7 @@ pub(super) fn resolve_session_identity(session_dir: &Path) -> Result<ResolvedSes
     }
     Ok(ResolvedSessionIdentity {
         session_id: metadata.session_id,
+        parent_session_id: metadata.parent_session_id,
         directory_kind: SessionDirectoryKind::ShortNumeric,
     })
 }
@@ -108,6 +112,7 @@ pub(super) fn ensure_writable_identity(
     session_dir: &Path,
     session_id: SessionId,
     directory_kind: SessionDirectoryKind,
+    parent_session_id: Option<SessionId>,
     workspace_path: &Path,
     directory_was_created: bool,
 ) -> Result<()> {
@@ -125,6 +130,10 @@ pub(super) fn ensure_writable_identity(
                             session_id
                         );
                     }
+                    anyhow::ensure!(
+                        metadata.parent_session_id == parent_session_id,
+                        "session parent identity changed"
+                    );
                     Ok(())
                 }
                 Err(error) if error.kind() == ErrorKind::NotFound => {
@@ -134,7 +143,7 @@ pub(super) fn ensure_writable_identity(
                             session_dir.display()
                         );
                     }
-                    write_metadata(session_dir, session_id, workspace_path)
+                    write_metadata(session_dir, session_id, parent_session_id, workspace_path)
                 }
                 Err(error) => Err(error)
                     .with_context(|| format!("failed to read {}", metadata_path.display())),
@@ -191,6 +200,10 @@ fn parse_metadata(path: &Path, content: &str) -> Result<SessionMetadata> {
     }
     let metadata: SessionMetadata = serde_json::from_value(value)
         .with_context(|| format!("failed to parse {}", path.display()))?;
+    anyhow::ensure!(
+        metadata.parent_session_id != Some(metadata.session_id),
+        "session cannot be its own parent"
+    );
     if metadata.journal_schema_version != JOURNAL_SCHEMA_VERSION {
         bail!(
             "unsupported journal_schema_version {} in {}; expected {}",
@@ -212,11 +225,17 @@ fn directory_has_entries(session_dir: &Path) -> Result<bool> {
         .map_err(Into::into)
 }
 
-fn write_metadata(session_dir: &Path, session_id: SessionId, workspace_path: &Path) -> Result<()> {
+fn write_metadata(
+    session_dir: &Path,
+    session_id: SessionId,
+    parent_session_id: Option<SessionId>,
+    workspace_path: &Path,
+) -> Result<()> {
     let path = metadata_path(session_dir);
     let metadata = SessionMetadata {
         schema_version: SESSION_SCHEMA_VERSION,
         session_id,
+        parent_session_id,
         workspace_path: workspace_path.to_path_buf(),
         journal_schema_version: JOURNAL_SCHEMA_VERSION,
     };

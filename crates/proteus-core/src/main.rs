@@ -8,7 +8,7 @@ use anyhow::{Result, bail};
 use clap::{Parser, ValueEnum};
 use proteus_contracts::{
     contracts::ToolRegistry,
-    domain::{AgentOutput, ModuleManifest, PermissionMode, ToolSafety},
+    domain::{AgentOutput, ModuleManifest, PermissionMode, SessionId, ToolSafety},
 };
 use proteus_core::app_server::{http::run_http_app_server, stdio::run_stdio_app_server};
 use proteus_core::core::{
@@ -71,6 +71,9 @@ struct Cli {
     /// session (используется subagent process runner-ом для детей).
     #[arg(long)]
     new_session: bool,
+    /// Durable immediate parent; only valid for a fresh process subagent.
+    #[arg(long, requires = "new_session", conflicts_with = "resume_session")]
+    parent_session_id: Option<SessionId>,
     #[arg(short, long)]
     interactive: bool,
     #[arg(long)]
@@ -100,6 +103,15 @@ impl From<CliPermissionMode> for PermissionMode {
     }
 }
 
+fn validate_parent_session(cli: &Cli, command: &CliCommand) -> Result<()> {
+    anyhow::ensure!(
+        cli.parent_session_id.is_none()
+            || (matches!(command, CliCommand::ServerStdio) && !cli.interactive),
+        "--parent-session-id is only valid with --new-session server stdio"
+    );
+    Ok(())
+}
+
 fn main() -> Result<()> {
     process_memory::initialize();
     run_cli()
@@ -109,6 +121,7 @@ fn main() -> Result<()> {
 async fn run_cli() -> Result<()> {
     let cli = Cli::parse();
     let command = parse_cli_command(&cli.task)?;
+    validate_parent_session(&cli, &command)?;
     if let CliCommand::Init(profile) = command {
         return run_init(profile, cli.config.as_deref());
     }
@@ -193,6 +206,7 @@ async fn run_cli() -> Result<()> {
             config_path,
             cli.resume_session,
             cli.new_session,
+            cli.parent_session_id,
         )
         .await;
     }

@@ -237,7 +237,9 @@ impl SessionStore {
                 );
             }
             let identity = resolve_session_identity(&self.session_dir)?;
-            if identity.session_id != self.session_id {
+            if identity.session_id != self.session_id
+                || identity.parent_session_id != self.parent_session_id
+            {
                 anyhow::bail!(
                     "session identity changed: expected {}, found {}",
                     self.session_id,
@@ -250,6 +252,7 @@ impl SessionStore {
             &self.session_dir,
             self.session_id,
             self.directory_kind,
+            self.parent_session_id,
             &self.workspace_path()?,
             true,
         )

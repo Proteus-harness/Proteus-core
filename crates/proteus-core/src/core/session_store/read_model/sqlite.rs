@@ -118,6 +118,7 @@ pub(super) fn context_summary(
 
 fn matches(store: &SessionStore, header: &Header) -> bool {
     header.summary.session_id == store.session_id()
+        && header.summary.parent_session_id == store.parent_session_id()
         && header.summary.session_dir == store.session_dir()
         && header.summary.message_count == header.conversation_len
         && store

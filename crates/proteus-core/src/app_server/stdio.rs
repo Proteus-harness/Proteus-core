@@ -21,15 +21,25 @@ pub async fn run_stdio_app_server(
     config_path: Option<PathBuf>,
     resume_session_dir: Option<PathBuf>,
     fresh_session: bool,
+    parent_session_id: Option<crate::domain::SessionId>,
 ) -> Result<()> {
-    let server = super::startup::launch_selected(
-        config,
-        cwd,
-        config_path.as_deref(),
-        resume_session_dir,
-        fresh_session,
-    )
-    .await?;
+    let server = if let Some(parent_session_id) = parent_session_id {
+        anyhow::ensure!(
+            fresh_session && resume_session_dir.is_none(),
+            "parent session requires a fresh stdio session"
+        );
+        super::AgentAppServer::launch_child(config, cwd, config_path.as_deref(), parent_session_id)
+            .await?
+    } else {
+        super::startup::launch_selected(
+            config,
+            cwd,
+            config_path.as_deref(),
+            resume_session_dir,
+            fresh_session,
+        )
+        .await?
+    };
     let (output_tx, mut output_rx) = mpsc::channel::<StdioOutput>(256);
 
     let mut events = server.subscribe_session();

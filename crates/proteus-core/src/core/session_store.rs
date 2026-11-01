@@ -55,6 +55,7 @@ pub use workspace_dir::{decode_workspace_path, encode_workspace_path};
 pub struct SessionStore {
     session_dir: PathBuf,
     session_id: SessionId,
+    parent_session_id: Option<SessionId>,
     directory_kind: SessionDirectoryKind,
     writer: Arc<Mutex<JournalWriterState>>,
     // Permission originates in the constructor's single initial observation.
@@ -67,6 +68,19 @@ pub struct SessionStore {
 
 impl SessionStore {
     pub fn new(config_dir: &Path, cwd: &Path, session_id: SessionId) -> Result<Self> {
+        Self::new_with_parent(config_dir, cwd, session_id, None)
+    }
+
+    pub fn new_with_parent(
+        config_dir: &Path,
+        cwd: &Path,
+        session_id: SessionId,
+        parent_session_id: Option<SessionId>,
+    ) -> Result<Self> {
+        anyhow::ensure!(
+            parent_session_id != Some(session_id),
+            "session cannot be its own parent"
+        );
         let workspace = encode_workspace_path(cwd)?;
         let session_dir = canonicalize_unmaterialized_path(
             &config_dir
@@ -75,10 +89,17 @@ impl SessionStore {
                 .join(short_session_directory_name(session_id)),
         )?;
         let may_create = validate_new_session_target(&session_dir, session_id)?;
+        if !may_create {
+            anyhow::ensure!(
+                resolve_session_identity(&session_dir)?.parent_session_id == parent_session_id,
+                "session parent identity changed"
+            );
+        }
         let writer = writer_for_session_dir(&session_dir)?;
         Ok(Self {
             session_dir,
             session_id,
+            parent_session_id,
             directory_kind: SessionDirectoryKind::ShortNumeric,
             writer,
             may_create: Arc::new(std::sync::atomic::AtomicBool::new(may_create)),
@@ -96,6 +117,7 @@ impl SessionStore {
         Ok(Self {
             session_dir,
             session_id: identity.session_id,
+            parent_session_id: identity.parent_session_id,
             directory_kind: identity.directory_kind,
             writer,
             may_create: Arc::new(std::sync::atomic::AtomicBool::new(false)),
@@ -111,6 +133,10 @@ impl SessionStore {
 
     pub fn session_id(&self) -> SessionId {
         self.session_id
+    }
+
+    pub fn parent_session_id(&self) -> Option<SessionId> {
+        self.parent_session_id
     }
 
     pub fn workspace_path(&self) -> Result<PathBuf> {

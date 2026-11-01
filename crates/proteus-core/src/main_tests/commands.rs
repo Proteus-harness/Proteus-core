@@ -296,3 +296,53 @@ fn init_command_defaults_to_coding_profile() {
     assert!(parse_init_command(&args(&["init", "bad"])).is_err());
     assert_eq!(parse_init_command(&args(&["doctor"])).unwrap(), None);
 }
+
+#[test]
+fn parent_session_flag_is_restricted_to_fresh_stdio_children() {
+    let parent = proteus_contracts::domain::new_session_id().to_string();
+    let cli = Cli::try_parse_from([
+        "proteus",
+        "--parent-session-id",
+        &parent,
+        "--new-session",
+        "server",
+        "stdio",
+    ])
+    .unwrap();
+    assert_eq!(cli.parent_session_id.unwrap().to_string(), parent);
+    validate_parent_session(&cli, &parse_cli_command(&cli.task).unwrap()).unwrap();
+    for tail in [vec!["server", "http"], vec!["server", "acp"], vec!["task"]] {
+        let mut args = vec!["proteus", "--parent-session-id", &parent, "--new-session"];
+        args.extend(tail);
+        let cli = Cli::try_parse_from(args).unwrap();
+        assert!(validate_parent_session(&cli, &parse_cli_command(&cli.task).unwrap()).is_err());
+    }
+    assert!(
+        Cli::try_parse_from(["proteus", "--parent-session-id", &parent, "server", "stdio"])
+            .is_err()
+    );
+    assert!(
+        Cli::try_parse_from([
+            "proteus",
+            "--parent-session-id",
+            "invalid",
+            "--new-session",
+            "server",
+            "stdio"
+        ])
+        .is_err()
+    );
+    assert!(
+        Cli::try_parse_from([
+            "proteus",
+            "--parent-session-id",
+            &parent,
+            "--new-session",
+            "--resume-session",
+            "/tmp/session",
+            "server",
+            "stdio"
+        ])
+        .is_err()
+    );
+}
