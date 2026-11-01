@@ -371,14 +371,22 @@ async fn lifecycle_uses_the_explicit_source_workspace_and_keeps_deletion_in_the_
         )
         .await
         .unwrap();
-    command_value(
-        post_at(
-            &state,
-            "/resume",
-            json!({"session_dir":stored_b.session_dir()}),
-        )
-        .await,
-    );
+    // Restore B under launch workspace A before requesting any session catalog
+    // or config metadata. Resource extensions need its exact workspace now.
+    for _ in 0..2 {
+        let resumed = command_value(
+            post_at(
+                &state,
+                "/resume",
+                json!({"session_dir":stored_b.session_dir()}),
+            )
+            .await,
+        );
+        let opened: proteus_contracts::app_protocol::http::SessionOpened =
+            serde_json::from_value(resumed).unwrap();
+        assert_eq!(opened.session_dir, stored_b.session_dir());
+        assert_eq!(opened.workspace_path, workspace_b.path());
+    }
     command_value(
         post_at(
             &state,
@@ -394,6 +402,10 @@ async fn lifecycle_uses_the_explicit_source_workspace_and_keeps_deletion_in_the_
             json!({"source_session_dir":stored_b.session_dir()}),
         )
         .await,
+    );
+    assert_eq!(
+        created["workspace_path"],
+        workspace_b.path().to_str().unwrap()
     );
     let created_dir = PathBuf::from(created["session_dir"].as_str().unwrap());
     let created_server = state.server_for_session_dir(&created_dir).await.unwrap();
@@ -414,6 +426,13 @@ async fn lifecycle_uses_the_explicit_source_workspace_and_keeps_deletion_in_the_
             json!({"source_session_dir":stored_b.session_dir(),"workspace":elsewhere.path()}),
         )
         .await,
+    );
+    assert_eq!(
+        opened["workspace_path"],
+        std::fs::canonicalize(elsewhere.path())
+            .unwrap()
+            .to_str()
+            .unwrap()
     );
     let opened_dir = PathBuf::from(opened["session_dir"].as_str().unwrap());
     let opened_server = state.server_for_session_dir(&opened_dir).await.unwrap();

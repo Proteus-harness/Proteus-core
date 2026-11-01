@@ -1043,10 +1043,10 @@ store; stdio остаётся привязанным к одной session пр�
   профиля добавляет заменяемое состояние в историю; настройки отображения
   хранятся в клиенте и не имеют backend endpoint;
 - `POST /resume` - обеспечивает наличие live runtime указанного в body
-  `session_dir`, возвращая `SessionOpened {session_dir, activity}`. Не меняет
+  `session_dir`, возвращая `SessionOpened {session_dir, workspace_path, activity}`. Не меняет
   выбор других клиентов и не отменяет running turns;
 - `POST /new-session` - регистрирует новый пустой runtime и возвращает его
-  `SessionOpened {session_dir, activity}`. Optional `source_session_dir` в body
+  `SessionOpened {session_dir, workspace_path, activity}`. Optional `source_session_dir` в body
   явно выбирает live session, от которой берутся workspace и конфигурация;
   приложение передаёт свой выбранный чат. Действующий permission mode
   наследуется как session override и не меняет опубликованный профиль
@@ -1063,7 +1063,10 @@ store; stdio остаётся привязанным к одной session пр�
 `/health`, `/bootstrap`, `/sessions`, `/new-session` и `/shutdown` относятся
 к серверу. `/resume` и `/delete-session` адресуют session через JSON body.
 
-Ответ `SessionOpened` не запрашивает каталог моделей. Для первого отображения
+Ответ `SessionOpened` содержит точный workspace уже открытой сессии: клиент
+может передать его файловым панелям и терминалу до загрузки каталога сессий
+или конфигурации. Путь берётся из live runtime без дополнительных чтений
+истории. Ответ не запрашивает каталог моделей. Для первого отображения
 клиент читает `/config/local`, затем дополняет его результатом `/config`, который
 может ожидать удалённый каталог. Локальный снимок не означает, что discovery
 завершён: его варианты ограничены конфигурацией. При смене настроек клиент

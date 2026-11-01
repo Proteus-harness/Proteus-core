@@ -164,6 +164,7 @@ async fn session_opened(state: &HttpAppState, server: &AppServerHandle) -> Resul
         .ok_or_else(|| anyhow!("live session has no session directory"))?;
     Ok(serde_json::to_value(SessionOpened {
         session_dir,
+        workspace_path: server.cwd_path().to_path_buf(),
         activity: state.activity_for_server(server).await,
     })?)
 }

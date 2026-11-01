@@ -128,6 +128,8 @@ pub struct NewSessionRequest {
 #[serde(deny_unknown_fields)]
 pub struct SessionOpened {
     pub session_dir: PathBuf,
+    /// Exact live workspace, available before any catalog or model discovery.
+    pub workspace_path: PathBuf,
     pub activity: super::AppSessionActivity,
 }
 
