@@ -453,10 +453,8 @@ fn update_tool(
 ) {
     tool.status = status.to_owned();
     if let Some(result) = result {
-        tool.result = Some(truncate_utf8(
-            result.to_owned(),
-            MAX_SUBAGENT_TOOL_RESULT_BYTES,
-        ));
+        // Copy the retained prefix, without keeping a full result's allocation.
+        tool.result = Some(truncate_utf8(result, MAX_SUBAGENT_TOOL_RESULT_BYTES).to_owned());
     }
     if let Some(metadata) = metadata {
         tool.metadata = if compact {
@@ -467,7 +465,7 @@ fn update_tool(
     }
 }
 
-fn truncate_utf8(mut value: String, max_bytes: usize) -> String {
+fn truncate_utf8(value: &str, max_bytes: usize) -> &str {
     if value.len() <= max_bytes {
         return value;
     }
@@ -475,8 +473,7 @@ fn truncate_utf8(mut value: String, max_bytes: usize) -> String {
     while !value.is_char_boundary(end) {
         end -= 1;
     }
-    value.truncate(end);
-    value
+    &value[..end]
 }
 
 fn compact_json(value: &serde_json::Value, max_bytes: usize) -> serde_json::Value {
@@ -486,7 +483,7 @@ fn compact_json(value: &serde_json::Value, max_bytes: usize) -> serde_json::Valu
     }
     serde_json::json!({
         "truncated": true,
-        "preview": truncate_utf8(encoded, max_bytes),
+        "preview": truncate_utf8(&encoded, max_bytes),
     })
 }
 

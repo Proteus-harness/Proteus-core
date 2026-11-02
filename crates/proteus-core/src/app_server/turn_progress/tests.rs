@@ -209,6 +209,37 @@ fn snapshots_subagent_card_and_nested_child_tools() {
     assert_eq!(subagent.tools[0].call_id, "call-child");
     assert_eq!(subagent.tools[0].status, "done");
     assert_eq!(subagent.tools[0].result.as_deref(), Some("contents"));
+
+    let long_result = "a".repeat(MAX_SUBAGENT_TOOL_RESULT_BYTES - 1) + &"я".repeat(100_000);
+    progress.apply(&envelope(
+        child_thread_id,
+        Event::ToolFinished {
+            result: ToolResult::ok("call-child".to_owned(), long_result.clone()),
+        },
+    ));
+    // Inspect the retained string, not snapshot()'s length-sized clone.
+    let retained = progress.messages[0].subagent.as_ref().unwrap().tools[0]
+        .result
+        .as_ref()
+        .unwrap();
+    assert_eq!(retained, &long_result[..MAX_SUBAGENT_TOOL_RESULT_BYTES - 1]);
+    assert!(retained.capacity() < long_result.len());
+}
+
+#[test]
+fn preview_prefix_respects_utf8_byte_boundaries() {
+    for (text, limit, expected) in [
+        ("", 0, ""),
+        ("я😀z", 0, ""),
+        ("я😀z", 1, ""),
+        ("я😀z", 2, "я"),
+        ("я😀z", 5, "я"),
+        ("я😀z", 6, "я😀"),
+        ("я😀z", 7, "я😀z"),
+        ("я😀z", 8, "я😀z"),
+    ] {
+        assert_eq!(truncate_utf8(text, limit), expected);
+    }
 }
 
 #[test]
