@@ -73,8 +73,9 @@ python3 examples/performance/multi-agent/run.py \
 Для Desktop обычная поставка собирается командой
 `python3 scripts/portable.py --no-archive` из Proteus-desktop. Подготовка
 изолированного дисплея и точный native CLI описаны в native-history README.
-`--fast` использует другой профиль клиента: результаты `release` и `fast`
-сравнивайте раздельно. Не запускайте сборку параллельно с runtime-замерами.
+Используйте обычный release-профиль; `--fast` удалён. Выбирайте только
+затронутые компоненты по BUILDING.md клиента. Не запускайте сборку параллельно
+с runtime-замерами.
 Время no-op Cargo, пересборки после изменения и полной сборки указывайте
 раздельно; сохраняйте incremental caches и фиксируйте профиль, число jobs,
 wall/CPU time и максимальный RSS процесса сборки.

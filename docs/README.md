@@ -31,6 +31,7 @@
 | Разобрать историю, события и повтор выполнения | [Работа во время выполнения](guides/runtime-and-events.md), [данные хода агента](architecture/canonical-turn-data.md) |
 | Разобрать инструменты и запросы разрешений | [Инструменты и разрешения](guides/security-and-policy.md) |
 | Проверить изменение | [Проверки](development/testing.md) |
+| Ограничить расход памяти и проверить оптимизацию | [Расход ОЗУ](development/memory.md) |
 | Сверить поведение с Codex | [База сравнения](development/codex-baseline.md) |
 | Найти причину сбоя при запуске | [Диагностика](guides/inspect.md), [ручная проверка](development/dogfood-gate.md) |
 

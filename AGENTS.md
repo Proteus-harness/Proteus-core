@@ -137,6 +137,10 @@ rendering, UI state, tests и provider/module-specific детали.
 
 ## Стоимость Runtime
 
+Для новых и изменяемых затратных путей применяйте общий стандарт
+[расхода ОЗУ](docs/development/memory.md): ownership/lifetime, совокупные бюджеты,
+ленивая подготовка, очереди и сопоставимые замеры.
+
 Следуйте [правилам стоимости runtime](docs/development/testing.md#стоимость-runtime-и-evidence):
 
 - Большие owned данные передавайте move/borrow; snapshot/clone требует
