@@ -39,7 +39,6 @@ pub(super) async fn execute_new_session(
     workspace: Option<PathBuf>,
 ) -> StdioOutput {
     let result = async {
-        let _lifecycle = state.session_lifecycle.lock().await;
         let workspace = workspace
             .map(|path| {
                 let path = std::fs::canonicalize(&path)
@@ -90,9 +89,13 @@ pub(super) async fn execute_delete_session(
     id: Option<String>,
     session_dir: PathBuf,
 ) -> StdioOutput {
-    let result = async {
-        let _lifecycle = state.session_lifecycle.lock().await;
+    // The admitted operation owns settlement/removal. Dropping its HTTP waiter
+    // must not leave a closed runtime registered or release the path gate while
+    // a blocking filesystem worker is still removing storage.
+    let state = state.clone();
+    let result = tokio::spawn(async move {
         let session_dir = canonicalize_session_dir_path(session_dir)?;
+        let _lifecycle = state.lock_session_lifecycle(&session_dir).await;
         let config_path = state
             .launch
             .config_path
@@ -135,14 +138,16 @@ pub(super) async fn execute_delete_session(
                 .await?
         };
         Ok(Some(json!({ "deleted": deleted || was_live })))
-    }
-    .await;
+    })
+    .await
+    .context("session deletion task failed")
+    .and_then(|result| result);
     command_response(id, result)
 }
 
 async fn resume_session(state: &HttpAppState, session_dir: PathBuf) -> Result<Value> {
-    let _lifecycle = state.session_lifecycle.lock().await;
     let session_dir = canonicalize_session_dir_path(session_dir)?;
+    let _lifecycle = state.lock_session_lifecycle(&session_dir).await;
     if let Some(existing) = state.server_for_session_dir(&session_dir).await {
         return session_opened(state, &existing).await;
     }

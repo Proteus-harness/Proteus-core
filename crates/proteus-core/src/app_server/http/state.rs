@@ -1,10 +1,10 @@
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
-    sync::{Arc, Mutex as StdMutex},
+    sync::{Arc, Mutex as StdMutex, Weak},
 };
 
-use tokio::sync::{Mutex, broadcast};
+use tokio::sync::{Mutex, OwnedMutexGuard, broadcast};
 
 use crate::core::AppConfig;
 
@@ -21,9 +21,9 @@ pub(super) struct HttpLaunchContext {
 #[derive(Clone)]
 pub(super) struct HttpAppState {
     pub(super) launch: Arc<HttpLaunchContext>,
-    // Serialize registry lifecycle changes, so concurrent resume cannot create
-    // two runtimes writing the same session journal.
-    pub(super) session_lifecycle: Arc<Mutex<()>>,
+    // Only operations on the same session must wait for terminal settlement.
+    // Owners/waiters keep gates alive; the registry keeps only weak references.
+    session_lifecycle: Arc<StdMutex<HashMap<PathBuf, Weak<Mutex<()>>>>>,
     pub(super) session_servers: Arc<Mutex<HashMap<PathBuf, AppServerHandle>>>,
     activity_events: broadcast::Sender<AppServerEvent>,
     watched_sessions: Arc<StdMutex<HashSet<PathBuf>>>,
@@ -51,7 +51,7 @@ impl HttpAppState {
         let (activity_events, _) = broadcast::channel(1024);
         let state = Self {
             launch: Arc::new(launch),
-            session_lifecycle: Arc::new(Mutex::new(())),
+            session_lifecycle: Arc::default(),
             session_servers: Arc::new(Mutex::new(session_servers)),
             activity_events,
             watched_sessions: Arc::new(StdMutex::new(HashSet::new())),
@@ -64,6 +64,28 @@ impl HttpAppState {
 
     pub(super) fn subscribe_activity(&self) -> broadcast::Receiver<AppServerEvent> {
         self.activity_events.subscribe()
+    }
+
+    /// `session_dir` is the canonical identity, including unmaterialized paths.
+    /// A delete keeps this gate through settlement and storage removal, so a
+    /// resume cannot reopen its retiring generation. Other sessions stay usable.
+    pub(super) async fn lock_session_lifecycle(&self, session_dir: &Path) -> OwnedMutexGuard<()> {
+        let gate = {
+            let mut gates = self
+                .session_lifecycle
+                .lock()
+                .expect("session lifecycle lock");
+            gates.retain(|_, gate| gate.strong_count() > 0);
+            match gates.get(session_dir).and_then(Weak::upgrade) {
+                Some(gate) => gate,
+                None => {
+                    let gate = Arc::new(Mutex::new(()));
+                    gates.insert(session_dir.to_path_buf(), Arc::downgrade(&gate));
+                    gate
+                }
+            }
+        };
+        gate.lock_owned().await
     }
 
     pub(super) async fn remember_server(&self, server: AppServerHandle) {

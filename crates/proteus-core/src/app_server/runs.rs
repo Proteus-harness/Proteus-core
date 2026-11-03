@@ -264,6 +264,16 @@ impl AppServerHandle {
 #[cfg(test)]
 impl AppServerHandle {
     pub(super) async fn register_test_run(&self, id: &str, cancellation: CancellationToken) {
+        self.register_test_run_until(id, cancellation, watch::channel(true).1)
+            .await;
+    }
+
+    pub(super) async fn register_test_run_until(
+        &self,
+        id: &str,
+        cancellation: CancellationToken,
+        settled: watch::Receiver<bool>,
+    ) {
         let mut runs = self.runs.lock().await;
         runs.active = Some(RunningRun {
             info: AppRun {
@@ -273,7 +283,7 @@ impl AppServerHandle {
                 error: None,
             },
             cancellation,
-            settled: watch::channel(true).1,
+            settled,
         });
         runs.publish(self);
     }
