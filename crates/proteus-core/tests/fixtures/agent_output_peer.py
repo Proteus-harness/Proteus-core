@@ -5,6 +5,7 @@ import os
 import pathlib
 import sys
 import time
+import uuid
 
 os.chdir(sys.argv[sys.argv.index("--cwd") + 1])
 
@@ -16,6 +17,15 @@ def emit(value):
 def result(request_id, text):
     emit({"type": "response", "id": request_id, "ok": True,
           "output": {"text": text, "metadata": None}, "error": None})
+
+
+identity = str(uuid.uuid4())
+emit({"type": "event", "event": {"type": "runtime", "envelope": {
+    "schema_version": 2, "event_id": str(uuid.uuid4()),
+    "session_id": identity, "thread_id": identity, "turn_id": None,
+    "seq": 1, "timestamp_ms": 0, "event": {"SessionStarted": {
+        "session_id": identity, "cwd": str(pathlib.Path.cwd()), "model": None,
+        "session_dir": str(pathlib.Path.cwd() / identity)}}}}})
 
 
 for line in sys.stdin:

@@ -165,6 +165,7 @@ impl Tool for FollowupTaskTool {
                             "agent_control_target": idle.path,
                             "task_id": idle.task_id,
                             "agent_control_message": message,
+                            "source_call_id": call.id,
                         }));
                 let handle = match current_host.spawn_agent(request).await {
                     Ok(handle) => handle,

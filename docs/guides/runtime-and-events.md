@@ -77,7 +77,7 @@ cargo run -- server http --port 8787
 ```
 
 `server stdio` читает JSONL-команды из stdin и пишет JSONL-события/ответы в stdout. Это транспортный слой в `crates/proteus-core/src/app_server/stdio.rs` поверх `crates/proteus-core/src/app_server.rs`, а не новая runtime-логика.
-Без флагов `server stdio` возобновляет последнюю workspace session; `--new-session` принудительно стартует свежую (так subagent process runner запускает детей), `--resume-session <dir>` возобновляет конкретную. Флаги взаимоисключающие. Для дочернего процесса runner передаёт `--parent-session-id <UUID>`; этот аргумент допустим только вместе с `--new-session server stdio`. Непосредственный родитель сохраняется в необязательном `parent_session_id` файла `session.json` и в кратком каталоге сессий. Resume и ClearHistory сохраняют эту связь; повторно использовать idle-процесс можно только внутри той же родительской сессии, роли и workspace. Обычный запуск последней сессии пропускает дочерние сессии.
+Без флагов `server stdio` возобновляет последнюю workspace session; `--new-session` принудительно стартует свежую (так subagent process runner запускает детей), `--resume-session <dir>` возобновляет конкретную. Флаги взаимоисключающие. Для дочернего процесса runner передаёт `--parent-session-id <UUID>`; этот аргумент допустим только вместе с `--new-session server stdio`. Непосредственный родитель сохраняется в необязательном `parent_session_id` файла `session.json` и в кратком каталоге сессий. Resume, ClearHistory и NewSession сохраняют эту связь; повторно использовать idle-процесс можно только внутри той же родительской сессии, роли и workspace. Обычный запуск последней сессии пропускает дочерние сессии.
 Обычный one-shot и line-oriented REPL сами запускают локальный
 `server stdio`: product turns больше не строят `AgentRuntime` в CLI. Финальный
 `AgentOutput`, progress, approval и typed user-input проходят JSONL protocol,
@@ -502,6 +502,7 @@ future и не позволяет продолжить оборванный call
 - `ApprovalResolved`;
 - `ToolFinished`;
 - `SubagentStarted`;
+- `SubagentSessionBound`;
 - `SubagentFinished`;
 - `TurnFinished`;
 - `Error`.
@@ -525,26 +526,41 @@ cancel/timeout и не пере-эмитит в root event stream. Дополн�
 `TurnProgress`, и интерфейс приложения фильтруют `AssistantTextDelta` по `thread_id`
 хода — дельты чужих threads в основной текст не подмешиваются.
 
-Основной интерфейс рендерит работу субагента одной карточкой. При task surface
-`SubagentStarted` прикрепляет активность к бегущей tool-карточке `task`
-(карточка вызова и карточка субагента не дублируются). При collaboration
-surface тот же event прикрепляется к `spawn_agent`, но успешный spawn
-завершает только tool call: child-карточка остаётся running после финала
-родительского turn-а, принимает поздние nested tools и закрывается лишь по
-`SubagentFinished`. Terminal `followup_task` открывает новый resumable turn с
-тем же `child_thread_id`; его карточка получает тот же background lifecycle и
-не закрывается границей parent turn. Если runner вызван без facade,
-создаётся отдельная карточка.
+`SubagentStarted` ещё не обещает доступную durable session. После
+authoritative `SessionStarted` ребёнка и начала readable turn runner публикует
+`SubagentSessionBound { child_thread_id, session_id, session_dir }`. Поле
+`AppTranscriptSubagent.session` содержит typed ref; при отсутствии binding
+оно остаётся `None`. Результат `task` сохраняет ref в
+`ToolResult.metadata.subagent_session` без копирования истории ребёнка.
+Все facade поколения (`task`, `spawn_agent`, idle `followup_task`) также
+сохраняют immutable `SubagentSessionBoundRecorded` в canonical journal с
+явным `source_call_id` исходного вызова. Fact допускается после settlement
+parent turn; cold display projection восстанавливает ссылку непосредственно
+на строке исходного tool. Диагностический event log для этого не читается,
+`wait_agent` не является условием доступности ссылки. Завершённый tool call
+`spawn_agent` означает успешный запуск, а не завершение самого ребёнка.
+Поздний binding в idle parent запускает одно coalesced обновление completed
+read cache: одновременно работает не больше одной проекции и одного pending
+повтора. Обновление проверяет исходный baseline и отсутствие нового active
+run; частичный следующий turn не попадает в completed history. Polling
+истории и дополнительный child runtime для этого не создаются.
+Просмотр выполняется readonly через `/history/page?session_dir=...`; запускать
+второй writer/resume поверх работающего child runtime не требуется.
 
-Чтобы вложить tool-вызовы ребёнка внутрь карточки, клиент сравнивает
-`EventEnvelope.thread_id` у tool-событий с `child_thread_id` активных карточек.
-Если совпадения нет, tool-вызов показывается обычной плоской tool-карточкой.
-Summary foreground-ребёнка остаётся обычным `ToolResult` вызова `task`;
-collaboration completion приходит через `wait_agent`, а `list_agents` хранит
-только retained status без terminal payload. Streaming text дочернего цикла не
-является частью текущего client contract-а. Пока субагент работает, карточка
-раскрыта и показывает живой прогресс; после `SubagentFinished` она сворачивается
-в строку со статусом, числом вызовов, итерациями и длительностью.
+Основной интерфейс показывает субагента компактной строкой со статусом,
+ролью и описанием. При task surface `SubagentStarted` связывает строку с
+вызовом `task`; при collaboration surface — с `spawn_agent` или terminal
+`followup_task`. Начальный queued state не содержит session link. После
+`SubagentSessionBound` строка открывает readonly историю ребёнка в соседней
+панели. Полная история и список вложенных tools не дублируются в родителе.
+
+Collaboration child может жить дольше родительского turn-а: окончание
+`spawn_agent` завершает только tool call, а фоновая строка принимает lifecycle
+события до `SubagentFinished`. Terminal `followup_task` возобновляет тот же
+`child_thread_id` и ту же durable session. Вложенные tool-события используют
+`EventEnvelope.thread_id = child_thread_id`; summary foreground-ребёнка
+остаётся обычным `ToolResult` вызова `task`. Collaboration completion приходит
+через `wait_agent`, а `list_agents` хранит retained status без terminal payload.
 
 Вызовы `send_message` и running `followup_task` попадают в bounded адресный
 mailbox process peer-а. Runner передаёт typed envelope persistent peer-у через
@@ -553,21 +569,22 @@ stdio на границе app-server turn-а. Если успешный terminal
 peer turn; явный cancel вместо этого закрывает очередь и имеет приоритет.
 `followup_task` для idle terminal record запускает resume по прежнему task id.
 
-Role timeout включает начальную запись stdin и `ClearHistory`; cancel grace
+Role timeout включает ожидание startup identity, начальную запись stdin и
+`NewSession` при fresh reuse; resume по `task_id` сохраняет прежнюю session.
+Fresh task получает новую durable session в том же OS process: прежняя история
+не очищается и остаётся доступна для просмотра. Cancel grace
 включает отправку `Cancel`. Прерванный JSONL write завершает peer и лишает его
 resumable binding. Резервации pending, resume и facade Starting принадлежат
 guards до передачи detached execution/monitor: drop ожидающего spawn не
 оставляет вечный занятый слот.
 
-Для reload посреди turn app-server держит `SubagentStarted`/`SubagentFinished`
+Для reload посреди turn app-server держит `SubagentStarted`/`SubagentSessionBound`/`SubagentFinished`
 и вложенные child tools в `TurnProgress.snapshot()`. `/history` отдаёт это как
-опциональное поле `subagent` у transcript message; клиент сливает такое
-сообщение с предшествующей карточкой `task` (тот же вид, что live) и
-восстанавливает nested tool-состояние до завершения хода. Committed history
-карточек субагента не хранит: transcript-карточка tool несёт `metadata`
-результата (`ToolResult.metadata` как есть — core имён tools не знает), и
-клиент реконструирует карточку субагента из `metadata` результата `task`
-(статус, итерации, `child_thread_id`) без списка вложенных вызовов.
+опциональное поле `subagent` у transcript message. Клиент сливает его с
+соответствующей строкой facade tool. Committed display добавляет к исходному
+tool row `child_thread_id` и `subagent_session` из canonical binding fact;
+foreground `task` сохраняет тот же ref в `ToolResult.metadata`. Вложенная
+child history в родителе не хранится.
 
 Collaboration background cards app-server держит отдельно от progress текущего
 parent turn: следующий `TurnStarted` и `TurnFinished` их не очищают, а snapshot
@@ -731,6 +748,7 @@ reason. Preview не является источником разрешений 
 ```json
 {"id":"1","type":"send","text":"summarize project"}
 {"id":"2","type":"clear_history"}
+{"id":"new","type":"new_session"}
 {"id":"3","type":"approval","approval_id":"...","approved":true,"note":null,"cache":"workspace_write"}
 {"id":"4","type":"cancel","target_id":"1"}
 {"id":"5","type":"shutdown"}
@@ -744,6 +762,12 @@ domain `active_turn_id` и `queued_count`; его текст уже принад
 runtime-очереди, а не transport task. `cancel.target_id` ссылается на `id`
 исходного активного `send`: transport сигналит execution cancellation, после
 чего runtime закрывает root-цепочку и её ещё не доставленную очередь.
+
+`new_session` — только stdio connection control для idle run/command stream.
+Успешный response содержит `{ session_id, session_dir }` и следует после
+`SessionStarted` новой session. Старый bridge stop/join предшествует shutdown;
+ошибка rotation после закрытия старого runtime завершает connection. HTTP
+использует собственный session API и отклоняет этот stdio control.
 
 HTTP/SSE transport:
 

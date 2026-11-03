@@ -2,7 +2,8 @@ use proteus_contracts::{
     contracts::{ContextBuildOutcome, ModelCallOrigin, OperationOwner},
     domain::{
         AgentOutput, AgentTask, ExchangeId, ExecutionId, HistoryCompactionReport, RecordId,
-        SessionId, ThreadId, ToolCall, ToolCallResolution, ToolResult, TurnId,
+        SessionId, SubagentSessionBinding, ThreadId, ToolCall, ToolCallResolution, ToolResult,
+        TurnId,
     },
     model_standard::{
         CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ModelFailure,
@@ -137,6 +138,7 @@ pub enum JournalKind {
     ToolCallRecorded,
     ToolResultRecorded,
     ToolEffectRecorded,
+    SubagentSessionBoundRecorded,
     TurnSettled,
 }
 
@@ -159,6 +161,7 @@ pub enum JournalEntry {
     ToolCallRecorded(ToolCallRecorded),
     ToolResultRecorded(ToolResultRecorded),
     ToolEffectRecorded(ToolResultRecorded),
+    SubagentSessionBoundRecorded(SubagentSessionBinding),
     TurnSettled(TurnSettled),
 }
 
@@ -197,6 +200,9 @@ macro_rules! decode_entry {
             JournalKind::ToolEffectRecorded => {
                 serde_json::$decode($payload).map(JournalEntry::ToolEffectRecorded)
             }
+            JournalKind::SubagentSessionBoundRecorded => {
+                serde_json::$decode($payload).map(JournalEntry::SubagentSessionBoundRecorded)
+            }
             JournalKind::TurnSettled => {
                 serde_json::$decode($payload).map(JournalEntry::TurnSettled)
             }
@@ -218,6 +224,7 @@ impl JournalEntry {
             Self::ToolCallRecorded(_) => JournalKind::ToolCallRecorded,
             Self::ToolResultRecorded(_) => JournalKind::ToolResultRecorded,
             Self::ToolEffectRecorded(_) => JournalKind::ToolEffectRecorded,
+            Self::SubagentSessionBoundRecorded(_) => JournalKind::SubagentSessionBoundRecorded,
             Self::TurnSettled(_) => JournalKind::TurnSettled,
         }
     }

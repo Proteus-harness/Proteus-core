@@ -9,7 +9,9 @@
 use std::{path::Path, process::Stdio};
 
 use anyhow::{Context, Result, anyhow};
-use proteus_contracts::app_protocol::{StdioOutput, StdioRequest};
+use proteus_contracts::app_protocol::{
+    AppServerEvent, AppSubagentSession, StdioOutput, StdioRequest,
+};
 use tokio::{
     io::AsyncWriteExt,
     process::{Child, ChildStdin, Command},
@@ -25,6 +27,7 @@ pub(super) struct ChildProcess {
     outputs: ChildOutputs,
     deadline: Option<Instant>,
     cancellation: Option<CancellationToken>,
+    session: Option<AppSubagentSession>,
 }
 
 impl ChildProcess {
@@ -74,6 +77,7 @@ impl ChildProcess {
             outputs,
             deadline: None,
             cancellation: None,
+            session: None,
         })
     }
 
@@ -117,7 +121,11 @@ impl ChildProcess {
 
     /// Следующий output ребёнка. `None` — stdout закрыт (ребёнок умер).
     pub async fn next_output(&mut self) -> Result<Option<StdioOutput>> {
-        self.outputs.next().await
+        let output = self.outputs.next().await?;
+        if let Some(output) = &output {
+            observe_session(&mut self.session, output);
+        }
+        Ok(output)
     }
 
     pub fn output_health(&self) -> OutputHealth {
@@ -126,7 +134,80 @@ impl ChildProcess {
 
     /// Выгребает накопившиеся с прошлого turn-а outputs, не блокируясь.
     pub fn drain_stale_outputs(&mut self) -> Result<()> {
-        self.outputs.drain()
+        self.outputs
+            .drain(|output| observe_session(&mut self.session, output))
+    }
+
+    pub(super) fn session(&self) -> Option<&AppSubagentSession> {
+        self.session.as_ref()
+    }
+
+    /// Bootstrap and rotation obey the same deadline/cancellation as Send.
+    async fn next_control_output(&mut self) -> Result<StdioOutput> {
+        let cancellation = self.cancellation.clone();
+        let deadline = self.deadline;
+        tokio::select! {
+            biased;
+            _ = async { match cancellation { Some(token) => token.cancelled().await, None => std::future::pending().await } } => anyhow::bail!("subagent session setup cancelled"),
+            _ = async { match deadline { Some(deadline) => tokio::time::sleep_until(deadline).await, None => std::future::pending().await } } => anyhow::bail!("subagent session setup deadline exceeded"),
+            output = self.next_output() => output?.ok_or_else(|| anyhow!("subagent child exited during session setup")),
+        }
+    }
+
+    pub(super) async fn ensure_session(&mut self) -> Result<AppSubagentSession> {
+        while self.session.is_none() {
+            match self.next_control_output().await? {
+                StdioOutput::Event { event } if matches!(*event, AppServerEvent::Shutdown) => {
+                    anyhow::bail!("subagent child shut down during session setup")
+                }
+                _ => {}
+            }
+        }
+        Ok(self.session.clone().expect("session checked"))
+    }
+
+    pub(super) async fn new_session(&mut self) -> Result<AppSubagentSession> {
+        let request_id = crate::domain::new_call_id();
+        let previous = self.session.take();
+        self.send(&StdioRequest::NewSession {
+            id: Some(request_id.clone()),
+        })
+        .await?;
+        loop {
+            match self.next_control_output().await? {
+                StdioOutput::Response {
+                    id,
+                    ok,
+                    output,
+                    error,
+                } if id.as_deref() == Some(request_id.as_str()) => {
+                    anyhow::ensure!(
+                        ok,
+                        "subagent session rotation failed: {}",
+                        error.unwrap_or_else(|| "unknown error".into())
+                    );
+                    let session: AppSubagentSession = serde_json::from_value(
+                        output.context("new session response has no identity")?,
+                    )
+                    .context("invalid new session identity")?;
+                    anyhow::ensure!(
+                        self.session.as_ref() == Some(&session),
+                        "new session response disagrees with SessionStarted"
+                    );
+                    anyhow::ensure!(
+                        previous
+                            .as_ref()
+                            .is_none_or(|old| old.session_id != session.session_id),
+                        "new session reused the previous identity"
+                    );
+                    return Ok(session);
+                }
+                StdioOutput::Event { event } if matches!(*event, AppServerEvent::Shutdown) => {
+                    anyhow::bail!("subagent child shut down during session rotation")
+                }
+                _ => {}
+            }
+        }
     }
 
     pub fn is_alive(&mut self) -> bool {
@@ -156,6 +237,23 @@ impl ChildProcess {
             outputs,
             deadline: None,
             cancellation: None,
+            session: None,
         }
+    }
+}
+
+fn observe_session(session: &mut Option<AppSubagentSession>, output: &StdioOutput) {
+    if let StdioOutput::Event { event } = output
+        && let AppServerEvent::Runtime { envelope } = event.as_ref()
+        && let crate::domain::Event::SessionStarted {
+            session_id,
+            session_dir: Some(session_dir),
+            ..
+        } = &envelope.event
+    {
+        *session = Some(AppSubagentSession {
+            session_id: *session_id,
+            session_dir: session_dir.clone(),
+        });
     }
 }

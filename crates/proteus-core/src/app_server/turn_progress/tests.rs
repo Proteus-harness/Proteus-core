@@ -40,6 +40,63 @@ fn delta(text: &str) -> Event {
 }
 
 #[test]
+fn session_binding_updates_only_the_exact_existing_child_row() {
+    let mut progress = TurnProgress::default();
+    let child = child_thread_id();
+    let other = new_thread_id();
+    for id in [child, other] {
+        apply(
+            &mut progress,
+            Event::SubagentStarted {
+                role: "helper".into(),
+                description: None,
+                child_thread_id: id,
+            },
+        );
+    }
+    assert!(
+        progress.messages.iter().all(|message| message
+            .subagent
+            .as_ref()
+            .unwrap()
+            .session
+            .is_none())
+    );
+    let session_id = new_session_id();
+    let session_dir = std::path::PathBuf::from("/sessions/exact-child");
+    apply(
+        &mut progress,
+        Event::SubagentSessionBound {
+            child_thread_id: child,
+            session_id,
+            session_dir: session_dir.clone(),
+        },
+    );
+    assert_eq!(progress.messages.len(), 2);
+    assert_eq!(
+        progress.messages[0]
+            .subagent
+            .as_ref()
+            .unwrap()
+            .session
+            .as_ref()
+            .unwrap(),
+        &proteus_contracts::app_protocol::AppSubagentSession {
+            session_id,
+            session_dir
+        }
+    );
+    assert!(
+        progress.messages[1]
+            .subagent
+            .as_ref()
+            .unwrap()
+            .session
+            .is_none()
+    );
+}
+
+#[test]
 fn accumulates_text_segments_around_tool_calls() {
     let mut progress = TurnProgress::default();
     apply(&mut progress, delta("Сначала "));

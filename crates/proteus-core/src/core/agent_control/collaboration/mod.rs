@@ -162,6 +162,7 @@ impl Tool for SpawnAgentTool {
             .with_metadata(json!({
                 "control_plane_owned": true,
                 "agent_control_target": reservation.path,
+                "source_call_id": call.id,
             }));
         let handle = match host.spawn_agent(request).await {
             Ok(handle) => handle,

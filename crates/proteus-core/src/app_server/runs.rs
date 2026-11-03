@@ -9,6 +9,9 @@ use anyhow::{Result, anyhow};
 use proteus_contracts::app_protocol::{AppExecutionState, AppRun, AppRunStatus};
 use tokio::sync::{oneshot, watch};
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Default)]
 pub(super) struct RunRegistry {
     active: Option<RunningRun>,
@@ -43,6 +46,18 @@ impl RunRegistry {
 }
 
 impl AppServerHandle {
+    /// Atomically reserve an idle session for stdio rotation. No new admission
+    /// can slip between the idle check and shutdown.
+    pub(super) async fn close_idle_runs(&self) -> Result<()> {
+        let mut runs = self.runs.lock().await;
+        anyhow::ensure!(
+            !runs.closed && runs.active.is_none() && !runs.command_active,
+            "new session requires an idle session"
+        );
+        runs.closed = true;
+        Ok(())
+    }
+
     pub async fn clear_history(&self) -> Result<()> {
         let runs = self.runs.lock().await;
         if runs.closed {

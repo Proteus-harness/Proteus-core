@@ -12,6 +12,16 @@ use crate::{
 /// detached execution never invents Session/Thread/Turn identities.
 #[async_trait]
 pub trait ToolExecutionRecorder: Send + Sync {
+    /// Display-only child identity, anchored to the explicit facade call. A
+    /// background child may bind after the parent execution has settled.
+    async fn subagent_session_bound(
+        &self,
+        _attribution: ExecutionAttribution,
+        _binding: &crate::domain::SubagentSessionBinding,
+    ) -> Result<()> {
+        Ok(())
+    }
+
     /// Actual settled outcome, persisted before cancellable output contributions.
     async fn tool_effect_recorded(
         &self,

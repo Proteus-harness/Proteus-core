@@ -1,7 +1,7 @@
 //! Round-trip тест process agent-а: реальный дочерний процесс
 //! `proteus server stdio` (workspace binary или PROTEUS_TEST_BINARY) с минимальным
 //! конфигом (fake model, workflow selection отсутствует), запуск роли, resume по task_id
-//! и сброс истории между свежими задачами.
+//! и отдельные durable sessions свежих задач при переиспользовании процесса.
 
 #[path = "support/model.rs"]
 mod test_model;
@@ -11,8 +11,12 @@ mod agent_context;
 
 #[path = "process_agent_pool/admission.rs"]
 mod admission;
+#[path = "process_agent_pool/binding.rs"]
+mod binding;
 #[path = "process_agent_pool/collaboration.rs"]
 mod collaboration;
+#[path = "process_agent_pool/rotation.rs"]
+mod rotation;
 
 use std::{path::PathBuf, sync::Arc};
 
@@ -22,6 +26,31 @@ use proteus_contracts::{
 };
 use proteus_core::core::{AgentControlConfig, AgentControlRuntime, InMemoryEventStore};
 use serde_json::json;
+
+struct ReadableBindingEvents(Arc<InMemoryEventStore>);
+
+#[async_trait::async_trait]
+impl proteus_contracts::contracts::EventSink for ReadableBindingEvents {
+    async fn append(
+        &self,
+        envelope: proteus_contracts::domain::EventEnvelope,
+    ) -> anyhow::Result<()> {
+        if let Event::SubagentSessionBound {
+            session_id,
+            session_dir,
+            ..
+        } = &envelope.event
+        {
+            let store = proteus_core::core::SessionStore::open(session_dir.clone())
+                .expect("binding must not expose an unmaterialized session");
+            assert_eq!(store.session_id(), *session_id);
+            store
+                .load_messages()
+                .expect("bound session is already readable");
+        }
+        proteus_contracts::contracts::EventSink::append(self.0.as_ref(), envelope).await
+    }
+}
 
 use agent_context::test_runtime_context;
 
@@ -157,7 +186,10 @@ async fn process_agent_pool_round_trips_turn_resume_and_fresh_task() {
     let runner = process_runner(&config_path);
 
     let events = Arc::new(InMemoryEventStore::new());
-    let ctx = test_runtime_context(events.clone());
+    let mut ctx = test_runtime_context(events.clone());
+    ctx.events = Arc::new(proteus_contracts::contracts::EventEmitter::new(Arc::new(
+        ReadableBindingEvents(events.clone()),
+    )));
     let parent_thread_id = ctx.thread_id;
     let task = AgentTask::new("delegate", workspace.path().to_path_buf());
 
@@ -184,6 +216,10 @@ async fn process_agent_pool_round_trips_turn_resume_and_fresh_task() {
     assert_eq!(summaries.len(), 1);
     let physical_child = summaries[0].session_id;
     assert_eq!(summaries[0].parent_session_id, Some(ctx.session_id));
+    let first_session: proteus_contracts::app_protocol::AppSubagentSession =
+        serde_json::from_value(first.metadata["subagent_session"].clone()).unwrap();
+    assert_eq!(first_session.session_id, physical_child);
+    assert_eq!(first_session.session_dir, summaries[0].session_dir);
     let child_thread_id = first.child_thread_id.expect("child thread id");
     assert_ne!(child_thread_id, parent_thread_id);
 
@@ -201,6 +237,9 @@ async fn process_agent_pool_round_trips_turn_resume_and_fresh_task() {
         })
         .expect("SubagentFinished");
     assert_eq!(finished, "completed");
+    assert!(envelopes.iter().any(|envelope| matches!(&envelope.event,
+        Event::SubagentSessionBound { child_thread_id: id, session_id, session_dir }
+            if *id == child_thread_id && *session_id == physical_child && *session_dir == first_session.session_dir)));
 
     // Resume по task_id: тот же процесс, тот же child_thread_id.
     let resumed = runner
@@ -213,9 +252,15 @@ async fn process_agent_pool_round_trips_turn_resume_and_fresh_task() {
         .expect("resumed child turn");
     assert_eq!(resumed.status, AgentLifecycleStatus::Completed);
     assert_eq!(resumed.child_thread_id, Some(child_thread_id));
+    assert_eq!(
+        resumed.metadata["subagent_session"],
+        first.metadata["subagent_session"]
+    );
+    let first_journal = first_session.session_dir.join("journal.jsonl");
+    let first_history = std::fs::read(&first_journal).unwrap();
 
     // Свежая задача (без task_id): та же роль, но новый child thread —
-    // история ребёнка сбрасывается через ClearHistory.
+    // durable session меняется, предыдущая история остаётся доступна.
     let fresh = runner
         .run(
             AgentControlRequest::new("helper", "brand new task", task.clone()),
@@ -230,11 +275,23 @@ async fn process_agent_pool_round_trips_turn_resume_and_fresh_task() {
             .unwrap();
     assert_eq!(
         summaries.len(),
-        1,
-        "same-parent fresh tasks reuse the durable process session"
+        2,
+        "fresh tasks retain separate durable sessions"
     );
-    assert_eq!(summaries[0].session_id, physical_child);
-    assert_eq!(summaries[0].parent_session_id, Some(ctx.session_id));
+    let fresh_session: proteus_contracts::app_protocol::AppSubagentSession =
+        serde_json::from_value(fresh.metadata["subagent_session"].clone()).unwrap();
+    assert_ne!(fresh_session.session_id, physical_child);
+    assert_ne!(fresh_session.session_dir, first_session.session_dir);
+    assert_eq!(
+        std::fs::read(&first_journal).unwrap(),
+        first_history,
+        "a fresh task must not mutate the previous task's history"
+    );
+    assert!(
+        summaries
+            .iter()
+            .all(|row| row.parent_session_id == Some(ctx.session_id))
+    );
     // A nested caller's actual durable identity is the immediate parent.
     let mut nested_ctx = ctx;
     nested_ctx.session_id = physical_child;
@@ -250,7 +307,7 @@ async fn process_agent_pool_round_trips_turn_resume_and_fresh_task() {
             .unwrap();
     assert_eq!(
         summaries.len(),
-        2,
+        3,
         "another parent must not reuse the root's child"
     );
     assert!(
@@ -418,7 +475,7 @@ async fn process_agent_pool_spawns_parallel_children_and_resumes_by_task_id() {
 
     // Resume второго ребёнка: его процесс в пуле, session-история жива.
     // (Первый resume-ить нельзя без гонки: если дети успели пройти через
-    // один процесс, ClearHistory свежей задачи хоронит старые task_id-ы.)
+    // один процесс, NewSession свежей задачи хоронит старые task_id-ы.)
     let resumed = runner
         .run(
             AgentControlRequest::new("helper", "continue branch two", task)
@@ -468,7 +525,7 @@ async fn process_agent_pool_fresh_task_with_different_cwd_spawns_new_process() {
     let first_task_id = first.child_thread_id.expect("child thread id");
 
     // Fresh-задача в другом cwd: должен подняться новый процесс, а не
-    // ClearHistory на процессе из workspace_a.
+    // NewSession на процессе из workspace_a.
     let task_b = AgentTask::new("delegate", workspace_b.path().to_path_buf());
     runner
         .run(

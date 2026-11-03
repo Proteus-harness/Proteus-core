@@ -247,14 +247,12 @@ async fn terminal_followup_resumes_same_task_and_keeps_old_completion_immutable(
     let wait = WaitAgentTool::new(10_000, control);
     let ctx = context(host.clone());
 
+    let initial_call = call(
+        "spawn_agent",
+        json!({"task_name":"scan","message":"inspect","agent_type":"explore"}),
+    );
     spawn
-        .invoke(
-            &call(
-                "spawn_agent",
-                json!({"task_name":"scan","message":"inspect","agent_type":"explore"}),
-            ),
-            ctx.clone(),
-        )
+        .invoke(&initial_call, ctx.clone())
         .await
         .expect("spawn");
     host.finished.cancel();
@@ -276,14 +274,12 @@ async fn terminal_followup_resumes_same_task_and_keeps_old_completion_immutable(
             .contains("followup_task")
     );
 
+    let resumed_call = call(
+        "followup_task",
+        json!({"target":"scan","message":"continue"}),
+    );
     let resumed = followup
-        .invoke(
-            &call(
-                "followup_task",
-                json!({"target":"scan","message":"continue"}),
-            ),
-            ctx.clone(),
-        )
+        .invoke(&resumed_call, ctx.clone())
         .await
         .expect("resume");
     assert_eq!(output(&resumed)["turn_started"], true);
@@ -293,6 +289,8 @@ async fn terminal_followup_resumes_same_task_and_keeps_old_completion_immutable(
         let requests = host.requests.lock().unwrap();
         assert_eq!(requests.len(), 2);
         assert!(requests[1].metadata["task_id"].is_string());
+        assert_eq!(requests[0].metadata["source_call_id"], initial_call.id);
+        assert_eq!(requests[1].metadata["source_call_id"], resumed_call.id);
     }
 
     let updates = wait

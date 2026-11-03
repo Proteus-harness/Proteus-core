@@ -219,6 +219,21 @@ impl SessionToolExecutionRecorder {
 
 #[async_trait]
 impl ToolExecutionRecorder for SessionToolExecutionRecorder {
+    async fn subagent_session_bound(
+        &self,
+        attribution: ExecutionAttribution,
+        binding: &proteus_contracts::domain::SubagentSessionBinding,
+    ) -> Result<()> {
+        self.validate_attribution(attribution)?;
+        self.store
+            .append_execution_journal_entry(
+                attribution,
+                JournalEntry::SubagentSessionBoundRecorded(binding.clone()),
+            )
+            .await?;
+        Ok(())
+    }
+
     async fn tool_effect_recorded(
         &self,
         attribution: ExecutionAttribution,

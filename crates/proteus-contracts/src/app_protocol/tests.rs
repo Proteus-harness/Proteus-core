@@ -66,6 +66,11 @@ fn approval_request_rejects_incomplete_wire_payload() {
 
 #[test]
 fn line_client_commands_use_strict_tagged_wire_shapes() {
+    let new_session: StdioRequest = serde_json::from_value(json!({
+        "type": "new_session", "id": "rotate"
+    }))
+    .unwrap();
+    assert_eq!(new_session.id().as_deref(), Some("rotate"));
     let history: StdioRequest = serde_json::from_value(json!({
         "type": "history_summary",
         "id": "history-1"
@@ -87,6 +92,24 @@ fn line_client_commands_use_strict_tagged_wire_shapes() {
         serde_json::to_value(result).expect("remember result"),
         json!({"kind": "preference", "content": "use protocol"})
     );
+}
+
+#[test]
+fn subagent_session_is_optional_until_authoritatively_bound() {
+    let mut row: AppTranscriptSubagent = serde_json::from_value(json!({
+        "child_thread_id": new_thread_id(), "role": "helper", "description": null,
+        "status": "running", "iterations": null, "tools": []
+    }))
+    .unwrap();
+    assert!(row.session.is_none());
+    let exact = AppSubagentSession {
+        session_id: new_session_id(),
+        session_dir: "/sessions/child".into(),
+    };
+    row.session = Some(exact.clone());
+    let restored: AppTranscriptSubagent =
+        serde_json::from_value(serde_json::to_value(row).unwrap()).unwrap();
+    assert_eq!(restored.session, Some(exact));
 }
 
 /// Attribution и порядок очереди переживают wire-сериализацию.

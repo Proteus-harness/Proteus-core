@@ -170,6 +170,9 @@ impl PrefixIdentities {
                     }
                 }
             }
+            JournalEntry::SubagentSessionBoundRecorded(binding) => {
+                independent &= identity(&mut self.calls, binding.source_call_id.clone(), suffix);
+            }
             JournalEntry::ToolCallRecorded(item) => {
                 independent &= identity(&mut self.calls, item.call.id.clone(), suffix);
             }

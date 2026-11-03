@@ -179,51 +179,96 @@ async fn dropped_spawn_releases_pending_and_resume_reservations() {
 
 #[cfg(unix)]
 #[tokio::test]
-async fn nonreading_peer_is_bounded_during_initial_write_and_releases_permit() {
+async fn bootstrap_eof_fails_closed_and_releases_admission() {
+    let dir = tempfile::tempdir().unwrap();
+    let runner = runner_from_json(json!({
+        "binary":"/bin/true", "max_parallel":1,
+        "roles":[{"name":"helper","description":"fixture","config":"unused.toml","timeout_ms":1000,"max_processes":1}],
+    }));
+    for _ in 0..2 {
+        let ctx = test_runtime_context(Arc::new(InMemoryEventStore::new()));
+        let result = tokio::time::timeout(
+            Duration::from_secs(2),
+            runner.run(
+                AgentControlRequest::new(
+                    "helper",
+                    "must fail",
+                    AgentTask::new("parent", dir.path().into()),
+                ),
+                ctx,
+            ),
+        )
+        .await
+        .expect("EOF must release bootstrap and permit")
+        .expect_err("no identity from exited peer");
+        assert!(
+            format!("{result:#}").contains("exited during session setup"),
+            "{result:#}"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn session_bootstrap_and_initial_write_are_bounded_and_release_permit() {
     use std::os::unix::fs::PermissionsExt;
     let dir = tempfile::tempdir().unwrap();
     let binary = dir.path().join("peer.sh");
-    std::fs::write(&binary, "#!/bin/sh\nexec sleep 30\n").unwrap();
-    std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755)).unwrap();
-    for canceled in [false, true] {
-        let runner = runner_from_json(json!({
-            "binary":binary,"max_parallel":1,"cancel_grace_ms":30,
-            "roles":[{"name":"helper","description":"fixture","config":"unused.toml","timeout_ms": if canceled { 10000 } else { 60 },"max_processes":1}],
-        }));
-        let ctx = test_runtime_context(Arc::new(InMemoryEventStore::new()));
-        let cancel = ctx.execution.scope.cancellation.clone();
-        let request = AgentControlRequest::new(
-            "helper",
-            "x".repeat(1024 * 1024),
-            AgentTask::new("parent", dir.path().into()),
-        );
-        let handle = runner.spawn(request.clone(), ctx.clone()).await.unwrap();
-        if canceled {
-            tokio::time::sleep(Duration::from_millis(20)).await;
-            cancel.cancel();
-        }
-        let result = tokio::time::timeout(Duration::from_secs(2), runner.wait(&handle))
-            .await
-            .expect("bounded stdin admission")
-            .unwrap();
-        assert_eq!(
-            result.status,
+    for publishes_identity in [false, true] {
+        let script = if publishes_identity {
+            format!(
+                "#!/usr/bin/env python3\nimport json, pathlib, time\n{}\ntime.sleep(30)\n",
+                include_str!("../fixtures/agent_session_start.py")
+            )
+        } else {
+            "#!/bin/sh\nexec sleep 30\n".into()
+        };
+        std::fs::write(&binary, script).unwrap();
+        std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755)).unwrap();
+        for canceled in [false, true] {
+            let runner = runner_from_json(json!({
+                "binary":binary,"max_parallel":1,"cancel_grace_ms":30,
+                "roles":[{"name":"helper","description":"fixture","config":"unused.toml","timeout_ms": if canceled { 10000 } else { 60 },"max_processes":1}],
+            }));
+            let ctx = test_runtime_context(Arc::new(InMemoryEventStore::new()));
+            let cancel = ctx.execution.scope.cancellation.clone();
+            let request = AgentControlRequest::new(
+                "helper",
+                "x".repeat(1024 * 1024),
+                AgentTask::new("parent", dir.path().into()),
+            );
+            let handle = runner.spawn(request.clone(), ctx.clone()).await.unwrap();
             if canceled {
-                AgentLifecycleStatus::Cancelled
-            } else {
-                AgentLifecycleStatus::TimedOut
+                tokio::time::sleep(Duration::from_millis(20)).await;
+                cancel.cancel();
             }
-        );
-        assert_eq!(result.metadata["resumable"], false);
-        let next_ctx = test_runtime_context(Arc::new(InMemoryEventStore::new()));
-        let next = runner
-            .spawn(request, next_ctx)
-            .await
-            .expect("pending slot and permit released");
-        runner.cancel(&next).await.unwrap();
-        tokio::time::timeout(Duration::from_secs(2), runner.wait(&next))
-            .await
-            .unwrap()
-            .unwrap();
+            let result = tokio::time::timeout(Duration::from_secs(2), runner.wait(&handle))
+                .await
+                .expect("bounded session bootstrap or stdin admission")
+                .unwrap();
+            assert_eq!(
+                result.status,
+                if canceled {
+                    AgentLifecycleStatus::Cancelled
+                } else {
+                    AgentLifecycleStatus::TimedOut
+                }
+            );
+            assert_eq!(result.metadata["resumable"], false);
+            assert!(
+                result.metadata["subagent_session"].is_null(),
+                "an allocated identity before an accepted turn must not expose an unreadable link"
+            );
+            let next_ctx = test_runtime_context(Arc::new(InMemoryEventStore::new()));
+            let next = runner
+                .spawn(request, next_ctx)
+                .await
+                .expect("pending slot and permit released");
+            runner.cancel(&next).await.unwrap();
+            tokio::time::timeout(Duration::from_secs(2), runner.wait(&next))
+                .await
+                .unwrap()
+                .unwrap();
+        }
     }
 }

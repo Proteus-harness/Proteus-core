@@ -65,11 +65,21 @@ pub struct AppTranscriptTool {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct AppTranscriptSubagent {
     pub child_thread_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<AppSubagentSession>,
     pub role: String,
     pub description: Option<String>,
     pub status: String,
     pub iterations: Option<u32>,
     pub tools: Vec<AppTranscriptTool>,
+}
+
+/// Authoritative durable child session. An unbound task has no session link.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AppSubagentSession {
+    pub session_id: crate::domain::SessionId,
+    pub session_dir: std::path::PathBuf,
 }
 
 /// Latest accepted tool row in one source-validated display revision.

@@ -87,11 +87,37 @@ Peer Proteus сам является host/runtime и может иметь со�
 - пересылает события, approvals и user input между двумя Proteus;
 - сохраняет resume, пока соответствующий child process удерживает эту историю.
 
-Переиспользование idle process для новой задачи очищает прежнюю history.
+Переиспользование idle process для новой задачи запускает `NewSession`: OS
+process остаётся тем же, прежний runtime закрывается, а новая logical task
+получает собственные durable session id и directory с исходными role/config,
+cwd и immediate parent. Старый event bridge останавливается и join-ится до
+shutdown; `Shutdown` прежней session не попадает в следующий turn. Активный
+run или command запрещает rotation; ошибка после закрытия прежнего runtime
+делает stdio connection непригодным для pool. Повторное создание runtime не
+обещает сохранения прогретых model clients и component processes.
 Runtime инвалидирует общий признак её удержания; collaboration больше не
 показывает прежний child id как доступный для resume и отклоняет follow-up
 до запуска. Поздний completion не возвращает уже утраченную возможность
-продолжения. Это не durable восстановление истории после очистки или restart.
+продолжения. Старый журнал остаётся неизменным и доступен для readonly
+просмотра; это не автоматическое durable возобновление после restart.
+
+`child_thread_id` адресует logical task в root control plane, а не durable
+session ребёнка. Runner сохраняет exact `SessionStarted` identity; после
+durable `TurnOpened`/`TurnStarted` публикует `SubagentSessionBound`. Live DTO
+содержит optional `AppSubagentSession`, canonical `task` ToolResult — тот же
+ref в `metadata.subagent_session`. Для `task`, `spawn_agent` и terminal
+`followup_task` root также записывает компактный immutable journal fact
+`SubagentSessionBoundRecorded(SubagentSessionBinding)`: exact source call id,
+logical child id и durable ref. Source call id передаётся самим facade в
+request metadata; связь не угадывается по role/description. Fact сохраняется
+до live binding и может прийти после parent `TurnSettled`, не удерживая
+неблокирующий spawn в ожидании child permit. Canonical display projection
+прикрепляет ref к исходному tool row и после перезапуска, без чтения
+диагностического event log или ожидания `wait_agent`. Ошибка записи fact
+завершает child execution с видимой ошибкой и не публикует live-only ссылку.
+Bootstrap/rotation включены в role timeout
+и cancellation; дополнительные snapshots/полная child history не сохраняются
+в родителе. Пока binding отсутствует, открывать child session по догадке нельзя.
 
 Если отмена уже видна при ожидании role permit, она имеет приоритет даже
 при одновременно свободном permit. Свежий запуск не арендует и не создаёт

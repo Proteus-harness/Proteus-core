@@ -87,6 +87,28 @@ fn role(name: &str) -> AgentProfile {
 }
 
 #[test]
+fn task_result_preserves_exact_child_session_and_existing_metadata() {
+    let child = crate::domain::new_thread_id();
+    let session = proteus_contracts::app_protocol::AppSubagentSession {
+        session_id: crate::domain::new_session_id(),
+        session_dir: "/sessions/child".into(),
+    };
+    let result = AgentControlResult::new("bounded summary", AgentLifecycleStatus::Completed)
+        .with_child_thread_id(child)
+        .with_metadata(
+            json!({"subagent_session":session,"resumable":true,"agent_messages_delivered":3}),
+        );
+    let result = result_to_tool_result("task-call", result, Some(child.to_string()), None);
+    assert_eq!(result.metadata["subagent_session"], json!(session));
+    assert_eq!(result.metadata["resumable"], true);
+    assert_eq!(result.metadata["agent_messages_delivered"], 3);
+    assert_eq!(result.metadata["child_thread_id"], json!(child));
+    assert_eq!(result.metadata["tool"], TASK_TOOL);
+    assert_eq!(result.metadata["status"], "completed");
+    assert!(result.output.starts_with("bounded summary\n\n[task_id:"));
+}
+
+#[test]
 fn spec_describes_roles_parallelism_and_resume() {
     let roles = vec![
         role("explore").with_parallel_safe(true),
@@ -145,6 +167,7 @@ fn parser_keeps_resume_metadata_and_rejects_wrong_optional_type() {
     assert_eq!(parsed.task.text, task.text);
     assert_eq!(parsed.description.as_deref(), Some("map code"));
     assert_eq!(parsed.metadata["task_id"], "thread-1");
+    assert_eq!(parsed.metadata["source_call_id"], call.id);
 
     let bad = ToolCall::new(
         "2",

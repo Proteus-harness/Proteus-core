@@ -146,6 +146,7 @@ impl TurnProgress {
                     tool: None,
                     subagent: Some(AppTranscriptSubagent {
                         child_thread_id: child_thread_id.to_string(),
+                        session: None,
                         role: role.clone(),
                         description: description.clone(),
                         status: "running".to_owned(),
@@ -158,6 +159,28 @@ impl TurnProgress {
                     self.push_background_subagent(message);
                 } else {
                     self.messages.push(message);
+                }
+            }
+            Event::SubagentSessionBound {
+                child_thread_id,
+                session_id,
+                session_dir,
+            } => {
+                let child_thread_id = child_thread_id.to_string();
+                for message in self
+                    .messages
+                    .iter_mut()
+                    .chain(self.background_subagents.iter_mut())
+                {
+                    if let Some(subagent) = message.subagent.as_mut()
+                        && subagent.child_thread_id == child_thread_id
+                    {
+                        subagent.session =
+                            Some(proteus_contracts::app_protocol::AppSubagentSession {
+                                session_id: *session_id,
+                                session_dir: session_dir.clone(),
+                            });
+                    }
                 }
             }
             Event::SubagentFinished {

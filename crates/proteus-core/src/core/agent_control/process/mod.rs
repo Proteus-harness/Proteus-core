@@ -16,7 +16,7 @@
 //! Процессы роли переиспользуются через пул: до `max_processes`
 //! одновременных детей на роль (semaphore), свободные процессы ждут в
 //! глобально bounded `idle` (LRU `max_idle_processes`) и получают
-//! `ClearHistory` перед свежей задачей. Resume atomically резервирует idle
+//! `NewSession` перед свежей задачей. Resume atomically резервирует idle
 //! child и проверяет session/role/cwd. `run` = `spawn` + `wait`.
 
 mod child;
@@ -67,7 +67,7 @@ use outcome::{status_label, truncate_summary};
 use pool::{PooledChild, ProcessPool, ReleaseOutcome, ResumeReservation};
 #[cfg(test)]
 use turn::should_forward_child_event;
-use turn::{ChildEventForwarder, TurnEnd, TurnTracker, clear_child_history, drive_turn};
+use turn::{ChildEventForwarder, TurnEnd, TurnTracker, drive_turn};
 
 pub(super) struct ProcessAgentControl {
     inner: Arc<RunnerInner>,
@@ -165,6 +165,12 @@ impl RunnerInner {
         request: &AgentControlRequest,
         ctx: &AgentWorkflowContext,
     ) -> Result<PreparedProcess> {
+        if let Some(source) = request.metadata.get("source_call_id") {
+            anyhow::ensure!(
+                source.as_str().is_some_and(|source| !source.is_empty()),
+                "subagent source_call_id must be a nonempty string"
+            );
+        }
         let profile = self
             .profiles
             .iter()
@@ -266,7 +272,7 @@ impl RunnerInner {
         Ok(())
     }
 
-    /// Turn на арендованном процессе: опциональный ClearHistory, `Send`,
+    /// Turn на арендованном процессе: durable session bootstrap/rotation, `Send`,
     /// затем drive до терминального Response с уважением role-таймаута.
     async fn run_leased_turn(
         &self,
@@ -292,8 +298,10 @@ impl RunnerInner {
         let body = async {
             leased.child.drain_stale_outputs()?;
             if !is_resume && leased.used {
-                clear_child_history(&mut leased.child).await?;
-            }
+                leased.child.new_session().await?
+            } else {
+                leased.child.ensure_session().await?
+            };
             leased
                 .child
                 .send(&StdioRequest::Send {
@@ -415,6 +423,17 @@ impl RunnerInner {
             ctx: &child_ctx,
             child_thread_id,
             role: profile.name.clone(),
+            source_call_id: request
+                .metadata
+                .get("source_call_id")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
+            source_attribution: crate::contracts::ExecutionAttribution::for_turn(
+                ctx.execution.scope.execution_id,
+                ctx.session_id,
+                ctx.thread_id,
+                ctx.turn_id,
+            ),
         };
 
         let mut leased = match self.lease_process(
@@ -461,6 +480,10 @@ impl RunnerInner {
             Ok(end) => {
                 leased.used = true;
                 let child_alive = leased.child.is_alive();
+                let session = tracker
+                    .session_bound
+                    .then(|| leased.child.session().cloned())
+                    .flatten();
 
                 let (status, summary) = match end {
                     TurnEnd::Completed(text) => (AgentLifecycleStatus::Completed, text),
@@ -493,12 +516,16 @@ impl RunnerInner {
                 })
                 .await?;
 
+                let mut metadata = json!({
+                    "resumable": resumable,
+                    "agent_messages_delivered": tracker.delivered_messages,
+                });
+                if let Some(session) = session {
+                    metadata["subagent_session"] = serde_json::to_value(session)?;
+                }
                 let result = AgentControlResult::new(summary, status)
                     .with_child_thread_id(child_thread_id)
-                    .with_metadata(json!({
-                        "resumable": resumable,
-                        "agent_messages_delivered": tracker.delivered_messages,
-                    }));
+                    .with_metadata(metadata);
                 Ok(result)
             }
             Err(error) => {

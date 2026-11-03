@@ -94,12 +94,13 @@ impl ChildOutputs {
         Ok(output.map(|buffered| buffered.output))
     }
 
-    pub(super) fn drain(&mut self) -> Result<()> {
+    pub(super) fn drain(&mut self, mut observe: impl FnMut(&StdioOutput)) -> Result<()> {
         self.health.check()?;
         // Bounded work even if an idle peer keeps producing output.
         for _ in 0..DEFAULT_MAX_BUFFERED_FRAMES {
-            if self.queue.try_recv().is_err() {
-                break;
+            match self.queue.try_recv() {
+                Ok(buffered) => observe(&buffered.output),
+                Err(_) => break,
             }
         }
         self.health.check()

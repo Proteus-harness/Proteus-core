@@ -174,6 +174,7 @@ impl EvalAccumulator {
                 }
             }
             JournalEntry::HistoryMutated(_)
+            | JournalEntry::SubagentSessionBoundRecorded(_)
             | JournalEntry::ModelMessageRecorded(_)
             | JournalEntry::HookInvoked(_) => {}
         }

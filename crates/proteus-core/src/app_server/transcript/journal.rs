@@ -87,6 +87,7 @@ struct TranscriptReplay {
     state: TranscriptProjectionState,
     visibility: TranscriptVisibility,
     final_results: HashSet<CallId>,
+    subagent_bindings: HashMap<CallId, crate::domain::SubagentSessionBinding>,
 }
 
 impl TranscriptReplay {
@@ -108,6 +109,15 @@ impl TranscriptReplay {
             state,
             visibility,
             final_results,
+            subagent_bindings: records
+                .iter()
+                .filter_map(|record| match &record.entry {
+                    JournalEntry::SubagentSessionBoundRecorded(binding) => {
+                        Some((binding.source_call_id.clone(), binding.clone()))
+                    }
+                    _ => None,
+                })
+                .collect(),
         }
     }
 
@@ -129,6 +139,7 @@ impl TranscriptReplay {
             state,
             visibility,
             final_results,
+            ..
         } = self;
         // The live turn is owned by the inline event projection until settlement.
         if live_turn_id.is_some() && record.turn_id == live_turn_id {
@@ -203,6 +214,22 @@ impl TranscriptReplay {
     }
 
     fn finish(mut self) -> Vec<AppTranscriptMessage> {
+        for row in &mut self.state.transcript.rows {
+            let Some(tool) = &mut row.tool else {
+                continue;
+            };
+            let Some(binding) = self.subagent_bindings.get(&tool.call_id) else {
+                continue;
+            };
+            if !tool.metadata.is_object() {
+                tool.metadata = serde_json::json!({});
+            }
+            tool.metadata["tool"] = serde_json::json!(tool.name);
+            tool.metadata["child_thread_id"] = serde_json::json!(binding.child_thread_id);
+            tool.metadata["subagent_session"] = serde_json::json!({
+                "session_id": binding.session_id, "session_dir": binding.session_dir,
+            });
+        }
         finalize_interrupted_tools(&mut self.state.transcript.rows);
         self.state.transcript.rows
     }

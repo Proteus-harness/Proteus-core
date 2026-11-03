@@ -125,12 +125,13 @@ fn parse_task_call(
     let description = optional_string(args.get("description"), "description")?;
     let task_id = optional_string(args.get("task_id"), "task_id")?;
 
-    let mut request = AgentControlRequest::new(agent_type, prompt, parent_task);
+    let mut request = AgentControlRequest::new(agent_type, prompt, parent_task)
+        .with_metadata(json!({ "source_call_id": call.id }));
     if let Some(description) = description {
         request = request.with_description(description);
     }
     if let Some(task_id) = task_id {
-        request = request.with_metadata(json!({ "task_id": task_id }));
+        request.metadata["task_id"] = json!(task_id);
     }
     Ok(request)
 }
@@ -171,9 +172,12 @@ fn result_to_tool_result(
         output.push_str(&note);
     }
 
-    ToolResult::ok(call_id.to_owned(), output).with_metadata(json!({
-        "tool": TASK_TOOL,
-        "status": result.status,
-        "child_thread_id": result.child_thread_id,
-    }))
+    let mut metadata = match result.metadata {
+        Value::Object(metadata) => metadata,
+        _ => serde_json::Map::new(),
+    };
+    metadata.insert("tool".into(), json!(TASK_TOOL));
+    metadata.insert("status".into(), json!(result.status));
+    metadata.insert("child_thread_id".into(), json!(result.child_thread_id));
+    ToolResult::ok(call_id.to_owned(), output).with_metadata(Value::Object(metadata))
 }

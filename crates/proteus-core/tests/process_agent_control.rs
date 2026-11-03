@@ -143,6 +143,7 @@ fn write_terminal_race_peer(root: &std::path::Path) -> (PathBuf, PathBuf) {
     let script = root.join("terminal-race-peer.py");
     let marker_literal =
         serde_json::to_string(&marker.to_string_lossy()).expect("quote marker path");
+    let startup = include_str!("fixtures/agent_session_start.py");
     std::fs::write(
         &script,
         format!(
@@ -152,6 +153,7 @@ import pathlib
 import sys
 import time
 
+{startup}
 marker = pathlib.Path({marker_literal})
 first = True
 for line in sys.stdin:
@@ -452,7 +454,7 @@ async fn process_agent_startup_crash_does_not_fail_a_live_sibling() {
     let (broken, good) = tokio::join!(runner.wait(&broken), runner.wait(&good));
     let broken = broken.expect_err("broken child must fail independently");
     assert!(
-        format!("{broken:#}").contains("exited unexpectedly"),
+        format!("{broken:#}").contains("exited during session setup"),
         "{broken:#}"
     );
     let good = good.expect("healthy sibling result");

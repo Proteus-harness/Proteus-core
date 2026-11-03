@@ -8,6 +8,7 @@ use uuid::Uuid;
 
 use super::{AppPendingRequests, AppQueuedUserMessage, AppServerEvent};
 
+mod binding_refresh;
 mod session;
 use crate::{core::QueuedMessagesSnapshot, domain::SessionId};
 pub(super) use session::RuntimeEventSink;
@@ -23,6 +24,7 @@ struct Inner {
     pending: Mutex<Pending>,
     updates: watch::Sender<AppPendingRequests>,
     queue: Option<watch::Receiver<QueuedMessagesSnapshot>>,
+    binding_refresh: Mutex<binding_refresh::State>,
 }
 
 struct Pending {
@@ -107,6 +109,7 @@ impl AppEventPublisher {
             }),
             updates: watch::channel(snapshot).0,
             queue: queue.clone(),
+            binding_refresh: Mutex::new(binding_refresh::State::default()),
         }));
         if let Some(mut queue) = queue {
             let events = publisher.clone();
@@ -154,7 +157,12 @@ impl AppEventPublisher {
         &self,
         event: AppServerEvent,
     ) -> Result<usize, broadcast::error::SendError<AppServerEvent>> {
-        self.send_with_history(event, None)
+        let idle = matches!(&event, AppServerEvent::ExecutionUpdated { execution } if execution.active.is_none());
+        let result = self.send_with_history(event, None);
+        if idle {
+            self.drain_child_bindings();
+        }
+        result
     }
 
     fn send_with_history(

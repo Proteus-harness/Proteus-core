@@ -3,7 +3,7 @@
 
 use std::{sync::Mutex, time::Duration};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Result, bail};
 use proteus_contracts::app_protocol::{AppServerEvent, StdioOutput, StdioRequest};
 use tokio::time::{Instant, timeout_at};
 
@@ -14,14 +14,11 @@ use super::{
 };
 use crate::{
     contracts::{
-        AgentLifecycleStatus, AgentWorkflowContext, ApprovalRequest, RequestOrigin,
-        UserInputResponse,
+        AgentLifecycleStatus, AgentWorkflowContext, ApprovalRequest, ExecutionAttribution,
+        RequestOrigin, UserInputResponse,
     },
-    domain::{AgentOutput, Event, EventContext, ThreadId, new_call_id},
+    domain::{AgentOutput, Event, EventContext, ThreadId},
 };
-
-/// Сколько ждать ответ ребёнка на служебные запросы (`ClearHistory`).
-const CONTROL_RESPONSE_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Терминальный исход turn-а ребёнка (fatal-ошибки идут через `Err`).
 pub(super) enum TurnEnd {
@@ -40,6 +37,9 @@ pub(super) struct TurnTracker {
     /// Messages confirmed by the peer app-server during this logical
     /// generation. The initial task prompt is not counted.
     pub(super) delivered_messages: u64,
+    /// SessionStarted allocates identity before the first write. Publish the
+    /// link only after accepted turn evidence proves its history is readable.
+    pub(super) session_bound: bool,
 }
 
 impl TurnTracker {
@@ -78,9 +78,41 @@ pub(super) struct ChildEventForwarder<'a> {
     pub(super) ctx: &'a AgentWorkflowContext,
     pub(super) child_thread_id: ThreadId,
     pub(super) role: String,
+    pub(super) source_call_id: Option<String>,
+    pub(super) source_attribution: ExecutionAttribution,
 }
 
 impl ChildEventForwarder<'_> {
+    async fn bind_session(&self, child: &ChildProcess, tracker: &mut TurnTracker) -> Result<()> {
+        if !tracker.session_bound {
+            if let Some(session) = child.session() {
+                if let Some(source_call_id) = &self.source_call_id {
+                    self.ctx
+                        .tool_recorder
+                        .subagent_session_bound(
+                            self.source_attribution,
+                            &crate::domain::SubagentSessionBinding {
+                                source_call_id: source_call_id.clone(),
+                                child_thread_id: self.child_thread_id,
+                                session_id: session.session_id,
+                                session_dir: session.session_dir.clone(),
+                            },
+                        )
+                        .await?;
+                }
+                self.ctx
+                    .emit(Event::SubagentSessionBound {
+                        child_thread_id: self.child_thread_id,
+                        session_id: session.session_id,
+                        session_dir: session.session_dir.clone(),
+                    })
+                    .await?;
+                tracker.session_bound = true;
+            }
+        }
+        Ok(())
+    }
+
     fn event_context(&self) -> EventContext {
         EventContext::new(
             self.ctx.session_id,
@@ -166,6 +198,7 @@ pub(super) fn should_forward_child_event(event: &Event) -> bool {
             | Event::ApprovalResolved { .. }
             | Event::ToolFinished { .. }
             | Event::SubagentStarted { .. }
+            | Event::SubagentSessionBound { .. }
             | Event::SubagentFinished { .. }
             | Event::Error { .. }
     )
@@ -325,8 +358,17 @@ async fn handle_output(
     match output {
         StdioOutput::Event { event } => match *event {
             AppServerEvent::Runtime { envelope } => {
+                if matches!(envelope.event, Event::TurnStarted { .. }) {
+                    forwarder.bind_session(child, tracker).await?;
+                }
                 tracker.observe(&envelope.event);
                 forwarder.forward_runtime_event(envelope.event).await;
+                Ok(OutputVerdict::Continue)
+            }
+            AppServerEvent::SessionSnapshot { snapshot } => {
+                if snapshot.root_thread_id.is_some() {
+                    forwarder.bind_session(child, tracker).await?;
+                }
                 Ok(OutputVerdict::Continue)
             }
             AppServerEvent::ApprovalRequested { request } => {
@@ -385,6 +427,7 @@ async fn handle_output(
                 return Ok(OutputVerdict::Continue);
             }
             if ok {
+                forwarder.bind_session(child, tracker).await?;
                 let text = output
                     .and_then(|value| serde_json::from_value::<AgentOutput>(value).ok())
                     .map(|output| output.text)
@@ -439,38 +482,6 @@ pub(super) async fn cancel_child_turn(
                 }
             }
             _ => {}
-        }
-    }
-}
-
-pub(super) async fn clear_child_history(child: &mut ChildProcess) -> Result<()> {
-    let request_id = new_call_id();
-    let deadline = Instant::now() + CONTROL_RESPONSE_TIMEOUT;
-    timeout_at(
-        deadline,
-        child.send(&StdioRequest::ClearHistory {
-            id: Some(request_id.clone()),
-        }),
-    )
-    .await
-    .context("subagent child did not accept history clear in time")??;
-    loop {
-        match timeout_at(deadline, child.next_output()).await {
-            Ok(Ok(Some(StdioOutput::Response { id, ok, error, .. })))
-                if id.as_deref() == Some(request_id.as_str()) =>
-            {
-                if !ok {
-                    bail!(
-                        "subagent child failed to clear history: {}",
-                        error.unwrap_or_else(|| "unknown error".to_owned())
-                    );
-                }
-                return Ok(());
-            }
-            Ok(Ok(Some(_))) => {}
-            Ok(Ok(None)) => bail!("subagent child process exited while clearing history"),
-            Ok(Err(error)) => return Err(error),
-            Err(_) => bail!("subagent child did not confirm history clear in time"),
         }
     }
 }

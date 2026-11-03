@@ -195,6 +195,16 @@ impl WorkflowHistoryRecorder for TurnHistoryRecorder {
 
 #[async_trait]
 impl ToolExecutionRecorder for TurnHistoryRecorder {
+    async fn subagent_session_bound(
+        &self,
+        attribution: ExecutionAttribution,
+        binding: &crate::domain::SubagentSessionBinding,
+    ) -> Result<()> {
+        self.tools
+            .subagent_session_bound(attribution, binding)
+            .await
+    }
+
     async fn tool_effect_recorded(
         &self,
         attribution: ExecutionAttribution,

@@ -44,8 +44,8 @@ pub mod topology;
 mod transcript;
 pub use live::{AppExecutionState, AppRun, AppRunStatus, AppSessionSnapshot};
 pub use transcript::{
-    AppLatestToolState, AppToolState, AppTranscriptBase, AppTranscriptCursor, AppTranscriptMessage,
-    AppTranscriptPage, AppTranscriptSubagent, AppTranscriptTool,
+    AppLatestToolState, AppSubagentSession, AppToolState, AppTranscriptBase, AppTranscriptCursor,
+    AppTranscriptMessage, AppTranscriptPage, AppTranscriptSubagent, AppTranscriptTool,
 };
 
 mod pending;

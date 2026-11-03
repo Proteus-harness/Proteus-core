@@ -13,7 +13,9 @@ use crate::{
 };
 
 use super::runs::SendDispatch;
-use super::{AppServerEvent, StdioOutput, StdioRequest};
+use super::{StdioOutput, StdioRequest};
+
+mod session;
 
 pub async fn run_stdio_app_server(
     config: AppConfig,
@@ -23,7 +25,9 @@ pub async fn run_stdio_app_server(
     fresh_session: bool,
     parent_session_id: Option<crate::domain::SessionId>,
 ) -> Result<()> {
-    let server = if let Some(parent_session_id) = parent_session_id {
+    let original_config = config.clone();
+    let original_cwd = cwd.clone();
+    let mut server = if let Some(parent_session_id) = parent_session_id {
         anyhow::ensure!(
             fresh_session && resume_session_dir.is_none(),
             "parent session requires a fresh stdio session"
@@ -42,31 +46,7 @@ pub async fn run_stdio_app_server(
     };
     let (output_tx, mut output_rx) = mpsc::channel::<StdioOutput>(256);
 
-    let mut events = server.subscribe_session();
-    let event_tx = output_tx.clone();
-    tokio::spawn(async move {
-        loop {
-            match events.recv().await {
-                Ok(event) => {
-                    let should_stop = matches!(event, AppServerEvent::Shutdown);
-                    if event_tx
-                        .send(StdioOutput::Event {
-                            event: Box::new(event),
-                        })
-                        .await
-                        .is_err()
-                    {
-                        break;
-                    }
-                    if should_stop {
-                        break;
-                    }
-                }
-                Err(_) => break,
-            }
-        }
-    });
-    server.start_session().await?;
+    let (mut bridge, _) = session::start_bridge(&server, &output_tx).await?;
 
     let writer = tokio::spawn(async move {
         let mut stdout = tokio::io::BufWriter::new(tokio::io::stdout());
@@ -82,8 +62,12 @@ pub async fn run_stdio_app_server(
     let stdin = tokio::io::BufReader::new(tokio::io::stdin());
     let mut lines = stdin.lines();
     let mut shutdown_requested = false;
+    // Command catalog/service preparation happens before RunRegistry admission.
+    // Count the entire request so rotation cannot retire its runtime midway.
+    let mut commands = tokio::task::JoinSet::new();
 
     while let Some(line) = lines.next_line().await? {
+        while commands.try_join_next().is_some() {}
         if line.trim().is_empty() {
             continue;
         }
@@ -103,6 +87,77 @@ pub async fn run_stdio_app_server(
         let id = request.id();
 
         match request {
+            StdioRequest::NewSession { .. } => {
+                if !commands.is_empty() {
+                    send_stdio_response(
+                        &output_tx,
+                        id,
+                        Err(anyhow::anyhow!(
+                            "new session requires an idle command stream"
+                        )),
+                    )
+                    .await;
+                    continue;
+                }
+                if let Err(error) = server.close_idle_runs().await {
+                    send_stdio_response(&output_tx, id, Err(error)).await;
+                    continue;
+                }
+                // Do not publish the retired runtime's Shutdown to the next
+                // logical task. Release it before launching replacement modules.
+                session::stop_bridge(bridge).await;
+                server.shutdown().await;
+                drop(server);
+                let replacement = async {
+                    let next = match parent_session_id {
+                        Some(parent) => {
+                            super::AgentAppServer::launch_child(
+                                original_config.clone(),
+                                original_cwd.clone(),
+                                config_path.as_deref(),
+                                parent,
+                            )
+                            .await?
+                        }
+                        None => {
+                            super::AgentAppServer::launch(
+                                original_config.clone(),
+                                original_cwd.clone(),
+                                config_path.as_deref(),
+                            )
+                            .await?
+                        }
+                    };
+                    let (bridge, identity) = session::start_bridge(&next, &output_tx).await?;
+                    Ok::<_, anyhow::Error>((next, bridge, identity))
+                }
+                .await;
+                match replacement {
+                    Ok((next, next_bridge, identity)) => {
+                        server = next;
+                        bridge = next_bridge;
+                        send_stdio_response(
+                            &output_tx,
+                            id,
+                            Ok(Some(serde_json::to_value(identity)?)),
+                        )
+                        .await;
+                    }
+                    Err(error) => {
+                        // The old session is closed. No half-open connection is
+                        // usable after a failed rotation.
+                        send_stdio_response(
+                            &output_tx,
+                            id,
+                            Err(anyhow::anyhow!("new session failed: {error:#}")),
+                        )
+                        .await;
+                        drop(output_tx);
+                        writer.await??;
+                        return Err(error);
+                    }
+                }
+            }
             StdioRequest::CommandCatalog { .. } => {
                 let result = server
                     .command_catalog()
@@ -113,7 +168,7 @@ pub async fn run_stdio_app_server(
             StdioRequest::ExecuteCommand { text, .. } => {
                 let server = server.clone();
                 let tx = output_tx.clone();
-                tokio::spawn(async move {
+                commands.spawn(async move {
                     let result = server
                         .execute_command(id.clone(), &text)
                         .await
@@ -302,6 +357,10 @@ pub async fn run_stdio_app_server(
     if !shutdown_requested {
         server.shutdown().await;
     }
+    // Keep EOF semantics: service requests admitted before disconnect finish
+    // normally; runtime-owned module commands have already settled in shutdown.
+    while commands.join_next().await.is_some() {}
+    let _ = bridge.await;
     drop(output_tx);
     writer.await??;
     Ok(())

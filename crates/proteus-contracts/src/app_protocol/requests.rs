@@ -35,6 +35,10 @@ pub enum StdioRequest {
     ClearHistory {
         id: Option<String>,
     },
+    /// Start a fresh durable session in this process. Requires an idle session.
+    NewSession {
+        id: Option<String>,
+    },
     HistorySummary {
         id: Option<String>,
     },
@@ -97,6 +101,7 @@ impl StdioRequest {
             | Self::EditQueuedMessage { id, .. }
             | Self::DeleteQueuedMessage { id, .. }
             | Self::ClearHistory { id }
+            | Self::NewSession { id }
             | Self::HistorySummary { id }
             | Self::UsageSummary { id }
             | Self::Remember { id, .. }

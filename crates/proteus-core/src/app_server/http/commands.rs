@@ -78,6 +78,9 @@ async fn execute_session_request(
             result
         }
         StdioRequest::ClearHistory { .. } => server.clear_history().await.map(|_| None),
+        StdioRequest::NewSession { .. } => Err(anyhow::anyhow!(
+            "new_session is a stdio connection control; use the HTTP session API"
+        )),
         StdioRequest::HistorySummary { .. } => serde_json::to_value(server.history_summary().await)
             .map(Some)
             .map_err(anyhow::Error::from),

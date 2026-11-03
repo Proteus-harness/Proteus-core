@@ -297,6 +297,12 @@ pub enum Event {
         description: Option<String>,
         child_thread_id: ThreadId,
     },
+    /// The process peer has supplied its actual durable session identity.
+    SubagentSessionBound {
+        child_thread_id: ThreadId,
+        session_id: SessionId,
+        session_dir: PathBuf,
+    },
     /// Дочерний цикл завершён, summary вернулся родителю. `status` —
     /// snake_case значение `AgentLifecycleStatus` ("completed", "cancelled", ...);
     /// строка, а не enum, чтобы domain не зависел от contracts.

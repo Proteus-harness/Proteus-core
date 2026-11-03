@@ -5,6 +5,7 @@ mod part_identity;
 #[cfg(test)]
 mod retention_tests;
 mod sequence;
+mod subagent;
 
 use im::{HashMap as SharedMap, HashSet as SharedSet};
 use std::{collections::HashSet, sync::Arc};
@@ -64,6 +65,11 @@ struct ToolLifecycle {
     hook_reviewed: bool,
     approval_requested: bool,
     resolved: bool,
+    permitted: bool,
+    // Allocate a reference only for subagent calls; ordinary tool lifecycles
+    // must not reserve inline PathBuf/String/UUID payloads.
+    subagent_binding: Option<Arc<proteus_contracts::domain::SubagentSessionBinding>>,
+    binding_recorded: bool,
     result: bool,
     effect: Option<proteus_contracts::domain::ToolResult>,
 }
@@ -358,6 +364,7 @@ impl JournalValidationState {
                                 resolution
                             );
                         }
+                        lifecycle.permitted = resolution.permits_side_effect();
                         lifecycle.resolved = true;
                     }
                 }
@@ -378,6 +385,7 @@ impl JournalValidationState {
                         tool.result.call_id
                     );
                 }
+                subagent::observe_result_binding(lifecycle, &tool.result)?;
                 lifecycle.effect = Some(tool.result.clone());
             }
             JournalEntry::ToolResultRecorded(tool) => {
@@ -408,6 +416,7 @@ impl JournalValidationState {
                 {
                     bail!("tool result changed its actual status/error/content");
                 }
+                subagent::observe_result_binding(lifecycle, &tool.result)?;
                 lifecycle.result = true;
                 // The effect is only needed until the final result is checked.
                 lifecycle.effect = None;
@@ -421,6 +430,9 @@ impl JournalValidationState {
                         &self.history[index..index + 1],
                     )?;
                 }
+            }
+            JournalEntry::SubagentSessionBoundRecorded(binding) => {
+                self.validate_subagent_binding(record, binding)?;
             }
             JournalEntry::TurnSettled(settled) => {
                 reject_execution_id(record)?;

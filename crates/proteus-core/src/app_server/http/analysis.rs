@@ -240,6 +240,7 @@ fn turn_details(projection: &JournalProjection, turn_id: TurnId) -> Result<AppTu
                     detail.error = settled.error.clone();
                 }
             }
+            JournalEntry::SubagentSessionBoundRecorded(_) => {}
         }
     }
     let mut detail = detail.ok_or_else(|| anyhow!("turn has no recorded admission"))?;

@@ -44,6 +44,7 @@ pub(super) fn is_display_kind(kind: JournalKind) -> bool {
             | JournalKind::ToolCallRecorded
             | JournalKind::ToolResultRecorded
             | JournalKind::ToolEffectRecorded
+            | JournalKind::SubagentSessionBoundRecorded
             | JournalKind::TurnOpened
             | JournalKind::TurnSettled
     )
@@ -57,6 +58,7 @@ pub(super) fn transcript_from_scan(
     let mut visibility = TranscriptVisibility::default();
     let mut committed_parts = std::collections::HashSet::new();
     let mut final_results = std::collections::HashSet::new();
+    let mut subagent_bindings = std::collections::HashMap::new();
     scan(&mut |record| {
         if !(live_turn_id.is_some() && record.turn_id == live_turn_id)
             && matches!(
@@ -79,6 +81,9 @@ pub(super) fn transcript_from_scan(
                 for message in &mutation.messages {
                     committed_parts.extend(message.parts.iter().map(|part| part.part_id));
                 }
+            }
+            JournalEntry::SubagentSessionBoundRecorded(binding) => {
+                subagent_bindings.insert(binding.source_call_id.clone(), binding.clone());
             }
             JournalEntry::ToolResultRecorded(tool) => {
                 final_results.insert(tool.result.call_id.clone());
@@ -158,6 +163,7 @@ pub(super) fn transcript_from_scan(
         },
         visibility,
         final_results,
+        subagent_bindings,
     };
     scan(&mut |record| {
         if record.session_seq >= start {

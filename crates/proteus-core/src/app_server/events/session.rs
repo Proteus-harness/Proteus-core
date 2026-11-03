@@ -57,6 +57,16 @@ impl SnapshotParts {
 }
 
 impl SessionView {
+    pub(super) fn run_is_active(&self) -> bool {
+        self.execution.active.is_some()
+    }
+
+    pub(super) fn session_dir(&self) -> Option<std::path::PathBuf> {
+        self.runtime
+            .upgrade()
+            .and_then(|runtime| runtime.session_dir().map(std::path::Path::to_owned))
+    }
+
     pub fn new(session_id: SessionId, stream_id: String) -> Self {
         Self {
             session_id,
@@ -116,18 +126,38 @@ impl AppEventPublisher {
         expected: &Arc<CompletedTranscript>,
         history: CompletedTranscript,
     ) -> Result<()> {
+        self.publish_refreshed_history(expected, history, false)
+            .map(|_| ())
+    }
+
+    pub(super) fn refresh_idle_history(
+        &self,
+        expected: &Arc<CompletedTranscript>,
+        history: CompletedTranscript,
+    ) -> Result<bool> {
+        self.publish_refreshed_history(expected, history, true)
+    }
+
+    fn publish_refreshed_history(
+        &self,
+        expected: &Arc<CompletedTranscript>,
+        history: CompletedTranscript,
+        idle_only: bool,
+    ) -> Result<bool> {
         {
             let mut view = self.0.view.lock().expect("session view lock");
-            if !view
-                .history
-                .as_ref()
-                .is_ok_and(|current| Arc::ptr_eq(current, expected))
+            if (idle_only && view.execution.active.is_some())
+                || !view
+                    .history
+                    .as_ref()
+                    .is_ok_and(|current| Arc::ptr_eq(current, expected))
             {
-                return Ok(());
+                return Ok(false);
             }
             view.history = Ok(Arc::new(history));
         }
-        self.publish_snapshot()
+        self.publish_snapshot()?;
+        Ok(true)
     }
 
     pub(in crate::app_server) fn attach_runtime(
@@ -200,6 +230,10 @@ pub(in crate::app_server) struct RuntimeEventSink(pub OnceLock<AppEventPublisher
 impl EventSink for RuntimeEventSink {
     async fn append(&self, envelope: EventEnvelope) -> Result<()> {
         if let Some(events) = self.0.get() {
+            let child_bound = matches!(
+                envelope.event,
+                crate::domain::Event::SubagentSessionBound { .. }
+            );
             // A runtime without a SessionStore still commits its previous turn
             // before the next TurnStarted. Capture that prefix before resetting
             // live progress; memory history is not read while holding the view lock.
@@ -226,6 +260,9 @@ impl EventSink for RuntimeEventSink {
                 },
                 history,
             );
+            if child_bound {
+                events.refresh_idle_child_binding();
+            }
         }
         Ok(())
     }

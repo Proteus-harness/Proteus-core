@@ -4,6 +4,36 @@ use crate::{
     domain::{Event, EventContext, EventEnvelope, new_message_id, new_thread_id, new_turn_id},
 };
 
+#[test]
+fn late_child_refresh_cannot_publish_a_new_active_turn_as_completed_history() {
+    use proteus_contracts::app_protocol::{AppExecutionState, AppRun, AppRunStatus};
+    let (events, _) = test_event_channel(8);
+    let baseline = events.completed_history().unwrap();
+    let _ = events.send(AppServerEvent::ExecutionUpdated {
+        execution: AppExecutionState {
+            active: Some(AppRun {
+                run_id: "new-parent-turn".into(),
+                options: Default::default(),
+                status: AppRunStatus::Running,
+                error: None,
+            }),
+            last: None,
+        },
+    });
+    // A blocking late-binding projection may observe a turn admitted after
+    // it was scheduled. Its partial rows must stay out of completed history.
+    let partial =
+        crate::app_server::transcript_messages(&[crate::model_standard::CanonicalMessage::text(
+            crate::model_standard::MessageRole::Assistant,
+            "still streaming",
+        )]);
+    events
+        .refresh_idle_history(&baseline, partial.into())
+        .unwrap();
+    assert!(Arc::ptr_eq(&events.completed_history().unwrap(), &baseline));
+    assert!(events.session_snapshot().unwrap().transcript.is_empty());
+}
+
 #[tokio::test]
 async fn subscription_snapshot_covers_buffered_events_and_recovers_after_overflow() {
     let (events, _) = test_event_channel(2);
