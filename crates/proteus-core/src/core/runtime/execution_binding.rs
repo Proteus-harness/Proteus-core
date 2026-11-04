@@ -107,6 +107,7 @@ impl AgentRuntime {
             ),
         );
         context.conversation = Some(conversation);
+        context.terminal_registry = Some(self.services.terminals.clone());
         Ok(context)
     }
 }

@@ -218,6 +218,26 @@ impl ProcessExportClient {
         &self.module_id
     }
 
+    pub(super) async fn invoke_for_generation<P: Serialize, R: DeserializeOwned>(
+        &self,
+        generation: u64,
+        method: &str,
+        params: &P,
+    ) -> Result<R> {
+        let params = self.encode(method, params)?;
+        let mut invocation = self
+            .broker
+            .start_invocation_for_generation(
+                generation,
+                &self.target,
+                method,
+                params,
+                Duration::from_secs(5),
+            )
+            .await?;
+        self.decode(method, invocation.result().await?)
+    }
+
     pub(super) async fn start(
         &self,
         method: &str,

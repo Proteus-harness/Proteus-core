@@ -73,6 +73,7 @@ fn request(
     let (notifications, _) = NotificationSink::channel(state.options.notification_limits);
     (
         StartRequest {
+            expected_generation: None,
             target: state.binding.exports[0].export_ref(),
             method: PROCESS_WORKFLOW_METHOD.to_owned(),
             params,
@@ -594,5 +595,65 @@ fn expired_acknowledged_optional_start_settles_without_dispatch() -> Result<()> 
     assert_clean(&state)?;
     ensure!(state.worker.is_some() && state.runtime_started);
     state.reset_generation(ComponentFailure::Shutdown);
+    Ok(())
+}
+
+#[test]
+fn generation_fence_rejects_before_starting_absent_worker() -> Result<()> {
+    // An invalid executable makes accidental ensure_worker observable.
+    let mut state = state(ProcessSpec::new(
+        "/does/not/exist/terminal-generation-fence",
+    ))?;
+    let generation = state.generation;
+    let (mut request, ack, terminal) =
+        request(&state, json!({"secret":"never-forward-this"}), None);
+    request.expected_generation = Some(generation);
+    state.accept_start(request);
+    let error = ack
+        .recv_timeout(WAIT)?
+        .err()
+        .context("expected rejection")?;
+    assert_eq!(error.kind, ComponentBrokerErrorKind::RuntimeUnavailable);
+    assert_eq!(
+        error.message,
+        "terminal worker generation is no longer available"
+    );
+    assert!(state.worker.is_none());
+    assert_eq!(state.generation, generation);
+    assert!(state.pending.is_empty());
+    assert!(terminal.try_recv().is_err());
+    Ok(())
+}
+
+#[test]
+fn side_control_uses_reserved_lane_while_root_is_active_and_stale_is_rejected() -> Result<()> {
+    let mut state = state(fixture())?; // max_active_roots = 1
+    state.options.max_pending_roots = 1;
+    let (root, root_terminal) = admit(&mut state, json!({"op":"delay","delay_ms":5000}), None)?;
+    assert_eq!(state.active_roots, 1);
+    let (mut control, ack, _terminal) =
+        request(&state, json!({"op":"echo","value":"control"}), None);
+    control.expected_generation = Some(state.generation);
+    state.accept_start(control);
+    let control_meta = ack.recv_timeout(WAIT)??;
+    assert_eq!(state.active_nested, 1);
+    assert!(state.queued_roots.is_empty());
+    assert!(state.pending[control_meta.invocation.id()].side_control);
+    // Restart revokes the capability even though a new worker could be started.
+    let generation = state.generation;
+    state.reset_generation(ComponentFailure::Shutdown);
+    let (mut stale, ack, _terminal) =
+        request(&state, json!({"secret":"not-for-new-process"}), None);
+    stale.expected_generation = Some(generation);
+    state.accept_start(stale);
+    let error = ack
+        .recv_timeout(WAIT)?
+        .err()
+        .context("expected stale rejection")?;
+    assert_eq!(error.kind, ComponentBrokerErrorKind::RuntimeUnavailable);
+    assert!(state.worker.is_none());
+    assert!(state.pending.is_empty());
+    let _ = root;
+    assert!(root_terminal.recv_timeout(WAIT).is_ok());
     Ok(())
 }

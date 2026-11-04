@@ -105,6 +105,13 @@ impl Tool for ProcessTool {
             attribution: ctx.attribution,
             skills: self.skills.clone(),
         };
+        let terminal_context = proteus_contracts::process_module::ToolModuleInvocationContext {
+            cwd: request.cwd.clone(),
+            attribution: request.attribution.clone(),
+            skills: request.skills.clone(),
+            config: serde_json::Value::Null,
+        };
+        let terminal_ref = Arc::new(tokio::sync::Mutex::new(None));
         let cancellation = ctx.cancellation;
         let response: ProcessToolInvokeResponse = self
             .client
@@ -112,6 +119,10 @@ impl Tool for ProcessTool {
                 PROCESS_TOOL_INVOKE_METHOD,
                 &request,
                 Arc::new(host::ToolHost {
+                    terminal_host: ctx.terminal_host,
+                    terminal_client: self.client.clone(),
+                    terminal_context,
+                    terminal_ref: terminal_ref.clone(),
                     operations: ctx.host,
                     conversation: ctx.conversation,
                     session_id: ctx.conversation_session_id,
@@ -121,7 +132,14 @@ impl Tool for ProcessTool {
                 &cancellation,
             )
             .await?;
-        Ok(response.result)
+        let mut result = response.result;
+        if let Some(terminal) = terminal_ref.lock().await.take() {
+            if !result.metadata.is_object() {
+                result.metadata = serde_json::json!({});
+            }
+            result.metadata["tool_terminal"] = serde_json::to_value(terminal)?;
+        }
+        Ok(result)
     }
 }
 

@@ -48,6 +48,8 @@ pub struct AppTranscriptMessage {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct AppTranscriptTool {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal: Option<crate::contracts::ToolTerminalRef>,
     pub call_id: String,
     pub name: String,
     pub args: Value,

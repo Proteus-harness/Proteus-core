@@ -45,9 +45,17 @@ impl ToolOrchestrator {
         let bound = self.bind(ctx);
         let observer = AgentToolExecutionObserver { ctx: ctx.clone() };
         let origin = request_origin(ctx);
+        let terminal_call_id = call.id.clone();
         bound
             .execute_enriched(task.cwd.clone(), call, &observer, |tool_ctx| {
                 enrich_agent_tool_context(ctx, task, origin, tool_ctx);
+                if let Some(registry) = &ctx.terminal_registry {
+                    tool_ctx.terminal_host = Some(Arc::new(EventTerminalHost {
+                        registry: registry.clone(),
+                        context: ctx.clone(),
+                        call_id: terminal_call_id.clone(),
+                    }));
+                }
             })
             .await
     }
@@ -149,5 +157,28 @@ impl ToolExecutionObserver for AgentToolExecutionObserver {
                 result: result.clone(),
             })
             .await
+    }
+}
+
+struct EventTerminalHost {
+    registry: Arc<dyn crate::contracts::ToolTerminalHost>,
+    context: AgentWorkflowContext,
+    call_id: crate::domain::CallId,
+}
+#[async_trait]
+impl crate::contracts::ToolTerminalHost for EventTerminalHost {
+    async fn publish(
+        &self,
+        descriptor: crate::contracts::ToolTerminalDescriptor,
+        controller: Arc<dyn crate::contracts::ToolTerminalController>,
+    ) -> Result<crate::contracts::ToolTerminalRef> {
+        let terminal = self.registry.publish(descriptor, controller).await?;
+        self.context
+            .emit(Event::ToolTerminalBound {
+                call_id: self.call_id.clone(),
+                terminal: terminal.clone(),
+            })
+            .await?;
+        Ok(terminal)
     }
 }

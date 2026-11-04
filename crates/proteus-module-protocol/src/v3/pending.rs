@@ -40,6 +40,7 @@ impl TerminalSender {
 }
 
 pub(super) struct PendingInvocation {
+    pub side_control: bool,
     pub invocation: InvocationRef,
     pub method: String,
     pub params: Option<Value>,
@@ -57,7 +58,7 @@ pub(super) struct PendingInvocation {
 
 impl PendingInvocation {
     pub(super) fn is_root(&self) -> bool {
-        self.invocation.parent_id.is_none()
+        self.invocation.parent_id.is_none() && !self.side_control
     }
 
     /// A component may reference an invocation only after the writer has

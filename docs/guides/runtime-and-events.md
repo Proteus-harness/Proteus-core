@@ -2224,3 +2224,33 @@ session отправляет cancel и после bounded grace reset-ит/ос�
 Дефолты: 3 часа на model request и 4 часа на workflow turn. UI-клиент может
 показывать секундомер ожидания, пока turn находится в `thinking` /
 `calling model`.
+
+
+### Терминал команды агента
+
+`AppTranscriptTool.terminal` — optional `{id,title,tty}`; событие
+`ToolTerminalBound {call_id,terminal}` делает ссылку доступной до окончания
+`invoke`. Финальная `ToolResult.metadata.tool_terminal` сохраняет ссылку для
+истории; после перезапуска worker ссылка остаётся видимой, но live control уже
+недоступен. UUID другого активного session не принимается.
+
+- `GET /terminals/read?session_dir=<absolute>&id=<uuid>&cursor=<u64>&max_bytes=<1..65536>&wait_ms=<0..1000>`
+  возвращает `{type:"read",snapshot:{start_cursor,next_cursor,end_cursor,
+  data_base64,gap,finished,exit_code,tty,columns,rows}}`. `cursor` optional.
+  При `gap=true` старые байты уже вытеснены из кольцевого буфера; клиент начинает
+  отображение с `start_cursor`. Даже при `finished=true` нужно дочитать до
+  `end_cursor`.
+- `POST /terminals/input` с `{session_dir,id,data_base64}` — максимум 64 КиБ
+  декодированных байтов; без автоматических повторов, поскольку результат
+  доставки после разрыва соединения может быть неизвестен.
+- `POST /terminals/resize` с `{session_dir,id,columns,rows}` — 2..1000 columns,
+  1..500 rows.
+- `POST /terminals/stop` с `{session_dir,id}` — явная остановка процесса.
+
+Успешные управляющие операции возвращают `{type:"accepted"}`; `{type:"unavailable"}`
+означает, что исходная запись модуля уже удалена или истекла. Требуется обычный
+app-server session token. Операции обращаются только к live registry и не
+выполняют модельный tool call. Закрытие вкладки оставляет команду работающей.
+Для программ, которым нужен controlling terminal (например `sudo` с вводом
+пароля), исходный `exec_command` должен быть запущен с `tty:true`. Режим
+`tty:false` по умолчанию и существующие права запуска не меняются.

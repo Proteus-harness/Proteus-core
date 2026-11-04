@@ -298,7 +298,9 @@ impl LoopState {
                     .values()
                     .filter(|pending| pending.is_root())
                     .count();
-                if pending_roots >= self.options.max_pending_roots {
+                if request.expected_generation.is_none()
+                    && pending_roots >= self.options.max_pending_roots
+                {
                     request.ack.send(Err(ComponentBrokerError::new(
                         ComponentBrokerErrorKind::Admission,
                         format!(
@@ -312,6 +314,29 @@ impl LoopState {
             }
         };
 
+        if request
+            .expected_generation
+            .is_some_and(|generation| generation != self.generation || self.worker.is_none())
+        {
+            request.ack.send(Err(ComponentBrokerError::new(
+                ComponentBrokerErrorKind::RuntimeUnavailable,
+                "terminal worker generation is no longer available",
+            )));
+            return;
+        }
+        // Generation-fenced controls use the bounded reserved lane, so a
+        // long-running root cannot prevent stdin delivery to its own process.
+        let side_control = request.expected_generation.is_some();
+        if side_control
+            && (self.active_nested >= self.options.max_active_nested
+                || self.active_roots + self.active_nested >= self.options.max_active_total)
+        {
+            request.ack.send(Err(ComponentBrokerError::new(
+                ComponentBrokerErrorKind::Admission,
+                "side-control capacity exhausted",
+            )));
+            return;
+        }
         let pid = match self.ensure_worker() {
             Ok(pid) => pid,
             Err(error) => {
@@ -374,10 +399,11 @@ impl LoopState {
             invocation: invocation.clone(),
             pid,
         };
-        let is_root = invocation.parent_id.is_none();
+        let is_root = invocation.parent_id.is_none() && !side_control;
         self.pending.insert(
             id.clone(),
             PendingInvocation {
+                side_control,
                 invocation,
                 method: request.method,
                 params: Some(request.params),

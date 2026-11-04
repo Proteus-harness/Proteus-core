@@ -68,6 +68,8 @@ pub struct ToolTerminalSnapshot {
 pub enum ToolTerminalResponse {
     Read(ToolTerminalSnapshot),
     Accepted,
+    /// The original module record expired; the handle must never be rebound.
+    Unavailable,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

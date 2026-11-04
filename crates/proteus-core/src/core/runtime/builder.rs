@@ -316,6 +316,7 @@ impl AgentRuntimeBuilder {
 
         Ok(AgentRuntime {
             services: RuntimeServices {
+                terminals: Arc::default(),
                 images,
                 cwd,
                 execution_state: RwLock::new(RuntimeExecutionState {

@@ -95,6 +95,7 @@ fn append_transcript_tool_call(transcript: &mut TranscriptRows, call: &ToolCall)
         role: "system".to_owned(),
         text: String::new(),
         tool: Some(AppTranscriptTool {
+            terminal: None,
             effective_args: None,
             call_id: call.id.clone(),
             name: call.name.clone(),
@@ -179,6 +180,7 @@ fn append_hosted_tool_activity(transcript: &mut TranscriptRows, activity: &Hoste
         role: "system".to_owned(),
         text: String::new(),
         tool: Some(AppTranscriptTool {
+            terminal: None,
             effective_args: None,
             call_id: activity.id().to_owned(),
             name: activity.kind().as_str().to_owned(),
@@ -253,6 +255,10 @@ fn append_transcript_tool_result(transcript: &mut TranscriptRows, result: &ToolR
     let status = if result.ok { "done" } else { "failed" }.to_owned();
     let result_text = result.text_or_status();
     if let Some(tool) = transcript.tool_mut(&result.call_id) {
+        tool.terminal = result
+            .metadata
+            .get("tool_terminal")
+            .and_then(|value| serde_json::from_value(value.clone()).ok());
         tool.status = status;
         tool.result = Some(result_text);
         tool.metadata = result.metadata.clone();
@@ -267,6 +273,10 @@ fn append_transcript_tool_result(transcript: &mut TranscriptRows, result: &ToolR
         role: "system".to_owned(),
         text: String::new(),
         tool: Some(AppTranscriptTool {
+            terminal: result
+                .metadata
+                .get("tool_terminal")
+                .and_then(|value| serde_json::from_value(value.clone()).ok()),
             effective_args: None,
             call_id: result.call_id.clone(),
             name: "tool".to_owned(),

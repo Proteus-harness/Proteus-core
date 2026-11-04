@@ -61,6 +61,7 @@ fn final_owner_on_broker_thread(full: bool, reset: bool) {
         state.pending.insert(
             id.clone(),
             PendingInvocation {
+                side_control: false,
                 invocation: InvocationRef {
                     id: id.clone(),
                     generation: 1,

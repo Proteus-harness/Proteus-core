@@ -51,6 +51,8 @@ pub(crate) use steering::{
 };
 use steering::{SessionSteering, SteeringFinalizationGuard};
 
+mod terminals;
+
 pub struct AgentRuntime {
     services: RuntimeServices,
     session: Arc<SessionState>,
@@ -132,6 +134,7 @@ pub struct RuntimeReloadReport {
 }
 
 struct RuntimeServices {
+    terminals: Arc<terminals::TerminalRegistry>,
     images: images::ImageStore,
     cwd: PathBuf,
     execution_state: RwLock<RuntimeExecutionState>,

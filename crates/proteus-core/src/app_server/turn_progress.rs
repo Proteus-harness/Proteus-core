@@ -115,6 +115,30 @@ impl TurnProgress {
                     }
                 }
             }
+            Event::ToolTerminalBound { call_id, terminal } => {
+                for message in self
+                    .messages
+                    .iter_mut()
+                    .chain(&mut self.background_subagents)
+                {
+                    if let Some(tool) = message
+                        .tool
+                        .as_mut()
+                        .filter(|tool| tool.call_id == *call_id)
+                    {
+                        tool.terminal = Some(terminal.clone());
+                    }
+                    if let Some(subagent) = message.subagent.as_mut() {
+                        if let Some(tool) = subagent
+                            .tools
+                            .iter_mut()
+                            .find(|tool| tool.call_id == *call_id)
+                        {
+                            tool.terminal = Some(terminal.clone());
+                        }
+                    }
+                }
+            }
             Event::ApprovalRequested { call_id, .. } => {
                 self.set_tool_status(call_id, "waiting_approval", None, None);
             }
@@ -317,6 +341,7 @@ impl TurnProgress {
             role: "system".to_owned(),
             text: String::new(),
             tool: Some(AppTranscriptTool {
+                terminal: None,
                 effective_args: None,
                 call_id: call.id.clone(),
                 name: call.name.clone(),
@@ -425,6 +450,7 @@ fn append_subagent_tool(
             subagent.tools.remove(index);
         }
         subagent.tools.push(AppTranscriptTool {
+            terminal: None,
             effective_args: None,
             call_id: call.id.clone(),
             name: call.name.clone(),
@@ -480,6 +506,11 @@ fn update_tool(
         tool.result = Some(truncate_utf8(result, MAX_SUBAGENT_TOOL_RESULT_BYTES).to_owned());
     }
     if let Some(metadata) = metadata {
+        if let Some(value) = metadata.get("tool_terminal") {
+            tool.terminal = serde_json::from_value(value.clone())
+                .ok()
+                .or(tool.terminal.take());
+        }
         tool.metadata = if compact {
             compact_json(metadata, MAX_BACKGROUND_TOOL_JSON_BYTES)
         } else {

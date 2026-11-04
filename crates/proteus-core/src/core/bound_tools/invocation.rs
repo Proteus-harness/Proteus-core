@@ -41,6 +41,7 @@ impl BoundTools {
             conversation: self.conversation.clone(),
             conversation_session_id: self.conversation_session_id,
             host: None,
+            terminal_host: None,
         };
         enrich(&mut tool_ctx);
         // Binding-owned fields remain authoritative after optional enrichment.

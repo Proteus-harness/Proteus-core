@@ -30,6 +30,7 @@ mod security;
 mod sessions;
 mod sse;
 mod state;
+mod terminals;
 mod workspace;
 
 #[cfg(test)]
@@ -179,6 +180,18 @@ where
     }
 
     let response = match (method, path.as_str()) {
+        (Method::POST, "/terminals/input" | "/terminals/resize" | "/terminals/stop") => {
+            match read_json::<terminals::TerminalControlRequest, _>(request).await {
+                Ok(command) => match terminals::control(&state, &path, command).await {
+                    Ok(response) => json_response(StatusCode::OK, &response),
+                    Err(_) => error_response(
+                        StatusCode::BAD_REQUEST,
+                        "terminal operation failed or terminal unavailable",
+                    ),
+                },
+                Err(_) => error_response(StatusCode::BAD_REQUEST, "invalid terminal operation"),
+            }
+        }
         (Method::POST, "/request") => match read_json::<StdioRequest, _>(request).await {
             Ok(command) => json_response(
                 StatusCode::OK,

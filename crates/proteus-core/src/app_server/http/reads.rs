@@ -38,6 +38,9 @@ pub(super) async fn route_get(
 
 async fn read(state: &HttpAppState, path: &str, query: Option<&str>) -> Result<HttpResponse> {
     let response = match path {
+        "/terminals/read" => {
+            json_response(StatusCode::OK, &super::terminals::read(state, query).await?)
+        }
         "/health" => json_response(StatusCode::OK, &json!({ "ok": true })),
         "/addons" => {
             let server = server_for_query(state, query).await?;

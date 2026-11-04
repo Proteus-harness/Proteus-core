@@ -556,3 +556,41 @@ fn creation_dates_do_not_follow_text_deltas_completion_or_tool_finish() {
     assert_eq!(rows[1].timestamp_ms, Some(13));
     assert_eq!(rows[1].tool.as_ref().unwrap().status, "done");
 }
+
+#[test]
+fn terminal_button_is_bound_before_tool_result_and_survives_final_metadata() {
+    let mut progress = TurnProgress::default();
+    let call =
+        crate::domain::ToolCall::new("terminal-call", "exec_command", json!({"cmd":"synthetic"}));
+    apply(
+        &mut progress,
+        Event::ToolCallRequested { call: call.clone() },
+    );
+    let terminal = crate::contracts::ToolTerminalRef {
+        id: uuid::Uuid::new_v4(),
+        title: "synthetic".into(),
+        tty: true,
+    };
+    apply(
+        &mut progress,
+        Event::ToolTerminalBound {
+            call_id: call.id.clone(),
+            terminal: terminal.clone(),
+        },
+    );
+    assert_eq!(
+        progress.messages[0]
+            .tool
+            .as_ref()
+            .unwrap()
+            .terminal
+            .as_ref(),
+        Some(&terminal)
+    );
+    let mut result = ToolResult::ok(call.id, "finished");
+    result.metadata = json!({"tool_terminal":terminal});
+    apply(&mut progress, Event::ToolFinished { result });
+    let tool = progress.messages[0].tool.as_ref().unwrap();
+    assert_eq!(tool.status, "done");
+    assert_eq!(tool.terminal, Some(terminal));
+}

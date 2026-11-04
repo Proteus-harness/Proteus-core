@@ -31,6 +31,7 @@ use super::{
 const COMMAND_ACK_SLACK: Duration = Duration::from_secs(2);
 
 pub(crate) struct StartRequest {
+    pub(super) expected_generation: Option<u64>,
     pub(super) target: ProcessComponentExportRef,
     pub(super) method: String,
     pub(super) params: Value,
@@ -265,7 +266,7 @@ impl ComponentBroker {
         timeout: Duration,
         dispatcher: Arc<dyn AsyncHostRequestDispatcher>,
     ) -> Result<InvocationHandle, ComponentBrokerError> {
-        self.start_async(None, target, method, params, timeout, dispatcher)
+        self.start_async(None, None, target, method, params, timeout, dispatcher)
             .await
     }
 
@@ -280,6 +281,7 @@ impl ComponentBroker {
     ) -> Result<InvocationHandle, ComponentBrokerError> {
         self.start_async(
             Some(parent.clone()),
+            None,
             target,
             method,
             params,
@@ -289,9 +291,31 @@ impl ComponentBroker {
         .await
     }
 
+    /// Generation-fenced side control never starts or reconnects a worker.
+    pub async fn start_invocation_for_generation(
+        &self,
+        generation: u64,
+        target: &ProcessComponentExportRef,
+        method: &str,
+        params: Value,
+        timeout: Duration,
+    ) -> Result<InvocationHandle, ComponentBrokerError> {
+        self.start_async(
+            None,
+            Some(generation),
+            target,
+            method,
+            params,
+            timeout,
+            Arc::new(NoAsyncHostRequests),
+        )
+        .await
+    }
+
     async fn start_async(
         &self,
         parent: Option<InvocationRef>,
+        expected_generation: Option<u64>,
         target: &ProcessComponentExportRef,
         method: &str,
         params: Value,
@@ -319,6 +343,7 @@ impl ComponentBroker {
         let handle_sink = notifications.clone();
         let (ack_tx, ack_rx) = oneshot::channel();
         let request = StartRequest {
+            expected_generation,
             target: target.clone(),
             method: method.to_owned(),
             params,
@@ -461,6 +486,7 @@ impl ComponentBroker {
             NotificationSink::channel(self.inner.options.notification_limits);
         let (ack_tx, ack_rx) = mpsc::channel();
         let request = StartRequest {
+            expected_generation: None,
             target: target.clone(),
             method: method.to_owned(),
             params,

@@ -286,6 +286,10 @@ pub enum Event {
         call_id: CallId,
         approved: bool,
     },
+    ToolTerminalBound {
+        call_id: CallId,
+        terminal: crate::contracts::ToolTerminalRef,
+    },
     ToolFinished {
         result: ToolResult,
     },

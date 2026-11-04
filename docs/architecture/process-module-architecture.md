@@ -1125,3 +1125,34 @@ workflow сохраняет прошлые new_messages, replacement и compacti
 добавляет новый прогресс и compaction evidence. Host повторно проверяет обычный
 history contract. Причина также присутствует в runtime developer instructions.
 Reference workflows и внешний Python example поддерживают эту поверхность.
+
+
+### Интерактивный терминал существующего tool
+
+Optional feature `tool_terminal/v1` расширяет `tool/v6`: новый slot и отдельный
+HTTP-сервис модуля не создаются. SDK `ToolModule::supports_terminal_control`
+включает feature только при согласованном `host_features`; обычные tool exports
+работают без неё. `ToolModuleHost::supports_terminal_publish()` явно отличает
+host без этой возможности; ошибки настоящего `publish_terminal` не игнорируются.
+
+После spawn модуль вызывает `tool.publish_terminal` с descriptor
+`{handle,title,tty,columns,rows}` до ожидания первого результата. `handle` приватен
+для модуля. Core создаёт публичный UUID и связывает его с точным export client,
+исходными cwd/attribution/skills и поколением worker. Метод `terminal_control`
+получает `ProcessToolTerminalInput {request:{handle,action},context}`; действия
+`read`, `input`, `resize`, `stop` типизированы в `contracts::tool_terminal`.
+Поколение проверяет сам broker до `ensure_worker` и записи RPC: устаревший UUID
+не может запустить новый worker или доставить ему старый пароль. Для управления
+есть ограниченная резервная полоса admission, независимая от занятых root calls.
+
+Input передаётся однократно в исходный stdin, без `execute_tool`, policy,
+recorder, model message или canonical history. Input DTO намеренно не имеют
+`Debug`. Закрытие view не посылает `stop`. Read использует отдельный cursor и
+не забирает вывод у модели; `finished` означает выход процесса и завершение всех
+readers, поэтому клиент дочитывает до `end_cursor`. Typed response `Unavailable`
+обозначает истёкший handle и позволяет безопасно освободить registry без
+интерпретации произвольных remote errors. Registry хранит максимум 32
+привязки на session, вытесняет только завершённые/устаревшие привязки; если все
+живы, новая регистрация отклоняется. Состояние PTY и пароли не восстанавливаются
+из журнала. Ранний `ToolTerminalBound` и финальная metadata `tool_terminal`
+содержат только публичный `{id,title,tty}` для интерфейса и cold history.

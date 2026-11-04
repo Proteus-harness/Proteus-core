@@ -194,6 +194,7 @@ fn pending(
     let (notifications, _) = NotificationSink::channel(options.notification_limits);
     Ok((
         PendingInvocation {
+            side_control: false,
             invocation: InvocationRef {
                 id: id.into(),
                 generation,
