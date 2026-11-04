@@ -51,7 +51,7 @@ impl HostBridge {
     }
 }
 
-pub struct ToolHostBridge(pub HostBridge);
+pub struct ToolHostBridge(pub HostBridge, pub bool);
 
 pub struct ModelHostBridge(pub HostBridge);
 
@@ -80,6 +80,30 @@ impl proteus_contracts::process_module::ModelModuleHost for ModelHostBridge {
 }
 
 impl ToolModuleHost for ToolHostBridge {
+    fn supports_terminal_publish(&self) -> bool {
+        self.1
+    }
+    fn publish_terminal(
+        &self,
+        descriptor: proteus_contracts::contracts::ToolTerminalDescriptor,
+    ) -> Result<(), ProcessModuleError> {
+        let params = serde_json::to_value(descriptor)
+            .map_err(|error| ProcessModuleError::new(error.to_string()))?;
+        let value = self
+            .0
+            .call(
+                proteus_contracts::contracts::TOOL_HOST_PUBLISH_TERMINAL_METHOD,
+                params,
+            )
+            .map_err(|error| ProcessModuleError::new(format!("{error:#}")))?;
+        if !value.is_null() {
+            return Err(ProcessModuleError::new(
+                "terminal acknowledgement must be null",
+            ));
+        }
+        Ok(())
+    }
+
     fn execute_tool_json(&self, call_json: String) -> Result<String, ProcessModuleError> {
         model_aware_call(
             &self.0,

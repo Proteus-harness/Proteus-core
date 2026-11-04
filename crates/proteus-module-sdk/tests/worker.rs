@@ -409,3 +409,130 @@ fn eof_and_parse_failure_cancel_active_work_and_release_callback_waiters() {
         );
     }
 }
+
+#[test]
+fn terminal_feature_negotiation_and_side_control_during_long_invoke() {
+    use proteus_module_sdk::contracts::{
+        contracts::*, process_module::ToolModuleInvocationContext,
+    };
+    struct TerminalProbe;
+    impl ToolModule for TerminalProbe {
+        fn supports_terminal_control(&self) -> bool {
+            true
+        }
+        fn definitions(&self) -> Vec<ProcessToolDefinition> {
+            Probe.definitions()
+        }
+        fn invoke(
+            &self,
+            input: ProcessToolInvokeInput,
+            host: &mut dyn ToolModuleHost,
+        ) -> Result<ToolResult> {
+            assert!(host.supports_terminal_publish());
+            host.publish_terminal(ToolTerminalDescriptor {
+                handle: "private-handle".into(),
+                title: "probe".into(),
+                tty: true,
+                columns: 80,
+                rows: 24,
+            })?;
+            // This callback intentionally remains unacknowledged until side control completed.
+            host.conversation_snapshot_json()?;
+            Ok(ToolResult::ok(input.call.id, "done"))
+        }
+        fn terminal_control(
+            &self,
+            request: ToolTerminalRequest,
+            context: ToolModuleInvocationContext,
+        ) -> Result<ToolTerminalResponse> {
+            assert_eq!(request.handle, "private-handle");
+            assert!(context.cwd.is_absolute());
+            match request.action {
+                ToolTerminalAction::Input { data_base64 } => assert_eq!(data_base64, "c2VjcmV0"),
+                _ => bail!("expected input"),
+            }
+            Ok(ToolTerminalResponse::Accepted)
+        }
+    }
+    let mut unnegotiated = binding();
+    let export = ToolExport::new(unnegotiated.clone(), TerminalProbe).unwrap();
+    assert!(export.manifest().module_features.is_empty());
+    unnegotiated
+        .host_features
+        .push(TOOL_TERMINAL_FEATURE.into());
+    let export = ToolExport::new(unnegotiated.clone(), TerminalProbe).unwrap();
+    assert_eq!(export.manifest().module_features, [TOOL_TERMINAL_FEATURE]);
+    let (worker_reader, mut writer) = support::stream();
+    let (host_reader, worker_writer) = support::stream();
+    let task = thread::spawn(|| {
+        proteus_module_sdk::serve(BufReader::new(worker_reader), worker_writer, |binding| {
+            Ok(Box::new(ToolExport::new(binding, TerminalProbe)?))
+        })
+    });
+    let mut reader = BufReader::new(host_reader.with_timeout());
+    let send = |writer: &mut support::Writer, frame: Value| {
+        serde_json::to_writer(&mut *writer, &frame).unwrap();
+        writer.write_all(b"\n").unwrap();
+        writer.flush().unwrap();
+    };
+    let read = |reader: &mut BufReader<support::Reader>| {
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+        serde_json::from_str::<Value>(&line).unwrap()
+    };
+    send(
+        &mut writer,
+        json!({"jsonrpc":"2.0","id":"h:7:0","method":"initialize","params":ProcessComponentInitialize::new("terminal",[unnegotiated])}),
+    );
+    assert_eq!(
+        read(&mut reader)["result"]["exports"][0]["module_features"][0],
+        TOOL_TERMINAL_FEATURE
+    );
+    let cwd = std::env::current_dir().unwrap();
+    let attribution = ExecutionAttribution::detached(new_execution_id());
+    let input = ProcessToolInvokeInput {
+        call: ToolCall::new("terminal-call", "probe", json!({"mode":"wait"})),
+        cwd: cwd.clone(),
+        attribution,
+        skills: SkillRuntimeSettings::default(),
+    };
+    send(
+        &mut writer,
+        json!({"jsonrpc":"2.0","id":"h:7:1","method":"invoke","params":{"export":{"slot":"tool","module_id":"probe"},"lineage":ProcessInvocationLineage::root("h:7:1"),"params":input}}),
+    );
+    let publish = read(&mut reader);
+    assert_eq!(publish["method"], TOOL_HOST_PUBLISH_TERMINAL_METHOD);
+    send(
+        &mut writer,
+        json!({"jsonrpc":"2.0","id":publish["id"],"result":null}),
+    );
+    let waiting = read(&mut reader);
+    let control = ProcessToolTerminalInput {
+        request: ToolTerminalRequest {
+            handle: "private-handle".into(),
+            action: ToolTerminalAction::Input {
+                data_base64: "c2VjcmV0".into(),
+            },
+        },
+        context: ToolModuleInvocationContext {
+            cwd,
+            attribution,
+            skills: SkillRuntimeSettings::default(),
+            config: Value::Null,
+        },
+    };
+    send(
+        &mut writer,
+        json!({"jsonrpc":"2.0","id":"h:7:2","method":PROCESS_TOOL_TERMINAL_METHOD,"params":{"export":{"slot":"tool","module_id":"probe"},"lineage":ProcessInvocationLineage::root("h:7:2"),"params":control}}),
+    );
+    let accepted = read(&mut reader);
+    assert_eq!(accepted["id"], "h:7:2");
+    assert_eq!(accepted["result"]["type"], "accepted");
+    send(
+        &mut writer,
+        json!({"jsonrpc":"2.0","id":waiting["id"],"result":{}}),
+    );
+    assert_eq!(read(&mut reader)["id"], "h:7:1");
+    drop(writer);
+    task.join().unwrap().unwrap();
+}

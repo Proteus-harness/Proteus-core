@@ -33,7 +33,11 @@ const CONTEXT_PROVIDER_METHODS: &[&str] = &[
     PROCESS_CONTEXT_PROVIDER_METHOD,
     PROCESS_CONTEXT_PROVIDER_CATALOG_METHOD,
 ];
-const TOOL_METHODS: &[&str] = &[PROCESS_TOOL_LIST_METHOD, PROCESS_TOOL_INVOKE_METHOD];
+const TOOL_METHODS: &[&str] = &[
+    PROCESS_TOOL_LIST_METHOD,
+    PROCESS_TOOL_INVOKE_METHOD,
+    proteus_contracts::contracts::PROCESS_TOOL_TERMINAL_METHOD,
+];
 const WORKFLOW_METHODS: &[&str] = &[PROCESS_WORKFLOW_METHOD];
 const WORKFLOW_HOST_METHODS: &[&str] = &[
     proteus_contracts::contracts::WORKFLOW_HOST_CHECKPOINT_HISTORY_METHOD,
@@ -156,14 +160,18 @@ pub const PROCESS_CONTRACT_AUTHORITIES: &[ProcessContractAuthority] = &[
         contract_version: PROCESS_TOOL_CONTRACT_VERSION,
         composition: ProcessModuleComposition::OrderedMany,
         module_methods: TOOL_METHODS,
-        module_method_features: &[],
+        module_method_features: &[(
+            proteus_contracts::contracts::PROCESS_TOOL_TERMINAL_METHOD,
+            proteus_contracts::contracts::TOOL_TERMINAL_FEATURE,
+        )],
         host_methods: &[
+            proteus_contracts::contracts::TOOL_HOST_PUBLISH_TERMINAL_METHOD,
             OPERATION_HOST_COMPLETE_MODEL_METHOD,
             OPERATION_HOST_EXECUTE_TOOL_METHOD,
             TOOL_HOST_READ_CONVERSATION_METHOD,
             proteus_contracts::contracts::TOOL_HOST_CONVERSATION_SNAPSHOT_METHOD,
         ],
-        host_features: NO_PROTOCOL_FEATURES,
+        host_features: &[proteus_contracts::contracts::TOOL_TERMINAL_FEATURE],
         required_features: NO_PROTOCOL_FEATURES,
     },
     ProcessContractAuthority {

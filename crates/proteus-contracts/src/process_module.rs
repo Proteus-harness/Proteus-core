@@ -69,6 +69,16 @@ pub struct ToolModuleInvocationContext {
 }
 
 pub trait ToolModuleHost: Send + Sync {
+    fn supports_terminal_publish(&self) -> bool {
+        false
+    }
+    fn publish_terminal(
+        &self,
+        _descriptor: crate::contracts::ToolTerminalDescriptor,
+    ) -> ProcessModuleResult<()> {
+        Err(ProcessModuleError::new("invocation has no terminal host"))
+    }
+
     fn complete_model_json(&self, _request_json: String) -> ProcessModuleResult<String> {
         Err(ProcessModuleError::new(
             "invocation has no bound model operations",
@@ -96,6 +106,17 @@ pub trait ToolModuleHost: Send + Sync {
 pub type ToolModuleHostMut<'a> = dyn ToolModuleHost + 'a;
 
 pub trait ToolModule: Send + Sync + 'static {
+    fn supports_terminal_control(&self) -> bool {
+        false
+    }
+    fn terminal_control(
+        &self,
+        _request: crate::contracts::ToolTerminalRequest,
+        _context: ToolModuleInvocationContext,
+    ) -> ProcessModuleResult<crate::contracts::ToolTerminalResponse> {
+        Err(ProcessModuleError::new("terminal control unsupported"))
+    }
+
     fn spec_json(&self) -> String;
     fn model_visible(&self) -> bool {
         true

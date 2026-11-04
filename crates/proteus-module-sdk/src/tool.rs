@@ -4,8 +4,10 @@ use anyhow::{Result, bail};
 use proteus_contracts::{
     contracts::{
         PROCESS_TOOL_CONTRACT_VERSION, PROCESS_TOOL_INVOKE_METHOD, PROCESS_TOOL_LIST_METHOD,
-        ProcessComponentExportInitialize, ProcessComponentExportManifest, ProcessToolDefinition,
-        ProcessToolInvokeInput, ProcessToolInvokeResponse, ProcessToolListResponse,
+        PROCESS_TOOL_TERMINAL_METHOD, ProcessComponentExportInitialize,
+        ProcessComponentExportManifest, ProcessToolDefinition, ProcessToolInvokeInput,
+        ProcessToolInvokeResponse, ProcessToolListResponse, ProcessToolTerminalInput,
+        TOOL_TERMINAL_FEATURE, ToolTerminalRequest, ToolTerminalResponse,
     },
     domain::{ToolResult, tool_validation::validate_tool_input_schema, validate_tool_call_args},
     process_module::ToolModuleHost,
@@ -23,6 +25,17 @@ use crate::{
 /// for a failed module operation. Check `host.is_cancelled()` during long work.
 /// Cancellation is cooperative; the host owns timeout/termination policy.
 pub trait ToolModule: Send + Sync {
+    fn supports_terminal_control(&self) -> bool {
+        false
+    }
+    fn terminal_control(
+        &self,
+        _request: ToolTerminalRequest,
+        _context: proteus_contracts::process_module::ToolModuleInvocationContext,
+    ) -> Result<ToolTerminalResponse> {
+        bail!("terminal control unsupported")
+    }
+
     fn definitions(&self) -> Vec<ProcessToolDefinition>;
 
     fn invoke(
@@ -68,13 +81,39 @@ impl<T: ToolModule> Export for ToolExport<T> {
             module_id: self.binding.module_id.clone(),
             contract_version: self.binding.contract_version.clone(),
             composition: self.binding.composition,
-            module_features: Vec::new(),
+            module_features: if self.tools.supports_terminal_control()
+                && self
+                    .binding
+                    .host_features
+                    .iter()
+                    .any(|feature| feature == TOOL_TERMINAL_FEATURE)
+            {
+                vec![TOOL_TERMINAL_FEATURE.to_owned()]
+            } else {
+                Vec::new()
+            },
             config_schema: None,
         }
     }
 
     fn invoke(&self, method: &str, params: Value, host: &HostBridge) -> Result<Value> {
         match method {
+            PROCESS_TOOL_TERMINAL_METHOD => {
+                if !self.tools.supports_terminal_control()
+                    || !self
+                        .binding
+                        .host_features
+                        .iter()
+                        .any(|feature| feature == TOOL_TERMINAL_FEATURE)
+                {
+                    bail!("terminal control unsupported");
+                }
+                let input: ProcessToolTerminalInput = serde_json::from_value(params)?;
+                Ok(serde_json::to_value(
+                    self.tools.terminal_control(input.request, input.context)?,
+                )?)
+            }
+
             PROCESS_TOOL_LIST_METHOD => {
                 if !params.is_null() {
                     bail!("tool list params must be null");
@@ -99,9 +138,16 @@ impl<T: ToolModule> Export for ToolExport<T> {
                     bail!("{error}");
                 }
                 let call_id = input.call.id.clone();
-                let result = self
-                    .tools
-                    .invoke(input, &mut ToolHostBridge(host.clone()))?;
+                let result = self.tools.invoke(
+                    input,
+                    &mut ToolHostBridge(
+                        host.clone(),
+                        self.binding
+                            .host_features
+                            .iter()
+                            .any(|feature| feature == TOOL_TERMINAL_FEATURE),
+                    ),
+                )?;
                 if result.call_id != call_id {
                     bail!("tool result call_id does not match the invocation");
                 }
