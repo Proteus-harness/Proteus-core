@@ -38,6 +38,7 @@ impl PartIdentity {
                 text.hash(&mut hash)
             }
             ContentPart::Reasoning { text, signature } => (text, signature).hash(&mut hash),
+            ContentPart::Opaque { format, data } => (format, data).hash(&mut hash),
             ContentPart::FileRef { path, content } => (path, content).hash(&mut hash),
             ContentPart::ToolCall { call } => {
                 (&call.id, &call.name, &call.args, &call.raw_arguments).hash(&mut hash);

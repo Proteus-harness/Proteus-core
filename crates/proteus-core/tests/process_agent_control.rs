@@ -11,6 +11,9 @@ mod agent_context;
 #[path = "process_agent_control/output_limits.rs"]
 mod output_limits;
 
+#[path = "process_agent_control/depth.rs"]
+mod depth;
+
 use std::{path::PathBuf, sync::Arc};
 
 use proteus_contracts::{

@@ -77,7 +77,7 @@ struct RunnerInner {
     profiles: Vec<AgentProfile>,
     roles: HashMap<String, RoleState>,
     binary: PathBuf,
-    max_depth: u64,
+    remaining_depth: u64,
     max_parallel: usize,
     cancel_grace: Duration,
     pool: StdMutex<ProcessPool>,
@@ -106,6 +106,7 @@ impl ProcessAgentControl {
         parsed: AgentControlConfig,
         history_notifier: HistoryNotifier,
     ) -> Result<Self> {
+        let remaining_depth = config::effective_depth_budget(parsed.max_depth)?;
         let profiles = build_agent_profiles(&parsed.roles)?;
         let binary = match parsed.binary {
             Some(binary) => binary,
@@ -132,7 +133,7 @@ impl ProcessAgentControl {
                 profiles,
                 roles,
                 binary,
-                max_depth: parsed.max_depth,
+                remaining_depth,
                 max_parallel: parsed.max_parallel,
                 cancel_grace: Duration::from_millis(parsed.cancel_grace_ms),
                 pool: StdMutex::new(ProcessPool::new(parsed.max_idle_processes)),
@@ -181,17 +182,10 @@ impl RunnerInner {
             bail!("unknown agent profile: {}", request.role);
         }
 
-        let depth = request
-            .metadata
-            .get("agent_control_depth")
-            .and_then(Value::as_u64)
-            .unwrap_or(0);
-        if depth >= self.max_depth {
-            bail!(
-                "agent-control depth limit reached (depth {depth}, max_depth {})",
-                self.max_depth
-            );
-        }
+        anyhow::ensure!(
+            self.remaining_depth > 0,
+            "agent-control depth limit reached (remaining budget 0)"
+        );
 
         let (child_thread_id, resume) =
             match request.metadata.get("task_id").and_then(Value::as_str) {
@@ -242,6 +236,7 @@ impl RunnerInner {
                 &role.config,
                 cwd,
                 parent_session_id,
+                self.remaining_depth - 1,
             ),
         }
     }

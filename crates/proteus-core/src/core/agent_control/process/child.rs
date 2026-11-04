@@ -37,6 +37,7 @@ impl ChildProcess {
         extra_args: &[String],
         cwd: &Path,
         parent_session_id: crate::domain::SessionId,
+        depth_budget: u64,
     ) -> Result<Self> {
         let mut command = Command::new(binary);
         command
@@ -50,6 +51,7 @@ impl ChildProcess {
             .args(extra_args)
             .arg("server")
             .arg("stdio")
+            .env(super::config::DEPTH_BUDGET_ENV, depth_budget.to_string())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())

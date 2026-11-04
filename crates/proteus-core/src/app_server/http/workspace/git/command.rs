@@ -87,7 +87,14 @@ fn command(root: &Path) -> Command {
 
 /// Read-only invocation: stdout beyond `limit` stops Git and marks truncation.
 pub(super) fn read(root: &Path, args: &[&OsStr], limit: usize) -> Result<Output> {
-    collect(command(root).args(args), limit, true)
+    let mut command = command(root);
+    if matches!(
+        args.first().and_then(|arg| arg.to_str()),
+        Some("status" | "diff")
+    ) {
+        proteus_contracts::git_support::protect_readonly_git(&mut command)?;
+    }
+    collect(command.args(args), limit, true)
 }
 
 /// Mutating invocation: Git always runs to completion; excess stdout is drained.

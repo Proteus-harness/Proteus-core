@@ -80,6 +80,13 @@ pub(crate) enum UserMessageReservation {
     Queued(SteeringQueueReceipt),
 }
 
+pub(crate) enum UserMessageReservationAttempt {
+    Ready(UserMessageReservation),
+    /// Preserve already admitted attachments while the transport publishes the
+    /// previous terminal state. Its admission mutex must be released to wait.
+    Finalizing(CanonicalMessage),
+}
+
 #[derive(Debug, Clone)]
 struct QueuedUserMessage {
     message: CanonicalMessage,
@@ -99,6 +106,8 @@ pub(crate) struct SessionSteering {
     queued_count: Arc<AtomicUsize>,
     finalization_gate: Arc<Mutex<()>>,
     snapshots: watch::Sender<QueuedMessagesSnapshot>,
+    #[cfg(test)]
+    deferred_admission: tokio::sync::Notify,
 }
 
 impl Default for SessionSteering {
@@ -108,6 +117,8 @@ impl Default for SessionSteering {
             queued_count: Arc::new(AtomicUsize::new(0)),
             finalization_gate: Arc::new(Mutex::new(())),
             snapshots: watch::channel(QueuedMessagesSnapshot::default()).0,
+            #[cfg(test)]
+            deferred_admission: tokio::sync::Notify::new(),
         }
     }
 }
@@ -135,8 +146,39 @@ impl SessionSteering {
         message: CanonicalMessage,
         options: crate::domain::RunOptions,
     ) -> Result<UserMessageReservation> {
-        let text = message.display_text();
         let _finalization_guard = self.finalization_gate.lock().await;
+        self.reserve_message_now(message, options)
+    }
+
+    pub(crate) fn try_reserve_message_with_options(
+        &self,
+        message: CanonicalMessage,
+        options: crate::domain::RunOptions,
+    ) -> Result<UserMessageReservationAttempt> {
+        let Ok(_finalization_guard) = self.finalization_gate.try_lock() else {
+            #[cfg(test)]
+            self.deferred_admission.notify_one();
+            return Ok(UserMessageReservationAttempt::Finalizing(message));
+        };
+        self.reserve_message_now(message, options)
+            .map(UserMessageReservationAttempt::Ready)
+    }
+
+    pub(crate) async fn wait_finalization(&self) {
+        drop(self.finalization_gate.lock().await);
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn wait_deferred_admission(&self) {
+        self.deferred_admission.notified().await;
+    }
+
+    fn reserve_message_now(
+        &self,
+        message: CanonicalMessage,
+        options: crate::domain::RunOptions,
+    ) -> Result<UserMessageReservation> {
+        let text = message.display_text();
         let mut state = self.state.lock().expect("steering state lock");
         let Some(active_turn_id) = state.active_turn_id else {
             let turn_id = new_turn_id();

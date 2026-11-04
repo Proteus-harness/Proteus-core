@@ -426,14 +426,34 @@ Tools из текущих reference modules `file-tools` (`read_file` / `write_f
 `git_diff`) и `shell-tool` применяют свои
 собственные проверки workspace-boundary. Core не гарантирует эту проверку за
 implementations — это обязанность автора module.
-Reference tool implementations должны использовать общие helper-ы
-`proteus_contracts::tool_support::{workspace_path, workspace_path_for_write}`,
-чтобы read/write path handling не расходился. После process-only cutover
+Reference tool implementations должны использовать общий `workspace_path`
+для проверки read paths и
+`proteus_contracts::tool_support::workspace_file_for_write` для записи.
+Write helper возвращает открытый `WorkspaceFile`, а не разрешение позднее
+открыть проверенную строку пути. Запись выполняется через его `Write`;
+`path()` предназначен только для диагностики. Unix открывает компоненты
+относительно directory handles без следования symlink, Linux дополнительно
+использует `openat2` с `BENEATH | NO_SYMLINKS`. Неподдерживаемый host получает
+явную ошибку вместо менее строгого fallback. После process-only cutover
 одинаковый Tool invocation contract не отменяет implementation-local path
 validation или host policy.
-`write_file` может создавать недостающие parent directories, но только после
-лексической проверки пути, запрета `..` и проверки symlink parents, чтобы
-создание не уходило за пределы workspace.
+`write_file` создаёт недостающие parent directories относительно доверенных
+directory handles после лексической проверки пути и запрета `..`.
+
+Reference `read_file` имеет независимые от параметров пределы: 2 MiB текста
+ответа и одной строки, 16 MiB просматриваемого входа для диапазона. После
+достижения `limit` остаток не читается ради `total_lines`; без наблюдаемого EOF
+поле остаётся `null`, а ответ явно сообщает усечение и его причину.
+
+ReadOnly `git_status` / `git_diff` и HTTP workspace Git reads вызывают общий
+`proteus_contracts::git_support::protect_readonly_git`. Если effective filter
+attribute файла совпадает с configured executable `clean` или `process`,
+чтение явно отклоняется до исполнения драйвера. Это сохраняет смысл diff:
+ответ не подменяется незаметно нефильтрованным содержимым. Неиспользуемый
+исполняемый драйвер или неизвестный ненастроенный filter не запрещают чтение.
+Исполнение необходимого драйвера должно проходить отдельную операцию с
+соответствующими полномочиями. Отключение fsmonitor, external diff и textconv
+само по себе clean/process filters не отключает.
 
 ## ask_write
 

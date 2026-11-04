@@ -157,7 +157,9 @@ impl AppServerHandle {
                     _ => ("fact", args),
                 };
                 ensure!(!content.is_empty(), "remember content is empty");
-                let result = self.remember(kind.into(), content.into()).await?;
+                let result = self
+                    .remember_with_id(id, kind.into(), content.into())
+                    .await?;
                 format!("stored ({}): {}", result.kind, result.content)
             }
             _ => unreachable!(),

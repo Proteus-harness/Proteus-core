@@ -21,6 +21,7 @@ use crate::{
 };
 
 mod addons;
+mod admission;
 mod builder;
 mod checkpoint;
 mod commands;
@@ -44,7 +45,10 @@ pub use paths::{config_store_root, event_log_path};
 
 use execution::ExecutionAdmissionSnapshot;
 pub(crate) use history::{prepare_failed_history_update, prepare_history_update};
-pub(crate) use steering::{QueuedMessagesSnapshot, SteeringQueueReceipt, UserMessageReservation};
+pub(crate) use steering::{
+    QueuedMessagesSnapshot, SteeringQueueReceipt, UserMessageReservation,
+    UserMessageReservationAttempt,
+};
 use steering::{SessionSteering, SteeringFinalizationGuard};
 
 pub struct AgentRuntime {

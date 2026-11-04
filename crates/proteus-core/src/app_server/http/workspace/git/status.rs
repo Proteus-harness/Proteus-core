@@ -16,6 +16,7 @@ pub(crate) struct Changes {
     repository: bool,
     branch: Option<String>,
     head: Option<CommitSummary>,
+    refs_revision: Option<String>,
     upstream: Option<String>,
     ahead: u64,
     behind: u64,
@@ -65,6 +66,7 @@ pub(crate) fn changes(root: &Path) -> Result<Changes> {
             repository: false,
             branch: None,
             head: None,
+            refs_revision: None,
             upstream: None,
             ahead: 0,
             behind: 0,
@@ -75,12 +77,14 @@ pub(crate) fn changes(root: &Path) -> Result<Changes> {
         });
     }
     let mut scan = scan(root, &[".".to_owned()])?;
+    let refs_revision = revision::refs(root, scan.head_oid.as_deref(), scan.branch.as_deref())?;
     stats::annotate(root, &mut scan.entries)?;
     for entry in &mut scan.entries {
         entry.revision = revision::token(root, &entry.path, scan.head_oid.as_deref(), &entry.index);
     }
     Ok(Changes {
         repository: true,
+        refs_revision: Some(refs_revision),
         head: if scan.head_oid.is_some() {
             head_commit(root)?
         } else {

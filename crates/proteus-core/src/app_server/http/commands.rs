@@ -84,13 +84,14 @@ async fn execute_session_request(
         StdioRequest::HistorySummary { .. } => serde_json::to_value(server.history_summary().await)
             .map(Some)
             .map_err(anyhow::Error::from),
-        StdioRequest::Remember { kind, content, .. } => {
-            server.remember(kind, content).await.and_then(|result| {
+        StdioRequest::Remember { id, kind, content } => server
+            .remember_with_id(id, kind, content)
+            .await
+            .and_then(|result| {
                 serde_json::to_value(result)
                     .map(Some)
                     .map_err(anyhow::Error::from)
-            })
-        }
+            }),
         StdioRequest::Approval {
             approval_id,
             approved,

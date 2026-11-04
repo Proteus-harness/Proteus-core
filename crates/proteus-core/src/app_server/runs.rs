@@ -2,12 +2,17 @@
 use super::{AppServerEvent, AppServerHandle, completed_transcript};
 use crate::{
     contracts::CancellationToken,
-    core::{SteeringQueueReceipt, TurnSettlementStatus, UserMessageReservation},
+    core::{
+        SteeringQueueReceipt, TurnSettlementStatus, UserMessageReservation,
+        UserMessageReservationAttempt,
+    },
     domain::AgentOutput,
 };
 use anyhow::{Result, anyhow};
 use proteus_contracts::app_protocol::{AppExecutionState, AppRun, AppRunStatus};
 use tokio::sync::{oneshot, watch};
+
+mod operations;
 
 #[cfg(test)]
 mod tests;
@@ -18,6 +23,7 @@ pub(super) struct RunRegistry {
     last: Option<AppRun>,
     closed: bool,
     command_active: bool,
+    operations: std::collections::HashMap<String, StandaloneOperation>,
 }
 
 pub(super) struct RunningRun {
@@ -31,7 +37,33 @@ pub(super) enum SendDispatch {
     Queued(SteeringQueueReceipt),
 }
 
+struct StandaloneOperation {
+    cancellation: CancellationToken,
+    settled: watch::Receiver<bool>,
+}
+
 impl RunRegistry {
+    fn check_admission(&self, run_id: &str, allow_queue: bool) -> Result<()> {
+        anyhow::ensure!(!self.closed, "session is shutting down");
+        anyhow::ensure!(!self.command_active, "session has an active command");
+        anyhow::ensure!(
+            allow_queue || self.active.is_none(),
+            "session already has an active run"
+        );
+        anyhow::ensure!(
+            !self
+                .active
+                .as_ref()
+                .is_some_and(|run| run.info.run_id == run_id),
+            "run id is already active: {run_id}"
+        );
+        anyhow::ensure!(
+            !self.operations.contains_key(run_id),
+            "run id is already active: {run_id}"
+        );
+        Ok(())
+    }
+
     fn snapshot(&self) -> AppExecutionState {
         AppExecutionState {
             active: self.active.as_ref().map(|run| run.info.clone()),
@@ -51,7 +83,10 @@ impl AppServerHandle {
     pub(super) async fn close_idle_runs(&self) -> Result<()> {
         let mut runs = self.runs.lock().await;
         anyhow::ensure!(
-            !runs.closed && runs.active.is_none() && !runs.command_active,
+            !runs.closed
+                && runs.active.is_none()
+                && !runs.command_active
+                && runs.operations.is_empty(),
             "new session requires an idle session"
         );
         runs.closed = true;
@@ -63,7 +98,7 @@ impl AppServerHandle {
         if runs.closed {
             return Err(anyhow!("session is shutting down"));
         }
-        if runs.active.is_some() {
+        if runs.active.is_some() || !runs.operations.is_empty() {
             return Err(anyhow!("cannot clear history while a run is active"));
         }
         self.runtime.clear_history().await?;
@@ -98,23 +133,33 @@ impl AppServerHandle {
     ) -> Result<SendDispatch> {
         let run_id = run_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         let mut runs = self.runs.lock().await;
-        if runs.closed {
-            return Err(anyhow!("session is shutting down"));
-        }
-        if runs.command_active {
-            return Err(anyhow!("session has an active command"));
-        }
-        if !allow_queue && runs.active.is_some() {
-            return Err(anyhow!("session already has an active run"));
-        }
-        if runs
-            .active
-            .as_ref()
-            .is_some_and(|r| r.info.run_id == run_id)
-        {
-            return Err(anyhow!("run id is already active: {run_id}"));
-        }
-        let reserved = match self.reserve_user_message(input, options).await? {
+        runs.check_admission(&run_id, allow_queue)?;
+        let mut message = self.runtime.prepare_user_message(input, &options).await?;
+        let reservation = loop {
+            runs.check_admission(&run_id, allow_queue)?;
+            match self
+                .runtime
+                .try_reserve_prepared_user_message(message, options.clone())
+                .await?
+            {
+                UserMessageReservationAttempt::Ready(reservation) => break reservation,
+                UserMessageReservationAttempt::Finalizing(pending) => {
+                    // Completion holds its gate until terminal events are
+                    // published under `runs`. Never wait for that gate while
+                    // holding the mutex completion, Cancel and shutdown need.
+                    message = pending;
+                    drop(runs);
+                    tokio::select! {
+                        biased;
+                        _ = cancellation.cancelled() => anyhow::bail!("run canceled before admission"),
+                        _ = self.runtime.wait_user_message_finalization() => {},
+                    }
+                    runs = self.runs.lock().await;
+                }
+            }
+        };
+        self.publish_user_message_reservation(&reservation);
+        let reserved = match reservation {
             UserMessageReservation::Queued(receipt) => return Ok(SendDispatch::Queued(receipt)),
             UserMessageReservation::Start(reserved) => reserved,
         };
@@ -178,13 +223,14 @@ impl AppServerHandle {
 
     pub(super) async fn cancel_run(&self, target_id: &str) -> Result<()> {
         let mut runs = self.runs.lock().await;
-        let run = runs
-            .active
-            .as_mut()
-            .filter(|r| r.info.run_id == target_id)
-            .ok_or_else(|| anyhow!("unknown or completed run id for session: {target_id}"))?;
-        run.info.status = AppRunStatus::CancelRequested;
-        run.cancellation.cancel();
+        if let Some(run) = runs.active.as_mut().filter(|r| r.info.run_id == target_id) {
+            run.info.status = AppRunStatus::CancelRequested;
+            run.cancellation.cancel();
+        } else if let Some(operation) = runs.operations.get(target_id) {
+            operation.cancellation.cancel();
+        } else {
+            anyhow::bail!("unknown or completed run id for session: {target_id}");
+        }
         runs.publish(self);
         Ok(())
     }
@@ -202,6 +248,10 @@ impl AppServerHandle {
         anyhow::ensure!(
             !runs.closed && runs.active.is_none(),
             "commands require an idle session"
+        );
+        anyhow::ensure!(
+            !runs.operations.contains_key(&id),
+            "run id is already active: {id}"
         );
         runs.command_active = true;
         runs.active = Some(RunningRun {
@@ -250,15 +300,23 @@ impl AppServerHandle {
         let settled = {
             let mut runs = self.runs.lock().await;
             runs.closed = true;
-            let settled = runs.active.as_mut().map(|run| {
+            let mut settled: Vec<_> = runs
+                .operations
+                .values()
+                .map(|operation| {
+                    operation.cancellation.cancel();
+                    operation.settled.clone()
+                })
+                .collect();
+            if let Some(run) = runs.active.as_mut() {
                 run.info.status = AppRunStatus::CancelRequested;
                 run.cancellation.cancel();
-                run.settled.clone()
-            });
+                settled.push(run.settled.clone());
+            }
             runs.publish(self);
             settled
         };
-        if let Some(mut settled) = settled {
+        for mut settled in settled {
             // Wait for the runtime task, not the HTTP/stdout response consumer.
             // A deleted session must not be recreated by late settlement writes.
             let _ = settled.wait_for(|done| *done).await;
@@ -266,13 +324,12 @@ impl AppServerHandle {
     }
 
     pub(super) async fn running_run_ids(&self) -> Vec<String> {
-        self.runs
-            .lock()
-            .await
-            .active
-            .as_ref()
-            .map(|r| vec![r.info.run_id.clone()])
-            .unwrap_or_default()
+        let runs = self.runs.lock().await;
+        runs.active
+            .iter()
+            .map(|run| run.info.run_id.clone())
+            .chain(runs.operations.keys().cloned())
+            .collect()
     }
 }
 

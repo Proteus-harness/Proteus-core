@@ -9,6 +9,23 @@ use crate::{
 
 pub(super) type ProcessRoleConfig = AgentProfileConfig;
 
+/// Set only by the parent host when it creates a process peer. Request/tool
+/// metadata cannot replenish an inherited execution budget.
+pub(super) const DEPTH_BUDGET_ENV: &str = "PROTEUS_AGENT_CONTROL_REMAINING_DEPTH";
+
+pub(super) fn effective_depth_budget(configured: u64) -> Result<u64> {
+    match std::env::var(DEPTH_BUDGET_ENV) {
+        Ok(inherited) => inherited
+            .parse::<u64>()
+            .map(|remaining| configured.min(remaining))
+            .with_context(|| {
+                format!("invalid inherited agent-control depth budget: {DEPTH_BUDGET_ENV}")
+            }),
+        Err(std::env::VarError::NotPresent) => Ok(configured),
+        Err(error) => Err(error).context("invalid inherited agent-control depth budget"),
+    }
+}
+
 fn parse_isolation(value: Option<&str>) -> Result<AgentIsolation> {
     match value {
         None => Ok(AgentIsolation::None),

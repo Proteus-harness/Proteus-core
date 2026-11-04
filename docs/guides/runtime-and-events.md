@@ -763,6 +763,21 @@ runtime-очереди, а не transport task. `cancel.target_id` ссылае�
 исходного активного `send`: transport сигналит execution cancellation, после
 чего runtime закрывает root-цепочку и её ещё не доставленную очередь.
 
+При публикации завершения новый `send` ждёт освобождения steering reservation
+без удержания admission mutex. После ожидания сервер заново проверяет закрытие
+сессии, активную команду и run id; terminal events предыдущего хода публикуются
+раньше echo следующего сообщения. `cancel` и shutdown остаются доступны во время
+этого ожидания.
+
+Прямой `remember { kind, content }` также исполняется асинхронно и принадлежит
+отдельной записи session run registry, сохраняя возможность исполнения параллельно
+основному ходу без замены его active run. Его request `id` доступен как
+`cancel.target_id`; ответы `approval`/отказ читаются тем же stdio connection во время исполнения. Shutdown
+отменяет операцию и ждёт её settlement, а `new_session` отклоняется до окончания
+операции и её response task. Одновременно допускаются не более 32 standalone
+операций на сессию, превышение отклоняется до runtime admission. Вызов сохраняет
+detached tool attribution и не создаёт разговорный Turn.
+
 `new_session` — только stdio connection control для idle run/command stream.
 Успешный response содержит `{ session_id, session_dir }` и следует после
 `SessionStarted` новой session. Старый bridge stop/join предшествует shutdown;
@@ -859,9 +874,13 @@ store; stdio остаётся привязанным к одной session пр�
   cwd сессии; область репозитория выше cwd не показывается, но коммиты,
   история, ветки и синхронизация с remote относятся ко всему репозиторию.
   - `GET /workspace/changes?session_dir=<path>` — `{repository, branch,
-    head, upstream, ahead, behind, added, deleted, entries, truncated}`.
+    head, refs_revision, upstream, ahead, behind, added, deleted, entries, truncated}`.
     `branch` — имя текущей ветки или `null` при detached HEAD и вне
     репозитория; `head` — `{short, summary}` или `null` без коммитов;
+    `refs_revision` — непрозрачный токен текущего HEAD и полного набора refs,
+    либо `null` вне репозитория. Создание, удаление или перемещение любого ref
+    меняет токен даже при прежнем HEAD; упаковка неизменных refs его не меняет.
+    Клиент использует его для обновления веток и декораций истории.
     `upstream` — upstream ветки или `null`; `ahead`/`behind` — 0 без upstream.
     Каждая запись: `{path, original, status, staged, unstaged, added,
     deleted, revision}`; `path` относительно cwd, `original` — источник staged rename

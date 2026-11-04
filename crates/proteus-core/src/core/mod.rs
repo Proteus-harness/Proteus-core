@@ -118,7 +118,7 @@ pub(crate) use module_catalog::{ModuleBuildContext, PolicyBuildContext};
 pub(crate) use permission_mode::ModeAwarePolicy;
 pub(crate) use runtime::{
     QueuedMessagesSnapshot, ReservedRunCompletion, SteeringQueueReceipt, UserMessageReservation,
-    prepare_failed_history_update, prepare_history_update,
+    UserMessageReservationAttempt, prepare_failed_history_update, prepare_history_update,
 };
 pub(crate) use tool_orchestrator::ToolOrchestrator;
 pub(crate) use user_input::{

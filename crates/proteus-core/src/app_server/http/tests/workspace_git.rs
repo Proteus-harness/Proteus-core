@@ -1,6 +1,8 @@
 use super::*;
 use std::{fs, path::Path, process::Command};
 
+mod safety_tests;
+
 fn git(root: &Path, args: &[&str]) {
     let output = Command::new("git")
         .current_dir(root)

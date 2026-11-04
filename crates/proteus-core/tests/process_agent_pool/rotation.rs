@@ -10,6 +10,9 @@ use tokio::{
     process::{Child, ChildStdin, ChildStdout, Command},
 };
 
+#[path = "remember.rs"]
+mod remember;
+
 struct Peer {
     child: Child,
     input: ChildStdin,

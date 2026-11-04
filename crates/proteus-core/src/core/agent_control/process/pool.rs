@@ -196,6 +196,7 @@ impl ProcessPool {
         role: &ProcessRoleConfig,
         cwd: &Path,
         parent_session_id: SessionId,
+        child_depth_budget: u64,
     ) -> Result<PooledChild> {
         let cwd_key = canonical_cwd(cwd);
         let mut index = 0;
@@ -221,9 +222,15 @@ impl ProcessPool {
 
         let id = self.next_process_id;
         self.next_process_id = self.next_process_id.wrapping_add(1);
-        let child =
-            ChildProcess::spawn(binary, &role.config, &role.args, cwd, parent_session_id)
-                .with_context(|| format!("failed to spawn process agent profile {role_name}"))?;
+        let child = ChildProcess::spawn(
+            binary,
+            &role.config,
+            &role.args,
+            cwd,
+            parent_session_id,
+            child_depth_budget,
+        )
+        .with_context(|| format!("failed to spawn process agent profile {role_name}"))?;
         self.leased.insert(id);
         Ok(PooledChild {
             id,

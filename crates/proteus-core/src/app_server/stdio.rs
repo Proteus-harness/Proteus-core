@@ -62,8 +62,8 @@ pub async fn run_stdio_app_server(
     let stdin = tokio::io::BufReader::new(tokio::io::stdin());
     let mut lines = stdin.lines();
     let mut shutdown_requested = false;
-    // Command catalog/service preparation happens before RunRegistry admission.
-    // Count the entire request so rotation cannot retire its runtime midway.
+    // Command/tool preparation happens before RunRegistry admission. Count the
+    // entire request so rotation cannot retire its runtime midway.
     let mut commands = tokio::task::JoinSet::new();
 
     while let Some(line) = lines.next_line().await? {
@@ -252,12 +252,19 @@ pub async fn run_stdio_app_server(
                 send_stdio_response(&output_tx, id, result).await;
             }
             StdioRequest::Remember { kind, content, .. } => {
-                let result = server.remember(kind, content).await.and_then(|result| {
-                    serde_json::to_value(result)
-                        .map(Some)
-                        .map_err(anyhow::Error::from)
+                let server = server.clone();
+                let tx = output_tx.clone();
+                commands.spawn(async move {
+                    let result = server
+                        .remember_with_id(id.clone(), kind, content)
+                        .await
+                        .and_then(|result| {
+                            serde_json::to_value(result)
+                                .map(Some)
+                                .map_err(anyhow::Error::from)
+                        });
+                    send_stdio_response(&tx, id, result).await;
                 });
-                send_stdio_response(&output_tx, id, result).await;
             }
             StdioRequest::Approval {
                 approval_id,
@@ -358,7 +365,7 @@ pub async fn run_stdio_app_server(
         server.shutdown().await;
     }
     // Keep EOF semantics: service requests admitted before disconnect finish
-    // normally; runtime-owned module commands have already settled in shutdown.
+    // normally; session-owned commands and tools already settled in shutdown.
     while commands.join_next().await.is_some() {}
     let _ = bridge.await;
     drop(output_tx);

@@ -8,6 +8,34 @@ use std::{
     path::Path,
 };
 
+/// All refs affect branch pickers and graph decorations, even when HEAD does
+/// not move. Reject an incomplete listing instead of caching a partial token.
+pub(super) fn refs(
+    root: &Path,
+    head: Option<&str>,
+    branch: Option<&str>,
+) -> anyhow::Result<String> {
+    let output = super::command::run(
+        root,
+        &[
+            "for-each-ref",
+            "--sort=refname",
+            "--format=%(refname)%00%(objectname)%00",
+        ],
+    )?
+    .checked("for-each-ref")?;
+    anyhow::ensure!(
+        !output.truncated,
+        "Git refs exceed the revision byte budget"
+    );
+    let mut hash = DefaultHasher::new();
+    "git-refs-v1".hash(&mut hash);
+    head.hash(&mut hash);
+    branch.hash(&mut hash);
+    output.bytes.hash(&mut hash);
+    Ok(format!("{:016x}", hash.finish()))
+}
+
 /// The same canonical stage record for porcelain-v2 status and ls-files.
 pub(super) fn stage(mode: &str, oid: &str, number: u8) -> String {
     if mode == "000000" {

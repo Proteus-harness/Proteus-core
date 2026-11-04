@@ -125,6 +125,7 @@ impl AppServerHandle {
         }
     }
 
+    #[cfg(test)]
     pub(crate) async fn reserve_user_message(
         &self,
         input: impl Into<crate::domain::UserMessageInput>,
@@ -134,7 +135,12 @@ impl AppServerHandle {
             .runtime
             .reserve_user_message_with_options(input, options)
             .await?;
-        if let UserMessageReservation::Start(reserved) = &reservation {
+        self.publish_user_message_reservation(&reservation);
+        Ok(reservation)
+    }
+
+    pub(super) fn publish_user_message_reservation(&self, reservation: &UserMessageReservation) {
+        if let UserMessageReservation::Start(reserved) = reservation {
             let _ = self.events.send(AppServerEvent::UserMessageSubmitted {
                 text: reserved.text.clone(),
                 images: reserved
@@ -148,7 +154,6 @@ impl AppServerHandle {
                     .collect(),
             });
         }
-        Ok(reservation)
     }
 
     fn publish_turn_completion(
@@ -182,8 +187,18 @@ impl AppServerHandle {
         AppHistorySummary::new(self.runtime.history_len().await)
     }
 
+    #[cfg(test)]
     pub(crate) async fn remember(
         &self,
+        kind: String,
+        content: String,
+    ) -> Result<AppRememberResult> {
+        self.remember_with_id(None, kind, content).await
+    }
+
+    pub(super) async fn remember_with_id(
+        &self,
+        id: Option<String>,
         kind: String,
         content: String,
     ) -> Result<AppRememberResult> {
@@ -192,10 +207,7 @@ impl AppServerHandle {
             "remember_fact",
             serde_json::json!({"kind": kind, "content": content}),
         );
-        let result = self
-            .runtime
-            .execute_tool(call, CancellationToken::new())
-            .await?;
+        let result = self.run_tool_call(id, call).await?;
         if !result.ok {
             anyhow::bail!(
                 "remember_fact failed: {}",

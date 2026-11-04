@@ -972,6 +972,10 @@ async fn app_server_remember_uses_a_process_tool_without_a_turn() {
     let handle = AgentAppServer::launch(config.clone(), workspace.path().to_path_buf(), None)
         .await
         .expect("app-server");
+    let root_cancellation = CancellationToken::new();
+    handle
+        .register_test_run("root", root_cancellation.clone())
+        .await;
     let result = handle
         .remember(
             "preference".to_owned(),
@@ -983,6 +987,13 @@ async fn app_server_remember_uses_a_process_tool_without_a_turn() {
     assert_eq!(result.kind, "preference");
     assert_eq!(result.content, "preserve protocol authority");
     assert_eq!(handle.history_summary().await.messages, 0);
+    assert_eq!(handle.running_run_ids().await, vec!["root"]);
+    assert!(!root_cancellation.is_cancelled());
+    handle
+        .cancel_run("root")
+        .await
+        .expect("root remains addressable");
+    assert!(root_cancellation.is_cancelled());
     assert_eq!(
         handle.config_summary().await["registered_tools"]
             .as_array()

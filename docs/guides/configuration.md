@@ -1265,6 +1265,14 @@ Configs `ask_write`, `codex_policy` и `opencode_policy` также отверг
 
 ## Subagents
 
+`max_depth` задаёт оставшуюся допустимую глубину делегирования: `0` запрещает
+запуск ребёнка, `1` разрешает ребёнка без внуков. Host уменьшает бюджет перед
+созданием процесса и передаёт его через bootstrap окружение
+`PROTEUS_AGENT_CONTROL_REMAINING_DEPTH`. Дочерний профиль может дополнительно
+уменьшить этот бюджет своим `max_depth`; увеличить унаследованный предел он
+не может. Tool request metadata не меняет бюджет, поэтому циклы A → A и
+A → B → A ограничиваются до создания запрещённого потомка.
+
 ```toml
 [agent_control]
 surface = "task" # task | collaboration | none
