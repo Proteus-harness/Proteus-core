@@ -7,6 +7,7 @@ pub mod app_protocol;
 pub mod contracts;
 pub mod domain;
 pub mod extension_metadata;
+pub mod git_support;
 pub mod model_standard;
 pub mod process_module;
 pub mod tool_support;

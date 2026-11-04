@@ -10,6 +10,9 @@ use serde_json::{Value, json};
 
 use crate::process_module::{ProcessModuleError, ProcessModuleResult, ToolModuleInvocationContext};
 
+mod workspace_write;
+pub use workspace_write::{WorkspaceFile, workspace_file_for_write};
+
 /// Входные данные tool: разбор serialized `ToolCall` JSON.
 #[derive(Debug, Deserialize)]
 pub struct ToolCallDto {
@@ -141,48 +144,6 @@ pub fn workspace_path(cwd: &Path, path: &Path) -> Result<PathBuf, String> {
     Ok(canonical)
 }
 
-/// Как `workspace_path`, но для операций создания/записи: недостающие
-/// родительские директории создаются внутри workspace, сам файл может не
-/// существовать.
-pub fn workspace_path_for_write(cwd: &Path, path: &Path) -> Result<PathBuf, String> {
-    let base = std::fs::canonicalize(cwd)
-        .map_err(|e| format!("failed to canonicalize cwd {}: {e}", cwd.display()))?;
-    let relative = if path.is_absolute() {
-        path.strip_prefix(&base)
-            .map_err(|_| format!("path escapes workspace: {}", path.display()))?
-    } else {
-        path
-    };
-    let safe_relative = safe_relative_path(relative)?;
-    let target = base.join(&safe_relative);
-    let parent = target
-        .parent()
-        .ok_or_else(|| format!("no parent for {}", target.display()))?;
-    ensure_workspace_dirs(&base, parent)?;
-    if let Ok(canonical_parent) = std::fs::canonicalize(parent)
-        && !canonical_parent.starts_with(&base)
-    {
-        return Err(format!("path escapes workspace: {}", path.display()));
-    }
-    if let Ok(metadata) = std::fs::symlink_metadata(&target) {
-        if metadata.file_type().is_symlink() {
-            return Err(format!(
-                "refusing to write through symlink: {}",
-                path.display()
-            ));
-        }
-        let canonical_target = std::fs::canonicalize(&target)
-            .map_err(|e| format!("failed to canonicalize target {}: {e}", target.display()))?;
-        if !canonical_target.starts_with(&base) {
-            return Err(format!("path escapes workspace: {}", path.display()));
-        }
-    }
-    if target.file_name().is_none() {
-        return Err(format!("no file name in {}", target.display()));
-    }
-    Ok(target)
-}
-
 fn safe_relative_path(path: &Path) -> Result<PathBuf, String> {
     let mut safe = PathBuf::new();
     for component in path.components() {
@@ -198,43 +159,6 @@ fn safe_relative_path(path: &Path) -> Result<PathBuf, String> {
         return Err(format!("no file name in {}", path.display()));
     }
     Ok(safe)
-}
-
-fn ensure_workspace_dirs(base: &Path, parent: &Path) -> Result<(), String> {
-    let relative_parent = parent
-        .strip_prefix(base)
-        .map_err(|_| format!("path escapes workspace: {}", parent.display()))?;
-    let mut current = base.to_path_buf();
-    for component in relative_parent.components() {
-        let Component::Normal(part) = component else {
-            return Err(format!("path escapes workspace: {}", parent.display()));
-        };
-        current.push(part);
-        match std::fs::symlink_metadata(&current) {
-            Ok(metadata) if metadata.file_type().is_symlink() => {
-                return Err(format!(
-                    "refusing to create directory through symlink: {}",
-                    current.display()
-                ));
-            }
-            Ok(metadata) if !metadata.is_dir() => {
-                return Err(format!(
-                    "path parent is not a directory: {}",
-                    current.display()
-                ));
-            }
-            Ok(_) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                std::fs::create_dir(&current).map_err(|e| {
-                    format!("failed to create directory {}: {e}", current.display())
-                })?;
-            }
-            Err(error) => {
-                return Err(format!("failed to inspect {}: {error}", current.display()));
-            }
-        }
-    }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -274,7 +198,7 @@ mod tests {
     #[test]
     fn write_path_rejects_parent_escape() {
         let dir = tempfile::tempdir().expect("workspace");
-        let error = workspace_path_for_write(dir.path(), Path::new("../outside.txt"))
+        let error = workspace_file_for_write(dir.path(), Path::new("../outside.txt"))
             .expect_err("parent traversal must be rejected");
         assert!(error.contains("escapes workspace"), "{error}");
     }
@@ -283,9 +207,9 @@ mod tests {
     fn write_path_creates_missing_parent_dirs() {
         let dir = tempfile::tempdir().expect("workspace");
         let path =
-            workspace_path_for_write(dir.path(), Path::new("a/b/out.txt")).expect("write path");
+            workspace_file_for_write(dir.path(), Path::new("a/b/out.txt")).expect("write file");
 
-        assert_eq!(path, dir.path().join("a/b/out.txt"));
+        assert_eq!(path.path(), dir.path().join("a/b/out.txt"));
         assert!(dir.path().join("a/b").is_dir());
     }
 
@@ -298,12 +222,9 @@ mod tests {
         std::fs::write(&outside_file, "secret").expect("outside file");
         std::os::unix::fs::symlink(&outside_file, dir.path().join("link.txt")).expect("symlink");
 
-        let error = workspace_path_for_write(dir.path(), Path::new("link.txt"))
+        let error = workspace_file_for_write(dir.path(), Path::new("link.txt"))
             .expect_err("symlink target must be rejected");
-        assert!(
-            error.contains("refusing to write through symlink"),
-            "{error}"
-        );
+        assert!(error.contains("symlink"), "{error}");
     }
 
     #[cfg(unix)]
@@ -313,11 +234,8 @@ mod tests {
         let outside = tempfile::tempdir().expect("outside");
         std::os::unix::fs::symlink(outside.path(), dir.path().join("link_dir")).expect("symlink");
 
-        let error = workspace_path_for_write(dir.path(), Path::new("link_dir/out.txt"))
+        let error = workspace_file_for_write(dir.path(), Path::new("link_dir/out.txt"))
             .expect_err("symlink parent must be rejected");
-        assert!(
-            error.contains("refusing to create directory through symlink"),
-            "{error}"
-        );
+        assert!(error.contains("symlink"), "{error}");
     }
 }

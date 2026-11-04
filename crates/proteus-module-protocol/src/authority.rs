@@ -300,7 +300,7 @@ mod tests {
         for (slot, previous, current) in [
             ("context", "v2", "v3"),
             ("context_provider", "v3", "v4"),
-            ("model", "v11", "v12"),
+            ("model", "v12", "v13"),
             ("workflow", "v19", "v20"),
             ("hook", "v5", "v6"),
             ("tool", "v5", "v6"),

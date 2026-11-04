@@ -74,7 +74,7 @@ Wire shape и правила validation — в
 | `policy` | `select_one` | `modules.policy` | да | `allow_all`, `ask_write`, `codex_policy`, `opencode_policy` |
 | `tool` | `ordered_many` | предоставленные реализации + `tools.enabled` | да, `tool/v6` | `reference.tools` и узкие варианты |
 | `context_provider` | `ordered_many` | предоставленные реализации + настройки контекста | да, `context_provider/v4` | `skills`, `rg_search`, `jsonl_memory`, `sqlite_memory` |
-| `model` | `select_one` | активный профиль модели | да, `model/v12` | `fake`, `openai`, `openai_compatible`, `openai_codex`, `anthropic` |
+| `model` | `select_one` | активный профиль модели | да, `model/v13` | `fake`, `openai`, `openai_compatible`, `openai_codex`, `anthropic` |
 
 `select_one` означает одну выбранную реализацию, `ordered_many` — несколько
 реализаций с заданным порядком. Все перечисленные слоты, включая `model`,
@@ -522,7 +522,7 @@ Core не обращается к provider HTTP и не знает имён мо
 кредиты ChatGPT в этот DTO внутри своего адаптера; API-key implementations
 и fake возвращают `null`. Имена exports и происхождение модуля не меняют contract.
 
-Общий `model/v12` contract: `describe` возвращает неизменяемые adapter id,
+Общий `model/v13` contract: `describe` возвращает неизменяемые adapter id,
 capabilities и hosted tools; `stream` принимает canonical request и флаг
 provider streaming. Дельты доставляются через acknowledged `host.model.emit`,
 полный response/error — отдельным terminal result. Порядок, backpressure и

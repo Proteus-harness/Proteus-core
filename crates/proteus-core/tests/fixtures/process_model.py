@@ -1,4 +1,4 @@
-"""Non-Rust model/v12 boundary fixture; all test behavior is export-configured."""
+"""Non-Rust model/v13 boundary fixture; all test behavior is export-configured."""
 import os
 import hashlib
 import json
@@ -19,8 +19,8 @@ def initialize(params):
         raise ProtocolError("expected component v3")
     exports = []
     for export in params["exports"]:
-        if (export["slot"], export["contract_version"], export["composition"]) != ("model", "v12", "select_one"):
-            raise ProtocolError("expected model/v12 select_one")
+        if (export["slot"], export["contract_version"], export["composition"]) != ("model", "v13", "select_one"):
+            raise ProtocolError("expected model/v13 select_one")
         settings[export["module_id"]] = export["module_config"]
         if "pid_marker" in export["module_config"]:
             with Path(export["module_config"]["pid_marker"]).open("a") as file:

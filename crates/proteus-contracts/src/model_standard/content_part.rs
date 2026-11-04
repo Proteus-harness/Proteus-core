@@ -121,6 +121,13 @@ pub enum ContentPart {
         text: String,
         signature: Option<String>,
     },
+    /// Ordered opaque model output required by a later provider request.
+    /// Core/storage retain the value without interpreting or displaying it.
+    /// An encoder accepts only formats it supports and rejects the rest.
+    Opaque {
+        format: String,
+        data: serde_json::Value,
+    },
     HostedToolActivity {
         activity: HostedToolActivity,
     },
@@ -218,6 +225,7 @@ fn default_part_semantics(
         ContentPart::ToolCall { .. }
         | ContentPart::ReasoningSummary { .. }
         | ContentPart::Reasoning { .. }
+        | ContentPart::Opaque { .. }
         | ContentPart::HostedToolActivity { .. }
         | ContentPart::Citation { .. } => (PartProvenance::Model, PartScope::Conversation),
         ContentPart::Text { .. } | ContentPart::FileRef { .. } | ContentPart::Image { .. } => {
@@ -236,6 +244,31 @@ fn default_part_semantics(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn opaque_parts_retain_order_identity_and_conversation_scope_without_display_text() {
+        let message = CanonicalMessage::new(
+            MessageRole::Assistant,
+            vec![
+                ContentPart::Text {
+                    text: "visible".into(),
+                },
+                ContentPart::Opaque {
+                    format: "provider.test.opaque".into(),
+                    data: serde_json::json!({"data":"encrypted+/="}),
+                },
+                ContentPart::ToolCall {
+                    call: ToolCall::new("call", "tool", serde_json::json!({})),
+                },
+            ],
+        );
+        assert_eq!(message.parts[1].provenance, PartProvenance::Model);
+        assert_eq!(message.parts[1].scope, PartScope::Conversation);
+        assert_eq!(message.display_text(), "visible");
+        let encoded = serde_json::to_vec(&message).unwrap();
+        let decoded: CanonicalMessage = serde_json::from_slice(&encoded).unwrap();
+        assert_eq!(decoded, message);
+    }
     use crate::domain::ContextChunk;
 
     #[test]

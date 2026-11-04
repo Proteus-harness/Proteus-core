@@ -882,7 +882,7 @@ Host предлагает `host_features` отдельно каждому export
 только поддерживаемое пересечение в `module_features`; отсутствие optional
 feature допустимо, неизвестное или повторное подтверждение — ошибка handshake.
 Функция не добавляет callbacks: authority по-прежнему задаёт slot и invocation.
-В `model/v12` `describe` и `stream` составляют обязательное ядро;
+В `model/v13` `describe` и `stream` составляют обязательное ядро;
 `model.catalog.v1` и `model.quota.v1` разрешают соответствующие optional вызовы.
 Без подтверждения host не вызывает метод и возвращает отсутствие данных.
 Связь method→feature задаётся общей таблицей slot contracts. Broker проверяет
@@ -905,7 +905,14 @@ routing или authority. Другие неизвестные поля по-пр
 
 ## Model Streaming
 
-`model/v12` использует canonical DTO из `proteus-contracts::contracts::process_model`:
+`model/v13` использует canonical DTO из `proteus-contracts::contracts::process_model`:
+
+`ContentPart::Opaque { format, data }` сохраняет упорядоченный блок ответа,
+который нужен следующему запросу провайдера. Core хранит его как часть
+разговорной истории без интерпретации и вывода текста. Provider encoder
+проверяет поддерживаемый `format`, сохраняет `data` без изменений и явно
+отклоняет чужой формат. Так зашифрованные блоки проходят stream, journal и
+cold replay без provider-specific логики в Core.
 
 Canonical `ToolSurface::WorkflowFunction` обозначает function handler
 выбранного workflow. Model provider сериализует его как function, но host
@@ -1000,7 +1007,7 @@ event; это причина, а не команда Core повторить з�
 без завершения, сохраняя остальные
 ошибки данных и deadline отдельными. Codex workflow принимает решение о повторе
 с подтверждённой историей; preparation hook сохраняет свою политику повторов.
-Действуют `model/v12`, `workflow/v20`, `hook/v6`, `tool/v6` и journal schema v21,
+Действуют `model/v13`, `workflow/v20`, `hook/v6`, `tool/v6` и journal schema v21,
 без readers старых форм.
 Передача `ToolCall` в существующем `CanonicalMessage` не меняет wire/storage DTO.
 

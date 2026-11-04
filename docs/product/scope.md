@@ -46,7 +46,7 @@
   [Контракт и границы](https://github.com/Proteus-harness/Proteus-desktop/blob/main/README.md#расширения-без-пересборки).
 - OpenAI, OpenAI-compatible, ChatGPT subscription OAuth (`openai_codex`),
   Anthropic и fake implementations в reference
-  `model-pack`; Core использует общий `model/v12` process adapter.
+  `model-pack`; Core использует общий `model/v13` process adapter.
 - Doctor, inspect/topology, eval report и атомарная локальная установка.
 - Управление доступностью skills и MCP через `/addons`, локальная загрузка
   Agent Plugins 1.0 (skills и stdio MCP), общий сервис расширений `agent.addons`.

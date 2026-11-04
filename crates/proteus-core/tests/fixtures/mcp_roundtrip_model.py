@@ -12,8 +12,8 @@ descriptor = None
 def initialize(params):
     global descriptor
     export = params["exports"][0]
-    if (export["slot"], export["contract_version"], export["composition"]) != ("model", "v12", "select_one"):
-        raise ProtocolError("expected model/v12")
+    if (export["slot"], export["contract_version"], export["composition"]) != ("model", "v13", "select_one"):
+        raise ProtocolError("expected model/v13")
     descriptor = export["module_config"]["descriptor"]
     return {"protocol_version": "v3", "component_id": params["component_id"], "exports": [
         {**{key: export[key] for key in ("slot", "module_id", "contract_version", "composition")}, "module_features": [], "config_schema": None}

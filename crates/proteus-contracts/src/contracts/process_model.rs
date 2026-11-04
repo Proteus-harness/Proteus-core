@@ -1,4 +1,4 @@
-//! Component model/v12: per-model description, catalog/quota discovery and canonical stream.
+//! Component model/v13: per-model description, catalog/quota discovery and canonical stream.
 //! Events use acknowledged host callbacks, so slow consumers exert bounded
 //! backpressure without dropping text, tool arguments or usage.
 
@@ -12,7 +12,7 @@ use crate::{
     },
 };
 
-pub const PROCESS_MODEL_CONTRACT_VERSION: &str = "v12";
+pub const PROCESS_MODEL_CONTRACT_VERSION: &str = "v13";
 
 /// Optional module methods, acknowledged per export during initialization.
 pub const MODEL_CATALOG_FEATURE: &str = "model.catalog.v1";

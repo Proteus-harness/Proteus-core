@@ -636,7 +636,7 @@ Process boundary задаёт общий lifecycle; по умолчанию modu
 Core владеет provider-neutral `ModelService` и execution-bound `BoundModel`:
 canonical shaping/validation, deadline, attribution и journal. Provider
 HTTP adapters и secrets находятся в `Proteus-modules/model/model-pack`; runtime
-вызывает их через тот же `model/v12` contract, что и внешний модуль.
+вызывает их через тот же `model/v13` contract, что и внешний модуль.
 `describe({ model: ModelRef })` возвращает capabilities и hosted tools конкретной
 модели. Host кэширует описание по `(provider, model)` в пределах snapshot и
 проверяет стабильность adapter id. Execution binding собирает hosted tools

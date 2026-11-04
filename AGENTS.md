@@ -256,7 +256,7 @@ schema-driven `app_protocol::settings`. Новые id настроек и metada
 6. Добавить protocol и runtime swap evidence, затем обновить
    `docs/architecture/modules.md` и `docs/guides/configuration.md`.
 
-Model provider implementations проходят общий `model/v12` process contract.
+Model provider implementations проходят общий `model/v13` process contract.
 Core владеет canonical shaping/validation, execution binding и journal, но не HTTP provider adapters. `AgentControl` — отдельный root-owned service для полных Proteus
 peers, а не behavior slot или основание возвращать общий native loader.
 Marketplace, package manager и hot reload не входят в текущий process runtime.

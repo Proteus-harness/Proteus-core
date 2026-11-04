@@ -481,7 +481,7 @@ cargo test -p proteus-reference-module --test conformance
 stream retry, полного compaction lifecycle, filesystem/network permissions,
 deferred tool discovery и AgentControl semantics.
 
-Item identity и typed phase проходят через `model/v12`, live events и app
+Item identity и typed phase проходят через `model/v13`, live events и app
 transcript. Responses fixture отдаёт added/delta/done/completed, включая
 позднюю фазу и multipart текст; regression сверяет live ids/text/offsets
 с journal и cold app transcript. Проверка интерфейса проверяет соседние items
