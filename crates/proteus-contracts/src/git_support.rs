@@ -2,7 +2,7 @@
 //! Metadata commands below do not convert file content; they resolve Git's
 //! own attribute precedence before a status/diff is allowed to read it.
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     io::{self, Read, Write},
     process::{Command, Stdio},
     thread,
@@ -47,7 +47,7 @@ pub fn protect_readonly_git(command: &mut Command) -> io::Result<()> {
         // statuses are rejected by `metadata`.
         return Ok(());
     }
-    let mut drivers = HashSet::new();
+    let mut settings = HashMap::new();
     for record in bytes
         .split(|byte| *byte == 0)
         .filter(|record| !record.is_empty())
@@ -57,19 +57,28 @@ pub fn protect_readonly_git(command: &mut Command) -> io::Result<()> {
             .position(|byte| *byte == b'\n')
             .ok_or_else(|| io::Error::other("invalid Git filter configuration record"))?;
         let (key, value) = (&record[..newline], &record[newline + 1..]);
-        if value.iter().all(u8::is_ascii_whitespace) {
-            continue;
-        }
         let key = std::str::from_utf8(key).map_err(io::Error::other)?;
-        let driver = key
-            .strip_prefix("filter.")
+        key.strip_prefix("filter.")
             .and_then(|key| {
                 key.strip_suffix(".clean")
                     .or_else(|| key.strip_suffix(".process"))
             })
             .ok_or_else(|| io::Error::other("invalid Git filter configuration key"))?;
-        drivers.insert(driver.to_owned());
+        // Config is emitted in precedence order. An empty local/command value
+        // can intentionally disable an executable global setting.
+        settings.insert(key.to_owned(), !value.iter().all(u8::is_ascii_whitespace));
     }
+    let drivers: HashSet<_> = settings
+        .into_iter()
+        .filter(|(_, executable)| *executable)
+        .map(|(key, _)| {
+            key["filter.".len()..]
+                .rsplit_once('.')
+                .expect("validated filter key")
+                .0
+                .to_owned()
+        })
+        .collect();
     if drivers.is_empty() {
         return Ok(());
     }
@@ -289,6 +298,56 @@ mod tests {
                 );
                 assert!(!marker.exists());
             }
+        }
+    }
+
+    #[test]
+    fn an_empty_local_value_disables_an_inherited_command() {
+        for key in ["clean", "process"] {
+            let directory = tempfile::tempdir().unwrap();
+            let root = directory.path();
+            git(root, &["init", "-q"]);
+            std::fs::write(root.join("file"), "contents").unwrap();
+            std::fs::write(root.join(".gitattributes"), "file filter=marker\n").unwrap();
+            let config = root.join("global.config");
+            git(
+                root,
+                &[
+                    "config",
+                    "--file",
+                    config.to_str().unwrap(),
+                    &format!("filter.marker.{key}"),
+                    "false",
+                ],
+            );
+            git(root, &["config", &format!("filter.marker.{key}"), ""]);
+            let mut command = Command::new("git");
+            command
+                .current_dir(root)
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .env("GIT_CONFIG_GLOBAL", &config);
+            protect_readonly_git(&mut command).expect("locally disabled driver is safe");
+            assert!(
+                command
+                    .args(["status", "--short"])
+                    .status()
+                    .unwrap()
+                    .success()
+            );
+            let other = if key == "clean" { "process" } else { "clean" };
+            git(
+                root,
+                &["config", &format!("filter.marker.{other}"), "false"],
+            );
+            let mut command = Command::new("git");
+            command
+                .current_dir(root)
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .env("GIT_CONFIG_GLOBAL", &config);
+            assert!(
+                protect_readonly_git(&mut command).is_err(),
+                "the other executable setting is still forbidden"
+            );
         }
     }
 
