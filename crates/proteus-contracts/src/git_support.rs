@@ -85,7 +85,21 @@ pub fn protect_readonly_git(command: &mut Command) -> io::Result<()> {
             .arg("-c")
             .arg(format!("filter.{driver}.required=false"));
     }
+    // A status/diff invoked from a subdirectory can inspect files elsewhere
+    // in the worktree. Inspect attributes from Git's root, not just cwd.
+    let mut root = metadata_command(command);
+    root.args(["rev-parse", "--show-cdup"]);
+    let (success, root) = metadata(root, None, 16 * 1024)?;
+    if !success {
+        return Err(io::Error::other("cannot resolve Git filter worktree"));
+    }
+    let root = std::str::from_utf8(&root)
+        .map_err(io::Error::other)?
+        .strip_suffix('\n')
+        .ok_or_else(|| io::Error::other("invalid Git worktree prefix"))?;
+    let root = if root.is_empty() { "." } else { root };
     let mut files = metadata_command(command);
+    files.args(["-C", root]);
     files.args([
         "ls-files",
         "-z",
@@ -104,6 +118,7 @@ pub fn protect_readonly_git(command: &mut Command) -> io::Result<()> {
         return Ok(());
     }
     let mut attributes = metadata_command(command);
+    attributes.args(["-C", root]);
     attributes.args(["check-attr", "-z", "--stdin", "filter"]);
     let (success, bytes) = metadata(attributes, Some(paths), ATTRIBUTE_BYTES)?;
     if !success {
@@ -275,6 +290,28 @@ mod tests {
                 assert!(!marker.exists());
             }
         }
+    }
+
+    #[test]
+    fn nested_cwd_inspects_filters_elsewhere_in_the_worktree() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        git(root, &["init", "-q"]);
+        std::fs::create_dir(root.join("nested")).unwrap();
+        std::fs::write(root.join("file"), "contents").unwrap();
+        std::fs::write(root.join(".gitattributes"), "file filter=marker\n").unwrap();
+        git(root, &["config", "filter.marker.clean", "false"]);
+        let mut command = Command::new("git");
+        command
+            .current_dir(root.join("nested"))
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null");
+        assert!(
+            protect_readonly_git(&mut command)
+                .unwrap_err()
+                .to_string()
+                .contains("executable filter 'marker'")
+        );
     }
 
     #[test]
