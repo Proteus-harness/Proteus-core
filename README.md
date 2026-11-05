@@ -82,9 +82,11 @@ cd Proteus-core
 ./install.sh
 ```
 
-Установщик собирает harness и отдельный `proteus-reference-module` из
-Proteus-modules, затем атомарно публикует их в `~/.proteus/current` и команды
-в `~/.local/bin`. Исходники модулей выбираются через `repositories.json`:
+Установщик собирает harness и самостоятельные `proteus-<id>-module` из
+Proteus-modules, затем атомарно публикует их в `~/.proteus/current`.
+Команды `proteus` и `proteus-model-pack-module` устанавливаются в `~/.local/bin`;
+общий `proteus-reference-module` остаётся тестовым fixture и в поставку не входит.
+Исходники модулей выбираются через `repositories.json`:
 сначала явный `PROTEUS_MODULES_SOURCE`, затем соседний checkout
 `../Proteus-modules` или загрузка зафиксированной ревизии в
 `target/sources/modules`. `CARGO_TARGET_DIR`
@@ -101,9 +103,13 @@ proteus --config codex "Расскажи о структуре этого про
 меняет. `proteus` без запроса открывает интерактивный CLI.
 
 Приложение собирается в репозитории
-[Proteus-desktop](https://github.com/Proteus-harness/Proteus-desktop#portable):
-`python3 scripts/portable.py --fast`. Готовая папка включает harness, модуль
-и расширения и работает без исходных checkout.
+[Proteus-desktop](https://github.com/Proteus-harness/Proteus-desktop#portable).
+Для первой полной поставки выполните `python3 scripts/portable.py --full`.
+Готовая папка включает harness, самостоятельные модули и расширения и работает
+без исходных checkout. Для обновления только Desktop используйте
+`python3 scripts/portable.py --no-archive`: остальные компоненты берутся из
+готовой поставки `build/Proteus` или явно указанного `--base PATH`.
+Выбор компонентов описан в [BUILDING.md](https://github.com/Proteus-harness/Proteus-desktop/blob/main/BUILDING.md).
 
 Для Linux есть отдельный рабочий профиль `restricted` с частичной изоляцией:
 `proteus --config restricted` или `./proteus-native /path/to/project --config restricted`
