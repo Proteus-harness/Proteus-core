@@ -174,7 +174,7 @@ impl TranscriptReplay {
             JournalEntry::ToolCallRecorded(tool)
                 if record.turn_id != live_turn_id
                     && visibility.is_root_record(record.thread_id, record.turn_id)
-                    && visibility.visible_tool_calls.contains(&tool.call.id) =>
+                    && visibility.displays_tool(record.turn_id, &tool.call.id) =>
             {
                 match &tool.phase {
                     ToolCallRecordPhase::Requested { .. } => state.append_tool_call(&tool.call),
@@ -187,7 +187,7 @@ impl TranscriptReplay {
             JournalEntry::ToolResultRecorded(tool)
                 if record.turn_id != live_turn_id
                     && visibility.is_root_record(record.thread_id, record.turn_id)
-                    && visibility.visible_tool_calls.contains(&tool.result.call_id) =>
+                    && visibility.displays_tool(record.turn_id, &tool.result.call_id) =>
             {
                 if state.seen_results.insert(tool.result.call_id.clone()) {
                     state.append_tool_result(&tool.result);
@@ -197,7 +197,7 @@ impl TranscriptReplay {
                 if record.turn_id != live_turn_id
                     && visibility.is_root_record(record.thread_id, record.turn_id)
                     && !final_results.contains(&tool.result.call_id)
-                    && visibility.visible_tool_calls.contains(&tool.result.call_id) =>
+                    && visibility.displays_tool(record.turn_id, &tool.result.call_id) =>
             {
                 if state.seen_results.insert(tool.result.call_id.clone()) {
                     state.append_tool_result(&tool.result);
@@ -238,7 +238,10 @@ impl TranscriptReplay {
 #[derive(Default)]
 struct TranscriptVisibility {
     root_threads: HashMap<TurnId, ThreadId>,
-    visible_tool_calls: HashSet<CallId>,
+    // A nested call is a display fact, not evidence that its auxiliary model
+    // response was selected by the workflow. Keep those eligibility sets apart.
+    workflow_root_calls: HashSet<CallId>,
+    display_tool_calls: HashMap<TurnId, HashSet<CallId>>,
     visible_model_responses: HashSet<crate::domain::ExchangeId>,
 }
 
@@ -247,7 +250,8 @@ impl TranscriptVisibility {
     fn from_records(records: &[JournalRecord], replay_start: usize) -> Self {
         let mut root_threads = HashMap::new();
         let mut committed_parts = HashSet::new();
-        let mut root_lifecycle_calls = HashSet::new();
+        let mut workflow_root_calls = HashSet::new();
+        let mut display_tool_calls: HashMap<TurnId, HashSet<CallId>> = HashMap::new();
 
         for record in records {
             if matches!(record.entry, JournalEntry::TurnOpened(_))
@@ -265,15 +269,16 @@ impl TranscriptVisibility {
 
         for record in records {
             if let JournalEntry::ToolCallRecorded(tool) = &record.entry
-                && matches!(
-                    &tool.phase,
-                    ToolCallRecordPhase::Requested {
-                        owner: crate::contracts::OperationOwner::Workflow
-                    }
-                )
+                && let ToolCallRecordPhase::Requested { owner } = &tool.phase
                 && is_root_record(&root_threads, record.thread_id, record.turn_id)
             {
-                root_lifecycle_calls.insert(tool.call.id.clone());
+                display_tool_calls
+                    .entry(record.turn_id.expect("root record has a turn"))
+                    .or_default()
+                    .insert(tool.call.id.clone());
+                if matches!(owner, crate::contracts::OperationOwner::Workflow) {
+                    workflow_root_calls.insert(tool.call.id.clone());
+                }
             }
         }
 
@@ -298,7 +303,7 @@ impl TranscriptVisibility {
             let executed = model
                 .tool_calls
                 .iter()
-                .any(|call| root_lifecycle_calls.contains(&call.id));
+                .any(|call| workflow_root_calls.contains(&call.id));
             if committed || executed {
                 visible_model_responses.insert(response.exchange_id);
             }
@@ -306,13 +311,20 @@ impl TranscriptVisibility {
 
         Self {
             root_threads,
-            visible_tool_calls: root_lifecycle_calls,
+            workflow_root_calls,
+            display_tool_calls,
             visible_model_responses,
         }
     }
 
     fn is_root_record(&self, thread_id: Option<ThreadId>, turn_id: Option<TurnId>) -> bool {
         is_root_record(&self.root_threads, thread_id, turn_id)
+    }
+
+    fn displays_tool(&self, turn_id: Option<TurnId>, call_id: &str) -> bool {
+        turn_id
+            .and_then(|turn| self.display_tool_calls.get(&turn))
+            .is_some_and(|calls| calls.contains(call_id))
     }
 }
 

@@ -67,8 +67,14 @@ pub(crate) struct SourceFingerprint {
 }
 impl SourceFingerprint {
     pub(crate) fn revision(&self) -> Option<String> {
+        // An unchanged journal can acquire different display row offsets when
+        // its projection format changes. Old cursors must not address the new
+        // rows using the old source-only revision.
+        let mut hash = ring::digest::Context::new(&SHA256);
+        hash.update(&sqlite::FORMAT.to_be_bytes());
+        hash.update(&serialize_bounded(self)?);
         Some(
-            digest(&SHA256, &serialize_bounded(self)?)
+            hash.finish()
                 .as_ref()
                 .iter()
                 .map(|byte| format!("{byte:02x}"))

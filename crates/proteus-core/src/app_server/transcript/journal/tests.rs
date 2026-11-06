@@ -350,3 +350,4 @@ fn replacement_and_compaction_keep_first_dates_of_retained_message_or_part_ids()
 mod replay_frontier;
 
 mod indexed_rows;
+mod nested_scope;

@@ -93,20 +93,23 @@ pub(super) fn transcript_from_scan(
         Ok(())
     })?;
 
-    // All lifecycle calls, including those before the frontier, can make a
-    // replayed response visible. Timestamp keys only need replayed messages.
+    // Workflow lifecycle calls, including those before the frontier, can make
+    // a replayed model response visible. Nested calls only reveal their own
+    // display rows. Timestamp keys only need replayed messages.
     let mut timestamps = TranscriptTimestamps::default();
     scan(&mut |record| {
         if let JournalEntry::ToolCallRecorded(tool) = &record.entry
-            && matches!(
-                tool.phase,
-                ToolCallRecordPhase::Requested {
-                    owner: OperationOwner::Workflow
-                }
-            )
+            && let ToolCallRecordPhase::Requested { owner } = &tool.phase
             && visibility.is_root_record(record.thread_id, record.turn_id)
         {
-            visibility.visible_tool_calls.insert(tool.call.id.clone());
+            visibility
+                .display_tool_calls
+                .entry(record.turn_id.expect("root record has a turn"))
+                .or_default()
+                .insert(tool.call.id.clone());
+            if matches!(owner, OperationOwner::Workflow) {
+                visibility.workflow_root_calls.insert(tool.call.id.clone());
+            }
         }
         if record.session_seq >= start {
             match &record.entry {
@@ -145,7 +148,7 @@ pub(super) fn transcript_from_scan(
             let executed = model
                 .tool_calls
                 .iter()
-                .any(|call| visibility.visible_tool_calls.contains(&call.id));
+                .any(|call| visibility.workflow_root_calls.contains(&call.id));
             if committed || executed {
                 visibility
                     .visible_model_responses

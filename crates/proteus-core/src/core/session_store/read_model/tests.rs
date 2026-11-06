@@ -516,4 +516,5 @@ mod consuming;
 mod incremental;
 mod incremental_checkpoints;
 
+mod nested_tools;
 mod subagent_binding;

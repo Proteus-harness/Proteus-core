@@ -2243,6 +2243,13 @@ Lifecycle hooks и фазы `before_tool`/`after_tool` по-прежнему н�
 вложенные tools. Host без terminal capability возвращает обычный tool output
 без терминала.
 
+После завершения хода UI восстанавливает вложенные строки из journal lifecycle
+инструмента, даже если workflow вернул только собственные canonical parts.
+Это не добавляет вложенные вызовы или вспомогательный model text в историю,
+передаваемую модели. Незавершённый вызов показывается как `interrupted` без
+придуманного результата. Ссылка терминала восстанавливается только из записанной
+metadata результата, а не из раннего события публикации.
+
 - `GET /terminals/read?session_dir=<absolute>&id=<uuid>&cursor=<u64>&max_bytes=<1..65536>&wait_ms=<0..1000>`
   возвращает `{type:"read",snapshot:{start_cursor,next_cursor,end_cursor,
   data_base64,gap,finished,exit_code,tty,columns,rows}}`. `cursor` optional.
