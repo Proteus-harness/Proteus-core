@@ -1,10 +1,13 @@
+mod component_packages;
 mod persistence;
 mod plugins;
 #[cfg(test)]
 mod tests;
 mod transaction;
 pub(super) use persistence::config_builder_target_path;
-use persistence::{persist_config_builder, validate_module_config_toml};
+#[cfg(test)]
+use persistence::persist_config_builder;
+use persistence::{persist_config_builder_with_components, validate_module_config_toml};
 pub(super) use transaction::path_lock;
 
 use std::{
@@ -112,6 +115,7 @@ impl AppServerHandle {
                 active_provider,
                 permission_mode,
                 addon_settings: None,
+                component_packages: Vec::new(),
             },
         )
         .await
@@ -139,6 +143,7 @@ impl AppServerHandle {
             active_provider,
             permission_mode,
             addon_settings,
+            component_packages,
         } = request;
         let config_path = self
             .config_path
@@ -155,6 +160,7 @@ impl AppServerHandle {
             self.config.read().await.clone()
         };
         let replaced_state = config_builder_state(&next_config);
+        let component_ids = component_packages::apply(&mut next_config, component_packages)?;
         if let Some(update) = addon_settings {
             if update
                 .addons
@@ -217,7 +223,7 @@ impl AppServerHandle {
                     .await
                     .context("failed to record the replaced profile state")?;
             }
-            persist_config_builder(&target_path, &next_config).await
+            persist_config_builder_with_components(&target_path, &next_config, &component_ids).await
         })
         .await?;
 

@@ -104,6 +104,29 @@ pub struct SetConfigBuilderRequest {
     /// `None` — не трогать `[permissions] mode`.
     #[serde(default)]
     pub permission_mode: Option<PermissionMode>,
+    /// Register installed process packages without selecting their exports.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub component_packages: Vec<ComponentPackageInstall>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ComponentPackageInstall {
+    pub id: String,
+    /// Absolute executable followed by its arguments; never a shell command.
+    pub command: Vec<String>,
+    /// Declared package exports, in the same shape as module.json.
+    pub exports: BTreeMap<String, Vec<String>>,
+    #[serde(default)]
+    pub replace: Vec<ComponentReplacement>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ComponentReplacement {
+    pub id: String,
+    /// Expected current executable; a stale snapshot cannot replace a new command.
+    pub command: String,
 }
 
 #[derive(Debug, serde::Serialize, Deserialize)]

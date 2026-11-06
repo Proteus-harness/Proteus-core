@@ -1566,6 +1566,21 @@ inventory и схемы параметров читаются из одного 
 Пакеты Agent Plugins 1.0 (`addons.plugins`, skills/MCP) — другой способ загрузки;
 они показаны на странице Packages и не превращаются в process components.
 
+`POST /config/builder` также принимает `component_packages`: список установленных
+process-пакетов с `id`, `command` (абсолютный executable и argv), `exports`
+в форме `{slot: [module_id]}` из `module.json` и необязательным `replace`.
+Без `replace` создаётся новая запись `components.<id>`; коллизия id — ошибка.
+Для обновления aliases клиент явно передаёт `replace: [{id, command}]`, где
+`command` — ожидаемый текущий executable. Host проверяет неизменность команды,
+совпадение имени бинарника и наличие всех exports alias в пакете; заменяется
+только executable. Args, cwd/env, sandbox, descriptions, export subset и
+per-export timeouts остаются прежними. Новые slots, hooks и tools автоматически
+не выбираются. Подготовка сборки выполняется до записи, поэтому ошибка не
+меняет runtime или профиль. Для directory profile builder сохраняет полные
+изменённые descriptors в управляемом overlay, оставляя остальные components
+зависимыми от своих fragments; обычный Save их не добавляет. TOML принадлежит
+host, клиент не редактирует его напрямую.
+
 Save сериализует read/prepare/persist/publish по каноническому пути профиля;
 повторное сохранение читает актуальный source, а файл заменяется atomic rename.
 Все fallible проверки runtime проходят до persistence. Выбор модели и reload

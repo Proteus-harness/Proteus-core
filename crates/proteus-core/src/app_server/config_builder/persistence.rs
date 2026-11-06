@@ -64,7 +64,16 @@ fn module_config_toml_document(
         .context("serialized module_config TOML could not be parsed")
 }
 
+#[cfg(test)]
 pub(super) async fn persist_config_builder(path: &Path, config: &AppConfig) -> Result<()> {
+    persist_config_builder_with_components(path, config, &BTreeSet::new()).await
+}
+
+pub(super) async fn persist_config_builder_with_components(
+    path: &Path,
+    config: &AppConfig,
+    component_ids: &BTreeSet<String>,
+) -> Result<()> {
     if let Some(parent) = path.parent() {
         tokio::fs::create_dir_all(parent).await?;
     }
@@ -164,6 +173,28 @@ pub(super) async fn persist_config_builder(path: &Path, config: &AppConfig) -> R
     .parse::<toml_edit::DocumentMut>()?;
     doc["addons"] = managed["addons"].clone();
     doc["tools"]["mcp_servers"] = managed["tools"]["mcp_servers"].clone();
+    if !component_ids.is_empty() {
+        // Persist only installed aliases, keeping unrelated inherited descriptors
+        // driven by their fragments. Full touched descriptors retain launch controls.
+        #[derive(serde::Serialize)]
+        struct ComponentsToml<'a> {
+            components: BTreeMap<&'a String, &'a crate::process_adapters::ProcessComponentConfig>,
+        }
+        let components = toml::to_string_pretty(&ComponentsToml {
+            components: component_ids
+                .iter()
+                .map(|id| (id, &config.components[id]))
+                .collect(),
+        })
+        .context("components cannot be represented as TOML")?
+        .parse::<toml_edit::DocumentMut>()?;
+        if doc.get("components").is_none() {
+            doc["components"] = toml_edit::table();
+        }
+        for id in component_ids {
+            doc["components"][id] = components["components"][id].clone();
+        }
+    }
     atomic_write(path, doc.to_string().as_bytes()).await?;
     Ok(())
 }

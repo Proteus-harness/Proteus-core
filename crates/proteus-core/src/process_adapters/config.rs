@@ -88,6 +88,11 @@ impl ProcessComponentConfig {
         &self.command
     }
 
+    /// Replace only the executable, retaining host-owned launch/export controls.
+    pub(crate) fn set_command(&mut self, command: String) {
+        self.command = command;
+    }
+
     pub fn description(&self) -> Option<&str> {
         self.description.as_deref()
     }
