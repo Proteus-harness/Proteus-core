@@ -2234,6 +2234,15 @@ session отправляет cancel и после bounded grace reset-ит/ос�
 истории; после перезапуска worker ссылка остаётся видимой, но live control уже
 недоступен. UUID другого активного session не принимается.
 
+В разрешённых вложенных `tool → tool` и `hook → tool` вызовах та же execution
+binding передаёт публикацию терминала и события строки инструмента. Ссылка
+привязана к `call_id` самого вложенного вызова, а не внешнего инструмента;
+строка появляется до terminal binding и завершается собственным результатом.
+Сохраняются исходная attribution, policy/approval, lineage и дочерняя отмена.
+Lifecycle hooks и фазы `before_tool`/`after_tool` по-прежнему не могут запускать
+вложенные tools. Host без terminal capability возвращает обычный tool output
+без терминала.
+
 - `GET /terminals/read?session_dir=<absolute>&id=<uuid>&cursor=<u64>&max_bytes=<1..65536>&wait_ms=<0..1000>`
   возвращает `{type:"read",snapshot:{start_cursor,next_cursor,end_cursor,
   data_base64,gap,finished,exit_code,tty,columns,rows}}`. `cursor` optional.

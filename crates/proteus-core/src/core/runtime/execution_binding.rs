@@ -68,7 +68,8 @@ impl AgentRuntime {
             execution_recorder,
         )
         .with_conversation(conversation.clone())
-        .with_tool_recorder(tool_recorder.clone());
+        .with_tool_recorder(tool_recorder.clone())
+        .with_tool_terminal_registry(self.services.terminals.clone());
         let bound_context = snapshot.runtime.registry.bind_context(&model_binding);
         let execution = snapshot.runtime.registry.execution_context_for_model(
             model_binding,

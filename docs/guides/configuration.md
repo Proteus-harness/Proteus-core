@@ -994,6 +994,8 @@ typed skill catalog, либо вернуть `null`, если не поддер�
 [[addons.plugins]]
 path = "/home/user/agent-plugins/team-tools"
 enabled = true
+# Необязательно: постоянный ключ данных при смене папки версии.
+# data_key = "team-tools-installation"
 ```
 
 Поддерживается локальный каталог [Agent Plugins 1.0](https://agent-plugins.org/specification):
@@ -1018,8 +1020,13 @@ MCP импортируется только для `type = "stdio"`; валид�
 token, аргументы передаются отдельно; его `./`-путь разрешается от пакета.
 По умолчанию `cwd` — root пакета. `${PLUGIN_ROOT}` и `${PLUGIN_DATA}` разворачиваются
 однократно в `args`, `env`, `cwd`, но не в `command`. Persistent data находятся в
-`.proteus/plugin-data/<hash canonical package root>` рабочего каталога и сохраняются
-при reload, выключении и обновлении пакета. Installer, registry и автоматическое
+`.proteus/plugin-data/<hash data_key>` рабочего каталога; без `data_key` ключом
+служит canonical root пакета. Reload и выключение сохраняют этот адрес.
+При переносе или обновлении в другую папку сохраните прежний `data_key`; если
+он ещё не задан, запишите точную строку прежнего canonical root перед заменой
+`path`. Тогда новая версия и rollback используют прежние данные без копирования.
+Не связывайте независимые установки одинаковым ключом только из-за совпадения
+имени в manifest. Installer, registry и автоматическое
 скачивание пакетов здесь не реализованы.
 
 `GET /addons?session_dir=…` возвращает настройки, provider-owned skill catalogs,

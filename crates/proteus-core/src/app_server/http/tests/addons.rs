@@ -138,6 +138,15 @@ for line in sys.stdin:
     assert!(std::path::Path::new(environment["data"].as_str().unwrap()).is_dir());
 
     let mut update = snapshot.settings;
+    // An installer pins the old root identity before switching versions. The
+    // profile write must keep that key through HTTP, snapshots and storage.
+    update.addons.plugins[0].data_key = Some(
+        plugin
+            .canonicalize()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned(),
+    );
     update.addons.disabled_skills = vec!["review".into()];
     update.addons.disabled_mcp_servers = vec!["test.plugin:echo".into()];
     let response = route_request(

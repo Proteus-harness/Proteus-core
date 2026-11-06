@@ -35,6 +35,8 @@ pub struct ToolExecutionBinding {
     attribution: ExecutionAttribution,
     origin: RequestOrigin,
     recorder: Arc<dyn ToolExecutionRecorder>,
+    terminal_factory: Option<super::tool_terminal_binding::ToolTerminalFactory>,
+    observer: Option<Arc<dyn ToolExecutionObserver>>,
 }
 
 impl ToolExecutionBinding {
@@ -45,6 +47,8 @@ impl ToolExecutionBinding {
             attribution: ExecutionAttribution::detached(execution_id),
             origin: RequestOrigin::for_execution(execution_id),
             recorder: Arc::new(NoopToolExecutionRecorder),
+            terminal_factory: None,
+            observer: None,
         }
     }
 
@@ -71,7 +75,25 @@ impl ToolExecutionBinding {
             attribution,
             origin,
             recorder,
+            terminal_factory: None,
+            observer: None,
         }
+    }
+
+    pub(crate) fn with_terminal_factory(
+        mut self,
+        factory: Option<super::tool_terminal_binding::ToolTerminalFactory>,
+    ) -> Self {
+        self.terminal_factory = factory;
+        self
+    }
+
+    pub(crate) fn with_observer(
+        mut self,
+        observer: Option<Arc<dyn ToolExecutionObserver>>,
+    ) -> Self {
+        self.observer = observer;
+        self
     }
 
     pub fn scope(&self) -> &ExecutionScope {
@@ -242,8 +264,15 @@ impl BoundTools {
     }
 
     pub async fn execute(&self, cwd: PathBuf, call: ToolCall) -> Result<ToolResult> {
-        self.execute_enriched(cwd, call, &NoopToolExecutionObserver, |_| {})
+        self.execute_enriched(cwd, call, self.observer(), |_| {})
             .await
+    }
+
+    pub(crate) fn observer(&self) -> &dyn ToolExecutionObserver {
+        self.binding
+            .observer
+            .as_deref()
+            .unwrap_or(&NoopToolExecutionObserver)
     }
 
     pub(crate) async fn execute_enriched<F>(

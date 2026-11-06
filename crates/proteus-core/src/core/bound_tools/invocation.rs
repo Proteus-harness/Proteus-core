@@ -47,6 +47,11 @@ impl BoundTools {
         // Binding-owned fields remain authoritative after optional enrichment.
         tool_ctx.attribution = self.binding.attribution;
         tool_ctx.cancellation = tool_cancellation.clone();
+        tool_ctx.terminal_host = self
+            .binding
+            .terminal_factory
+            .as_ref()
+            .map(|bind| bind(&call.id));
         tool_ctx.host = Some(Arc::new(
             crate::core::extension_operations::DelegatingToolHost {
                 delegate: self.operations.clone(),

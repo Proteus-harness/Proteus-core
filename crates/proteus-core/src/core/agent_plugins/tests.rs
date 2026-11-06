@@ -17,6 +17,7 @@ fn portable_manifest_and_mcp_keep_independent_failure_boundaries() {
         plugins: vec![crate::domain::AgentPluginConfig {
             path: root.clone(),
             enabled: true,
+            data_key: None,
         }],
     };
     let result = resolve(&config, workspace.path());
@@ -36,6 +37,81 @@ fn portable_manifest_and_mcp_keep_independent_failure_boundaries() {
             .warnings
             .iter()
             .any(|warning| warning.contains("unsupported MCP transport"))
+    );
+}
+
+#[test]
+fn state_key_survives_version_replacement_and_rollback_without_copying_data() {
+    let workspace = tempfile::tempdir().unwrap();
+    let roots = ["v1", "v2"].map(|version| {
+        let root = workspace.path().join(version);
+        std::fs::create_dir(&root).unwrap();
+        std::fs::write(
+            root.join("plugin.json"),
+            serde_json::json!({
+                "$schema": manifest::PLUGIN_SCHEMA, "name": "stateful"
+            })
+            .to_string(),
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("mcp.json"),
+            serde_json::json!({
+                "$schema": mcp::MCP_SCHEMA, "mcpServers": {
+                    "server": {"type": "stdio", "command": "python3",
+                               "env": {"DATA": "${PLUGIN_DATA}"}}
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+        root.canonicalize().unwrap()
+    });
+    let mut config = AddonConfig {
+        plugins: vec![crate::domain::AgentPluginConfig {
+            path: roots[0].clone(),
+            enabled: true,
+            data_key: None,
+        }],
+        ..Default::default()
+    };
+    let address = |config: &AddonConfig, cwd: &Path| {
+        let resolved = resolve(config, cwd);
+        assert!(resolved.plugins[0].error.is_none());
+        assert_eq!(resolved.servers.len(), 1);
+        std::path::PathBuf::from(&resolved.servers[0].environment.env["DATA"])
+    };
+    let initial = address(&config, workspace.path());
+    std::fs::write(initial.join("state.txt"), "retained state").unwrap();
+
+    // Pin the existing default identity before replacing the version path.
+    config.plugins[0].data_key = Some(roots[0].to_string_lossy().into_owned());
+    config.plugins[0].path = roots[1].clone();
+    assert_eq!(address(&config, workspace.path()), initial);
+    assert_eq!(
+        std::fs::read_to_string(initial.join("state.txt")).unwrap(),
+        "retained state"
+    );
+    config.plugins[0].path = roots[0].clone();
+    config.plugins[0].enabled = false;
+    assert_eq!(address(&config, workspace.path()), initial);
+    assert!(!resolve(&config, workspace.path()).servers[0].enabled);
+
+    // A key identifies this installation, while its data remain workspace-local.
+    let other_workspace = tempfile::tempdir().unwrap();
+    config.plugins[0].enabled = true;
+    let other = address(&config, other_workspace.path());
+    assert_ne!(other, initial);
+    assert!(!other.join("state.txt").exists());
+    config.plugins[0].data_key = Some(" ".into());
+    let invalid = resolve(&config, workspace.path());
+    assert!(invalid.servers.is_empty());
+    assert!(
+        invalid.plugins[0]
+            .error
+            .as_deref()
+            .unwrap()
+            .contains("data_key")
     );
 }
 

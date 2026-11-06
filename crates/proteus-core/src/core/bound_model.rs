@@ -42,6 +42,7 @@ pub struct ModelExecutionBinding {
     recorder: Arc<dyn ExecutionRecorder>,
     turn: Option<ModelTurnAttribution>,
     tool_recorder: Arc<dyn crate::contracts::ToolExecutionRecorder>,
+    terminal_factory: Option<super::tool_terminal_binding::ToolTerminalFactory>,
 }
 
 #[derive(Clone)]
@@ -64,6 +65,7 @@ impl ModelExecutionBinding {
             recorder,
             turn: None,
             tool_recorder: Arc::new(crate::contracts::NoopToolExecutionRecorder),
+            terminal_factory: None,
         }
     }
 
@@ -80,6 +82,7 @@ impl ModelExecutionBinding {
             conversation: None,
             recorder,
             tool_recorder: Arc::new(crate::contracts::NoopToolExecutionRecorder),
+            terminal_factory: None,
             turn: Some(ModelTurnAttribution {
                 events,
                 session_id,
@@ -110,6 +113,35 @@ impl ModelExecutionBinding {
     }
     pub(crate) fn tool_recorder(&self) -> Arc<dyn crate::contracts::ToolExecutionRecorder> {
         self.tool_recorder.clone()
+    }
+
+    pub(crate) fn with_tool_terminal_registry(
+        mut self,
+        registry: Arc<dyn crate::contracts::ToolTerminalHost>,
+    ) -> Self {
+        if let Some(turn) = &self.turn {
+            self.terminal_factory = Some(super::tool_terminal_binding::for_turn(
+                registry,
+                turn.events.clone(),
+                EventContext::new(turn.session_id, turn.thread_id, Some(turn.turn_id)),
+            ));
+        }
+        self
+    }
+
+    pub(crate) fn tool_terminal_factory(
+        &self,
+    ) -> Option<super::tool_terminal_binding::ToolTerminalFactory> {
+        self.terminal_factory.clone()
+    }
+
+    pub(crate) fn tool_observer(&self) -> Option<Arc<dyn super::ToolExecutionObserver>> {
+        self.turn.as_ref().map(|turn| {
+            super::tool_terminal_binding::observer_for_turn(
+                turn.events.clone(),
+                EventContext::new(turn.session_id, turn.thread_id, Some(turn.turn_id)),
+            )
+        })
     }
 
     pub(crate) fn conversation_reader(

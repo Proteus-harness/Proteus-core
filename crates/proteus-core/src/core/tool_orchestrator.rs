@@ -1,12 +1,11 @@
 use std::{path::Path, sync::Arc};
 
 use anyhow::Result;
-use async_trait::async_trait;
 
 use crate::{
     contracts::{AgentWorkflowContext, ExecutionAttribution, RequestOrigin, ToolContext},
-    core::{AttributedUserInputTransport, BoundTools, ToolExecutionBinding, ToolExecutionObserver},
-    domain::{AgentTask, Event, ToolCall, ToolResult, ToolSpec},
+    core::{AttributedUserInputTransport, BoundTools, ToolExecutionBinding},
+    domain::{AgentTask, ToolCall, ToolResult, ToolSpec},
 };
 
 const DEFAULT_MAX_OUTPUT_BYTES: usize = 200_000;
@@ -43,19 +42,10 @@ impl ToolOrchestrator {
         }
 
         let bound = self.bind(ctx);
-        let observer = AgentToolExecutionObserver { ctx: ctx.clone() };
         let origin = request_origin(ctx);
-        let terminal_call_id = call.id.clone();
         bound
-            .execute_enriched(task.cwd.clone(), call, &observer, |tool_ctx| {
+            .execute_enriched(task.cwd.clone(), call, bound.observer(), |tool_ctx| {
                 enrich_agent_tool_context(ctx, task, origin, tool_ctx);
-                if let Some(registry) = &ctx.terminal_registry {
-                    tool_ctx.terminal_host = Some(Arc::new(EventTerminalHost {
-                        registry: registry.clone(),
-                        context: ctx.clone(),
-                        call_id: terminal_call_id.clone(),
-                    }));
-                }
             })
             .await
     }
@@ -66,7 +56,18 @@ impl ToolOrchestrator {
             tool_attribution(ctx),
             request_origin(ctx),
             ctx.tool_recorder.clone(),
-        );
+        )
+        .with_terminal_factory(ctx.terminal_registry.as_ref().map(|registry| {
+            super::tool_terminal_binding::for_turn(
+                registry.clone(),
+                ctx.events.clone(),
+                ctx.event_context(),
+            )
+        }))
+        .with_observer(Some(super::tool_terminal_binding::observer_for_turn(
+            ctx.events.clone(),
+            ctx.event_context(),
+        )));
         BoundTools::new(
             ctx.execution.tools.clone(),
             ctx.execution.policy.clone(),
@@ -113,72 +114,4 @@ fn tool_attribution(ctx: &AgentWorkflowContext) -> ExecutionAttribution {
         ctx.thread_id,
         ctx.turn_id,
     )
-}
-
-struct AgentToolExecutionObserver {
-    ctx: AgentWorkflowContext,
-}
-
-#[async_trait]
-impl ToolExecutionObserver for AgentToolExecutionObserver {
-    async fn tool_call_resolved(&self, call: &ToolCall) -> Result<()> {
-        self.ctx
-            .emit(Event::ToolCallResolved { call: call.clone() })
-            .await
-    }
-
-    async fn tool_call_requested(&self, call: &ToolCall) -> Result<()> {
-        self.ctx
-            .emit(Event::ToolCallRequested { call: call.clone() })
-            .await
-    }
-
-    async fn approval_requested(&self, call: &ToolCall, reason: &str) -> Result<()> {
-        self.ctx
-            .emit(Event::ApprovalRequested {
-                call_id: call.id.clone(),
-                reason: reason.to_owned(),
-            })
-            .await
-    }
-
-    async fn approval_resolved(&self, call: &ToolCall, approved: bool) -> Result<()> {
-        self.ctx
-            .emit(Event::ApprovalResolved {
-                call_id: call.id.clone(),
-                approved,
-            })
-            .await
-    }
-
-    async fn tool_finished(&self, result: &ToolResult) -> Result<()> {
-        self.ctx
-            .emit(Event::ToolFinished {
-                result: result.clone(),
-            })
-            .await
-    }
-}
-
-struct EventTerminalHost {
-    registry: Arc<dyn crate::contracts::ToolTerminalHost>,
-    context: AgentWorkflowContext,
-    call_id: crate::domain::CallId,
-}
-#[async_trait]
-impl crate::contracts::ToolTerminalHost for EventTerminalHost {
-    async fn publish(
-        &self,
-        descriptor: crate::contracts::ToolTerminalDescriptor,
-        controller: Arc<dyn crate::contracts::ToolTerminalController>,
-    ) -> Result<crate::contracts::ToolTerminalRef> {
-        let terminal = self.registry.publish(descriptor, controller).await?;
-        self.context
-            .emit(Event::ToolTerminalBound {
-                call_id: self.call_id.clone(),
-                terminal: terminal.clone(),
-            })
-            .await?;
-        Ok(terminal)
-    }
 }

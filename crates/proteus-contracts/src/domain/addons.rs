@@ -24,6 +24,10 @@ pub struct AgentPluginConfig {
     pub path: PathBuf,
     #[serde(default = "enabled")]
     pub enabled: bool,
+    /// Stable state identity across immutable package versions. When absent,
+    /// state belongs to the canonical package root.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data_key: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

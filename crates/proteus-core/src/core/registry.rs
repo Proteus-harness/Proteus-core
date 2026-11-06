@@ -18,6 +18,10 @@ use crate::{
     stubs::{DenyAllPolicy, EmptyContextBuilder, NoWorkflow},
 };
 
+#[cfg(test)]
+#[path = "tool_terminal_binding_tests.rs"]
+mod tool_terminal_tests;
+
 #[derive(Clone)]
 pub struct RuntimeRegistry {
     config_exports: Vec<crate::process_adapters::ProcessExportConfig>,
@@ -211,7 +215,9 @@ impl RuntimeRegistry {
             attribution,
             origin,
             model_binding.tool_recorder(),
-        );
+        )
+        .with_terminal_factory(model_binding.tool_terminal_factory())
+        .with_observer(model_binding.tool_observer());
         let tools = crate::core::BoundTools::new(
             selected_tools.clone(),
             policy.clone(),

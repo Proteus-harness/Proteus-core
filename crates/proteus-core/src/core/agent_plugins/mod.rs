@@ -82,6 +82,13 @@ pub(crate) fn resolve(config: &AddonConfig, cwd: &Path) -> ResolvedAddons {
         };
         let loaded = (|| -> Result<_> {
             let root = path.canonicalize().context("plugin root is unavailable")?;
+            if plugin
+                .data_key
+                .as_ref()
+                .is_some_and(|key| key.trim().is_empty())
+            {
+                bail!("plugin data_key must not be empty");
+            }
             let manifest =
                 manifest::parse(paths::read_json(&root, "plugin.json")?, &mut state.warnings)?;
             if !names.insert(manifest.name.clone()) {
@@ -125,10 +132,10 @@ pub(crate) fn resolve(config: &AddonConfig, cwd: &Path) -> ResolvedAddons {
                             .warnings
                             .push(format!("plugin MCP disabled: {error:#}")),
                         Ok(file) => {
-                            let digest = ring::digest::digest(
-                                &ring::digest::SHA256,
-                                root.to_string_lossy().as_bytes(),
-                            );
+                            let root_key = root.to_string_lossy();
+                            let data_key = plugin.data_key.as_deref().unwrap_or(&root_key);
+                            let digest =
+                                ring::digest::digest(&ring::digest::SHA256, data_key.as_bytes());
                             let id = digest
                                 .as_ref()
                                 .iter()
