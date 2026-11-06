@@ -160,7 +160,8 @@ impl AppServerHandle {
             self.config.read().await.clone()
         };
         let replaced_state = config_builder_state(&next_config);
-        let component_ids = component_packages::apply(&mut next_config, component_packages)?;
+        let component_ids =
+            component_packages::apply(&mut next_config, component_packages, &self.cwd)?;
         if let Some(update) = addon_settings {
             if update
                 .addons

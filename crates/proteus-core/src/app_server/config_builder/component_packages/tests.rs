@@ -19,6 +19,7 @@ fn replacement(id: &str, command: &str) -> ComponentReplacement {
     ComponentReplacement {
         id: id.into(),
         command: command.into(),
+        expected_executable: None,
     }
 }
 
@@ -45,7 +46,7 @@ fn component_packages_preserve_alias_descriptors_and_only_replace_explicit_comma
     let mut before = serde_json::to_value(&config).unwrap();
     let mut install = package("/installed/worker");
     install.replace.push(replacement("custom", "/old/worker"));
-    apply(&mut config, vec![install]).unwrap();
+    apply(&mut config, vec![install], Path::new("/")).unwrap();
     before["components"]["custom"]["command"] = json!("/installed/worker");
     assert_eq!(serde_json::to_value(&config).unwrap(), before);
     assert!(!config.components.contains_key("installed-package"));
@@ -63,14 +64,14 @@ fn component_packages_reject_stale_alias_mismatched_binary_exports_and_collision
     );
     for mut install in [package("/new/worker"), package("/new/different")] {
         install.replace.push(replacement("custom", "/stale/worker"));
-        assert!(apply(&mut original.clone(), vec![install.clone()]).is_err());
+        assert!(apply(&mut original.clone(), vec![install.clone()], Path::new("/")).is_err());
         install.replace[0].command = "/old/worker".into();
         install.exports.remove("model");
-        assert!(apply(&mut original.clone(), vec![install]).is_err());
+        assert!(apply(&mut original.clone(), vec![install], Path::new("/")).is_err());
     }
     let mut collision = package("/new/worker");
     collision.id = "custom".into();
-    assert!(apply(&mut original.clone(), vec![collision]).is_err());
+    assert!(apply(&mut original.clone(), vec![collision], Path::new("/")).is_err());
     for command in [
         vec![],
         vec!["relative-worker".into()],
@@ -78,13 +79,13 @@ fn component_packages_reject_stale_alias_mismatched_binary_exports_and_collision
     ] {
         let mut install = package("/new/worker");
         install.command = command;
-        assert!(apply(&mut original.clone(), vec![install]).is_err());
+        assert!(apply(&mut original.clone(), vec![install], Path::new("/")).is_err());
     }
     let mut duplicate = package("/new/worker");
     duplicate
         .exports
         .insert("model".into(), vec!["fake".into(), "fake".into()]);
-    assert!(apply(&mut original, vec![duplicate]).is_err());
+    assert!(apply(&mut original, vec![duplicate], Path::new("/")).is_err());
 }
 
 #[test]
@@ -96,7 +97,16 @@ fn component_packages_request_roundtrips_and_empty_registration_is_omitted() {
             .get("component_packages")
             .is_none()
     );
-    let install = package("/new/worker");
+    let mut install = package("/new/worker");
+    let mut alias = replacement("custom", "worker");
+    assert!(
+        serde_json::to_value(&alias)
+            .unwrap()
+            .get("expected_executable")
+            .is_none()
+    );
+    alias.expected_executable = Some("/bundle/bin/worker".into());
+    install.replace.push(alias);
     let request = SetConfigBuilderRequest {
         component_packages: vec![install.clone()],
         ..Default::default()
@@ -104,6 +114,65 @@ fn component_packages_request_roundtrips_and_empty_registration_is_omitted() {
     let loaded: SetConfigBuilderRequest =
         serde_json::from_value(serde_json::to_value(request).unwrap()).unwrap();
     assert_eq!(loaded.component_packages, [install]);
+}
+
+#[cfg(unix)]
+#[test]
+fn component_packages_resolve_bare_alias_against_its_child_environment_and_cwd() {
+    use std::os::unix::fs::PermissionsExt;
+    let home = tempfile::tempdir().unwrap();
+    let workspace = home.path().join("workspace");
+    std::fs::create_dir_all(workspace.join("child")).unwrap();
+    for (directory, mode) in [
+        ("bundle", 0o755),
+        ("fork", 0o755),
+        ("not-executable", 0o644),
+    ] {
+        let bin = home.path().join(directory).join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let worker = bin.join("worker");
+        std::fs::write(&worker, "#!/bin/sh\nexit 0\n").unwrap();
+        std::fs::set_permissions(&worker, std::fs::Permissions::from_mode(mode)).unwrap();
+    }
+    let bundle = home.path().join("bundle/bin/worker");
+    let mut original = AppConfig::default();
+    original.components.insert(
+        "custom".into(),
+        serde_json::from_value(json!({
+            "command": "worker", "args": ["--keep"], "cwd": "child",
+            "env": {"PATH": "../../fork/bin:../../bundle/bin"},
+            "exports": {"model": {"fake": {}}},
+        }))
+        .unwrap(),
+    );
+    let mut install = package("/installed/worker");
+    install.replace.push(replacement("custom", "worker"));
+    assert!(
+        apply(&mut original.clone(), vec![install.clone()], &workspace)
+            .unwrap_err()
+            .to_string()
+            .contains("requires expected_executable")
+    );
+    install.replace[0].expected_executable = Some(bundle.clone());
+    let before = serde_json::to_value(&original).unwrap();
+    let error = apply(&mut original, vec![install.clone()], &workspace).unwrap_err();
+    assert!(format!("{error:#}").contains("executable changed"));
+    assert_eq!(serde_json::to_value(&original).unwrap(), before);
+
+    // A non-executable earlier PATH entry is skipped; relative entries are
+    // resolved from the configured child cwd, not from the host cwd.
+    let mut value = serde_json::to_value(&original.components["custom"]).unwrap();
+    value["env"]["PATH"] = json!("../../not-executable/bin:../../bundle/bin");
+    original
+        .components
+        .insert("custom".into(), serde_json::from_value(value).unwrap());
+    let alias = home.path().join("bundle-alias");
+    std::os::unix::fs::symlink(&bundle, &alias).unwrap();
+    install.replace[0].expected_executable = Some(alias);
+    let mut before = serde_json::to_value(&original).unwrap();
+    apply(&mut original, vec![install], &workspace).unwrap();
+    before["components"]["custom"]["command"] = json!("/installed/worker");
+    assert_eq!(serde_json::to_value(&original).unwrap(), before);
 }
 
 #[tokio::test]

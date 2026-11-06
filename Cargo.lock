@@ -1522,6 +1522,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "im",
+ "libc",
  "proteus-contracts",
  "proteus-module-protocol",
  "proteus-process-host",

@@ -127,6 +127,9 @@ pub struct ComponentReplacement {
     pub id: String,
     /// Expected current executable; a stale snapshot cannot replace a new command.
     pub command: String,
+    /// Physical executable selected by the client, required for PATH commands.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_executable: Option<PathBuf>,
 }
 
 #[derive(Debug, serde::Serialize, Deserialize)]

@@ -1572,7 +1572,13 @@ process-пакетов с `id`, `command` (абсолютный executable и ar
 Без `replace` создаётся новая запись `components.<id>`; коллизия id — ошибка.
 Для обновления aliases клиент явно передаёт `replace: [{id, command}]`, где
 `command` — ожидаемый текущий executable. Host проверяет неизменность команды,
-совпадение имени бинарника и наличие всех exports alias в пакете; заменяется
+совпадение имени бинарника и наличие всех exports alias в пакете. Для команды
+из `PATH` обязателен `expected_executable`: абсолютный путь к выбранному ранее
+бинарнику. Host разрешает старую команду с точными child environment и cwd,
+учитывает executable permissions и сравнивает canonical путь с ожидаемым;
+одноимённый wrapper/fork из `components.<id>.env.PATH` не подменяется.
+Для абсолютной команды эта дополнительная проверка выполняется, если путь
+передан; без него остаётся точное сравнение `command`. Заменяется
 только executable. Args, cwd/env, sandbox, descriptions, export subset и
 per-export timeouts остаются прежними. Новые slots, hooks и tools автоматически
 не выбираются. Подготовка сборки выполняется до записи, поэтому ошибка не

@@ -2,9 +2,12 @@
 use super::*;
 use proteus_contracts::app_protocol::http::ComponentPackageInstall;
 
+mod executable;
+
 pub(super) fn apply(
     config: &mut AppConfig,
     packages: Vec<ComponentPackageInstall>,
+    workspace: &Path,
 ) -> Result<BTreeSet<String>> {
     let mut touched = BTreeSet::new();
     for package in packages {
@@ -68,6 +71,11 @@ pub(super) fn apply(
                         replacement.id
                     );
                 }
+                executable::verify(
+                    component,
+                    replacement.expected_executable.as_deref(),
+                    workspace,
+                )?;
                 for (slot, id, _) in component.exports() {
                     if !exports
                         .get(slot)
