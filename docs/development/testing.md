@@ -404,7 +404,8 @@ client DTO в `proteus-contracts` клиент проверяется вмест
 а не по факту запуска приложения.
 
 - Изолированная проверка installer: `./scripts/install-smoke.sh`.
-  Она сама собирает и устанавливает оба executable во временные каталоги,
+  Она сама собирает и устанавливает Core и самостоятельные process modules
+  во временные каталоги (reference aggregate не поставляется),
   проверяет fake turn, внешний Python component и process peers. Отдельная
   предварительная установка для этого smoke не нужна.
   `sh scripts/install-smoke-env.sh` выполняет тот же сценарий с подставным

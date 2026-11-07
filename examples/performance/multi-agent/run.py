@@ -232,6 +232,8 @@ def main():
     assert 1<=args.rounds<=20 and 1<=args.payload_kib<=128 and args.repeats>=1
     assert args.interval>=.05 and 0<args.timeout<=600 and 0<args.max_pss_mib<=8192
     assert 0<args.delay_ms<=5000 and (args.idle_cap is None or 0<=args.idle_cap<=10)
+    if args.output.exists() and any(args.output.iterdir()):
+        raise FileExistsError(f"refusing to overwrite evidence: {args.output}")
     args.output.mkdir(parents=True,exist_ok=True)
     manifest={key:dict(path=str(getattr(args,key)),sha256=digest(getattr(args,key))) for key in ('driver','binary','module')}
     (args.output/'binaries.json').write_text(json.dumps(manifest,indent=2)+'\n')

@@ -217,3 +217,31 @@ fn workspace_git_checkout_create_and_ignore() {
     }
     assert!(workspace_git::ignore(&root, &[], IgnoreTarget::Exclude).is_err());
 }
+
+#[cfg(unix)]
+#[test]
+fn ignore_rejects_symlink_and_hardlink_destinations_without_changing_external_file() {
+    for hardlink in [false, true] {
+        let repo = tempfile::tempdir().unwrap();
+        init(repo.path());
+        let outside = tempfile::tempdir().unwrap();
+        let target = outside.path().join("external-ignore");
+        fs::write(&target, "keep\n").unwrap();
+        fs::write(repo.path().join("new.tmp"), "test").unwrap();
+        let ignore = repo.path().join(".gitignore");
+        if hardlink {
+            fs::hard_link(&target, &ignore).unwrap();
+        } else {
+            std::os::unix::fs::symlink(&target, &ignore).unwrap();
+        }
+        assert!(
+            workspace_git::ignore(
+                repo.path(),
+                &["new.tmp".to_owned()],
+                IgnoreTarget::Gitignore
+            )
+            .is_err()
+        );
+        assert_eq!(fs::read_to_string(&target).unwrap(), "keep\n");
+    }
+}

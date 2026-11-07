@@ -3,7 +3,7 @@
 
 use std::{sync::Mutex, time::Duration};
 
-use anyhow::{Result, bail};
+use anyhow::{Context as _, Result, bail};
 use proteus_contracts::app_protocol::{AppServerEvent, StdioOutput, StdioRequest};
 use tokio::time::{Instant, timeout_at};
 
@@ -222,15 +222,29 @@ pub(super) async fn drive_turn(
 
     loop {
         if forwarder.ctx.execution.scope.cancellation.is_cancelled() && !tracker.cancel_sent {
-            return finish_cancelled(child, forwarder, &active_send_id, tracker, cancel_grace)
-                .await;
+            return finish_cancelled(
+                child,
+                forwarder,
+                &active_send_id,
+                tracker,
+                cancel_grace,
+                message_delivery.is_settled(),
+            )
+            .await;
         }
 
         let delivery_guard = mailbox.lock_delivery().await;
         if forwarder.ctx.execution.scope.cancellation.is_cancelled() && !tracker.cancel_sent {
             drop(delivery_guard);
-            return finish_cancelled(child, forwarder, &active_send_id, tracker, cancel_grace)
-                .await;
+            return finish_cancelled(
+                child,
+                forwarder,
+                &active_send_id,
+                tracker,
+                cancel_grace,
+                message_delivery.is_settled(),
+            )
+            .await;
         }
         if active_terminal_seen && message_delivery.is_settled() && pending_terminal.is_some() {
             let messages = mailbox.drain_or_close()?;
@@ -264,6 +278,7 @@ pub(super) async fn drive_turn(
                     &active_send_id,
                     tracker,
                     cancel_grace,
+                    message_delivery.is_settled(),
                 )
                 .await;
             }
@@ -300,8 +315,15 @@ pub(super) async fn drive_turn(
             }
             OutputVerdict::Finished(end) => return Ok(end),
             OutputVerdict::CancelRequested => {
-                return finish_cancelled(child, forwarder, &active_send_id, tracker, cancel_grace)
-                    .await;
+                return finish_cancelled(
+                    child,
+                    forwarder,
+                    &active_send_id,
+                    tracker,
+                    cancel_grace,
+                    message_delivery.is_settled(),
+                )
+                .await;
             }
         }
     }
@@ -313,7 +335,14 @@ async fn finish_cancelled(
     send_id: &str,
     tracker: &mut TurnTracker,
     cancel_grace: Duration,
+    messages_settled: bool,
 ) -> Result<TurnEnd> {
+    // A pending Send may have started a new turn after the original terminal
+    // response. Targeted cancellation of the old request cannot prove idle.
+    if !messages_settled {
+        child.kill().await;
+        return Ok(TurnEnd::Interrupted(AgentLifecycleStatus::Cancelled));
+    }
     finish_interrupted_with(
         child,
         forwarder,
@@ -427,11 +456,11 @@ async fn handle_output(
                 return Ok(OutputVerdict::Continue);
             }
             if ok {
+                let output = output.context("subagent child returned an empty Send output")?;
+                let text = serde_json::from_value::<AgentOutput>(output)
+                    .context("subagent child returned an invalid Send output")?
+                    .text;
                 forwarder.bind_session(child, tracker).await?;
-                let text = output
-                    .and_then(|value| serde_json::from_value::<AgentOutput>(value).ok())
-                    .map(|output| output.text)
-                    .unwrap_or_default();
                 return Ok(OutputVerdict::Finished(TurnEnd::Completed(text)));
             }
             if tracker.cancel_sent {

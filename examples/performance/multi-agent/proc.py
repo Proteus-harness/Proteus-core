@@ -28,6 +28,7 @@ def table():
 class Tree:
     def __init__(self, root):
         self.root = root
+        self.root_start = table().get(root, {}).get("start_ticks")
         self.owned = {}
         self.last = {}
 
@@ -35,7 +36,7 @@ class Tree:
         current = table()
         roots = {pid for pid, start in self.owned.items()
                  if pid in current and current[pid]['start_ticks'] == start}
-        if self.root in current:
+        if self.root_start is not None and current.get(self.root, {}).get("start_ticks") == self.root_start:
             roots.add(self.root)
         while True:
             more = {pid for pid, row in current.items() if row['parent'] in roots} - roots

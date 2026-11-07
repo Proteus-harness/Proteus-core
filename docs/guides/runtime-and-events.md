@@ -52,7 +52,7 @@ cargo run --bin proteus -- --config codex replay workflow \
 
 `init [coding|codex|full|safe]` создаёт TOML profile в default config file
 (`~/.config/Proteus-agent/configs/config.toml`) или в путь, переданный через
-`--config`. Если `--config <name>` передан как bare name, init пишет строгий
+`--config` (явный `.json` получает JSON). Если `--config <name>` передан как bare name, init пишет строгий
 named config `<name>.config.toml` в default config dir. `coding`, `codex` и
 `full` включают real-provider coding profile с reference process tools после
 `./install.sh`, `safe` использует fake model.
@@ -60,8 +60,10 @@ named config `<name>.config.toml` в default config dir. `coding`, `codex` и
 `doctor` проверяет default/explicit config, process components/exports и
 доступность их команд, выбранные module ids, активный model provider, наличие секрета
 провайдера, внешние команды вроде `rg`, runtime timeout'ы, event log path и
-tool registry. Строгий protocol handshake выполняется conformance gate-ом и
-при реальной сборке runtime snapshot, а не read-only командой `doctor`.
+tool registry. Для inventory `doctor` может запускать выбранные model/tool
+components и выполнять bootstrap `describe`/`list` и handshake; model request
+или behavioral turn он не делает. Остальные selections проверяются
+декларативно; полный strict handshake всех exports проверяет conformance gate.
 
 Явный рабочий каталог:
 
@@ -697,7 +699,7 @@ system-строку в transcript.
 
 ## App Server Boundary
 
-`crates/proteus-core/src/app_server.rs` отделяет UI-клиенты от `AgentRuntime`. Клиент работает с `AppServerHandle`, подписывается на `AppServerEvent` и отправляет команды через transport. Сейчас реализованы локальный `stdio` transport в `crates/proteus-core/src/app_server/stdio.rs` и HTTP/SSE transport в `crates/proteus-core/src/app_server/http.rs`; DTO лежат в `proteus-contracts::app_protocol` и re-export'ятся через `crates/proteus-core/src/app_server.rs`. Будущие socket/ACP-клиенты должны использовать ту же app-server границу.
+`crates/proteus-core/src/app_server.rs` отделяет UI-клиенты от `AgentRuntime`. Клиент работает с `AppServerHandle`, подписывается на `AppServerEvent` и отправляет команды через transport. Сейчас реализованы локальный `stdio` transport в `crates/proteus-core/src/app_server/stdio.rs` и HTTP/SSE transport в `crates/proteus-core/src/app_server/http.rs`; DTO лежат в `proteus-contracts::app_protocol` и re-export'ятся через `crates/proteus-core/src/app_server.rs`. ACP v1 уже реализован поверх той же app-server границы; будущие socket-клиенты также должны использовать её.
 
 Устройство окна клиента — вкладки, панели и расширения — описано в
 [руководстве приложения](https://github.com/Proteus-harness/Proteus-desktop/blob/main/README.md).
@@ -1917,10 +1919,10 @@ model call упал без ответа, уточнение остаётся п�
 Terminal app event публикуется до снятия finalization gate session. Поэтому
 новый `Send` не может стартовать в узком окне между settlement старого turn-а
 и его `TurnOutput`/`Error` и затем быть ошибочно очищен старым событием. Интерфейс приложения
-показывает server-owned очередь над композером, обновляет текст по
-`SteeringEdited`, удаляет строку по `SteeringRemoved` или
-`SteeringDelivered`, а после reconnect восстанавливает остаток через
-`/pending` и transcript через `/history`.
+показывает server-owned очередь над композером по версионированным pending
+snapshots (`/pending`); `Steering*` остаются фактами event log и не заменяют
+снимок очереди. После reconnect согласованные transcript и execution
+восстанавливаются из `SessionSnapshot`, без отдельного `/history` запроса.
 
 ## Workflow Loop
 
@@ -2145,12 +2147,15 @@ new_epoch, tool_names }`, а `GET /config` / `ConfigSummary` возвращае�
 host-процессы, но это не общий `reload_modules`.
 
 File refresh проверяет метаданные исходных файлов каждые 300 мс. Полный
-разбор профиля и fingerprint пакетов выполняются только после изменения
-входов, с повторным чтением для стабилизации редакторских сохранений.
+разбор профиля и fingerprint пакетов выполняются после изменения входов
+или по достижении 3 с с последней semantic scan; повторное чтение
+стабилизирует редакторские сохранения. Это предварительный scheduling
+tradeoff, а не гарантированный deadline.
 Пути includes, каталоги overlays и файлы instructions собирает тот же loader;
 отдельного парсера watcher не имеет. Учитываются также `plugin.json`,
 `mcp.json`, отсутствующие входы для восстановления после ошибки и замена
-файла через rename. Неизменившийся профиль не перечитывается в простое.
+файла через rename. Периодическая semantic scan обнаруживает и изменения,
+сохранившие metadata; watcher использует тот же loader.
 
 В Linux/glibc executable `proteus` до создания Tokio workers задаёт максимум
 две malloc-арены: это уменьшает удержание свободной памяти при множестве

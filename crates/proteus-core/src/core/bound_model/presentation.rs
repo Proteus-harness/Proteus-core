@@ -6,6 +6,7 @@ pub(super) fn present_stream(
     binding: ModelExecutionBinding,
     suppress_stream_deltas: bool,
     deadline: Option<tokio::time::Instant>,
+    cancellation: crate::contracts::CancellationToken,
 ) -> ModelEventStream {
     Box::pin(async_stream::try_stream! {
         let mut text_offsets = std::collections::HashMap::new();
@@ -18,7 +19,7 @@ pub(super) fn present_stream(
                     if !suppress_stream_deltas {
                         for message in &response.messages {
                             if !binding
-                                .emit_message(message, &mut completed, deadline)
+                                .emit_message(message, &mut completed, deadline, &cancellation)
                                 .await
                             {
                                 break;
@@ -43,12 +44,13 @@ pub(super) fn present_stream(
                                 text: text.clone(),
                             },
                             deadline,
+                            &cancellation,
                         )
                         .await;
                 }
                 ModelStreamEvent::MessageCompleted { message } if !suppress_stream_deltas => {
                     binding
-                        .emit_message(message, &mut completed, deadline)
+                        .emit_message(message, &mut completed, deadline, &cancellation)
                         .await;
                 }
                 ModelStreamEvent::ToolCallDelta {
@@ -63,6 +65,7 @@ pub(super) fn present_stream(
                                 args_delta: args_delta.clone(),
                             },
                             deadline,
+                            &cancellation,
                         )
                         .await;
                 }
@@ -71,6 +74,7 @@ pub(super) fn present_stream(
                         .emit_delta_before_deadline(
                             Event::AssistantReasoningDelta { text: text.clone() },
                             deadline,
+                            &cancellation,
                         )
                         .await;
                 }

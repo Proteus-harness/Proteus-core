@@ -46,6 +46,10 @@ fn run_tests() -> Result<()> {
         ),
         ("raw_frame_round_trip", raw_frame_round_trip),
         (
+            "request_deadline_covers_blocked_stdin",
+            request_deadline_covers_blocked_stdin,
+        ),
+        (
             "raw_timeout_does_not_terminate_child",
             raw_timeout_does_not_terminate_child,
         ),
@@ -1165,5 +1169,21 @@ fn idle_transport_termination_joins_with_writer_clone_alive() -> Result<()> {
     assert!(writer.queue_frame(json!({"after": "shutdown"})).is_err());
     // The watchdog bounds this test's wait, not reclamation of a failed writer
     // or its joining thread. Run this target under an outer process timeout.
+    Ok(())
+}
+
+fn request_deadline_covers_blocked_stdin() -> Result<()> {
+    let spec = ProcessSpec::new("python3").args(["-c", "import time; time.sleep(30)"]);
+    let mut session = ProcessSession::spawn(&spec, NewlineJsonFraming::default())?;
+    let started = Instant::now();
+    let error = session
+        .request(
+            "large",
+            json!({"data":"x".repeat(512 * 1024)}),
+            Duration::from_millis(100),
+        )
+        .expect_err("stdin must not bypass request deadline");
+    assert!(error.to_string().contains("accept request"), "{error:#}");
+    assert!(started.elapsed() < Duration::from_secs(3));
     Ok(())
 }

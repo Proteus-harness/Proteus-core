@@ -117,7 +117,9 @@ class Tree:
             row.update(after)
             if row["state"] in ("Z", "X", "x"):
                 row.update({field: 0 for field in MEMORY_KEYS})
-            row["group"] = self.root_group if pid == self.root and start == self.root_start else self.classifier(row)
+            previous = self.last.get((pid, start))
+            row["group"] = (previous["group"] if previous is not None and not row["exe"] else
+                            self.root_group if pid == self.root and start == self.root_start else self.classifier(row))
             return row
         except (OSError, ValueError, IndexError):
             return None

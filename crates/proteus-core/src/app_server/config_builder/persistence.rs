@@ -78,6 +78,13 @@ pub(super) async fn persist_config_builder_with_components(
         tokio::fs::create_dir_all(parent).await?;
     }
 
+    if path
+        .extension()
+        .is_some_and(|extension| extension == "json")
+    {
+        return persist_json_profile(path, config, component_ids).await;
+    }
+
     let mut doc = if !tokio::fs::try_exists(path).await?
         && path.file_name().and_then(|name| name.to_str())
             != Some(crate::core::CONFIG_BUILDER_OVERLAY)
@@ -210,4 +217,57 @@ pub(super) async fn read_toml_document_or_empty(path: &Path) -> Result<toml_edit
     existing
         .parse::<toml_edit::DocumentMut>()
         .map_err(|err| anyhow!("failed to parse config TOML at {}: {err}", path.display()))
+}
+
+/// Preserve unmanaged JSON keys just as the TOML overlay writer does.
+async fn persist_json_profile(
+    path: &Path,
+    config: &AppConfig,
+    component_ids: &BTreeSet<String>,
+) -> Result<()> {
+    let next = serde_json::to_value(config)?;
+    let mut document: Value = match tokio::fs::read(path).await {
+        Ok(bytes) => serde_json::from_slice(&bytes)
+            .with_context(|| format!("failed to parse config JSON at {}", path.display()))?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => next.clone(),
+        Err(error) => return Err(error.into()),
+    };
+    let root = document
+        .as_object_mut()
+        .context("config JSON root must be an object")?;
+    if config.active_provider.is_some() {
+        root.insert("active_provider".into(), next["active_provider"].clone());
+    } else {
+        root.remove("active_provider");
+    }
+    root.entry("providers")
+        .or_insert_with(|| next["providers"].clone());
+    for key in ["modules", "module_config", "addons"] {
+        root.insert(key.into(), next[key].clone());
+    }
+    for (section, keys) in [
+        ("permissions", &["mode"][..]),
+        ("agent_control", &["surface"][..]),
+        ("tools", &["enabled", "mcp_servers"][..]),
+    ] {
+        let section_value = root.entry(section).or_insert_with(|| serde_json::json!({}));
+        let section_value = section_value
+            .as_object_mut()
+            .with_context(|| format!("config JSON {section} must be an object"))?;
+        for key in keys {
+            section_value.insert((*key).into(), next[section][*key].clone());
+        }
+    }
+    if !component_ids.is_empty() {
+        let components = root
+            .entry("components")
+            .or_insert_with(|| serde_json::json!({}));
+        let components = components
+            .as_object_mut()
+            .context("config JSON components must be an object")?;
+        for id in component_ids {
+            components.insert(id.clone(), next["components"][id].clone());
+        }
+    }
+    atomic_write(path, &serde_json::to_vec_pretty(&document)?).await
 }

@@ -1,4 +1,4 @@
-"""Model/v12 fixture calling the actual discovered MCP name, then reading its result."""
+"""Model/v13 fixture calling the actual discovered MCP name, then reading its result."""
 import sys
 import uuid
 from pathlib import Path

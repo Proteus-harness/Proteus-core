@@ -27,6 +27,26 @@ class SamplerTests(unittest.TestCase):
         (path / "status").write_text("VmHWM: 10000 kB\nThreads: 1\n")
         (path / "cmdline").write_bytes(b"/test/fake-backend\0")
 
+    def test_subject_classification_survives_loss_of_exe_at_teardown(self):
+        with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as temporary:
+            proc = Path(temporary)
+            (proc / "uptime").write_text("1000.0 0\n")
+            self.fake_process(proc, 100, 1, 100, 100, 80)
+            self.fake_process(proc, 101, 100, 200, 200, 100, 50)
+            executable = proc / "101/exe"
+            tree = Tree(100, proc=proc, classifier=lambda row: "backend" if row["exe"] else "controller")
+            tree.sample()
+            self.assertEqual(tree.last[(101, 200)]["group"], "controller")
+            executable.symlink_to("/synthetic/backend")
+            tree.sample()
+            self.assertEqual(tree.last[(101, 200)]["group"], "backend")
+            executable.unlink()
+            self.fake_process(proc, 101, 100, 200, 0, 0, 75)
+            tree.sample()
+            row = tree.last[(101, 200)]
+            self.assertEqual(row["group"], "backend")
+            self.assertEqual(row["cpu_ticks"], 75)
+
     def test_retained_children_reuse_and_simultaneous_peaks(self):
         with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as temporary:
             proc = Path(temporary)

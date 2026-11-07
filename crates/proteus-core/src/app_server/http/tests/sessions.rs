@@ -478,3 +478,37 @@ async fn route_delete_unsaved_live_session_removes_it_without_replacement() {
     );
     assert!(state.all_servers().await.is_empty());
 }
+
+#[tokio::test]
+async fn new_session_loads_published_profile_before_starting_components() {
+    let (state, server, config_dir) = test_state().await;
+    let mut config = crate::test_model::config();
+    config.permissions.mode = crate::domain::PermissionMode::Plan;
+    tokio::fs::write(
+        config_dir.path().join("config.toml"),
+        toml::to_string(&config).unwrap(),
+    )
+    .await
+    .unwrap();
+    let response = execute_new_session(&state, None, None, None).await;
+    let StdioOutput::Response {
+        ok: true,
+        output: Some(opened),
+        ..
+    } = response
+    else {
+        panic!("{response:?}");
+    };
+    let opened: proteus_contracts::app_protocol::http::SessionOpened =
+        serde_json::from_value(opened).unwrap();
+    let next = state
+        .server_for_session_dir(&opened.session_dir)
+        .await
+        .unwrap();
+    assert_eq!(
+        next.config.read().await.permissions.mode,
+        crate::domain::PermissionMode::Plan
+    );
+    next.shutdown().await;
+    server.shutdown().await;
+}

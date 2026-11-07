@@ -175,7 +175,16 @@ pub(crate) fn run_init(profile: InitProfile, explicit_config: Option<&Path>) -> 
     if let Some(parent) = destination.parent() {
         fs::create_dir_all(parent)?;
     }
-    fs::write(&destination, profile.config_body_for_init())?;
+    let body = profile.config_body_for_init();
+    if destination
+        .extension()
+        .is_some_and(|extension| extension == "json")
+    {
+        let value: toml::Value = toml::from_str(&body).context("parse generated profile")?;
+        fs::write(&destination, serde_json::to_vec_pretty(&value)?)?;
+    } else {
+        fs::write(&destination, body)?;
+    }
     let config_dir = destination.parent().unwrap_or_else(|| Path::new("."));
     for (relative, body) in profile.support_files(config_dir)? {
         let path = config_dir.join(relative);

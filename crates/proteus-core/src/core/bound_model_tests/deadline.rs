@@ -360,3 +360,70 @@ async fn deadline_drops_provider_stream_before_waiting_for_error_recording() {
     assert_eq!(facts.errors.len(), 1);
     assert_eq!(facts.requests[0].0, facts.errors[0].0);
 }
+
+#[tokio::test]
+async fn cancellation_interrupts_stalled_presentation_with_no_deadline() {
+    let cancellation = CancellationToken::new();
+    let recorder = Arc::new(CollectingExecutionRecorder::default());
+    let binding = ModelExecutionBinding::for_turn(
+        ExecutionScope::fresh(cancellation.clone()),
+        Arc::new(EventEmitter::new(Arc::new(StalledSink))),
+        new_session_id(),
+        new_thread_id(),
+        new_turn_id(),
+        recorder.clone(),
+    );
+    let model = BoundModel::new(
+        Arc::new(ModelService::new(Arc::new(DelayedStreamAdapter {
+            start_delay: Duration::ZERO,
+            event_delay: Duration::from_millis(1),
+            deltas: 10,
+        }))),
+        binding,
+        0,
+    );
+    let completion = tokio::spawn(async move {
+        model
+            .complete(request("delayed-stream", "cancel-sink"))
+            .await
+    });
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    cancellation.cancel();
+    let error = tokio::time::timeout(Duration::from_secs(1), completion)
+        .await
+        .expect("cancel must interrupt the sink")
+        .unwrap()
+        .expect_err("cancelled model");
+    assert_eq!(error.to_string(), "model execution canceled");
+    assert_eq!(recorder.facts.lock().await.errors.len(), 1);
+}
+
+#[tokio::test]
+async fn cancellation_drops_provider_before_blocked_error_recording() {
+    let dropped = Arc::new(AtomicBool::new(false));
+    let recorder = Arc::new(BlockingErrorRecorder::new());
+    let cancellation = CancellationToken::new();
+    let binding = ModelExecutionBinding::with_recorder(
+        ExecutionScope::fresh(cancellation.clone()),
+        recorder.clone(),
+    );
+    let model = BoundModel::new(
+        Arc::new(ModelService::new(Arc::new(DropObservedAdapter {
+            dropped: dropped.clone(),
+        }))),
+        binding,
+        0,
+    );
+    let mut stream = model
+        .stream(request("drop-observed", "cancel-record"))
+        .await
+        .unwrap();
+    let completion = tokio::spawn(async move { stream.next().await });
+    cancellation.cancel();
+    tokio::time::timeout(Duration::from_secs(1), recorder.error_started.notified())
+        .await
+        .unwrap();
+    assert!(dropped.load(Ordering::SeqCst));
+    recorder.release_error.notify_one();
+    assert!(completion.await.unwrap().unwrap().is_err());
+}

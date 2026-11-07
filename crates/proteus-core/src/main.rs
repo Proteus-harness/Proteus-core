@@ -42,7 +42,7 @@ use cli_workflow_replay::run_workflow_replay;
 #[cfg(test)]
 use cli_doctor::{
     DoctorFindings, check_external_commands, check_model_config,
-    check_module_config_tool_references, check_timeout_ms, command_resolves, format_timeout_ms,
+    check_module_config_tool_references, check_timeout_ms, format_timeout_ms,
 };
 #[cfg(test)]
 use cli_init::{

@@ -91,8 +91,19 @@ impl<F: Framing> ProcessSession<F> {
             "method": method,
             "params": params,
         });
-        self.send_frame(request)?;
-        self.recv_response(request_id, timeout)
+        let started = Instant::now();
+        let dispatch = self.frame_writer().queue_frame(request)?;
+        match dispatch.wait_timeout(timeout.saturating_sub(started.elapsed())) {
+            Some(result) => result?,
+            None => {
+                self.terminate_best_effort();
+                bail!(
+                    "child did not accept request within {}ms",
+                    timeout.as_millis()
+                );
+            }
+        }
+        self.recv_response(request_id, started, timeout)
     }
 
     pub fn notify(&mut self, method: &str, params: Value) -> Result<()> {
@@ -132,8 +143,12 @@ impl<F: Framing> ProcessSession<F> {
         }
     }
 
-    fn recv_response(&mut self, expected_id: i64, timeout: Duration) -> Result<Value> {
-        let started = Instant::now();
+    fn recv_response(
+        &mut self,
+        expected_id: i64,
+        started: Instant,
+        timeout: Duration,
+    ) -> Result<Value> {
         loop {
             let message = self.recv_frame_before(started, timeout, "response")?;
             if is_notification(message.value()) {

@@ -1,5 +1,7 @@
 //! Descriptor-bound workspace writes. Checking a path never authorizes a later
 //! std::fs::write of that path; callers receive the opened file instead.
+mod atomic;
+pub use atomic::{WorkspaceAtomicFile, workspace_file_for_atomic_write};
 use std::{
     fs::File,
     io::{self, Write},
@@ -74,7 +76,7 @@ impl PreparedWrite {
         })
     }
 
-    fn open(self) -> Result<WorkspaceFile, String> {
+    fn parent_directory(&self) -> Result<File, String> {
         use rustix::fs::{Mode, OFlags, mkdirat, openat};
         let parents = self.relative.parent().unwrap_or(Path::new(""));
         let mut directory = self.root.try_clone().map_err(|e| e.to_string())?;
@@ -101,8 +103,18 @@ impl PreparedWrite {
                 }
             };
         }
-        let flags =
-            OFlags::WRONLY | OFlags::CREATE | OFlags::TRUNC | OFlags::CLOEXEC | OFlags::NOFOLLOW;
+        Ok(directory)
+    }
+
+    fn open(self) -> Result<WorkspaceFile, String> {
+        #[cfg(not(target_os = "linux"))]
+        use rustix::fs::openat;
+        use rustix::fs::{Mode, OFlags};
+        #[cfg(not(target_os = "linux"))]
+        let directory = self.parent_directory()?;
+        #[cfg(target_os = "linux")]
+        self.parent_directory()?;
+        let flags = OFlags::WRONLY | OFlags::CREATE | OFlags::CLOEXEC | OFlags::NOFOLLOW;
         #[cfg(target_os = "linux")]
         let fd = rustix::fs::openat2(
             &self.root,
@@ -121,6 +133,12 @@ impl PreparedWrite {
         let file = File::from(
             fd.map_err(|e| format!("refusing symlink or invalid workspace write: {e}"))?,
         );
+        use std::os::unix::fs::MetadataExt as _;
+        let metadata = file.metadata().map_err(|error| error.to_string())?;
+        if !metadata.is_file() || metadata.nlink() != 1 {
+            return Err("refusing non-regular or multiply-linked workspace file".into());
+        }
+        file.set_len(0).map_err(|error| error.to_string())?;
         Ok(WorkspaceFile {
             file,
             path: self.path,
@@ -132,6 +150,20 @@ impl PreparedWrite {
 mod tests {
     use super::*;
     use std::os::unix::fs::symlink;
+
+    #[test]
+    fn existing_hardlink_is_rejected_before_truncation() {
+        let workspace = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let target = outside.path().join("original");
+        std::fs::write(&target, "keep external contents").unwrap();
+        std::fs::hard_link(&target, workspace.path().join("alias")).unwrap();
+        assert!(workspace_file_for_write(workspace.path(), Path::new("alias")).is_err());
+        assert_eq!(
+            std::fs::read_to_string(&target).unwrap(),
+            "keep external contents"
+        );
+    }
 
     #[test]
     fn replacement_after_preparation_cannot_redirect_file_or_parent() {

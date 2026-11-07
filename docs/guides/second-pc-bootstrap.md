@@ -28,7 +28,8 @@ proteus --config codex doctor
 ```
 
 Установщик принимает `PROTEUS_BIN_DIR`, `PROTEUS_HOME` и
-`PROTEUS_CONFIG_HOME`. Он хранит `proteus` и `proteus-reference-module`
+`PROTEUS_CONFIG_HOME`. Он хранит `proteus` и самостоятельные
+`proteus-<id>-module` (без тестового `proteus-reference-module`)
 в `~/.proteus/releases/<snapshot-id>/` и атомарно переключает ссылку
 `~/.proteus/current`. Команды в `~/.local/bin` используют выбранную сборку.
 

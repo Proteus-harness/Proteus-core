@@ -19,6 +19,7 @@ impl ModelRef {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[non_exhaustive]
+#[serde(deny_unknown_fields)]
 pub struct SamplingConfig {
     pub temperature: Option<f32>,
     pub top_p: Option<f32>,
@@ -41,6 +42,7 @@ impl Default for SamplingConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[non_exhaustive]
+#[serde(deny_unknown_fields)]
 pub struct ReasoningConfig {
     #[serde(default)]
     pub effort: Option<String>,
@@ -75,6 +77,7 @@ impl ReasoningConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[non_exhaustive]
+#[serde(deny_unknown_fields)]
 pub struct ModelLimits {
     pub max_input_tokens: Option<u32>,
     pub max_output_tokens: Option<u32>,
@@ -100,6 +103,7 @@ impl Default for ModelLimits {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[non_exhaustive]
+#[serde(deny_unknown_fields)]
 pub struct CacheHints {
     pub cache_instructions: bool,
     pub cache_context: bool,
@@ -126,6 +130,7 @@ impl CacheHints {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[non_exhaustive]
+#[serde(deny_unknown_fields)]
 pub enum ResponseFormat {
     #[default]
     Text,
@@ -145,4 +150,31 @@ pub enum ToolChoice {
     Auto,
     Required,
     Tool(String),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn nested_model_controls_reject_unknown_fields() {
+        for invalid in [
+            serde_json::json!({"budget_token":1024}),
+            serde_json::json!({"effort":"high","surprise":true}),
+        ] {
+            assert!(serde_json::from_value::<ReasoningConfig>(invalid).is_err());
+        }
+        assert!(
+            serde_json::from_value::<SamplingConfig>(serde_json::json!({"top_p":0.5,"temp":0.1}))
+                .is_err()
+        );
+        assert!(
+            serde_json::from_value::<ModelLimits>(serde_json::json!({"max_output_token":1}))
+                .is_err()
+        );
+        assert!(
+            serde_json::from_value::<CacheHints>(serde_json::json!({"cache_instruction":true}))
+                .is_err()
+        );
+        assert!(serde_json::from_value::<ResponseFormat>(serde_json::json!({"JsonSchema":{"name":"x","schema":{},"strict":true,"extra":true}})).is_err());
+    }
 }

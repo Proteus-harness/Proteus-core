@@ -28,6 +28,9 @@ impl LoopState {
         let Some(mut pending) = self.pending.remove(id) else {
             return false;
         };
+        if !pending.active && pending.is_root() {
+            self.queued_roots.retain(|queued| queued != id);
+        }
         if pending.active {
             if pending.is_root() {
                 self.active_roots = self.active_roots.saturating_sub(1);

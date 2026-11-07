@@ -56,7 +56,16 @@ pub(super) async fn record_replaced_state(dir: &Path, state: ConfigBuilderState)
         state,
     };
     let temporary = dir.join(format!(".{id}.tmp"));
-    tokio::fs::write(&temporary, serde_json::to_vec_pretty(&revision)?).await?;
+    use tokio::io::AsyncWriteExt as _;
+    let mut options = tokio::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    options.mode(0o600);
+    let mut file = options.open(&temporary).await?;
+    file.write_all(&serde_json::to_vec_pretty(&revision)?)
+        .await?;
+    file.sync_all().await?;
+    drop(file);
     tokio::fs::rename(&temporary, dir.join(format!("{id}.json"))).await?;
     for stale in revision_files(dir).await?.into_iter().skip(KEPT_REVISIONS) {
         tokio::fs::remove_file(&stale).await?;
@@ -136,6 +145,22 @@ mod tests {
             format!("mode-{}", KEPT_REVISIONS + 1)
         );
         assert!(revisions.windows(2).all(|pair| pair[0].id > pair[1].id));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn revision_files_are_private_even_when_profile_store_is_traversable() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = tempfile::tempdir().unwrap();
+        record_replaced_state(dir.path(), state("normal"))
+            .await
+            .unwrap();
+        let files = revision_files(dir.path()).await.unwrap();
+        assert_eq!(files.len(), 1);
+        assert_eq!(
+            std::fs::metadata(&files[0]).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
     }
 
     #[test]

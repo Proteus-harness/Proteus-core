@@ -117,10 +117,22 @@ impl CliAppClient {
 
     pub(crate) async fn shutdown(mut self) -> Result<()> {
         let id = self.request_id("shutdown");
-        let response = self.request(StdioRequest::Shutdown { id: Some(id) }).await;
-        let _ = self.stdin.shutdown().await;
-
-        let status = match tokio::time::timeout(Duration::from_secs(2), self.child.wait()).await {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+        let response = tokio::time::timeout_at(deadline, async {
+            let response = self.request(StdioRequest::Shutdown { id: Some(id) }).await;
+            let _ = self.stdin.shutdown().await;
+            response
+        })
+        .await;
+        let response = match response {
+            Ok(response) => response,
+            Err(_) => {
+                let _ = self.child.start_kill();
+                let _ = self.child.wait().await;
+                bail!("local app-server did not acknowledge shutdown before deadline");
+            }
+        };
+        let status = match tokio::time::timeout_at(deadline, self.child.wait()).await {
             Ok(status) => status.context("wait for local app-server")?,
             Err(_) => {
                 let _ = self.child.start_kill();
@@ -367,6 +379,36 @@ fn clear_terminal_line() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn shutdown_deadline_covers_a_live_child_that_never_acknowledges() {
+        let mut child = Command::new("python3")
+            .args(["-c", "import time; time.sleep(30)"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap();
+        let pid = child.id().unwrap();
+        let stdin = child.stdin.take().unwrap();
+        let stdout = BufReader::new(child.stdout.take().unwrap()).lines();
+        let client = CliAppClient {
+            child,
+            stdin,
+            stdout,
+            interactive_terminal: false,
+            next_id: 1,
+            pending_control_responses: HashSet::new(),
+        };
+        let error = tokio::time::timeout(Duration::from_secs(4), client.shutdown())
+            .await
+            .expect("shutdown itself must be bounded")
+            .expect_err("silent child must timeout");
+        assert!(error.to_string().contains("acknowledge shutdown"));
+        #[cfg(unix)]
+        assert_eq!(unsafe { libc::kill(pid as i32, 0) }, -1);
+    }
 
     #[test]
     fn permission_modes_have_exact_cli_values() {

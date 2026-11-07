@@ -16,7 +16,7 @@ consumer, но сам по себе не вводит новый public contract
 | Контракт | Producer | Consumer | Форма |
 | --- | --- | --- | --- |
 | `<environment_context>` блок | `context-pack` provider `environment` | model-facing context render | текстовый envelope; компакторы определяют request context по scope, не по префиксу |
-| `<turn_aborted>` | нет (parity с upstream, producer отсутствует) | `codex-context-preparation` | префикс текста |
+| `<turn_aborted>` | `coding.codex_loop` из нейтрального Core `interrupted_turns`, только в model request | `codex-context-preparation` | префикс текста |
 | `# AGENTS.md instructions` | `context-pack` provider `project_instructions` в `codex_context` | model-facing context render | upstream-shaped текстовый envelope; не признак persistent/ephemeral history |
 | summary prefix (`SUMMARY_PREFIX`) | `codex-context-preparation` | `codex-context-preparation` | префикс текста (само-согласован, ок) |
 | `CanonicalPart.scope` | workflow/context construction | `codex-context-preparation`, Python `python_suffix`, `coding-workflow/history.rs` | непустое сообщение со всеми parts в `request` — ephemeral context; `message.name` не влияет на классификацию |

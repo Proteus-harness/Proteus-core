@@ -427,7 +427,7 @@ Rust host и модуль используют один
 | context provider | v4 | `provide`, `catalog` | — |
 | tool | v6 | `list`, `invoke` | `host.model.complete`, `host.tools.execute`, `host.conversation.read`, `host.conversation.snapshot` |
 | context | v3 | `build` | `host.context.provide` |
-| model | v12 | `describe`, `catalog`, `quota`, `stream` | `host.model.emit` (acknowledged canonical events) |
+| model | v13 | `describe`, `catalog`, `quota`, `stream` | `host.model.emit` (acknowledged canonical events) |
 | workflow | v20 | `run` | runtime status, context, model, context preparation, history checkpoint, tool visibility/selection/execution, events |
 
 Canonical source:

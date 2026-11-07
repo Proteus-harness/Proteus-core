@@ -12,6 +12,7 @@ use crate::{
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[non_exhaustive]
+#[serde(deny_unknown_fields)]
 pub struct CanonicalModelRequest {
     pub model: ModelRef,
     pub instructions: Vec<InstructionBlock>,
@@ -91,6 +92,7 @@ impl CanonicalModelRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[non_exhaustive]
+#[serde(deny_unknown_fields)]
 pub struct InstructionBlock {
     pub kind: InstructionKind,
     pub text: String,
@@ -114,4 +116,45 @@ pub enum InstructionKind {
     Developer,
     Project,
     UserPreference,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::contracts::WorkflowCompleteModelRequest;
+    use crate::model_standard::MessageRole;
+
+    #[test]
+    fn strict_workflow_model_request_rejects_unknown_fields_at_each_known_layer() {
+        let request = CanonicalModelRequest::new(
+            ModelRef::new("fake", "test"),
+            vec![CanonicalMessage::text(MessageRole::User, "test")],
+        )
+        .with_instructions(vec![InstructionBlock::new(
+            InstructionKind::System,
+            "test",
+            1,
+        )])
+        .with_metadata(serde_json::json!({"custom":{"extra":true}}));
+        let valid = serde_json::to_value(WorkflowCompleteModelRequest { request }).unwrap();
+        assert!(serde_json::from_value::<WorkflowCompleteModelRequest>(valid.clone()).is_ok());
+        for layer in 0..5 {
+            let mut invalid = valid.clone();
+            match layer {
+                0 => invalid["request"]["reasoning"] = serde_json::json!({"budget_token":1024}),
+                1 => invalid["request"]["extra"] = serde_json::json!(true),
+                2 => invalid["request"]["instructions"][0]["extra"] = serde_json::json!(true),
+                3 => invalid["request"]["messages"][0]["extra"] = serde_json::json!(true),
+                4 => {
+                    invalid["request"]["messages"][0]["parts"][0]["payload"]["Text"]["extra"] =
+                        serde_json::json!(true)
+                }
+                _ => unreachable!(),
+            }
+            assert!(
+                serde_json::from_value::<WorkflowCompleteModelRequest>(invalid).is_err(),
+                "layer {layer}"
+            );
+        }
+    }
 }

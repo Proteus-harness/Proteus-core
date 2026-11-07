@@ -26,6 +26,7 @@ pub enum MessagePhase {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[non_exhaustive]
+#[serde(deny_unknown_fields)]
 pub struct CanonicalMessage {
     pub id: MessageId,
     pub role: MessageRole,
@@ -91,6 +92,7 @@ impl CanonicalPart {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[non_exhaustive]
+#[serde(deny_unknown_fields)]
 pub enum ContentPart {
     Image {
         image: crate::domain::ImageRef,

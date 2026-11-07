@@ -1,6 +1,7 @@
 # Конфигурация
 
-Proteus принимает TOML и JSON. Schema pre-release и strict: неизвестные поля
+Proteus принимает TOML и JSON; init и Config Builder сохраняют формат явного
+файла профиля. Schema pre-release и strict: неизвестные поля
 должны приводить к ошибке, а не игнорироваться.
 
 Полный рабочий пример: [configs/config.toml](../../configs/config.toml).
@@ -198,8 +199,10 @@ enabled = []
 mode = "normal"
 ```
 
-Reference-модуль должен находиться в `PATH`; `./install.sh` обеспечивает
-это для установленного wrapper-а.
+Этот aggregate-пример предназначен для source/test окружения: собранный
+`proteus-reference-module` должен находиться в `PATH`. `./install.sh`
+поставляет самостоятельные `proteus-<id>-module`, а не reference aggregate;
+для установленного запуска используйте поставляемый профиль `coding` или `codex`.
 
 `active_provider` необязателен. Если его нет, Core не создаёт model adapter;
 `providers` можно опустить или оставить с невыбранными profiles. Пустой или
@@ -697,10 +700,10 @@ Model-optional control-flow проверяет отдельный runnable пр�
 `examples/configs/proteus.project-check.example.toml`. Он выбирает
 `coding.project_check`, `ask_write` и только `git_status`, `list_dir`, `shell`;
 запуск test command проходит явный approval.
-Fake provider в примере не вызывается на success/unsupported/blocked ветках;
-для содержательного объяснения failed test его можно заменить обычным provider
-profile. Наличие active provider пока обязательно для всего `AppConfig` и
-является одним из зафиксированных результатов probe-а.
+Активный provider для `AppConfig` необязателен: пример выполняется без
+модели на success/unsupported/blocked ветках. Для содержательного объяснения
+failed test можно явно выбрать обычный provider; вызов отсутствующей модели
+завершится явной ошибкой, скрытый fake adapter не создаётся.
 
 ### Ограниченный Запуск Под Linux
 

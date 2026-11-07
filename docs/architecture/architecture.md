@@ -126,8 +126,9 @@ examples/                  configs, external modules, MCP smoke
 `proteus-reference-module` линкует эти Rust crates в один executable для
 удобства dogfood. На host boundary он ничем не отличается от модуля на Python.
 
-Portable-сборка клиента поставляет согласованную пару `proteus`/
-`proteus-reference-module`, но клиент не линкует Core.
+Portable-сборка клиента поставляет `proteus` и самостоятельные
+`proteus-<id>-module`; тестовый aggregate `proteus-reference-module` не
+поставляется. Клиент не линкует Core.
 Он владеет только окном, выбором проекта,
 готовностью и завершением дочернего app-server. HTTP/SSE, session store,
 approvals и process-module authority остаются за существующими границами.

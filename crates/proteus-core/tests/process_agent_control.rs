@@ -464,3 +464,135 @@ async fn process_agent_startup_crash_does_not_fail_a_live_sibling() {
     assert_eq!(good.status, AgentLifecycleStatus::Completed);
     assert!(good.summary.contains("healthy-sibling-result"));
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn cancellation_never_pools_peer_with_an_unsettled_message_started_turn() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let fixture = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    let marker = fixture.path().join("first");
+    let started = fixture.path().join("second");
+    let pid_file = fixture.path().join("pid");
+    let binary = fixture.path().join("race.py");
+    let startup = include_str!("fixtures/agent_session_start.py");
+    let script = format!(
+        r#"#!/usr/bin/env python3
+import json, pathlib, sys, os
+{startup}
+pathlib.Path({pid_file:?}).write_text(str(os.getpid()))
+first = None
+for line in sys.stdin:
+    request = json.loads(line)
+    if request.get("type") == "send":
+        if first is None:
+            first = request["id"]
+            pathlib.Path({marker:?}).write_text("ready")
+        else:
+            pathlib.Path({started:?}).write_text("active")
+    elif request.get("type") == "cancel":
+        # The old A result says nothing about the now-active B turn.
+        print(json.dumps({{"type":"response","id":first,"ok":True,
+            "output":{{"text":"old A","metadata":None}},"error":None}}), flush=True)
+"#,
+        pid_file = pid_file.to_str().unwrap(),
+        marker = marker.to_str().unwrap(),
+        started = started.to_str().unwrap()
+    );
+    std::fs::write(&binary, script).unwrap();
+    std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let runner = runner_from_json(json!({
+        "binary":binary,"max_parallel":1,"max_idle_processes":1,
+        "roles":[{"name":"helper","description":"race","config":"fixture",
+            "parallel_safe":true,"max_processes":1,"timeout_ms":10000}]
+    }));
+    let handle = runner
+        .spawn(
+            collaboration_request(
+                "helper",
+                "race",
+                "initial",
+                AgentTask::new("delegate", workspace.path().into()),
+            ),
+            test_runtime_context(),
+        )
+        .await
+        .unwrap();
+    async fn wait(path: &std::path::Path) {
+        tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            while !path.exists() {
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .unwrap();
+    }
+    wait(&marker).await;
+    runner
+        .send(&handle, agent_message("race", "B"))
+        .await
+        .unwrap();
+    wait(&started).await;
+    runner.cancel(&handle).await.unwrap();
+    let result = tokio::time::timeout(std::time::Duration::from_secs(3), runner.wait(&handle))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(result.status, AgentLifecycleStatus::Cancelled);
+    assert_eq!(result.metadata["resumable"], false);
+    let pid: i32 = std::fs::read_to_string(pid_file).unwrap().parse().unwrap();
+    assert_eq!(
+        unsafe { libc::kill(pid, 0) },
+        -1,
+        "ambiguous peer must be reaped"
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn malformed_successful_primary_send_is_a_protocol_error() {
+    for output in [
+        serde_json::Value::Null,
+        json!({"text":7,"metadata":null}),
+        json!({"queued":true,"accepted":true}),
+    ] {
+        use std::os::unix::fs::PermissionsExt as _;
+        let fixture = tempfile::tempdir().unwrap();
+        let binary = fixture.path().join("invalid.py");
+        let startup = include_str!("fixtures/agent_session_start.py");
+        let script = format!(
+            r#"#!/usr/bin/env python3
+import json, pathlib, sys
+{startup}
+for line in sys.stdin:
+    request=json.loads(line)
+    if request.get("type") == "send":
+        print(json.dumps({{"type":"response","id":request["id"],"ok":True,"output":json.loads({output:?}),"error":None}}),flush=True)
+"#,
+            output = output.to_string()
+        );
+        std::fs::write(&binary, script).unwrap();
+        std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let runner = runner_from_json(
+            json!({"binary":binary,"max_parallel":1,"max_idle_processes":1,
+            "roles":[{"name":"helper","description":"invalid","config":"fixture","parallel_safe":true,"max_processes":1,"timeout_ms":3000}]}),
+        );
+        let handle = runner
+            .spawn(
+                collaboration_request(
+                    "helper",
+                    "invalid",
+                    "initial",
+                    AgentTask::new("delegate", fixture.path().into()),
+                ),
+                test_runtime_context(),
+            )
+            .await
+            .unwrap();
+        let error = runner
+            .wait(&handle)
+            .await
+            .expect_err("malformed Send must not succeed");
+        assert!(format!("{error:#}").contains("Send output"), "{error:#}");
+    }
+}

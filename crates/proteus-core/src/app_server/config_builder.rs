@@ -208,7 +208,14 @@ impl AppServerHandle {
         if let Some(mode) = permission_mode {
             next_config.permissions.mode = mode;
         }
-        validate_module_config_toml(&next_config.module_config)?;
+        let target = config_builder_target_path(Some(config_path))
+            .context("config target is not available")?;
+        if !target
+            .extension()
+            .is_some_and(|extension| extension == "json")
+        {
+            validate_module_config_toml(&next_config.module_config)?;
+        }
 
         let assembly =
             prepare_assembly(&next_config, &self.cwd, self.config_path.as_deref()).await?;

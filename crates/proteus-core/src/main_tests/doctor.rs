@@ -1,4 +1,5 @@
 use super::*;
+use crate::cli_doctor::command_resolves;
 use proteus_contracts::{
     contracts::{Tool, ToolContext, ToolRegistry},
     domain::{ToolCall, ToolResult, ToolSpec},
@@ -139,7 +140,18 @@ fn doctor_resolves_relative_commands_from_cwd() {
     let dir = tempfile::tempdir().expect("temp dir");
     std::fs::write(dir.path().join("tool.sh"), "#!/bin/sh\n").expect("tool");
 
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        assert!(!command_resolves("./tool.sh", dir.path()));
+        std::fs::set_permissions(
+            dir.path().join("tool.sh"),
+            std::fs::Permissions::from_mode(0o755),
+        )
+        .unwrap();
+    }
     assert!(command_resolves("./tool.sh", dir.path()));
+    assert!(!command_resolves(".", dir.path()));
     assert!(!command_resolves("./missing.sh", dir.path()));
 }
 

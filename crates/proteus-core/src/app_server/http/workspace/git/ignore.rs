@@ -1,5 +1,9 @@
 //! Adding workspace paths to the repository's ignore files.
-use std::{fs, io::Write, path::Path};
+use std::{
+    fs,
+    io::{Read as _, Write},
+    path::Path,
+};
 
 use anyhow::{Result, ensure};
 use serde::Deserialize;
@@ -40,11 +44,32 @@ pub(crate) fn ignore(root: &Path, paths: &[String], target: IgnoreTarget) -> Res
             root.join(String::from_utf8(output.bytes)?.trim_end_matches('\n'))
         }
     };
-    let existing = match fs::read_to_string(&file) {
-        Ok(text) => text,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(error) => return Err(error.into()),
-    };
+    if let Some(parent) = file.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let mut options = fs::OpenOptions::new();
+    options.read(true).create(true).append(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.custom_flags(libc::O_NOFOLLOW);
+    }
+    let mut destination = options.open(&file)?;
+    let metadata = destination.metadata()?;
+    ensure!(
+        metadata.is_file(),
+        "ignore destination is not a regular file"
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt as _;
+        ensure!(
+            metadata.nlink() == 1,
+            "ignore destination has multiple hard links"
+        );
+    }
+    let mut existing = String::new();
+    destination.read_to_string(&mut existing)?;
     let mut addition = String::new();
     if !existing.is_empty() && !existing.ends_with('\n') {
         addition.push('\n');
@@ -58,14 +83,7 @@ pub(crate) fn ignore(root: &Path, paths: &[String], target: IgnoreTarget) -> Res
     if addition.trim().is_empty() {
         return changes(root);
     }
-    if let Some(parent) = file.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&file)?
-        .write_all(addition.as_bytes())?;
+    destination.write_all(addition.as_bytes())?;
     changes(root)
 }
 

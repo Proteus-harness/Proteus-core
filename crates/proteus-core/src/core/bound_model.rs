@@ -198,9 +198,11 @@ impl ModelExecutionBinding {
         &self,
         event: Event,
         deadline: Option<tokio::time::Instant>,
+        cancellation: &crate::contracts::CancellationToken,
     ) -> bool {
         tokio::select! {
             biased;
+            _ = cancellation.cancelled() => false,
             _ = wait_for_deadline(deadline), if deadline.is_some() => false,
             _ = self.emit_delta(event) => true,
         }
@@ -214,6 +216,7 @@ impl ModelExecutionBinding {
             (Option<crate::model_standard::MessagePhase>, String),
         >,
         deadline: Option<tokio::time::Instant>,
+        cancellation: &crate::contracts::CancellationToken,
     ) -> bool {
         let text = message.display_text();
         if !text.is_empty() && completed.get(&message.id) != Some(&(message.phase, text.clone())) {
@@ -226,6 +229,7 @@ impl ModelExecutionBinding {
                         text,
                     },
                     deadline,
+                    cancellation,
                 )
                 .await;
         }
@@ -382,6 +386,7 @@ impl Model for BoundModel {
             self.binding.clone(),
             suppress,
             deadline,
+            crate::core::model_call_scope::operation_cancellation(&self.binding.scope.cancellation),
         ))
     }
 
@@ -446,6 +451,7 @@ fn bound_recording_stream(
             let item = match next {
                 Next::Item(item) => item,
                 Next::Cancelled => {
+                    drop(stream);
                     let failure = progress.attach_to_failure(crate::model_standard::ModelFailure::from_error(&model_cancelled()));
                     Err(anyhow::Error::new(record_failure(&recorder, exchange_id, failure).await?))?;
                     unreachable!();

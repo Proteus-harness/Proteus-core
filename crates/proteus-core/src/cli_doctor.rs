@@ -1,7 +1,4 @@
-use std::{
-    path::{Path, PathBuf},
-    process::Command,
-};
+use std::path::{Path, PathBuf};
 
 use anyhow::{Result, bail};
 use proteus_contracts::contracts::ToolRegistry;
@@ -289,6 +286,10 @@ pub(crate) fn check_external_commands(
                         &spec.command,
                         spec.cwd.as_deref().unwrap_or(cwd),
                         &label,
+                        spec.resolved_environment()
+                            .ok()
+                            .and_then(|env| env.get("PATH").cloned())
+                            .as_deref(),
                     );
                 }
             }
@@ -320,6 +321,10 @@ pub(crate) fn check_external_commands(
                         &spec.command,
                         spec.cwd.as_deref().unwrap_or(cwd),
                         &label,
+                        spec.resolved_environment()
+                            .ok()
+                            .and_then(|env| env.get("PATH").cloned())
+                            .as_deref(),
                     );
                 }
             }
@@ -328,40 +333,57 @@ pub(crate) fn check_external_commands(
     }
 }
 
-fn check_command(findings: &mut DoctorFindings, command: &str, cwd: &Path, label: &str) {
-    if command_resolves(command, cwd) {
+fn check_command(
+    findings: &mut DoctorFindings,
+    command: &str,
+    cwd: &Path,
+    label: &str,
+    path: Option<&std::ffi::OsStr>,
+) {
+    if command_resolves_in(command, cwd, path) {
         findings.ok(format!("{label}: command available ({command})"));
     } else {
         findings.error(format!("{label}: command not found ({command})"));
     }
 }
 
+#[cfg(test)]
 pub(crate) fn command_resolves(command: &str, cwd: &Path) -> bool {
-    let command_path = Path::new(command);
-    if command_path.is_absolute() {
-        return command_path.exists();
-    }
-    if command.contains('/') || command.contains('\\') {
-        return cwd.join(command_path).exists();
-    }
-    command_in_path(command)
+    command_resolves_in(command, cwd, std::env::var_os("PATH").as_deref())
 }
 
-fn command_in_path(command: &str) -> bool {
+fn executable_file(path: &Path) -> bool {
+    let Ok(metadata) = path.metadata() else {
+        return false;
+    };
+    if !metadata.is_file() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        metadata.permissions().mode() & 0o111 != 0
+    }
+    #[cfg(not(unix))]
+    {
+        true
+    }
+}
+
+fn command_resolves_in(command: &str, cwd: &Path, path: Option<&std::ffi::OsStr>) -> bool {
     if command.trim().is_empty() {
         return false;
     }
-    if command == "rg" {
-        return Command::new(command)
-            .arg("--version")
-            .output()
-            .is_ok_and(|output| output.status.success());
+    let command_path = Path::new(command);
+    if command_path.is_absolute() {
+        return executable_file(command_path);
     }
-
-    let Some(paths) = std::env::var_os("PATH") else {
-        return false;
-    };
-    std::env::split_paths(&paths).any(|path| path.join(command).exists())
+    if command.contains('/') || command.contains('\\') {
+        return executable_file(&cwd.join(command_path));
+    }
+    path.is_some_and(|paths| {
+        std::env::split_paths(paths).any(|path| executable_file(&cwd.join(path).join(command)))
+    })
 }
 
 fn check_runtime_limits(findings: &mut DoctorFindings, config: &AppConfig) {

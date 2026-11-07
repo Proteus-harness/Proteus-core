@@ -138,21 +138,18 @@ fn config_string<'a>(config: &'a Value, path: &[&str]) -> Result<&'a str> {
 
 fn footer_context(output: &AgentOutput) -> String {
     let context = output.metadata.get("context");
-    let tokens = context
+    let Some(tokens) = context
         .and_then(|context| context.get("token_estimate"))
         .and_then(Value::as_u64)
-        .unwrap_or_default();
+    else {
+        return "Context unknown".to_owned();
+    };
     let chunks = context
         .and_then(|context| context.get("chunks"))
         .and_then(Value::as_u64)
         .unwrap_or_default();
-    let max_tokens = 200_000_u64;
-    let percent = ((tokens as f64 / max_tokens as f64) * 100.0).clamp(0.0, 100.0);
     let chunk_word = if chunks == 1 { "chunk" } else { "chunks" };
-    format!(
-        "Context {:.0}% · {} in · {} {}",
-        percent, tokens, chunks, chunk_word
-    )
+    format!("Context {tokens} in · {chunks} {chunk_word}")
 }
 
 fn short_id(id: &str) -> &str {
@@ -163,6 +160,16 @@ fn short_id(id: &str) -> &str {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn context_footer_omits_percentage_without_an_authoritative_window() {
+        assert_eq!(footer_context(&AgentOutput::text("ok")), "Context unknown");
+        let output = AgentOutput::new(
+            "ok",
+            json!({"context":{"token_estimate":100000,"chunks":2}}),
+        );
+        assert_eq!(footer_context(&output), "Context 100000 in · 2 chunks");
+    }
 
     #[test]
     fn model_free_config_opens_header_and_both_footer_paths() {

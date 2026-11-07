@@ -199,3 +199,15 @@ async fn init_codex_writes_loadable_config_with_runtime_fragment() {
     );
     assert!(coder.tools.enabled.iter().any(|tool| tool == "write_file"));
 }
+
+#[tokio::test]
+async fn init_json_destination_is_loadable_json() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("profile.json");
+    run_init(InitProfile::Coding, Some(&path)).unwrap();
+    let value: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    assert!(value.is_object());
+    AppConfig::load(Some(&path))
+        .await
+        .expect("generated JSON config must load");
+}

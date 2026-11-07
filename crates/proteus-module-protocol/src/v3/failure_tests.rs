@@ -220,3 +220,38 @@ fn pending(
         receiver,
     ))
 }
+
+#[test]
+fn cancelled_queued_roots_do_not_accumulate_ids_while_active_capacity_is_full() -> Result<()> {
+    let binding = ProcessComponentBinding::new(
+        "queued-cancel",
+        [ProcessExportBinding::new(
+            "context_provider",
+            "fixture.search",
+            PROCESS_CONTEXT_PROVIDER_CONTRACT_VERSION,
+            json!({}),
+        )?],
+    )?;
+    let options = ComponentBrokerOptions::default();
+    let wake = proteus_process_host::ProcessWake::default();
+    let (control, _) = crate::v3::signal::channel(options.control_command_capacity, &wake);
+    let mut state = LoopState::new(
+        ProcessSpec::new("unused"),
+        binding.clone(),
+        options,
+        control,
+        wake,
+    );
+    // Saturation prevents admit_queued_roots from pruning old IDs incidentally.
+    state.active_roots = options.max_active_roots;
+    for index in 0..1000 {
+        let id = format!("h:1:{index}");
+        let (queued, terminal) = pending(&binding, &options, &id, None, 1, json!({}))?;
+        state.pending.insert(id.clone(), queued);
+        state.queued_roots.push_back(id.clone());
+        state.cancel(&id, 1, CancelCause::User)?;
+        assert_single_terminal(&terminal, InvocationTerminal::Canceled)?;
+        assert!(state.pending.is_empty() && state.queued_roots.is_empty());
+    }
+    Ok(())
+}

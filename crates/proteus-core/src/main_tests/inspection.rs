@@ -207,3 +207,31 @@ fn tool_list_output_contains_registered_tools() {
     assert!(rendered.contains("search"));
     assert!(rendered.contains("ReadOnly"));
 }
+
+#[cfg(unix)]
+#[test]
+fn doctor_uses_trusted_child_path_without_executing_the_command() {
+    use std::os::unix::fs::PermissionsExt;
+    let workspace = tempfile::tempdir().unwrap();
+    let binary = workspace.path().join("proteus-trusted-path-fixture");
+    std::fs::write(&binary, "#!/bin/sh\nexit 99\n").unwrap();
+    std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let mut config = crate::test_model::config();
+    config.components.insert(
+        "trusted-path-fixture".into(),
+        serde_json::from_value(serde_json::json!({
+            "command":"proteus-trusted-path-fixture", "env":{"PATH":workspace.path()},
+            "exports":{"context_provider":{"trusted-path-fixture":{}}},
+        }))
+        .unwrap(),
+    );
+    let mut findings = DoctorFindings::default();
+    check_external_commands(&mut findings, &config, workspace.path());
+    assert!(!findings.has_errors());
+    assert!(
+        findings
+            .entries
+            .iter()
+            .any(|entry| entry.level == "ok" && entry.message.contains("trusted-path-fixture"))
+    );
+}

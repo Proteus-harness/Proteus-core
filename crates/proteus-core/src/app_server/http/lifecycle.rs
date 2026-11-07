@@ -63,7 +63,7 @@ pub(super) async fn execute_new_session(
                 )
             }
             None => (
-                state.launch.config.clone(),
+                current_launch_config(state).await?,
                 state.launch.cwd.clone(),
                 state.launch.config_path.clone(),
                 None,
@@ -153,7 +153,7 @@ async fn resume_session(state: &HttpAppState, session_dir: PathBuf) -> Result<Va
     }
     let launch = &state.launch;
     let next = AgentAppServer::launch_resumed(
-        launch.config.clone(),
+        current_launch_config(state).await?,
         launch.cwd.clone(),
         launch.config_path.as_deref(),
         session_dir,
@@ -191,4 +191,16 @@ pub(super) async fn config_summary_with_activity(
         );
     }
     Ok(summary)
+}
+
+/// New admissions reload the published profile before constructing components;
+/// existing sessions retain their immutable execution/configuration snapshot.
+async fn current_launch_config(state: &HttpAppState) -> Result<crate::core::AppConfig> {
+    match state.launch.config_path.as_deref() {
+        Some(path) if state.launch.profile_was_present || path.try_exists()? => {
+            crate::core::AppConfig::load(Some(path)).await
+        }
+        Some(_) => Ok(state.launch.config.clone()),
+        None => Ok(state.launch.config.clone()),
+    }
 }

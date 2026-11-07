@@ -15,6 +15,7 @@ pub(super) struct HttpLaunchContext {
     pub(super) config: AppConfig,
     pub(super) cwd: PathBuf,
     pub(super) config_path: Option<PathBuf>,
+    pub(super) profile_was_present: bool,
     pub(super) initial_session_dir: Option<PathBuf>,
 }
 
@@ -42,6 +43,10 @@ impl HttpAppState {
             config: server.config.read().await.clone(),
             cwd: server.cwd.clone(),
             config_path: server.config_path.clone(),
+            profile_was_present: server
+                .config_path
+                .as_ref()
+                .is_some_and(|path| path.exists()),
             initial_session_dir: server.session_dir_path(),
         };
         let mut session_servers = HashMap::new();

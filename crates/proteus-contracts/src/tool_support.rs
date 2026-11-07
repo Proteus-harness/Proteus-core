@@ -11,7 +11,9 @@ use serde_json::{Value, json};
 use crate::process_module::{ProcessModuleError, ProcessModuleResult, ToolModuleInvocationContext};
 
 mod workspace_write;
-pub use workspace_write::{WorkspaceFile, workspace_file_for_write};
+pub use workspace_write::{
+    WorkspaceAtomicFile, WorkspaceFile, workspace_file_for_atomic_write, workspace_file_for_write,
+};
 
 /// Входные данные tool: разбор serialized `ToolCall` JSON.
 #[derive(Debug, Deserialize)]

@@ -143,3 +143,61 @@ async fn first_profile_save_does_not_persist_a_session_mode_override() {
     assert_eq!(server.permission_mode().await, PermissionMode::Plan);
     server.shutdown().await;
 }
+
+#[tokio::test]
+async fn json_save_preserves_unmanaged_fields_and_updates_managed_profile() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("profile.json");
+    let mut initial = serde_json::to_value(AppConfig::default()).unwrap();
+    initial["runtime"]["model_timeout_ms"] = serde_json::json!(98765);
+    initial["agent_control"]["max_depth"] = serde_json::json!(3);
+    tokio::fs::write(&path, serde_json::to_vec_pretty(&initial).unwrap())
+        .await
+        .unwrap();
+    let mut config = AppConfig::load(Some(&path)).await.unwrap();
+    config.permissions.mode = PermissionMode::Plan;
+    config.tools.enabled = vec!["new-tool".into()];
+    persist_config_builder(&path, &config).await.unwrap();
+    let loaded = AppConfig::load(Some(&path)).await.unwrap();
+    assert_eq!(loaded.permissions.mode, PermissionMode::Plan);
+    assert_eq!(loaded.tools.enabled, config.tools.enabled);
+    let saved: Value = serde_json::from_slice(&tokio::fs::read(&path).await.unwrap()).unwrap();
+    assert_eq!(saved["runtime"]["model_timeout_ms"], 98765);
+    assert_eq!(saved["agent_control"]["max_depth"], 3);
+}
+
+#[tokio::test]
+async fn json_profile_save_does_not_apply_toml_value_restrictions() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("profile.json");
+    let mut config = crate::test_model::config();
+    config
+        .module_config
+        .entry("model".into())
+        .or_default()
+        .insert("unselected-model".into(), Value::Null);
+    tokio::fs::write(&path, serde_json::to_vec_pretty(&config).unwrap())
+        .await
+        .unwrap();
+    let server = AgentAppServer::launch(config, dir.path().into(), Some(&path))
+        .await
+        .unwrap();
+    server
+        .set_config_builder(
+            BTreeMap::new(),
+            None,
+            BTreeMap::new(),
+            None,
+            None,
+            Some(PermissionMode::Plan),
+        )
+        .await
+        .unwrap();
+    let loaded = AppConfig::load(Some(&path)).await.unwrap();
+    assert_eq!(loaded.permissions.mode, PermissionMode::Plan);
+    assert_eq!(
+        loaded.module_config["model"]["unselected-model"],
+        Value::Null
+    );
+    server.shutdown().await;
+}
