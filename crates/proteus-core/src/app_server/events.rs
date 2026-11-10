@@ -168,11 +168,11 @@ impl AppEventPublisher {
     fn send_with_history(
         &self,
         event: AppServerEvent,
-        history: Option<Vec<super::AppTranscriptMessage>>,
+        history: Option<super::read_model::CompletedTranscript>,
     ) -> Result<usize, broadcast::error::SendError<AppServerEvent>> {
         let mut view = self.0.view.lock().expect("session view lock");
         if let Some(history) = history {
-            view.history = Ok(Arc::new(history.into()));
+            view.history = Ok(Arc::new(history));
         }
         view.apply(&event);
         let mut pending = self.0.pending.lock().expect("pending projection lock");

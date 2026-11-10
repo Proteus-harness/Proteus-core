@@ -26,7 +26,7 @@ pub(super) struct SessionView {
     progress: TurnProgress,
     execution: AppExecutionState,
     // Completed turns are projected from the validated journal at attachment
-    // and settlement. Reconnect snapshots must not reread it under this lock.
+    // and each turn boundary. Reconnect snapshots must not reread it under this lock.
     pub(super) history: Result<Arc<CompletedTranscript>, Arc<String>>,
 }
 
@@ -219,6 +219,37 @@ impl AppEventPublisher {
             .map(Arc::new)
             .map_err(|error| Arc::new(format!("{error:#}")));
     }
+
+    pub(in crate::app_server) fn has_unstarted_input(&self) -> bool {
+        self.0
+            .view
+            .lock()
+            .expect("session view lock")
+            .progress
+            .has_unstarted_input()
+    }
+
+    pub(in crate::app_server) fn finish_run_progress(
+        &self,
+        history: Result<CompletedTranscript>,
+        queued: Vec<crate::model_standard::CanonicalMessage>,
+    ) {
+        let mut view = self.0.view.lock().expect("session view lock");
+        view.seq = view.seq.checked_add(1).expect("session sequence");
+        if view.progress.has_unstarted_input() {
+            // Admission echoed the input, but execution failed before TurnStarted
+            // could consume it. Keep that non-durable row and the last validated
+            // prefix; a corrupt/locked resume must still publish its terminal
+            // execution error and a usable snapshot. The next submission replaces
+            // this input, while explicit clear_history uses finish_progress.
+            view.progress.retain_failed_queued_inputs(queued);
+            return;
+        }
+        view.progress.finish_parent_turn();
+        view.history = history
+            .map(Arc::new)
+            .map_err(|error| Arc::new(format!("{error:#}")));
+    }
 }
 
 /// Bound after runtime assembly, before start_session/admission. No intermediate
@@ -234,25 +265,31 @@ impl EventSink for RuntimeEventSink {
                 envelope.event,
                 crate::domain::Event::SubagentSessionBound { .. }
             );
-            // A runtime without a SessionStore still commits its previous turn
-            // before the next TurnStarted. Capture that prefix before resetting
-            // live progress; memory history is not read while holding the view lock.
-            let history = if matches!(envelope.event, crate::domain::Event::TurnStarted { .. }) {
-                let runtime = events
-                    .0
-                    .view
-                    .lock()
-                    .expect("session view lock")
-                    .runtime
-                    .upgrade();
-                match runtime.filter(|runtime| runtime.session_dir().is_none()) {
-                    Some(runtime) => Some(crate::app_server::transcript_messages(
-                        &runtime.history().await?,
-                    )),
-                    None => None,
+            // Queued follow-ups share one app-server run, but commit separate
+            // root turns. Preserve the completed prefix before TurnStarted
+            // replaces live progress. The first turn already has its attached
+            // prefix and must not trigger another journal projection.
+            let runtime = if matches!(envelope.event, crate::domain::Event::TurnStarted { .. }) {
+                let view = events.0.view.lock().expect("session view lock");
+                match (&envelope.event, view.progress.turn_identity()) {
+                    (
+                        crate::domain::Event::TurnStarted { turn_id, .. },
+                        Some((thread, previous)),
+                    ) if thread == envelope.thread_id && previous != *turn_id => {
+                        view.runtime.upgrade()
+                    }
+                    _ => None,
                 }
             } else {
                 None
+            };
+            // Root turns are serialized by the runtime reservation: the next
+            // turn cannot advance while this sink awaits its prefix. Projection
+            // runs outside the view lock; installation, reset and delivery below
+            // share that lock so subscribers never sample an incomplete boundary.
+            let history = match runtime {
+                Some(runtime) => Some(crate::app_server::completed_transcript(runtime).await?),
+                None => None,
             };
             let _ = events.send_with_history(
                 AppServerEvent::Runtime {

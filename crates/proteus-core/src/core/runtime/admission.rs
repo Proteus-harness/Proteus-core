@@ -27,6 +27,9 @@ impl AgentRuntime {
         input: impl Into<crate::domain::UserMessageInput>,
         options: crate::domain::RunOptions,
     ) -> Result<UserMessageReservation> {
+        // Direct runtime calls keep their strict pre-reservation error contract.
+        // App-server reserves first and validates on its owned execution task.
+        self.validate_cached_resume().await?;
         let message = self.prepare_user_message(input, &options).await?;
         let snapshot = self.capture_run_snapshot(options.permission_mode).await;
         let reservation = self
@@ -53,7 +56,6 @@ impl AgentRuntime {
                 "invalid workflow intent name"
             );
         }
-        self.validate_cached_resume().await?;
         let input = input.into();
         let input = tokio::task::spawn_blocking(move || super::images::ImageStore::prepare(input))
             .await??;

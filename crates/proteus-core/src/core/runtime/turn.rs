@@ -94,7 +94,6 @@ impl AgentRuntime {
         cancellation: CancellationToken,
     ) -> Result<ReservedRunCompletion> {
         let _run_guard = self.session.run_lock.lock().await;
-        self.validate_cached_resume().await?;
         self.session
             .steering
             .validate_reservation(reserved.turn_id)
@@ -109,6 +108,10 @@ impl AgentRuntime {
     ) -> ReservedRunCompletion {
         let mut reservation_guard = self.session.steering.run_guard();
         let settled = async {
+            // Admission already published the accepted input. Keep ownership
+            // through validation errors and terminal publication, just as for
+            // workflow failures; no canonical write precedes strict recovery.
+            self.validate_cached_resume().await?;
             loop {
                 let turn_id = reserved.turn_id;
                 let snapshot = reserved.snapshot.clone();

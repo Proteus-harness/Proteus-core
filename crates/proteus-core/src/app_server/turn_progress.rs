@@ -19,6 +19,9 @@ pub(super) struct TurnProgress {
     submitted: Option<String>,
     submitted_at: Option<i64>,
     submitted_images: Vec<crate::domain::ImageRef>,
+    // Undelivered input moved from the bounded queue when preparation fails.
+    // These rows are ephemeral and follow the original submitted prompt.
+    failed_queued_inputs: Vec<AppTranscriptMessage>,
     /// Collaboration-дети, запущенные через `spawn_agent`/`followup_task`,
     /// живут дольше родительского turn-а. Их карточки хранятся отдельно, чтобы
     /// TurnFinished/следующий TurnStarted не превращали поздние child events
@@ -237,13 +240,60 @@ impl TurnProgress {
         self.turn_id = None;
         self.submitted = None;
         self.submitted_at = None;
+        self.submitted_images.clear();
+        self.failed_queued_inputs.clear();
     }
 
     pub(super) fn thread_id(&self) -> Option<ThreadId> {
         self.turn_thread_id
     }
 
+    pub(super) fn turn_identity(&self) -> Option<(ThreadId, crate::domain::TurnId)> {
+        Some((self.turn_thread_id?, self.turn_id?))
+    }
+
+    pub(super) fn has_unstarted_input(&self) -> bool {
+        self.submitted.is_some()
+    }
+
+    pub(super) fn retain_failed_queued_inputs(
+        &mut self,
+        queued: Vec<crate::model_standard::CanonicalMessage>,
+    ) {
+        use crate::model_standard::ContentPart;
+
+        // Runtime already drained its bounded queue under the finalization
+        // guard. Consume its payloads instead of cloning another queue copy.
+        self.failed_queued_inputs = queued
+            .into_iter()
+            .map(|message| {
+                let mut text = None::<String>;
+                let mut images = Vec::new();
+                for part in message.parts {
+                    match part.payload {
+                        ContentPart::Text { text: part } => {
+                            if let Some(text) = &mut text {
+                                text.push('\n');
+                                text.push_str(&part);
+                            } else {
+                                text = Some(part);
+                            }
+                        }
+                        ContentPart::Image { image } => images.push(image),
+                        _ => {}
+                    }
+                }
+                let mut row = Self::user_message(text.unwrap_or_default(), None);
+                row.message_id = Some(message.id);
+                row.phase = message.phase;
+                row.images = images;
+                row
+            })
+            .collect();
+    }
+
     pub(super) fn submit_input(&mut self, text: String, images: Vec<crate::domain::ImageRef>) {
+        self.failed_queued_inputs.clear();
         self.submitted = Some(text);
         self.submitted_at = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -274,6 +324,7 @@ impl TurnProgress {
             message.images = self.submitted_images.clone();
             messages.push(message);
         }
+        messages.extend(self.failed_queued_inputs.clone());
         messages.extend(self.background_subagents.clone());
         messages
     }

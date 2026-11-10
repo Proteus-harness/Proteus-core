@@ -16,6 +16,7 @@ use crate::{
     model_standard::{CanonicalMessage, CanonicalModelRequest, MessageRole},
 };
 
+mod admission_latency;
 mod clear_history;
 mod execution;
 mod interruption;

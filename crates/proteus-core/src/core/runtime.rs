@@ -64,6 +64,12 @@ pub(crate) struct ReservedRunCompletion {
 }
 
 impl ReservedRunCompletion {
+    /// Only the completion owner may move pending inputs out of a failed
+    /// pre-start run. The finalization gate still excludes new admissions.
+    pub(crate) fn take_unstarted_queued_messages(&mut self) -> Vec<CanonicalMessage> {
+        self._finalization.take_queued_messages()
+    }
+
     pub(crate) fn output(&self) -> Option<&AgentOutput> {
         self.result.as_ref().ok()
     }

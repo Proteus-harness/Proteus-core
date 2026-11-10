@@ -331,6 +331,23 @@ pub(crate) struct SteeringFinalizationGuard {
     _gate: OwnedMutexGuard<()>,
 }
 
+impl SteeringFinalizationGuard {
+    pub(super) fn take_queued_messages(&mut self) -> Vec<CanonicalMessage> {
+        // Queue edits/removals share this mutex: acknowledged earlier changes
+        // are moved exactly once, and later changes reject the absent item.
+        let mut state = self.queue.state.lock().expect("steering state lock");
+        let messages = state
+            .queued
+            .drain(..)
+            .map(|queued| queued.message)
+            .collect();
+        state.queued_bytes = 0;
+        self.queue.queued_count.store(0, Ordering::Release);
+        self.queue.publish_queue_snapshot(&state);
+        messages
+    }
+}
+
 impl Drop for SteeringFinalizationGuard {
     fn drop(&mut self) {
         self.queue.abort_now();

@@ -1151,6 +1151,18 @@ progress/final события через `/events`. `cancel.target_id` ссыл�
 `send-async` возвращает acceptance/protocol response сразу после постановки
 root turn-а или сообщения в очередь; его завершение не возвращается вторым
 HTTP-ответом и наблюдается через SSE (`ExecutionUpdated` и `SessionSnapshot`).
+Для текстового ввода cold resume не задерживает это подтверждение: input и
+intent проверяются, а immutable execution snapshot фиксируется до acceptance;
+строгая проверка журнала под writer lease выполняется в задаче исполнения до
+новых canonical записей и workflow. Acceptance означает принятие к подготовке,
+а не durable commit. Ошибка восстановления завершает запуск через `Error` и
+`ExecutionUpdated`; ещё не записанные prompt и оставшиеся сообщения bounded
+очереди сохраняются по порядку временными строками в live snapshot до следующей
+отправки или очистки. Для queued строк сохраняются ids и images, учтены edit и
+delete до завершения подготовки; после переноса они уже не pending. Эти строки
+не добавляются в cold history.
+Подготовка image attachments по-прежнему получает writer lease до записи bytes.
+Прямой `AgentRuntime::run` сохраняет проверку resume до reservation.
 `TurnOutput`/`Error` остаются уведомлениями о результате, а не отдельным
 источником состояния ленты. В одной
 session выполняется одна root-цепочка, но последующие `Send` принимаются в её
@@ -1209,6 +1221,15 @@ Runtime EventSink обновляет live progress непосредственн�
 сами по себе не очищают progress: app-server заменяет его после завершения
 runtime и записи settlement. При переполнении клиентского ring подписка
 повторяет получение снимка, а не пытается восстановить потерянные deltas.
+
+Один app-server run может выполнять несколько root turns из очереди follow-up.
+Перед `TurnStarted` следующего root turn сервер обновляет завершённый префикс
+из уже подтверждённой истории, включая ограниченную страницу и её cursor для
+persisted session. Проекция выполняется вне lock сессионного представления;
+замена префикса, сброс предыдущего live progress и публикация `TurnStarted`
+атомарны для подписки. Поэтому reconnect во время follow-up сохраняет ответ
+предыдущего turn, доставленный ввод и текущий partial answer без дубликатов.
+Первый `TurnStarted` использует префикс, подготовленный при подключении runtime.
 
 `app_server/runs.rs` владеет admission, адресом запуска и его cancellation token
 для обоих транспортов. `execution.active` содержит `run_id` и статус `running`

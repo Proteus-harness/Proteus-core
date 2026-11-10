@@ -181,7 +181,7 @@ impl AppServerHandle {
         tokio::spawn(async move {
             // Keep the runtime reservation until its terminal state has been
             // published under the admission lock. A new send cannot overtake it.
-            let completion = server
+            let mut completion = server
                 .runtime
                 .run_reserved_completion(reserved, cancellation.clone())
                 .await;
@@ -189,7 +189,19 @@ impl AppServerHandle {
             // terminal state, so no next turn can overtake this projection.
             let history = completed_transcript(server.runtime.clone()).await;
             let mut runs = server.runs.lock().await;
-            server.events.finish_progress(history);
+            let failed_queued = if server.events.has_unstarted_input() {
+                match completion.as_mut() {
+                    Ok(completion) if completion.error().is_some() => {
+                        completion.take_unstarted_queued_messages()
+                    }
+                    // A rejected stale reservation owns no finalization guard
+                    // and must never drain another run's queue.
+                    _ => Vec::new(),
+                }
+            } else {
+                Vec::new()
+            };
+            server.events.finish_run_progress(history, failed_queued);
             let result = server.publish_turn_completion(completion);
             let (status, error) = match &result {
                 Ok(_) => (AppRunStatus::Success, None),

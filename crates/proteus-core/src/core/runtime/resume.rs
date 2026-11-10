@@ -8,6 +8,13 @@ use crate::core::{
 use super::AgentRuntime;
 
 impl AgentRuntime {
+    #[cfg(test)]
+    pub(crate) async fn lock_resume_validation_for_test(
+        &self,
+    ) -> tokio::sync::MutexGuard<'_, bool> {
+        self.session.deferred_resume_validation.lock().await
+    }
+
     pub(super) async fn validate_cached_resume(&self) -> anyhow::Result<()> {
         let mut deferred = self.session.deferred_resume_validation.lock().await;
         if !*deferred
