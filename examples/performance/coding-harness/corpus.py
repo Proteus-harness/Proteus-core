@@ -134,6 +134,8 @@ def prepare(output):
 
 
 def grade(case, workspace, output, reference=False):
+    case = Path(case).resolve()
+    workspace = Path(workspace).resolve()
     info = json.loads((case / "case.json").read_text())
     if manifest(case / "grader") != info["grader_hashes"]:
         raise ValueError("authoritative grader changed")

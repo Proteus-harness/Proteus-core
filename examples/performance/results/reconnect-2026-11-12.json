@@ -1,0 +1,1357 @@
+{
+  "model": "opencode-go/deepseek-v4.1-flash",
+  "effort": "high",
+  "source": "target/performance/coding-harness/reconnect-2026-11-12-01",
+  "rows": [
+    {
+      "case": "schemelike-metacircular-eval",
+      "arm": "proteus-pi",
+      "attempt": 1,
+      "source": "target/performance/coding-harness/reconnect-2026-11-12-01/fresh/flash_schemelike-metacircular-eval_1_proteus-pi",
+      "baseline_pipeline_ok": false,
+      "baseline_grade": false,
+      "baseline_classes": [
+        "transport_or_cli_failure",
+        "solution_rejected_by_tests"
+      ],
+      "state": "graded",
+      "pipeline_ok": false,
+      "baseline_artifacts_verified": {
+        "workspace_matches_recorded_final": true,
+        "original_prompt_unchanged": true
+      },
+      "grade": true,
+      "pass": false,
+      "seconds": 1200.004,
+      "timed_out": true,
+      "auth_removed": true,
+      "model_verified": true,
+      "reasoning_verified": true,
+      "actions": 12,
+      "requests": 11,
+      "usage_complete": false,
+      "tokens": {
+        "input_tokens": null,
+        "output_tokens": null,
+        "cached_input_tokens": null,
+        "cache_creation_input_tokens": null,
+        "reasoning_output_tokens": null,
+        "uncached_input_tokens": null
+      },
+      "observed_partial_usage": {
+        "input_tokens": 285881,
+        "output_tokens": 16653,
+        "cached_input_tokens": 240128,
+        "cache_creation_input_tokens": 0,
+        "reasoning_output_tokens": 11639,
+        "uncached_input_tokens": 45753
+      },
+      "comparison": {
+        "same_prompt": true,
+        "same_fixture": true,
+        "same_model_effort": true,
+        "evidence": {
+          "retryable_failures": [],
+          "duplicate_requested_call_ids": [],
+          "model_exchanges": 11,
+          "completed_model_exchanges": 11,
+          "journal_sha256": "bf52402c6e307412476b46ab81038ffe0cb19e66d8764026b2b20c23943afbe0",
+          "session": "target/performance/coding-harness/reconnect-2026-11-12-01/fresh/flash_schemelike-metacircular-eval_1_proteus-pi/runtime/sessions/workspace/3205518008"
+        }
+      },
+      "trace": {
+        "retryable_failures": [],
+        "duplicate_requested_call_ids": [],
+        "model_exchanges": 11,
+        "completed_model_exchanges": 11,
+        "requested_output_limits": [
+          384000
+        ],
+        "journal_sha256": "bf52402c6e307412476b46ab81038ffe0cb19e66d8764026b2b20c23943afbe0",
+        "session": "target/performance/coding-harness/reconnect-2026-11-12-01/fresh/flash_schemelike-metacircular-eval_1_proteus-pi/runtime/sessions/workspace/3205518008"
+      },
+      "model_failures": [],
+      "failure_classes": [
+        "deadline"
+      ],
+      "corrected_grade": true,
+      "corrected_baseline_grade": false
+    },
+    {
+      "case": "schemelike-metacircular-eval",
+      "arm": "proteus-opencode",
+      "attempt": 1,
+      "source": "target/performance/coding-harness/reconnect-2026-11-12-01/fresh/flash_schemelike-metacircular-eval_1_proteus-opencode",
+      "baseline_pipeline_ok": false,
+      "baseline_grade": false,
+      "baseline_classes": [
+        "transport_or_cli_failure",
+        "solution_rejected_by_tests"
+      ],
+      "state": "graded",
+      "pipeline_ok": false,
+      "baseline_artifacts_verified": {
+        "workspace_matches_recorded_final": true,
+        "original_prompt_unchanged": true
+      },
+      "grade": false,
+      "pass": false,
+      "seconds": 1200.003,
+      "timed_out": true,
+      "auth_removed": true,
+      "model_verified": true,
+      "reasoning_verified": true,
+      "actions": 34,
+      "requests": 34,
+      "usage_complete": false,
+      "tokens": {
+        "input_tokens": null,
+        "output_tokens": null,
+        "cached_input_tokens": null,
+        "cache_creation_input_tokens": null,
+        "reasoning_output_tokens": null,
+        "uncached_input_tokens": null
+      },
+      "observed_partial_usage": {
+        "input_tokens": 1663019,
+        "output_tokens": 38865,
+        "cached_input_tokens": 1578240,
+        "cache_creation_input_tokens": 0,
+        "reasoning_output_tokens": 29619,
+        "uncached_input_tokens": null
+      },
+      "comparison": {
+        "same_prompt": true,
+        "same_fixture": true,
+        "same_model_effort": true,
+        "evidence": {
+          "retryable_failures": [],
+          "duplicate_requested_call_ids": [],
+          "model_exchanges": 34,
+          "completed_model_exchanges": 33,
+          "journal_sha256": "dd083df7ed271160e707e9a8b4f59eab54fce0f6fcf518bb00c8233eff1a35dd",
+          "session": "target/performance/coding-harness/reconnect-2026-11-12-01/fresh/flash_schemelike-metacircular-eval_1_proteus-opencode/runtime/sessions/workspace/3036913243"
+        }
+      },
+      "trace": {
+        "retryable_failures": [],
+        "duplicate_requested_call_ids": [],
+        "model_exchanges": 34,
+        "completed_model_exchanges": 33,
+        "requested_output_limits": [
+          384000
+        ],
+        "journal_sha256": "dd083df7ed271160e707e9a8b4f59eab54fce0f6fcf518bb00c8233eff1a35dd",
+        "session": "target/performance/coding-harness/reconnect-2026-11-12-01/fresh/flash_schemelike-metacircular-eval_1_proteus-opencode/runtime/sessions/workspace/3036913243"
+      },
+      "model_failures": [],
+      "failure_classes": [
+        "deadline",
+        "grader_rejected"
+      ],
+      "corrected_grade": false,
+      "corrected_baseline_grade": false
+    },
+    {
+      "case": "schemelike-metacircular-eval",
+      "arm": "proteus-codex",
+      "attempt": 1,
+      "source": "target/performance/coding-harness/reconnect-2026-11-12-01/fresh/flash_schemelike-metacircular-eval_1_proteus-codex",
+      "baseline_pipeline_ok": false,
+      "baseline_grade": true,
+      "baseline_classes": [
+        "transport_or_cli_failure"
+      ],
+      "state": "graded",
+      "pipeline_ok": false,
+      "baseline_artifacts_verified": {
+        "workspace_matches_recorded_final": true,
+        "original_prompt_unchanged": true
+      },
+      "grade": false,
+      "pass": false,
+      "seconds": 597.932,
+      "timed_out": false,
+      "auth_removed": true,
+      "model_verified": true,
+      "reasoning_verified": true,
+      "actions": 4,
+      "requests": 4,
+      "usage_complete": false,
+      "tokens": {
+        "input_tokens": null,
+        "output_tokens": null,
+        "cached_input_tokens": null,
+        "cache_creation_input_tokens": null,
+        "reasoning_output_tokens": null,
+        "uncached_input_tokens": null
+      },
+      "observed_partial_usage": {
+        "input_tokens": 83288,
+        "output_tokens": 9334,
+        "cached_input_tokens": 38784,
+        "cache_creation_input_tokens": 0,
+        "reasoning_output_tokens": 8198,
+        "uncached_input_tokens": null
+      },
+      "comparison": {
+        "same_prompt": true,
+        "same_fixture": true,
+        "same_model_effort": true,
+        "evidence": {
+          "retryable_failures": [],
+          "duplicate_requested_call_ids": [],
+          "model_exchanges": 4,
+          "completed_model_exchanges": 4,
+          "journal_sha256": "da0bc2d30a475e0a9328eb65fa0a21853c614a7f87e52aa4a369232593c4c098",
+          "session": "target/performance/coding-harness/reconnect-2026-11-12-01/fresh/flash_schemelike-metacircular-eval_1_proteus-codex/runtime/sessions/workspace/2090807859"
+        }
+      },
+      "trace": {
+        "retryable_failures": [],
+        "duplicate_requested_call_ids": [],
+        "model_exchanges": 4,
+        "completed_model_exchanges": 4,
+        "requested_output_limits": [
+          16384
+        ],
+        "journal_sha256": "da0bc2d30a475e0a9328eb65fa0a21853c614a7f87e52aa4a369232593c4c098",
+        "session": "target/performance/coding-harness/reconnect-2026-11-12-01/fresh/flash_schemelike-metacircular-eval_1_proteus-codex/runtime/sessions/workspace/2090807859"
+      },
+      "model_failures": [
+        {
+          "kind": "model",
+          "exchange_id": "40b60fc6-ca02-4711-ad52-a66540b1b967",
+          "failure": {
+            "kind": "other",
+            "message": "model protocol error: model response hit the length limit before finishing the turn",
+            "completed_messages": []
+          }
+        }
+      ],
+      "failure_classes": [
+        "output_limit",
+        "grader_rejected"
+      ],
+      "corrected_grade": false,
+      "corrected_baseline_grade": true
+    },
+    {
+      "case": "journal-segments",
+      "arm": "proteus-pi",
+      "attempt": 1,
+      "source": "target/performance/coding-harness/reconnect-2026-11-12-01/fresh/flash_journal-segments_1_proteus-pi",
+      "baseline_pipeline_ok": true,
+      "baseline_grade": false,
+      "baseline_classes": [
+        "solution_rejected_by_tests"
+      ],
+      "state": "graded",
+      "pipeline_ok": false,
+      "baseline_artifacts_verified": {
+        "workspace_matches_recorded_final": true,
+        "original_prompt_unchanged": true
+      },
+      "grade": false,
+      "pass": false,
+      "seconds": 1200.006,
+      "timed_out": true,
+      "auth_removed": true,
+      "model_verified": true,
+      "reasoning_verified": true,
+      "actions": 26,
+      "requests": 23,
+      "usage_complete": false,
+      "tokens": {
+        "input_tokens": null,
+        "output_tokens": null,
+        "cached_input_tokens": null,
+        "cache_creation_input_tokens": null,
+        "reasoning_output_tokens": null,
+        "uncached_input_tokens": null
+      },
+      "observed_partial_usage": {
+        "input_tokens": 1243887,
+        "output_tokens": 54115,
+        "cached_input_tokens": 1153024,
+        "cache_creation_input_tokens": 0,
+        "reasoning_output_tokens": 42876,
+        "uncached_input_tokens": null
+      },
+      "comparison": {
+        "same_prompt": true,
+        "same_fixture": true,
+        "same_model_effort": true,
+        "evidence": {
+          "retryable_failures": [],
+          "duplicate_requested_call_ids": [],
+          "model_exchanges": 23,
+          "completed_model_exchanges": 22,
+          "journal_sha256": "9b876518351f729a6712ac14201c5049a9e7e6a4a55b030b08035f522002cecc",
+          "session": "target/performance/coding-harness/reconnect-2026-11-12-01/fresh/flash_journal-segments_1_proteus-pi/runtime/sessions/workspace/6628271996"
+        }
+      },
+      "trace": {
+        "retryable_failures": [],
+        "duplicate_requested_call_ids": [],
+        "model_exchanges": 23,
+        "completed_model_exchanges": 22,
+        "requested_output_limits": [
+          384000
+        ],
+        "journal_sha256": "9b876518351f729a6712ac14201c5049a9e7e6a4a55b030b08035f522002cecc",
+        "session": "target/performance/coding-harness/reconnect-2026-11-12-01/fresh/flash_journal-segments_1_proteus-pi/runtime/sessions/workspace/6628271996"
+      },
+      "model_failures": [],
+      "failure_classes": [
+        "deadline",
+        "grader_rejected"
+      ],
+      "corrected_grade": false,
+      "corrected_baseline_grade": false
+    },
+    {
+      "case": "journal-segments",
+      "arm": "proteus-opencode",
+      "attempt": 1,
+      "source": "target/performance/coding-harness/reconnect-2026-11-12-01/fresh/flash_journal-segments_1_proteus-opencode",
+      "baseline_pipeline_ok": false,
+      "baseline_grade": false,
+      "baseline_classes": [
+        "agent_deadline",
+        "solution_rejected_by_tests"
+      ],
+      "state": "graded",
+      "pipeline_ok": false,
+      "baseline_artifacts_verified": {
+        "workspace_matches_recorded_final": true,
+        "original_prompt_unchanged": true
+      },
+      "grade": false,
+      "pass": false,
+      "seconds": 1200.002,
+      "timed_out": true,
+      "auth_removed": true,
+      "model_verified": true,
+      "reasoning_verified": true,
+      "actions": 30,
+      "requests": 31,
+      "usage_complete": false,
+      "tokens": {
+        "input_tokens": null,
+        "output_tokens": null,
+        "cached_input_tokens": null,
+        "cache_creation_input_tokens": null,
+        "reasoning_output_tokens": null,
+        "uncached_input_tokens": null
+      },
+      "observed_partial_usage": {
+        "input_tokens": 1598948,
+        "output_tokens": 53510,
+        "cached_input_tokens": 1512320,
+        "cache_creation_input_tokens": 0,
+        "reasoning_output_tokens": 40856,
+        "uncached_input_tokens": null
+      },
+      "comparison": {
+        "same_prompt": true,
+        "same_fixture": true,
+        "same_model_effort": true,
+        "evidence": {
+          "retryable_failures": [],
+          "duplicate_requested_call_ids": [],
+          "model_exchanges": 31,
+          "completed_model_exchanges": 30,
+          "journal_sha256": "6d69c4ff7fe238ed0ca4f914d731e69b241592608405cceb3e38bc8d01532e54",
+          "session": "target/performance/coding-harness/reconnect-2026-11-12-01/fresh/flash_journal-segments_1_proteus-opencode/runtime/sessions/workspace/7657694862"
+        }
+      },
+      "trace": {
+        "retryable_failures": [],
+        "duplicate_requested_call_ids": [],
+        "model_exchanges": 31,
+        "completed_model_exchanges": 30,
+        "requested_output_limits": [
+          384000
+        ],
+        "journal_sha256": "6d69c4ff7fe238ed0ca4f914d731e69b241592608405cceb3e38bc8d01532e54",
+        "session": "target/performance/coding-harness/reconnect-2026-11-12-01/fresh/flash_journal-segments_1_proteus-opencode/runtime/sessions/workspace/7657694862"
+      },
+      "model_failures": [],
+      "failure_classes": [
+        "deadline",
+        "grader_rejected"
+      ],
+      "corrected_grade": false,
+      "corrected_baseline_grade": false
+    },
+    {
+      "case": "journal-segments",
+      "arm": "proteus-codex",
+      "attempt": 1,
+      "source": "target/performance/coding-harness/reconnect-2026-11-12-01/fresh/flash_journal-segments_1_proteus-codex",
+      "baseline_pipeline_ok": false,
+      "baseline_grade": false,
+      "baseline_classes": [
+        "model_output_limit",
+        "solution_rejected_by_tests"
+      ],
+      "state": "graded",
+      "pipeline_ok": false,
+      "baseline_artifacts_verified": {
+        "workspace_matches_recorded_final": true,
+        "original_prompt_unchanged": true
+      },
+      "grade": false,
+      "pass": false,
+      "seconds": 204.212,
+      "timed_out": false,
+      "auth_removed": true,
+      "model_verified": true,
+      "reasoning_verified": true,
+      "actions": 11,
+      "requests": 5,
+      "usage_complete": false,
+      "tokens": {
+        "input_tokens": null,
+        "output_tokens": null,
+        "cached_input_tokens": null,
+        "cache_creation_input_tokens": null,
+        "reasoning_output_tokens": null,
+        "uncached_input_tokens": null
+      },
+      "observed_partial_usage": {
+        "input_tokens": 51417,
+        "output_tokens": 2454,
+        "cached_input_tokens": 30336,
+        "cache_creation_input_tokens": 0,
+        "reasoning_output_tokens": 66,
+        "uncached_input_tokens": null
+      },
+      "comparison": {
+        "same_prompt": true,
+        "same_fixture": true,
+        "same_model_effort": true,
+        "evidence": {
+          "retryable_failures": [],
+          "duplicate_requested_call_ids": [],
+          "model_exchanges": 5,
+          "completed_model_exchanges": 5,
+          "journal_sha256": "4fc90cc1ab5368d464a35fd0f45b640d787741b557d6f9ed2161420bb84d917f",
+          "session": "target/performance/coding-harness/reconnect-2026-11-12-01/fresh/flash_journal-segments_1_proteus-codex/runtime/sessions/workspace/4615348128"
+        }
+      },
+      "trace": {
+        "retryable_failures": [],
+        "duplicate_requested_call_ids": [],
+        "model_exchanges": 5,
+        "completed_model_exchanges": 5,
+        "requested_output_limits": [
+          16384
+        ],
+        "journal_sha256": "4fc90cc1ab5368d464a35fd0f45b640d787741b557d6f9ed2161420bb84d917f",
+        "session": "target/performance/coding-harness/reconnect-2026-11-12-01/fresh/flash_journal-segments_1_proteus-codex/runtime/sessions/workspace/4615348128"
+      },
+      "model_failures": [
+        {
+          "kind": "model",
+          "exchange_id": "1672252b-2bc2-4928-bf6f-d36d28b06dce",
+          "failure": {
+            "kind": "other",
+            "message": "model protocol error: model response hit the length limit before finishing the turn",
+            "completed_messages": []
+          }
+        }
+      ],
+      "failure_classes": [
+        "output_limit",
+        "grader_rejected"
+      ],
+      "corrected_grade": false,
+      "corrected_baseline_grade": false
+    },
+    {
+      "case": "sampler-phase-report",
+      "arm": "proteus-pi",
+      "attempt": 1,
+      "source": "target/performance/coding-harness/reconnect-2026-11-12-01/fresh/flash_sampler-phase-report_1_proteus-pi",
+      "baseline_pipeline_ok": false,
+      "baseline_grade": true,
+      "baseline_classes": [
+        "transport_or_cli_failure"
+      ],
+      "state": "graded",
+      "pipeline_ok": true,
+      "baseline_artifacts_verified": {
+        "workspace_matches_recorded_final": true,
+        "original_prompt_unchanged": true
+      },
+      "grade": false,
+      "pass": false,
+      "seconds": 544.911,
+      "timed_out": false,
+      "auth_removed": true,
+      "model_verified": true,
+      "reasoning_verified": true,
+      "actions": 37,
+      "requests": 32,
+      "usage_complete": true,
+      "tokens": {
+        "input_tokens": 1679398,
+        "output_tokens": 43814,
+        "cached_input_tokens": 1592064,
+        "cache_creation_input_tokens": 0,
+        "reasoning_output_tokens": 33916,
+        "uncached_input_tokens": 87334
+      },
+      "observed_partial_usage": {
+        "input_tokens": 1679398,
+        "output_tokens": 43814,
+        "cached_input_tokens": 1592064,
+        "cache_creation_input_tokens": 0,
+        "reasoning_output_tokens": 33916,
+        "uncached_input_tokens": 87334
+      },
+      "comparison": {
+        "same_prompt": true,
+        "same_fixture": true,
+        "same_model_effort": true,
+        "evidence": {
+          "retryable_failures": [],
+          "duplicate_requested_call_ids": [],
+          "model_exchanges": 32,
+          "completed_model_exchanges": 32,
+          "journal_sha256": "20cc90c2de1ab39363ad89d72bfacba5eb99d57502374a11aaaf1fcdd0cb9e8e",
+          "session": "target/performance/coding-harness/reconnect-2026-11-12-01/fresh/flash_sampler-phase-report_1_proteus-pi/runtime/sessions/workspace/4862325968"
+        }
+      },
+      "trace": {
+        "retryable_failures": [],
+        "duplicate_requested_call_ids": [],
+        "model_exchanges": 32,
+        "completed_model_exchanges": 32,
+        "requested_output_limits": [
+          384000
+        ],
+        "journal_sha256": "20cc90c2de1ab39363ad89d72bfacba5eb99d57502374a11aaaf1fcdd0cb9e8e",
+        "session": "target/performance/coding-harness/reconnect-2026-11-12-01/fresh/flash_sampler-phase-report_1_proteus-pi/runtime/sessions/workspace/4862325968"
+      },
+      "model_failures": [],
+      "failure_classes": [
+        "grader_rejected"
+      ],
+      "corrected_grade": true,
+      "corrected_baseline_grade": true
+    },
+    {
+      "case": "sampler-phase-report",
+      "arm": "proteus-codex",
+      "attempt": 1,
+      "source": "target/performance/coding-harness/reconnect-2026-11-12-01/fresh/flash_sampler-phase-report_1_proteus-codex",
+      "baseline_pipeline_ok": false,
+      "baseline_grade": false,
+      "baseline_classes": [
+        "transport_or_cli_failure",
+        "solution_rejected_by_tests"
+      ],
+      "state": "graded",
+      "pipeline_ok": true,
+      "baseline_artifacts_verified": {
+        "workspace_matches_recorded_final": true,
+        "original_prompt_unchanged": true
+      },
+      "grade": true,
+      "pass": true,
+      "seconds": 988.509,
+      "timed_out": false,
+      "auth_removed": true,
+      "model_verified": true,
+      "reasoning_verified": true,
+      "actions": 40,
+      "requests": 25,
+      "usage_complete": true,
+      "tokens": {
+        "input_tokens": 1125046,
+        "output_tokens": 47665,
+        "cached_input_tokens": 1040768,
+        "cache_creation_input_tokens": 0,
+        "reasoning_output_tokens": 27659,
+        "uncached_input_tokens": 84278
+      },
+      "observed_partial_usage": {
+        "input_tokens": 1125046,
+        "output_tokens": 47665,
+        "cached_input_tokens": 1040768,
+        "cache_creation_input_tokens": 0,
+        "reasoning_output_tokens": 27659,
+        "uncached_input_tokens": 84278
+      },
+      "comparison": {
+        "same_prompt": true,
+        "same_fixture": true,
+        "same_model_effort": true,
+        "evidence": {
+          "retryable_failures": [],
+          "duplicate_requested_call_ids": [],
+          "model_exchanges": 25,
+          "completed_model_exchanges": 25,
+          "journal_sha256": "7611a5738b40e941b547015e1064c80c6de458ccd7807cf5fc1f0764283f8d0c",
+          "session": "target/performance/coding-harness/reconnect-2026-11-12-01/fresh/flash_sampler-phase-report_1_proteus-codex/runtime/sessions/workspace/7896576749"
+        }
+      },
+      "trace": {
+        "retryable_failures": [],
+        "duplicate_requested_call_ids": [],
+        "model_exchanges": 25,
+        "completed_model_exchanges": 25,
+        "requested_output_limits": [
+          16384
+        ],
+        "journal_sha256": "7611a5738b40e941b547015e1064c80c6de458ccd7807cf5fc1f0764283f8d0c",
+        "session": "target/performance/coding-harness/reconnect-2026-11-12-01/fresh/flash_sampler-phase-report_1_proteus-codex/runtime/sessions/workspace/7896576749"
+      },
+      "model_failures": [],
+      "failure_classes": [],
+      "corrected_grade": true,
+      "corrected_baseline_grade": false
+    },
+    {
+      "case": "ledger-recovery",
+      "arm": "proteus-codex",
+      "attempt": 1,
+      "source": "target/performance/coding-harness/reconnect-2026-11-12-01/fresh/flash_ledger-recovery_1_proteus-codex",
+      "baseline_pipeline_ok": false,
+      "baseline_grade": false,
+      "baseline_classes": [
+        "model_output_limit",
+        "solution_rejected_by_tests"
+      ],
+      "state": "graded",
+      "pipeline_ok": false,
+      "baseline_artifacts_verified": {
+        "workspace_matches_recorded_final": true,
+        "original_prompt_unchanged": true
+      },
+      "grade": false,
+      "pass": false,
+      "seconds": 196.666,
+      "timed_out": false,
+      "auth_removed": true,
+      "model_verified": true,
+      "reasoning_verified": true,
+      "actions": 8,
+      "requests": 4,
+      "usage_complete": false,
+      "tokens": {
+        "input_tokens": null,
+        "output_tokens": null,
+        "cached_input_tokens": null,
+        "cache_creation_input_tokens": null,
+        "reasoning_output_tokens": null,
+        "uncached_input_tokens": null
+      },
+      "observed_partial_usage": {
+        "input_tokens": 24279,
+        "output_tokens": 1529,
+        "cached_input_tokens": 19712,
+        "cache_creation_input_tokens": 0,
+        "reasoning_output_tokens": 45,
+        "uncached_input_tokens": null
+      },
+      "comparison": {
+        "same_prompt": true,
+        "same_fixture": true,
+        "same_model_effort": true,
+        "evidence": {
+          "retryable_failures": [],
+          "duplicate_requested_call_ids": [],
+          "model_exchanges": 4,
+          "completed_model_exchanges": 4,
+          "journal_sha256": "f86704bcce78f2fe408c039e170b6c4081bd71756a6948d02a9f704d49bd890f",
+          "session": "target/performance/coding-harness/reconnect-2026-11-12-01/fresh/flash_ledger-recovery_1_proteus-codex/runtime/sessions/workspace/8505603431"
+        }
+      },
+      "trace": {
+        "retryable_failures": [],
+        "duplicate_requested_call_ids": [],
+        "model_exchanges": 4,
+        "completed_model_exchanges": 4,
+        "requested_output_limits": [
+          16384
+        ],
+        "journal_sha256": "f86704bcce78f2fe408c039e170b6c4081bd71756a6948d02a9f704d49bd890f",
+        "session": "target/performance/coding-harness/reconnect-2026-11-12-01/fresh/flash_ledger-recovery_1_proteus-codex/runtime/sessions/workspace/8505603431"
+      },
+      "model_failures": [
+        {
+          "kind": "model",
+          "exchange_id": "ecc092d4-bb7a-4dca-aa5c-db632ee69a05",
+          "failure": {
+            "kind": "other",
+            "message": "model protocol error: model response hit the length limit before finishing the turn",
+            "completed_messages": []
+          }
+        }
+      ],
+      "failure_classes": [
+        "output_limit",
+        "grader_rejected"
+      ],
+      "corrected_grade": false,
+      "corrected_baseline_grade": false
+    },
+    {
+      "case": "go-review",
+      "arm": "proteus-pi",
+      "attempt": 2,
+      "source": "target/performance/coding-harness/reconnect-2026-11-12-01/fresh/flash_go-review_2_proteus-pi",
+      "baseline_pipeline_ok": true,
+      "baseline_grade": false,
+      "baseline_classes": [
+        "solution_rejected_by_tests"
+      ],
+      "state": "graded",
+      "pipeline_ok": true,
+      "baseline_artifacts_verified": {
+        "workspace_matches_recorded_final": true,
+        "original_prompt_unchanged": true
+      },
+      "grade": true,
+      "pass": true,
+      "seconds": 168.979,
+      "timed_out": false,
+      "auth_removed": true,
+      "model_verified": true,
+      "reasoning_verified": true,
+      "actions": 10,
+      "requests": 11,
+      "usage_complete": true,
+      "tokens": {
+        "input_tokens": 145820,
+        "output_tokens": 15028,
+        "cached_input_tokens": 119552,
+        "cache_creation_input_tokens": 0,
+        "reasoning_output_tokens": 11053,
+        "uncached_input_tokens": 26268
+      },
+      "observed_partial_usage": {
+        "input_tokens": 145820,
+        "output_tokens": 15028,
+        "cached_input_tokens": 119552,
+        "cache_creation_input_tokens": 0,
+        "reasoning_output_tokens": 11053,
+        "uncached_input_tokens": 26268
+      },
+      "comparison": {
+        "same_prompt": true,
+        "same_fixture": true,
+        "same_model_effort": true,
+        "evidence": {
+          "retryable_failures": [],
+          "duplicate_requested_call_ids": [],
+          "model_exchanges": 11,
+          "completed_model_exchanges": 11,
+          "journal_sha256": "e19872c67b47495200c306e1d0bacabfd304b3edefbfebd4ea3e1daa2f880d0e",
+          "session": "target/performance/coding-harness/reconnect-2026-11-12-01/fresh/flash_go-review_2_proteus-pi/runtime/sessions/workspace/2862566778"
+        }
+      },
+      "trace": {
+        "retryable_failures": [],
+        "duplicate_requested_call_ids": [],
+        "model_exchanges": 11,
+        "completed_model_exchanges": 11,
+        "requested_output_limits": [
+          384000
+        ],
+        "journal_sha256": "e19872c67b47495200c306e1d0bacabfd304b3edefbfebd4ea3e1daa2f880d0e",
+        "session": "target/performance/coding-harness/reconnect-2026-11-12-01/fresh/flash_go-review_2_proteus-pi/runtime/sessions/workspace/2862566778"
+      },
+      "model_failures": [],
+      "failure_classes": [],
+      "corrected_grade": true,
+      "corrected_baseline_grade": false
+    }
+  ],
+  "cold": {
+    "source": "target/performance/coding-harness/reconnect-2026-11-12-01/cold/flash_sampler-phase-report_1_proteus-pi",
+    "pipeline_ok": true,
+    "grade": true,
+    "seconds": 244.3571316899979,
+    "metrics": {
+      "session": "target/performance/coding-harness/reconnect-2026-11-12-01/cold/flash_sampler-phase-report_1_proteus-pi/runtime/sessions/workspace/8644784151",
+      "model_requests": 7,
+      "model_responses": 7,
+      "provider_usage": {
+        "input_tokens": 393403,
+        "output_tokens": 10313,
+        "cached_input_tokens": 377472,
+        "cache_creation_input_tokens": 0,
+        "reasoning_output_tokens": 7065,
+        "uncached_input_tokens": 15931
+      },
+      "partial_reported_usage_sums": {
+        "input_tokens": 393403,
+        "output_tokens": 10313,
+        "cached_input_tokens": 377472,
+        "cache_creation_input_tokens": 0,
+        "reasoning_output_tokens": 7065
+      },
+      "usage_fields_reported_by_responses": {
+        "input_tokens": 7,
+        "output_tokens": 7,
+        "cached_input_tokens": 7,
+        "cache_creation_input_tokens": 7,
+        "reasoning_output_tokens": 7
+      },
+      "model_refs": [
+        "{\"model\": \"deepseek-v4.1-flash\", \"provider\": \"pi_codex\"}"
+      ],
+      "reasoning_refs": [
+        "{\"budget_tokens\": null, \"effort\": \"high\", \"summary\": true}"
+      ],
+      "tool_spec_sha256": {},
+      "model_visible_tool_calls": 9,
+      "nested_tool_calls": 0,
+      "all_tool_calls": 9,
+      "root_mcp_tool_calls": 0,
+      "nested_mcp_tool_calls": 0,
+      "tool_names": {
+        "bash": 7,
+        "write": 1,
+        "edit": 1
+      },
+      "failures": [],
+      "compactions": 0,
+      "settlements": [
+        {
+          "status": "success",
+          "error": null
+        }
+      ],
+      "model_tool_result_bytes_across_requests": 1751363,
+      "turn_wall_seconds": 239.183,
+      "requests": [
+        {
+          "exchange_id": "7e60354e-c3fe-436c-8f39-c1b8aed695d7",
+          "origin": "direct",
+          "model": {
+            "provider": "pi_codex",
+            "model": "deepseek-v4.1-flash"
+          },
+          "reasoning": {
+            "effort": "high",
+            "summary": true,
+            "budget_tokens": null
+          },
+          "tool_result_bytes": 219077
+        },
+        {
+          "exchange_id": "bdae6cd3-c4a6-47d7-9aca-0a017ee0d67d",
+          "origin": "direct",
+          "model": {
+            "provider": "pi_codex",
+            "model": "deepseek-v4.1-flash"
+          },
+          "reasoning": {
+            "effort": "high",
+            "summary": true,
+            "budget_tokens": null
+          },
+          "tool_result_bytes": 250680
+        },
+        {
+          "exchange_id": "6bd0fbc9-c8fe-463b-a383-54d6a052d24a",
+          "origin": "direct",
+          "model": {
+            "provider": "pi_codex",
+            "model": "deepseek-v4.1-flash"
+          },
+          "reasoning": {
+            "effort": "high",
+            "summary": true,
+            "budget_tokens": null
+          },
+          "tool_result_bytes": 250956
+        },
+        {
+          "exchange_id": "bcbf0d3a-286c-41cc-bdc1-96a52d3601bd",
+          "origin": "direct",
+          "model": {
+            "provider": "pi_codex",
+            "model": "deepseek-v4.1-flash"
+          },
+          "reasoning": {
+            "effort": "high",
+            "summary": true,
+            "budget_tokens": null
+          },
+          "tool_result_bytes": 254018
+        },
+        {
+          "exchange_id": "3683cb8a-2dcb-4029-b372-341ffe7a118d",
+          "origin": "direct",
+          "model": {
+            "provider": "pi_codex",
+            "model": "deepseek-v4.1-flash"
+          },
+          "reasoning": {
+            "effort": "high",
+            "summary": true,
+            "budget_tokens": null
+          },
+          "tool_result_bytes": 255378
+        },
+        {
+          "exchange_id": "54e38e13-5d6f-490a-9d6c-382e892ab5ea",
+          "origin": "direct",
+          "model": {
+            "provider": "pi_codex",
+            "model": "deepseek-v4.1-flash"
+          },
+          "reasoning": {
+            "effort": "high",
+            "summary": true,
+            "budget_tokens": null
+          },
+          "tool_result_bytes": 260482
+        },
+        {
+          "exchange_id": "b341416a-c566-4c2c-9f6a-258f7f0cd568",
+          "origin": "direct",
+          "model": {
+            "provider": "pi_codex",
+            "model": "deepseek-v4.1-flash"
+          },
+          "reasoning": {
+            "effort": "high",
+            "summary": true,
+            "budget_tokens": null
+          },
+          "tool_result_bytes": 260772
+        }
+      ],
+      "providers": [
+        "opencode-go"
+      ]
+    },
+    "auth_removed": true,
+    "usage_complete": true,
+    "tokens": {
+      "input_tokens": 393403,
+      "output_tokens": 10313,
+      "cached_input_tokens": 377472,
+      "cache_creation_input_tokens": 0,
+      "reasoning_output_tokens": 7065,
+      "uncached_input_tokens": 15931
+    },
+    "observed_partial_usage": {
+      "input_tokens": 393403,
+      "output_tokens": 10313,
+      "cached_input_tokens": 377472,
+      "cache_creation_input_tokens": 0,
+      "reasoning_output_tokens": 7065,
+      "uncached_input_tokens": 15931
+    },
+    "grading_correction": {
+      "reason": "callable grader normalized relative case/workspace paths before containment checks",
+      "model_calls": 0,
+      "first_grader_result": "grading-relative-path-first.json",
+      "corrected_result": "grading.json"
+    },
+    "continuation_evidence": {
+      "source_journal_sha256": "e144c7c8243b8a3246fc09ee830ed2dd54c980dc2563d37815468ba4f84f5d07",
+      "copied_prefix_bytes": 5164082,
+      "copied_prefix_sha256": "e144c7c8243b8a3246fc09ee830ed2dd54c980dc2563d37815468ba4f84f5d07",
+      "prefix_unchanged": true,
+      "source_unchanged": true,
+      "prior_turn_ids": [
+        "c6a7ac58-fc34-4d1f-98db-29cdc7b05a34"
+      ],
+      "new_turn_ids": [
+        "8e7f9065-98db-4e55-9e6d-5fad80706dd8"
+      ],
+      "prior_requested_call_ids": [
+        "call_06859f5ab5944bfdb84fab6b",
+        "call_0c4c2c5b4c18456b81cc006b",
+        "call_280536d005714e8fa5725c8a",
+        "call_3435a5637ec942c98adfd45b",
+        "call_484396c82d5a43cba4d8f9ff",
+        "call_4d39ee28ab5f4e719ee94d6d",
+        "call_4fd4fa6b41f9439da589235f",
+        "call_52195dcfb6014b9894fb3437",
+        "call_558c0e2bfbd6412b8327e04d",
+        "call_66f36199d02840e684ae9d19",
+        "call_6e7c9c0e4a0e47de9a6f0931",
+        "call_80f85ec00db64921bb7f4f32",
+        "call_9806902d3e944dcd91cdd3a8",
+        "call_9978953847a04a65be57db31",
+        "call_9d7c1a2037e34d848715d0da",
+        "call_bd1202828bb34df2a482b0a1",
+        "call_cfe3511f9eb94203a3e870b2",
+        "call_de1f054780474ed2830976e7",
+        "call_df2811e30bb344cbb82ba862",
+        "call_f94427073f4f4b379345ff59"
+      ],
+      "new_requested_call_ids": [
+        "call_a918a336900c4b7fad0ab548",
+        "call_b454512a3117459990e73bf3",
+        "call_90a9cbf0a5de491a88fd218f",
+        "call_e00f7a1ccf5240158c7bd91c",
+        "call_8edef5b885514dfda4de69da",
+        "call_e6042f93ce524e4ba6f03992",
+        "call_8e59b6cc0c9046acbfc9cf9f",
+        "call_2220202e9a0e4d81a5c65cfd",
+        "call_d206e717ef274b88996ce188"
+      ],
+      "previous_call_ids_dispatched_again": [],
+      "trace": {
+        "retryable_failures": [],
+        "duplicate_requested_call_ids": [],
+        "model_exchanges": 22,
+        "completed_model_exchanges": 22,
+        "journal_sha256": "447b3372ce1e7b624efaecff39d587498f3d6341c870747d8153a97ea4d3722a",
+        "session": "target/performance/coding-harness/reconnect-2026-11-12-01/cold/flash_sampler-phase-report_1_proteus-pi/runtime/sessions/workspace/8644784151"
+      },
+      "verified": true,
+      "previous_argument_signatures_seen_again": [
+        {
+          "name": "bash",
+          "call_id": "call_e00f7a1ccf5240158c7bd91c",
+          "arguments_sha256": "5008b846c3a1120ab207d45f9b164914b9209df88d38e76896d676986b2a6150"
+        }
+      ]
+    }
+  },
+  "sampler_loader_audit": {
+    "model_calls": 0,
+    "frozen_case_unchanged": true,
+    "reason": "Register module in sys.modules before exec_module so standard dataclass string annotations work.",
+    "original_grader_sha256": "34e1254c616ae8ef623f351ad56a16f229d9c07120009d92009c9a769c1901f7",
+    "corrected_grader_sha256": "a16bd0408b73f97266cdf731a7bf6671415a7c9d98489f1497b8da3949d08c93",
+    "rows": [
+      {
+        "source": "target/performance/coding-harness/long-flash-01/flash_sampler-phase-report_1_opencode",
+        "raw_grade": true,
+        "corrected_grade": true,
+        "changed": false,
+        "reference_control": false,
+        "workspace_unchanged": true,
+        "solution_manifest_sha256": "a496b60c38101e98b349eb05e574d330f5ab3176fac1bfabd868f97bc661fb3e",
+        "raw": "target/performance/coding-harness/reconnect-2026-11-12-01/grader-loader-audit/target__performance__coding-harness__long-flash-01__flash_sampler-phase-report_1_opencode.raw.json",
+        "corrected": "target/performance/coding-harness/reconnect-2026-11-12-01/grader-loader-audit/target__performance__coding-harness__long-flash-01__flash_sampler-phase-report_1_opencode.corrected.json"
+      },
+      {
+        "source": "target/performance/coding-harness/long-flash-01/flash_sampler-phase-report_1_pi",
+        "raw_grade": true,
+        "corrected_grade": true,
+        "changed": false,
+        "reference_control": false,
+        "workspace_unchanged": true,
+        "solution_manifest_sha256": "b766036bd0679d0a84733437cd4db4765d11bdfecc981cde0ad5a91ed494ff39",
+        "raw": "target/performance/coding-harness/reconnect-2026-11-12-01/grader-loader-audit/target__performance__coding-harness__long-flash-01__flash_sampler-phase-report_1_pi.raw.json",
+        "corrected": "target/performance/coding-harness/reconnect-2026-11-12-01/grader-loader-audit/target__performance__coding-harness__long-flash-01__flash_sampler-phase-report_1_pi.corrected.json"
+      },
+      {
+        "source": "target/performance/coding-harness/long-flash-01/flash_sampler-phase-report_1_proteus-codex",
+        "raw_grade": false,
+        "corrected_grade": false,
+        "changed": false,
+        "reference_control": false,
+        "workspace_unchanged": true,
+        "solution_manifest_sha256": "7942e7db834bb2e6508a86b2ebd53deec3edef6dd86a3d7fcbd17d91947f3222",
+        "raw": "target/performance/coding-harness/reconnect-2026-11-12-01/grader-loader-audit/target__performance__coding-harness__long-flash-01__flash_sampler-phase-report_1_proteus-codex.raw.json",
+        "corrected": "target/performance/coding-harness/reconnect-2026-11-12-01/grader-loader-audit/target__performance__coding-harness__long-flash-01__flash_sampler-phase-report_1_proteus-codex.corrected.json"
+      },
+      {
+        "source": "target/performance/coding-harness/long-flash-01/flash_sampler-phase-report_1_proteus-opencode",
+        "raw_grade": true,
+        "corrected_grade": true,
+        "changed": false,
+        "reference_control": false,
+        "workspace_unchanged": true,
+        "solution_manifest_sha256": "1c0ac98666a3fbc0b4c635cac8b9416fa0955885d91eaaa35b14e98acd4026cc",
+        "raw": "target/performance/coding-harness/reconnect-2026-11-12-01/grader-loader-audit/target__performance__coding-harness__long-flash-01__flash_sampler-phase-report_1_proteus-opencode.raw.json",
+        "corrected": "target/performance/coding-harness/reconnect-2026-11-12-01/grader-loader-audit/target__performance__coding-harness__long-flash-01__flash_sampler-phase-report_1_proteus-opencode.corrected.json"
+      },
+      {
+        "source": "target/performance/coding-harness/long-flash-01/flash_sampler-phase-report_1_proteus-pi",
+        "raw_grade": true,
+        "corrected_grade": true,
+        "changed": false,
+        "reference_control": false,
+        "workspace_unchanged": true,
+        "solution_manifest_sha256": "652b09d205f9f5f8446c94fc171f1bf60c5c183d95369bec8bac5413c8e0ea81",
+        "raw": "target/performance/coding-harness/reconnect-2026-11-12-01/grader-loader-audit/target__performance__coding-harness__long-flash-01__flash_sampler-phase-report_1_proteus-pi.raw.json",
+        "corrected": "target/performance/coding-harness/reconnect-2026-11-12-01/grader-loader-audit/target__performance__coding-harness__long-flash-01__flash_sampler-phase-report_1_proteus-pi.corrected.json"
+      },
+      {
+        "source": "target/performance/coding-harness/long-socket-retry-01/flash_sampler-phase-report_1_proteus-codex",
+        "raw_grade": false,
+        "corrected_grade": true,
+        "changed": true,
+        "reference_control": false,
+        "workspace_unchanged": true,
+        "solution_manifest_sha256": "1282c5482397fa7840592285b18d9fa3702ac162358d9e30658676bdf497d020",
+        "raw": "target/performance/coding-harness/reconnect-2026-11-12-01/grader-loader-audit/target__performance__coding-harness__long-socket-retry-01__flash_sampler-phase-report_1_proteus-codex.raw.json",
+        "corrected": "target/performance/coding-harness/reconnect-2026-11-12-01/grader-loader-audit/target__performance__coding-harness__long-socket-retry-01__flash_sampler-phase-report_1_proteus-codex.corrected.json"
+      },
+      {
+        "source": "target/performance/coding-harness/long-socket-retry-01/flash_sampler-phase-report_1_proteus-pi",
+        "raw_grade": true,
+        "corrected_grade": true,
+        "changed": false,
+        "reference_control": false,
+        "workspace_unchanged": true,
+        "solution_manifest_sha256": "15026d8022979560a3762bab3fcf374b1ed19fb27158a6b7ec76631269f427b0",
+        "raw": "target/performance/coding-harness/reconnect-2026-11-12-01/grader-loader-audit/target__performance__coding-harness__long-socket-retry-01__flash_sampler-phase-report_1_proteus-pi.raw.json",
+        "corrected": "target/performance/coding-harness/reconnect-2026-11-12-01/grader-loader-audit/target__performance__coding-harness__long-socket-retry-01__flash_sampler-phase-report_1_proteus-pi.corrected.json"
+      },
+      {
+        "source": "target/performance/coding-harness/reconnect-2026-11-12-01/cold/flash_sampler-phase-report_1_proteus-pi",
+        "raw_grade": true,
+        "corrected_grade": true,
+        "changed": false,
+        "reference_control": false,
+        "workspace_unchanged": true,
+        "solution_manifest_sha256": "c733fdb3a2b3038dd3e8c016a3cb62bbde1e3f72d25bb04d861f55487f14ad44",
+        "raw": "target/performance/coding-harness/reconnect-2026-11-12-01/grader-loader-audit/target__performance__coding-harness__reconnect-2026-11-12-01__cold__flash_sampler-phase-report_1_proteus-pi.raw.json",
+        "corrected": "target/performance/coding-harness/reconnect-2026-11-12-01/grader-loader-audit/target__performance__coding-harness__reconnect-2026-11-12-01__cold__flash_sampler-phase-report_1_proteus-pi.corrected.json"
+      },
+      {
+        "source": "target/performance/coding-harness/reconnect-2026-11-12-01/fresh/flash_sampler-phase-report_1_proteus-codex",
+        "raw_grade": true,
+        "corrected_grade": true,
+        "changed": false,
+        "reference_control": false,
+        "workspace_unchanged": true,
+        "solution_manifest_sha256": "c4959ac5b163e513b1bda3a50dfc99a6c11be54835f11c70709bca5d355ef6dd",
+        "raw": "target/performance/coding-harness/reconnect-2026-11-12-01/grader-loader-audit/target__performance__coding-harness__reconnect-2026-11-12-01__fresh__flash_sampler-phase-report_1_proteus-codex.raw.json",
+        "corrected": "target/performance/coding-harness/reconnect-2026-11-12-01/grader-loader-audit/target__performance__coding-harness__reconnect-2026-11-12-01__fresh__flash_sampler-phase-report_1_proteus-codex.corrected.json"
+      },
+      {
+        "source": "target/performance/coding-harness/reconnect-2026-11-12-01/fresh/flash_sampler-phase-report_1_proteus-pi",
+        "raw_grade": false,
+        "corrected_grade": true,
+        "changed": true,
+        "reference_control": false,
+        "workspace_unchanged": true,
+        "solution_manifest_sha256": "095f8b37db0dac8268c769cdfdafdd29755b506c6354d2fb5066031ee816a33a",
+        "raw": "target/performance/coding-harness/reconnect-2026-11-12-01/grader-loader-audit/target__performance__coding-harness__reconnect-2026-11-12-01__fresh__flash_sampler-phase-report_1_proteus-pi.raw.json",
+        "corrected": "target/performance/coding-harness/reconnect-2026-11-12-01/grader-loader-audit/target__performance__coding-harness__reconnect-2026-11-12-01__fresh__flash_sampler-phase-report_1_proteus-pi.corrected.json"
+      },
+      {
+        "source": "target/performance/coding-harness/long-cases/sampler-phase-report/starter",
+        "raw_grade": false,
+        "corrected_grade": false,
+        "changed": false,
+        "reference_control": false,
+        "workspace_unchanged": true,
+        "solution_manifest_sha256": "7942e7db834bb2e6508a86b2ebd53deec3edef6dd86a3d7fcbd17d91947f3222",
+        "raw": "target/performance/coding-harness/reconnect-2026-11-12-01/grader-loader-audit/target__performance__coding-harness__long-cases__sampler-phase-report__starter.raw.json",
+        "corrected": "target/performance/coding-harness/reconnect-2026-11-12-01/grader-loader-audit/target__performance__coding-harness__long-cases__sampler-phase-report__starter.corrected.json"
+      },
+      {
+        "source": "target/performance/coding-harness/long-cases/sampler-phase-report/gold",
+        "raw_grade": true,
+        "corrected_grade": true,
+        "changed": false,
+        "reference_control": true,
+        "workspace_unchanged": true,
+        "solution_manifest_sha256": "7942e7db834bb2e6508a86b2ebd53deec3edef6dd86a3d7fcbd17d91947f3222",
+        "raw": "target/performance/coding-harness/reconnect-2026-11-12-01/grader-loader-audit/target__performance__coding-harness__long-cases__sampler-phase-report__gold.raw.json",
+        "corrected": "target/performance/coding-harness/reconnect-2026-11-12-01/grader-loader-audit/target__performance__coding-harness__long-cases__sampler-phase-report__gold.corrected.json"
+      }
+    ]
+  },
+  "credential_audit": {
+    "active_go_keys_checked": 1,
+    "auth_files": 0,
+    "key_byte_matches": 0,
+    "files_checked": 1794,
+    "verified": true
+  },
+  "runtime_verification": {
+    "unchanged": true,
+    "after": {
+      "prefix": "/home/qweasd123tg/Code/Proteus/Proteus-desktop/build/Proteus",
+      "hashes": {
+        "bin/proteus": "1b33d368286ae8348a13aa38268da5f300c4a4aa02975077b360b7a8f1422724",
+        "bin/proteus-claude-hooks-inspect": "0084cb85a04979c36712fdb0a6e5eb550f7ef8994469dafdf3320067fb7c0962",
+        "bin/proteus-code-mode-module": "173a9c92a12ad86d214e8874f5cbffd1670061d0484f6371bed291f16d0cfc6c",
+        "bin/proteus-codex-context-preparation-module": "cdd44b0be132c6c1e8363943e95178abbdce4836b4268434243b4110670342bd",
+        "bin/proteus-codex-patch-module": "94bc2b55bc57b12f11e23c9bcf657eae4ca7d363bc69778f43ca0f4f180b1098",
+        "bin/proteus-coding-workflow-module": "7152e2dadff3c41f0804c8652521a170cbf398dc5b927001daefc7d6a4e3d1b5",
+        "bin/proteus-context-pack-module": "9fb3e9ca52b2f1c43385e8f2eafd2a5a8f3d29856cf77c381e30e2f01e443d00",
+        "bin/proteus-direct-patch-module": "e316b62d7f4a66af18f1ab3efa02a5ae037a652aa0099c6d8d13e9591b99b883",
+        "bin/proteus-file-tools-module": "7ce2685433c0184a86219f6e98008ccd260fd462497587a6844c42b7d09b0710",
+        "bin/proteus-git-tools-module": "992270fdb6da462c9d3655d8957b587e1681796826e5c5f39f6f4f1f550ba120",
+        "bin/proteus-hook-pack-module": "94ffae0abdcfdbb24928ce16fcbae123124334e1c151114382f8352c3562273b",
+        "bin/proteus-hook-worker": "5d6e0b23081a3cf1fd310fc5aa6aba391537d102d3b23d34227cac125fbeb53a",
+        "bin/proteus-memory-pack-module": "8920d6285524072bea0ac2b2b23ff1e23bad34e592f87aefdd763be4e454ede2",
+        "bin/proteus-model-pack-module": "8d153f3a549cad0788b62592fe933f3c006b20fb3465713e5a1ef7fbef6d334c",
+        "bin/proteus-native": "faf526d4c99b407b882bea800eaee6035cadf7ee784218672e112ff6e677c7a9",
+        "bin/proteus-opencode-module": "dffc3e5af71efd027408d921aedb27ea092fddbc9d5bdcd5ffe2aaf2ee59d5ef",
+        "bin/proteus-pi-module": "2dd7a281f92c7f32ce8330b7f02e4aff1b2cec7cf70dd674454d431a76a525e1",
+        "bin/proteus-plan-tool-module": "edfaa7e4c4902620be5a204caa0ca986deaa3c6f9cfba10ff9e6f7bca67c0d8e",
+        "bin/proteus-policy-pack-module": "1c59a38d87886a785a39a0547f951e17b44972ca19093cd922cb71d9789ad8e9",
+        "bin/proteus-rg-search-module": "bba15b17988f2fe49dc70f56bb765ec85b7aac10e974172c79e203b74778e327",
+        "bin/proteus-rust-lsp-module": "c65c4fd743dfa32347f0f379cf15a7620ee665af6b13749ed8924beb3c0dabcd",
+        "bin/proteus-shell-tool-module": "aa14f38ae1cc1b357767b7f8733bc1c207c9e6a08efcb9a30586476125f1a7c9",
+        "bin/proteus-skill-pack-module": "8fe02d04f1929275572aba2c339328f51788555af8f427f01f7b85dbf4b4de56",
+        "bin/proteus-sqlite-memory-module": "b3cbce76c5bfdcfbab2549b9a8ad48410ec8c01fcfaf02f344ea5d226394d8e4",
+        "bin/proteus-tool-selection-hook-module": "42aab4b5b3f10ffcb0cf37d600d69c5227277dca20c8475a5143837c5a7f1c1c",
+        "share/pi-runtime/components/module-runtime-js/canonical.mjs": "0641943e9708efc96a74dc5624672575fc15978991ac69a674f6ad26b06dd891",
+        "share/pi-runtime/components/module-runtime-js/component.mjs": "8866d2192f50d8cad5b86d2c8ffd691404b5ced8666b77996106c27b2a2e9896",
+        "share/pi-runtime/components/module-runtime-js/model-stream.mjs": "4fa97fccfbc8b8b9213ef4c51a6ecb481abb6413cb612f7f246ff6e5ddfd25ea",
+        "share/pi-runtime/components/pi-runtime-js/messages.mjs": "a277f97df7c909cf6b57b508dcc40ae4795295637b7e165c751afbe5ea29f947",
+        "share/pi-runtime/model/pi-provider/adapter.mjs": "c82e24191237c3c12cc818a99f7f4ad513edf0b0070b93496f6e21538f4fd959",
+        "share/pi-runtime/tool/pi-tools/adapter.mjs": "1d3515ffda12e0eee7a1fdd956d581c2e7c8240ff9dac341ffe85300b31c7dd2",
+        "share/pi-runtime/tool/pi-tools/component.mjs": "8866d2192f50d8cad5b86d2c8ffd691404b5ced8666b77996106c27b2a2e9896",
+        "share/pi-runtime/tool/pi-tools/package-lock.json": "b4c2e6b27417648918b621b3516e5e5b26bb8f4a1c32b6aa7822479c7a5c18cb",
+        "share/pi-runtime/tool/pi-tools/worker.mjs": "e05f05f31d0ea4e9992366e904979811a89870511c4cc3bd78a3bc52528e593b",
+        "share/pi-runtime/workflow/pi-runtime/compaction.mjs": "84d901bb805559cdc294e497b3e50ae87109ecdda5604e9402862c465a8e294d",
+        "share/pi-runtime/workflow/pi-runtime/context.mjs": "27d227e67054823ac3026d777f88c79f8ec1d1ce9794047ce97abb878e6db833",
+        "share/pi-runtime/workflow/pi-runtime/exports.mjs": "ac2df74bc96a82ce795bccfa295de653c4ed18b26c1829bc9715c20b8b8dc01f",
+        "share/pi-runtime/workflow/pi-runtime/loop.mjs": "a2e16968af588e3b08c7398aedf46150c6c70fca426fd7c62202078442003c0a",
+        "share/pi-runtime/workflow/pi-runtime/messages.mjs": "c35a9f7708bfffe14232c5db76bea4c947f66cf07d859f9eed26c6ae889cc1c7",
+        "share/pi-runtime/workflow/pi-runtime/tool-arguments.mjs": "98c4e24bd948986fad6c81d537252b92a6d20b73e02827ee33db710a5cc52d89",
+        "share/pi-runtime/workflow/pi-runtime/upstream.mjs": "48bbfecb2ca94a2d81e03da3216d4c98e6d9085b8e3d30bad2f50d59d067e927",
+        "share/opencode-runtime/components/module-runtime-js/canonical.mjs": "0641943e9708efc96a74dc5624672575fc15978991ac69a674f6ad26b06dd891",
+        "share/opencode-runtime/components/module-runtime-js/component.mjs": "8866d2192f50d8cad5b86d2c8ffd691404b5ced8666b77996106c27b2a2e9896",
+        "share/opencode-runtime/components/module-runtime-js/model-stream.mjs": "4fa97fccfbc8b8b9213ef4c51a6ecb481abb6413cb612f7f246ff6e5ddfd25ea",
+        "share/opencode-runtime/components/pi-runtime-js/messages.mjs": "d3c1eac90fdc7347878046f8498d85a11433218ec1bae6d17985ed014b5943c5",
+        "share/opencode-runtime/workflow/opencode-runtime/compaction.mjs": "56e744cc7cf94cd9fae8b19468bcac9a1d9c56a171a2327173b7033675588100",
+        "share/opencode-runtime/workflow/opencode-runtime/component.mjs": "8866d2192f50d8cad5b86d2c8ffd691404b5ced8666b77996106c27b2a2e9896",
+        "share/opencode-runtime/workflow/opencode-runtime/context.mjs": "0a855f736aabe6002886f5c06f0e743d26afd2fd1f5b3f15c101428851589d10",
+        "share/opencode-runtime/workflow/opencode-runtime/dispatch.mjs": "a98a811fb56b26d705d2375dfcfd149f579c8efd5e1e41c9f352055661e1c629",
+        "share/opencode-runtime/workflow/opencode-runtime/files.mjs": "be2a489a79ebdab63d3390c0a2b453b921887c4cfb2b390a4e95ec20bdc128cf",
+        "share/opencode-runtime/workflow/opencode-runtime/instructions.mjs": "7350b9ec1c4bde6f141c006b8a6a0d7aff6c2c3800ab3a959b91b3722ae8733d",
+        "share/opencode-runtime/workflow/opencode-runtime/location.mjs": "660d5632f74a98dbb696c74ffef83e537d9726e94984d6b61972a667355788af",
+        "share/opencode-runtime/workflow/opencode-runtime/package-lock.json": "56341c8f1f0003f93cbd5d813d2bad8198cd768e0b87d98d372135fe986f948a",
+        "share/opencode-runtime/workflow/opencode-runtime/prompt.mjs": "57507c30e021712bd6d87ea0f6b6456c4bb30015c2a017200534376983511a4b",
+        "share/opencode-runtime/workflow/opencode-runtime/repair.mjs": "72bc45af72a7075d832e145e2b6e2c861ffccb1589df5bc051951d274a005f4b",
+        "share/opencode-runtime/workflow/opencode-runtime/retry.mjs": "c9f7b4ae01fe25047e86e1d31af7dbdb8e9869cd0b7baf358b7fc7ed818e36f3",
+        "share/opencode-runtime/workflow/opencode-runtime/selection.mjs": "6d8c7480829cbe4859da1d7efb055ad86cfaa9004bdd68a3a459febc36d302d3",
+        "share/opencode-runtime/workflow/opencode-runtime/shell.mjs": "9702b7fb411494f987ac439b0b94bbe920a93c5c024f65a8e1c655e7b2b03489",
+        "share/opencode-runtime/workflow/opencode-runtime/worker.mjs": "c7ea7c48df14922583e0f184f2cfbad4e5bdba6829582036a7b1e54e28a20bde",
+        "share/opencode-runtime/workflow/opencode-runtime/workflow.mjs": "bca43be8554cd375e006bd3b5918d8ce88872b0b9fe7021478c5e564958b3f6b"
+      }
+    }
+  },
+  "cold_replay": {
+    "source": "/home/qweasd123tg/Code/Proteus/Proteus-core/target/performance/coding-harness/reconnect-2026-11-12-01/cold/flash_sampler-phase-report_1_proteus-pi",
+    "command": [
+      "bwrap",
+      "--unshare-net",
+      "--die-with-parent",
+      "--new-session",
+      "--unshare-pid",
+      "--ro-bind",
+      "/usr",
+      "/usr",
+      "--ro-bind",
+      "/etc",
+      "/etc",
+      "--symlink",
+      "usr/bin",
+      "/bin",
+      "--symlink",
+      "usr/lib",
+      "/lib",
+      "--symlink",
+      "usr/lib64",
+      "/lib64",
+      "--proc",
+      "/proc",
+      "--dev",
+      "/dev",
+      "--tmpfs",
+      "/tmp",
+      "--ro-bind",
+      "target/performance/coding-harness/reconnect-2026-11-12-01/cold/flash_sampler-phase-report_1_proteus-pi/workspace",
+      "/workspace",
+      "--ro-bind",
+      "target/performance/coding-harness/reconnect-2026-11-12-01/cold/flash_sampler-phase-report_1_proteus-pi/runtime",
+      "/state",
+      "--chdir",
+      "/workspace",
+      "--setenv",
+      "HOME",
+      "/state/home",
+      "--setenv",
+      "CODEX_HOME",
+      "/state/home/.codex",
+      "--setenv",
+      "PI_CODING_AGENT_DIR",
+      "/state/home/.pi/agent",
+      "--setenv",
+      "XDG_CONFIG_HOME",
+      "/state/home/.config",
+      "--setenv",
+      "XDG_DATA_HOME",
+      "/state/home/.local/share",
+      "--setenv",
+      "XDG_CACHE_HOME",
+      "/state/home/.cache",
+      "--setenv",
+      "XDG_STATE_HOME",
+      "/state/home/.local/state",
+      "--setenv",
+      "PATH",
+      "/runtime/bin:/usr/local/bin:/usr/bin:/bin",
+      "--setenv",
+      "TMPDIR",
+      "/tmp",
+      "--ro-bind",
+      "/home/qweasd123tg/Code/Proteus/Proteus-desktop/build/Proteus/bin",
+      "/runtime/bin",
+      "--ro-bind",
+      "/home/qweasd123tg/Code/Proteus/Proteus-desktop/build/Proteus/share/pi-runtime",
+      "/runtime/share/pi-runtime",
+      "--ro-bind",
+      "target/performance/coding-harness/reconnect-2026-11-12-01/cold/flash_sampler-phase-report_1_proteus-pi/runtime/configs",
+      "/runtime/configs",
+      "--ro-bind",
+      "target/performance/coding-harness/reconnect-2026-11-12-01/cold/flash_sampler-phase-report_1_proteus-pi/runtime/sessions",
+      "/runtime/sessions",
+      "--ro-bind",
+      "/home/qweasd123tg/Code/Proteus/Proteus-core/target/performance/coding-harness/reconnect-2026-11-12-01/cold-replay-new-turn/replay.config.json",
+      "/replay.config.json",
+      "--",
+      "/runtime/bin/proteus",
+      "--config",
+      "/replay.config.json",
+      "replay",
+      "workflow",
+      "/state/sessions/workspace/8644784151",
+      "--json",
+      "--turn-id",
+      "8e7f9065-98db-4e55-9e6d-5fad80706dd8"
+    ],
+    "returncode": 0,
+    "timed_out": false,
+    "network": "bubblewrap --unshare-net",
+    "source_mounts": "read-only",
+    "credentials": {
+      "auth_files": 0,
+      "active_go_keys_checked": 1,
+      "key_byte_matches": 0
+    },
+    "journal_sha256_before": "447b3372ce1e7b624efaecff39d587498f3d6341c870747d8153a97ea4d3722a",
+    "journal_sha256_after": "447b3372ce1e7b624efaecff39d587498f3d6341c870747d8153a97ea4d3722a",
+    "workspace_unchanged": true,
+    "session_files_unchanged": true,
+    "matched": true,
+    "model_exchanges": {
+      "recorded": 7,
+      "replayed": 7
+    },
+    "tool_calls": {
+      "recorded": 9,
+      "replayed": 9
+    },
+    "issues": [],
+    "audit_ok": true
+  },
+  "complete": true
+}

@@ -1,17 +1,59 @@
 """Offline regressions for benchmark accounting and process containment."""
+from contextlib import chdir
 import json
 from pathlib import Path
+import runpy
 import subprocess
+import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
 import adapters
+import corpus
 import runner
 
 
 class RunnerChecks(unittest.TestCase):
+    def test_sampler_grader_supports_standard_dataclass_import(self):
+        grader = Path(__file__).with_name('long_repo_fixtures')/'sampler-phase-report/grader/test_outputs.py'
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            module = root/'examples/performance/common/phase_report.py'
+            module.parent.mkdir(parents=True)
+            module.write_text('from __future__ import annotations\nfrom dataclasses import dataclass\n'
+                              '@dataclass\nclass Row:\n    value: int\n'
+                              'def summarize():\n    return Row(7)\n')
+            try:
+                # This regression exercises the real loader without requiring
+                # host pytest; the grader's parameterized test bodies stay idle.
+                pytest_stub = SimpleNamespace(mark=SimpleNamespace(
+                    parametrize=lambda *args, **kwargs: lambda function: function))
+                with patch.dict(sys.modules, {'pytest':pytest_stub}):
+                    scope = runpy.run_path(str(grader))
+                load = scope['load']
+                load.__globals__['ROOT'] = root
+                value = load()()
+                self.assertEqual(value.value, 7)
+                self.assertIs(sys.modules[value.__class__.__module__].Row, type(value))
+            finally:
+                sys.modules.pop('phase_under_test', None)
+
+    def test_relative_workspace_preserves_protected_files_in_grader(self):
+        with tempfile.TemporaryDirectory() as directory, chdir(directory):
+            case, workspace = Path("case"), Path("workspace")
+            (case/"grader").mkdir(parents=True)
+            workspace.mkdir()
+            protected = workspace/"release_test.py"
+            protected.write_text("original")
+            corpus.write_json(case/"case.json", {"id":"example", "grader_hashes":{},
+                              "repo_hashes":{protected.name:corpus.digest(protected)}, "command":["true"]})
+            with patch.object(corpus, "sandbox", return_value={"returncode":0}):
+                self.assertTrue(corpus.grade(case, workspace, None)["passed"])
+                protected.write_text("modified")
+                self.assertFalse(corpus.grade(case, workspace, None)["passed"])
+
     def test_native_pi_input_excludes_cached_input(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory)

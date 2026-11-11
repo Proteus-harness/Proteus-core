@@ -14,7 +14,13 @@ CLI = ROOT/'examples/performance/summarize.py'
 def load():
     path=ROOT/'examples/performance/common/phase_report.py'
     spec=importlib.util.spec_from_file_location('phase_under_test',path)
-    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+    module=importlib.util.module_from_spec(spec)
+    sys.modules[spec.name]=module
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        sys.modules.pop(spec.name, None)
+        raise
     return module.summarize
 
 
