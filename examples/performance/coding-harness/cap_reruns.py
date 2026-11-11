@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -143,10 +144,31 @@ def evidence(case,root):
     wire_selection=bool(wire and all(row['model']=='deepseek-v4.1-flash'and row['reasoning_effort']=='high'for row in wire))
     cap_removed=bool(caps and all(cap is None or cap==catalog['maxTokens']for cap in caps)
                      and wire and all(cap is None or cap==catalog['maxTokens']for cap in observed_wire_caps))
+    stop_path=root/'user-stop.json'
+    stopped=stop_path.exists() and case in json.loads(stop_path.read_text())['cases']
+    session=next((output/'runtime/sessions').rglob('journal.jsonl')).parent
+    recorded=list(reconnect.journal_reader()(session))
+    outcomes=[payload['outcome'] for header,payload in recorded if header['kind']=='model_response_recorded']
+    completed=[outcome['response'] for outcome in outcomes if outcome['status']=='response']
+    reported=[response.get('usage',{}).get('output_tokens') for response in completed]
+    known=[value for value in reported if type(value)is int]
+    unknown_exchanges=len(current)-len(known)
+    counts={label:int(number) for number,label in re.findall(r'(\d+) (passed|failed)',grade['output'])}
+    observer=output/'runtime/executed-cap_wire_observer.mjs'
+    observer_expected=json.loads((output/'runtime/observer-provenance.json').read_text())['executed_sha256']
     row={'case':case,'source':reconnect.relative(output),'baseline':reconnect.relative(sources()[case]),
          'pipeline_ok':result['pipeline_ok'],'grade':grade['passed'],
          'pass':result['pipeline_ok']and grade['passed'],'seconds':result['wall_seconds'],
          'timed_out':result.get('timed_out'), 'model_verified':result.get('model_verified'),
+         'user_stopped':stopped,'termination_reason':'user_stopped' if stopped else 'deadline' if result.get('timed_out') else 'settled',
+         'evaluation_state':'interim_frozen_workspace' if stopped else 'completed_attempt',
+         'test_counts':counts,
+         'completed_responses_with_output_usage':len(known),
+         'maximum_completed_response_output_tokens':max(known,default=None),
+         'completed_responses_over_16384':sum(value>16384 for value in known),
+         'model_exchanges_with_unknown_output_usage':unknown_exchanges,
+         'unwritten_response_output_tokens':None if unknown_exchanges else 0,
+         'observer_sha256_verified':runner.digest(observer)==observer_expected,
          'reasoning_verified':result.get('reasoning_verified'),'auth_removed':result.get('auth_removed'),
          'requests':result['metrics']['model_requests'],'actions':result['metrics']['all_tool_calls'],
          'same_conditions':same,'canonical_caps':caps,'wire_caps':observed_wire_caps,
@@ -157,7 +179,7 @@ def evidence(case,root):
          'model_failures':[x for x in result['metrics'].get('failures',[])if x.get('kind')=='model'],
          'trace':reconnect.trace_evidence(output),**reconnect.usage_summary(result,result['metrics'])}
     row['verification_ok']=bool(all(same.values())and wire_selection and cap_removed
-                                and row['model_verified']and row['reasoning_verified'])
+                                and row['model_verified']and row['reasoning_verified']and row['observer_sha256_verified'])
     reconnect.write_json(output/'cap-evidence.json',row)
     return row
 
@@ -170,26 +192,49 @@ def report(root,destination):
           'runtime':json.loads((root/'runtime-unchanged.json').read_text()),
           'frozen_sources':json.loads((root/'frozen-sources-unchanged.json').read_text()),
           'selection':json.loads((root/'selection.json').read_text())}
+    for name in ('user-stop','source-provenance','credential-audit'):
+        if (root/(name+'.json')).exists():data[name.replace('-','_')]=json.loads((root/(name+'.json')).read_text())
     reconnect.write_json(destination.with_suffix('.json'),data)
     yes=lambda value:'да'if value else'нет'
     lines=['# Повторы Codex после снятия ограничения ответа','',
-           'Три отдельные чистые попытки на DeepSeek V4.1 Flash/high, по 20 минут. '
-           'Исходные десять запусков сохранены. Новые траектории случайны; это не парное воспроизведение ответа.', '',
-           '| Задача | Процесс завершён | Тесты пройдены | Время | Действия | Запросы | Лимит исправлен |',
-           '|---|---|---|---:|---:|---:|---|']
+           'Три отдельных чистых запуска на DeepSeek V4.1 Flash/high остановлены по просьбе пользователя '
+           'примерно через 13 минут, до исходного лимита 20 минут. Это промежуточные результаты сохранённых '
+           'рабочих каталогов, проверенные offline после остановки. Исходные десять запусков сохранены.', '',
+           'Это профиль Codex в Proteus через Pi Chat Completions. Нативный Codex на DeepSeek здесь не запускался.', '',
+           '| Задача | Статус процесса | Проверка кода после остановки | Время | Действия | Запросы |',
+           '|---|---|---|---:|---:|---:|']
     for row in rows:
         duration=f"{round(row['seconds']):,}".replace(',',' ')
-        lines.append(f"| {row['case']} | {yes(row['pipeline_ok'])} | {yes(row['grade'])} | {duration} с | "
-                     f"{row['actions']} | {row['requests']} | {yes(row['cap_removed_verified'])} |")
-    lines+=['',f"Процесс и тесты прошли {sum(row['pass']for row in rows)}/3. "
+        counts=row['test_counts'];checked='пройдена' if row['grade']else f"{counts.get('passed',0)} пройдено, {counts.get('failed',0)} не пройдено"
+        status='остановлен пользователем' if row['user_stopped']else 'завершён' if row['pipeline_ok']else 'ошибка'
+        lines.append(f"| {row['case']} | {status} | {checked} | {duration} с | {row['actions']} | {row['requests']} |")
+    lines+=['',f"Полностью завершённых успешных запусков: {sum(row['pass']for row in rows)}/3. "
+            'Scheme проходит authoritative grader. В journal остаётся ошибка проверки завершающего LF '
+            'у truncated legacy; ledger остановлен до завершения реализации. '
+            'Эти промежуточные оценки не прибавляются к завершённой матрице из десяти запусков.', '',
             'Проверены canonical requests и реальные HTTP request fields через наблюдатель, '
             'который сохраняет только метаданные и не изменяет запросы, ответы или streams.', '',
+            'Во всех трёх задачах реальный wire содержит max_tokens=384000 и reasoning_effort=high; '
+            'первые canonical requests совпадают с прежними после исключения cap и идентификаторов. '
             'Каталог установленного Pi ModelRuntime сообщает 384 000 токенов ответа. '
             'Отсутствующее поле wire cap означает отсутствие клиентского ограничения; '
             'фактический максимум сервера этим не доказан. Полные значения и ошибки записаны в JSON.', '',
             'Прежние cap-controls для journal и ledger уже меняли canonical cap на 384 000, '
             'но оба завершились обрывом сокета. Тогда реальный wire не наблюдался, '
             'поэтому те проверки не подтверждают результат нынешнего исправления.', '',
+            '| Задача | Максимум output_tokens одного завершённого ответа | Ответов >16 384 | Ответов без известного output usage |',
+            '|---|---:|---:|---:|']
+    for row in rows:
+        lines.append(f"| {row['case']} | {row['maximum_completed_response_output_tokens']} | "
+                     f"{row['completed_responses_over_16384']} | {row['model_exchanges_with_unknown_output_usage']} |")
+    lines+=['', 'Это provider usage завершённых model exchanges, включая reasoning в output_tokens. '
+            'Токены недописанных ответов неизвестны. Journal и ledger действительно получили целые ответы '
+            'длиннее прежних 16 384 токенов. Рост успешности по одному случайному запуску не доказан.', '',
+            'У native Codex 0.167.0 структура ResponsesApiRequest не содержит output-поля. '
+            '[Источник](https://github.com/openai/codex/blob/086ccc833bc9cf01024ad2dd6af7dbd421b6bf9a/codex-rs/codex-api/src/common.rs#L281). '
+            'Для Flash при умеренном контексте native Pi допускает до 384 000, native OpenCode — до 256 000. '
+            '[Pi](https://github.com/earendil-works/pi/blob/v1.5.2/packages/ai/src/api/simple-options.ts#L49), '
+            '[OpenCode](https://github.com/anomalyco/opencode/blob/527f0b931d1f9b3ebd34e106c51b31ce5db5b075/packages/core/src/session/model-request.ts#L48).', '',
             f"Снимок программы/runtime сохранился: {yes(data['runtime']['unchanged'])}. "
             f"Исходные результаты сохранились: {yes(data['frozen_sources']['unchanged'])}."]
     destination.with_suffix('.md').write_text('\n'.join(lines)+'\n')

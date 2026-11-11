@@ -1,0 +1,1284 @@
+{
+  "model": "opencode-go/deepseek-v4.1-flash",
+  "effort": "high",
+  "timeout_seconds": 1200,
+  "concurrency": 3,
+  "source": "target/performance/coding-harness/codex-cap-2026-11-12-01",
+  "rows": [
+    {
+      "case": "schemelike-metacircular-eval",
+      "source": "target/performance/coding-harness/codex-cap-2026-11-12-01/flash_schemelike-metacircular-eval_1_proteus-codex",
+      "baseline": "target/performance/coding-harness/reconnect-2026-11-12-01/fresh/flash_schemelike-metacircular-eval_1_proteus-codex",
+      "pipeline_ok": false,
+      "grade": true,
+      "pass": false,
+      "seconds": 791.9520186419977,
+      "timed_out": false,
+      "model_verified": true,
+      "user_stopped": true,
+      "termination_reason": "user_stopped",
+      "evaluation_state": "interim_frozen_workspace",
+      "test_counts": {
+        "passed": 1
+      },
+      "completed_responses_with_output_usage": 29,
+      "maximum_completed_response_output_tokens": 9394,
+      "completed_responses_over_16384": 0,
+      "model_exchanges_with_unknown_output_usage": 0,
+      "unwritten_response_output_tokens": 0,
+      "observer_sha256_verified": true,
+      "reasoning_verified": true,
+      "auth_removed": true,
+      "requests": 29,
+      "actions": 39,
+      "same_conditions": {
+        "prompt": true,
+        "fixture": true,
+        "model_effort": true,
+        "initial_request_except_cap_and_ids": true
+      },
+      "canonical_caps": [
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000
+      ],
+      "wire_caps": [
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000
+      ],
+      "wire_selection_verified": true,
+      "catalog_max_tokens": 384000,
+      "wire_cap_omitted": false,
+      "wire_server_limit_known": false,
+      "cap_removed_verified": true,
+      "wire_events": [
+        {
+          "event": "request",
+          "attempt": 1,
+          "model": "deepseek-v4.1-flash",
+          "reasoning_effort": "high",
+          "max_tokens": 384000,
+          "max_completion_tokens": null,
+          "request_body_sha256": "c42b3a12bceb447b8b6750a2fb1da43011e6a85c34e523fd2109101c15ddc113"
+        },
+        {
+          "event": "response",
+          "attempt": 1,
+          "status": 200
+        },
+        {
+          "event": "request",
+          "attempt": 2,
+          "model": "deepseek-v4.1-flash",
+          "reasoning_effort": "high",
+          "max_tokens": 384000,
+          "max_completion_tokens": null,
+          "request_body_sha256": "39a1bbca1ab29de80b781aef809c81345a2a76b707f09b1560ff694ef1bf1070"
+        },
+        {
+          "event": "response",
+          "attempt": 2,
+          "status": 200
+        },
+        {
+          "event": "request",
+          "attempt": 3,
+          "model": "deepseek-v4.1-flash",
+          "reasoning_effort": "high",
+          "max_tokens": 384000,
+          "max_completion_tokens": null,
+          "request_body_sha256": "35273a583f1ec9668227df5e9c1d5a7a35c906f4750a8893057b0bfafe9c1322"
+        },
+        {
+          "event": "response",
+          "attempt": 3,
+          "status": 200
+        },
+        {
+          "event": "request",
+          "attempt": 4,
+          "model": "deepseek-v4.1-flash",
+          "reasoning_effort": "high",
+          "max_tokens": 384000,
+          "max_completion_tokens": null,
+          "request_body_sha256": "0b858358e8c8941d741aeb856923a9d0b88c450acbaecbd28b2cbd7bb580526b"
+        },
+        {
+          "event": "response",
+          "attempt": 4,
+          "status": 200
+        },
+        {
+          "event": "request",
+          "attempt": 5,
+          "model": "deepseek-v4.1-flash",
+          "reasoning_effort": "high",
+          "max_tokens": 384000,
+          "max_completion_tokens": null,
+          "request_body_sha256": "e15204d846d4b1007298b47ed2cd2e3d71a78df2311c42c1147c982fc95fe477"
+        },
+        {
+          "event": "response",
+          "attempt": 5,
+          "status": 200
+        },
+        {
+          "event": "request",
+          "attempt": 6,
+          "model": "deepseek-v4.1-flash",
+          "reasoning_effort": "high",
+          "max_tokens": 384000,
+          "max_completion_tokens": null,
+          "request_body_sha256": "1a33f2bcdc877341b40a15e0fda0543b4df3528e0d53ff650d02f01fa7506d9a"
+        },
+        {
+          "event": "response",
+          "attempt": 6,
+          "status": 200
+        },
+        {
+          "event": "request",
+          "attempt": 7,
+          "model": "deepseek-v4.1-flash",
+          "reasoning_effort": "high",
+          "max_tokens": 384000,
+          "max_completion_tokens": null,
+          "request_body_sha256": "837905d39d236b11543aedae7119e9cfa17a5c33e71b163e954dc21c717259c9"
+        },
+        {
+          "event": "response",
+          "attempt": 7,
+          "status": 200
+        },
+        {
+          "event": "request",
+          "attempt": 8,
+          "model": "deepseek-v4.1-flash",
+          "reasoning_effort": "high",
+          "max_tokens": 384000,
+          "max_completion_tokens": null,
+          "request_body_sha256": "94bb2bdb41966c24a7c8774de8c3025f66d204a884f8048656aef3e0b9dad405"
+        },
+        {
+          "event": "response",
+          "attempt": 8,
+          "status": 200
+        },
+        {
+          "event": "request",
+          "attempt": 9,
+          "model": "deepseek-v4.1-flash",
+          "reasoning_effort": "high",
+          "max_tokens": 384000,
+          "max_completion_tokens": null,
+          "request_body_sha256": "49d0910282285a3d40a0a8e4c082304d392b62b2d8e1361a2f2ef033b9f0f9c6"
+        },
+        {
+          "event": "response",
+          "attempt": 9,
+          "status": 200
+        },
+        {
+          "event": "request",
+          "attempt": 10,
+          "model": "deepseek-v4.1-flash",
+          "reasoning_effort": "high",
+          "max_tokens": 384000,
+          "max_completion_tokens": null,
+          "request_body_sha256": "10742dc8e433cdbf81f34a7cd268e9f66b7e28a7388d4e656539eb211ebc0188"
+        },
+        {
+          "event": "response",
+          "attempt": 10,
+          "status": 200
+        },
+        {
+          "event": "request",
+          "attempt": 11,
+          "model": "deepseek-v4.1-flash",
+          "reasoning_effort": "high",
+          "max_tokens": 384000,
+          "max_completion_tokens": null,
+          "request_body_sha256": "72a4029009fbd3f15bcf6bb1d4822a5635abeac8e1b8f3508ad18efb37936346"
+        },
+        {
+          "event": "response",
+          "attempt": 11,
+          "status": 200
+        },
+        {
+          "event": "request",
+          "attempt": 12,
+          "model": "deepseek-v4.1-flash",
+          "reasoning_effort": "high",
+          "max_tokens": 384000,
+          "max_completion_tokens": null,
+          "request_body_sha256": "289aef45004dddd70d81316fe607e98f992d22e437e85725007a4b8396b38f3c"
+        },
+        {
+          "event": "response",
+          "attempt": 12,
+          "status": 200
+        },
+        {
+          "event": "request",
+          "attempt": 13,
+          "model": "deepseek-v4.1-flash",
+          "reasoning_effort": "high",
+          "max_tokens": 384000,
+          "max_completion_tokens": null,
+          "request_body_sha256": "fb979170aca8da9c019d760dbeb9e4971ce88e3741963908be0a09a7b7ef7a45"
+        },
+        {
+          "event": "response",
+          "attempt": 13,
+          "status": 200
+        },
+        {
+          "event": "request",
+          "attempt": 14,
+          "model": "deepseek-v4.1-flash",
+          "reasoning_effort": "high",
+          "max_tokens": 384000,
+          "max_completion_tokens": null,
+          "request_body_sha256": "1bb260d9530928418d07c36a018f2d9093a87cb882eb221e63e9448e14eae9f4"
+        },
+        {
+          "event": "response",
+          "attempt": 14,
+          "status": 200
+        },
+        {
+          "event": "request",
+          "attempt": 15,
+          "model": "deepseek-v4.1-flash",
+          "reasoning_effort": "high",
+          "max_tokens": 384000,
+          "max_completion_tokens": null,
+          "request_body_sha256": "07c7b83f8f293f8de7c519d682a392f9f4906d0573a4e161a430c1f03bf6a2c8"
+        },
+        {
+          "event": "response",
+          "attempt": 15,
+          "status": 200
+        },
+        {
+          "event": "request",
+          "attempt": 16,
+          "model": "deepseek-v4.1-flash",
+          "reasoning_effort": "high",
+          "max_tokens": 384000,
+          "max_completion_tokens": null,
+          "request_body_sha256": "e631a869833d0417e5d0ac634076e81bc688d009284ca2dcd5a0fff0a28a5d86"
+        },
+        {
+          "event": "response",
+          "attempt": 16,
+          "status": 200
+        },
+        {
+          "event": "request",
+          "attempt": 17,
+          "model": "deepseek-v4.1-flash",
+          "reasoning_effort": "high",
+          "max_tokens": 384000,
+          "max_completion_tokens": null,
+          "request_body_sha256": "6ffac0fc548b93ad783e4ace6b775d95beb3c5f315de2872435a6d5f95a0f80a"
+        },
+        {
+          "event": "response",
+          "attempt": 17,
+          "status": 200
+        },
+        {
+          "event": "request",
+          "attempt": 18,
+          "model": "deepseek-v4.1-flash",
+          "reasoning_effort": "high",
+          "max_tokens": 384000,
+          "max_completion_tokens": null,
+          "request_body_sha256": "29239a7c44202f0029039dc3438012d82bb35c5e31102107c5f4f0d4c33537dd"
+        },
+        {
+          "event": "response",
+          "attempt": 18,
+          "status": 200
+        },
+        {
+          "event": "request",
+          "attempt": 19,
+          "model": "deepseek-v4.1-flash",
+          "reasoning_effort": "high",
+          "max_tokens": 384000,
+          "max_completion_tokens": null,
+          "request_body_sha256": "d200f99f542bcd2f4c5d931804ff0e339ae9b928ddfbf4a5f5873999a041ff1f"
+        },
+        {
+          "event": "response",
+          "attempt": 19,
+          "status": 200
+        },
+        {
+          "event": "request",
+          "attempt": 20,
+          "model": "deepseek-v4.1-flash",
+          "reasoning_effort": "high",
+          "max_tokens": 384000,
+          "max_completion_tokens": null,
+          "request_body_sha256": "d7b6ea4894e9cc947608b70e11b8efab53123effd77f62c4c61c9447a4976624"
+        },
+        {
+          "event": "response",
+          "attempt": 20,
+          "status": 200
+        },
+        {
+          "event": "request",
+          "attempt": 21,
+          "model": "deepseek-v4.1-flash",
+          "reasoning_effort": "high",
+          "max_tokens": 384000,
+          "max_completion_tokens": null,
+          "request_body_sha256": "3b6f01f72fc9aea556b3b075d89e310ecd5ca4f1ed7e175ef685571bdcd30a72"
+        },
+        {
+          "event": "response",
+          "attempt": 21,
+          "status": 200
+        },
+        {
+          "event": "request",
+          "attempt": 22,
+          "model": "deepseek-v4.1-flash",
+          "reasoning_effort": "high",
+          "max_tokens": 384000,
+          "max_completion_tokens": null,
+          "request_body_sha256": "d20e3d396306a520a3ec33e918b7ee1bca159f0597bf0d5d66b60d84b12194a5"
+        },
+        {
+          "event": "response",
+          "attempt": 22,
+          "status": 200
+        },
+        {
+          "event": "request",
+          "attempt": 23,
+          "model": "deepseek-v4.1-flash",
+          "reasoning_effort": "high",
+          "max_tokens": 384000,
+          "max_completion_tokens": null,
+          "request_body_sha256": "09055f1b5d34db4b1cc3dfd7b1736e8df495041ae4e9dd529717c17f8e407b36"
+        },
+        {
+          "event": "response",
+          "attempt": 23,
+          "status": 200
+        },
+        {
+          "event": "request",
+          "attempt": 24,
+          "model": "deepseek-v4.1-flash",
+          "reasoning_effort": "high",
+          "max_tokens": 384000,
+          "max_completion_tokens": null,
+          "request_body_sha256": "9f2050418586c00cca869b0ac4319f57b3ad2439179a07cf4df6726c98ebf30f"
+        },
+        {
+          "event": "response",
+          "attempt": 24,
+          "status": 200
+        },
+        {
+          "event": "request",
+          "attempt": 25,
+          "model": "deepseek-v4.1-flash",
+          "reasoning_effort": "high",
+          "max_tokens": 384000,
+          "max_completion_tokens": null,
+          "request_body_sha256": "5007460db18b5d295fad3db34ec3aaf1d5b6161e05cbb91373d09ae36ec2ed5b"
+        },
+        {
+          "event": "response",
+          "attempt": 25,
+          "status": 200
+        },
+        {
+          "event": "request",
+          "attempt": 26,
+          "model": "deepseek-v4.1-flash",
+          "reasoning_effort": "high",
+          "max_tokens": 384000,
+          "max_completion_tokens": null,
+          "request_body_sha256": "1ed8a3ef1dfd09ebd5c6fe290be07e649b26d4e8ffc38e0f7ad994e7ac7a62b6"
+        },
+        {
+          "event": "response",
+          "attempt": 26,
+          "status": 200
+        },
+        {
+          "event": "request",
+          "attempt": 27,
+          "model": "deepseek-v4.1-flash",
+          "reasoning_effort": "high",
+          "max_tokens": 384000,
+          "max_completion_tokens": null,
+          "request_body_sha256": "69257bed18929156f4467f8ed9a044063fea6d8c264496567ec848f0ed934c31"
+        },
+        {
+          "event": "response",
+          "attempt": 27,
+          "status": 200
+        },
+        {
+          "event": "request",
+          "attempt": 28,
+          "model": "deepseek-v4.1-flash",
+          "reasoning_effort": "high",
+          "max_tokens": 384000,
+          "max_completion_tokens": null,
+          "request_body_sha256": "8e978cc7456a4d49a26c3c4397ad2f0288cf871ae376909f73fb33d9047e9532"
+        },
+        {
+          "event": "response",
+          "attempt": 28,
+          "status": 200
+        },
+        {
+          "event": "request",
+          "attempt": 29,
+          "model": "deepseek-v4.1-flash",
+          "reasoning_effort": "high",
+          "max_tokens": 384000,
+          "max_completion_tokens": null,
+          "request_body_sha256": "ae0eb0d67f89003e8a6e5c372b4f0c4c1d171a61159ebc49b3c9a72e1c509082"
+        },
+        {
+          "event": "response",
+          "attempt": 29,
+          "status": 200
+        }
+      ],
+      "model_failures": [],
+      "trace": {
+        "retryable_failures": [],
+        "duplicate_requested_call_ids": [],
+        "model_exchanges": 29,
+        "completed_model_exchanges": 29,
+        "requested_output_limits": [
+          384000
+        ],
+        "journal_sha256": "005aaf7b45bd203d273fba26881c5cefb200f51d2be910c1b479da52f686c99e",
+        "session": "target/performance/coding-harness/codex-cap-2026-11-12-01/flash_schemelike-metacircular-eval_1_proteus-codex/runtime/sessions/workspace/3243919914"
+      },
+      "usage_complete": true,
+      "tokens": {
+        "input_tokens": 1596106,
+        "output_tokens": 31138,
+        "cached_input_tokens": 1514880,
+        "cache_creation_input_tokens": 0,
+        "reasoning_output_tokens": 16012,
+        "uncached_input_tokens": 81226
+      },
+      "observed_partial_usage": {
+        "input_tokens": 1596106,
+        "output_tokens": 31138,
+        "cached_input_tokens": 1514880,
+        "cache_creation_input_tokens": 0,
+        "reasoning_output_tokens": 16012,
+        "uncached_input_tokens": 81226
+      },
+      "verification_ok": true
+    },
+    {
+      "case": "journal-segments",
+      "source": "target/performance/coding-harness/codex-cap-2026-11-12-01/flash_journal-segments_1_proteus-codex",
+      "baseline": "target/performance/coding-harness/reconnect-2026-11-12-01/fresh/flash_journal-segments_1_proteus-codex",
+      "pipeline_ok": false,
+      "grade": false,
+      "pass": false,
+      "seconds": 791.9467237439967,
+      "timed_out": false,
+      "model_verified": true,
+      "user_stopped": true,
+      "termination_reason": "user_stopped",
+      "evaluation_state": "interim_frozen_workspace",
+      "test_counts": {
+        "failed": 1,
+        "passed": 36
+      },
+      "completed_responses_with_output_usage": 13,
+      "maximum_completed_response_output_tokens": 23039,
+      "completed_responses_over_16384": 1,
+      "model_exchanges_with_unknown_output_usage": 1,
+      "unwritten_response_output_tokens": null,
+      "observer_sha256_verified": true,
+      "reasoning_verified": true,
+      "auth_removed": true,
+      "requests": 14,
+      "actions": 23,
+      "same_conditions": {
+        "prompt": true,
+        "fixture": true,
+        "model_effort": true,
+        "initial_request_except_cap_and_ids": true
+      },
+      "canonical_caps": [
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000
+      ],
+      "wire_caps": [
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000
+      ],
+      "wire_selection_verified": true,
+      "catalog_max_tokens": 384000,
+      "wire_cap_omitted": false,
+      "wire_server_limit_known": false,
+      "cap_removed_verified": true,
+      "wire_events": [
+        {
+          "event": "request",
+          "attempt": 1,
+          "model": "deepseek-v4.1-flash",
+          "reasoning_effort": "high",
+          "max_tokens": 384000,
+          "max_completion_tokens": null,
+          "request_body_sha256": "dc972d2594a47c1af0b4ce9e06134fa285b545a5c148ff1d74651ebee13bbe1b"
+        },
+        {
+          "event": "response",
+          "attempt": 1,
+          "status": 200
+        },
+        {
+          "event": "request",
+          "attempt": 2,
+          "model": "deepseek-v4.1-flash",
+          "reasoning_effort": "high",
+          "max_tokens": 384000,
+          "max_completion_tokens": null,
+          "request_body_sha256": "a54bc49e26b64480b31087a9e70f5349f6fe30cb2f9bc19135561252b1d9169b"
+        },
+        {
+          "event": "response",
+          "attempt": 2,
+          "status": 200
+        },
+        {
+          "event": "request",
+          "attempt": 3,
+          "model": "deepseek-v4.1-flash",
+          "reasoning_effort": "high",
+          "max_tokens": 384000,
+          "max_completion_tokens": null,
+          "request_body_sha256": "24e2112564f52fa0eec7c93a5dca68d3cef7a158cadc4ec5cc379016815994b0"
+        },
+        {
+          "event": "response",
+          "attempt": 3,
+          "status": 200
+        },
+        {
+          "event": "request",
+          "attempt": 4,
+          "model": "deepseek-v4.1-flash",
+          "reasoning_effort": "high",
+          "max_tokens": 384000,
+          "max_completion_tokens": null,
+          "request_body_sha256": "03b25a1c545b638c9d9403efc7d49faded239b062b95eebbaae825d234a47200"
+        },
+        {
+          "event": "response",
+          "attempt": 4,
+          "status": 200
+        },
+        {
+          "event": "request",
+          "attempt": 5,
+          "model": "deepseek-v4.1-flash",
+          "reasoning_effort": "high",
+          "max_tokens": 384000,
+          "max_completion_tokens": null,
+          "request_body_sha256": "53ed5183eea12bf215aff053749cc356d293adce4a1b4935f7a833e141ba4ab2"
+        },
+        {
+          "event": "response",
+          "attempt": 5,
+          "status": 200
+        },
+        {
+          "event": "request",
+          "attempt": 6,
+          "model": "deepseek-v4.1-flash",
+          "reasoning_effort": "high",
+          "max_tokens": 384000,
+          "max_completion_tokens": null,
+          "request_body_sha256": "213865dfce626b6cbfdd0dd4ec4b97a3d77e0df9dc1699e6124fdcad422855ad"
+        },
+        {
+          "event": "response",
+          "attempt": 6,
+          "status": 200
+        },
+        {
+          "event": "request",
+          "attempt": 7,
+          "model": "deepseek-v4.1-flash",
+          "reasoning_effort": "high",
+          "max_tokens": 384000,
+          "max_completion_tokens": null,
+          "request_body_sha256": "47266b165e06a2b31b747edd9e53a6700effe83ca21aa2a3f0b1874db928e065"
+        },
+        {
+          "event": "response",
+          "attempt": 7,
+          "status": 200
+        },
+        {
+          "event": "request",
+          "attempt": 8,
+          "model": "deepseek-v4.1-flash",
+          "reasoning_effort": "high",
+          "max_tokens": 384000,
+          "max_completion_tokens": null,
+          "request_body_sha256": "b2fddf5791155a327e060bf54210cb553a48950a29578b1abdbd9f9a2bcfada3"
+        },
+        {
+          "event": "response",
+          "attempt": 8,
+          "status": 200
+        },
+        {
+          "event": "request",
+          "attempt": 9,
+          "model": "deepseek-v4.1-flash",
+          "reasoning_effort": "high",
+          "max_tokens": 384000,
+          "max_completion_tokens": null,
+          "request_body_sha256": "619a3b3d5e2086f44ed21a4d5799de228069c431db94e619785beab7592354ed"
+        },
+        {
+          "event": "response",
+          "attempt": 9,
+          "status": 200
+        },
+        {
+          "event": "request",
+          "attempt": 10,
+          "model": "deepseek-v4.1-flash",
+          "reasoning_effort": "high",
+          "max_tokens": 384000,
+          "max_completion_tokens": null,
+          "request_body_sha256": "13010d8f5cdfe4004db73ecb565177596ab8534807f5003639e489dcdbc9034a"
+        },
+        {
+          "event": "response",
+          "attempt": 10,
+          "status": 200
+        },
+        {
+          "event": "request",
+          "attempt": 11,
+          "model": "deepseek-v4.1-flash",
+          "reasoning_effort": "high",
+          "max_tokens": 384000,
+          "max_completion_tokens": null,
+          "request_body_sha256": "fa6a456171e9fe8d6cdcb043287178795485995adbe7c594ae02a5b64160cb20"
+        },
+        {
+          "event": "response",
+          "attempt": 11,
+          "status": 200
+        },
+        {
+          "event": "request",
+          "attempt": 12,
+          "model": "deepseek-v4.1-flash",
+          "reasoning_effort": "high",
+          "max_tokens": 384000,
+          "max_completion_tokens": null,
+          "request_body_sha256": "26a5596c8be9f785a0850c8f4d97796df51d1fabbd510b4c6020bb1add224946"
+        },
+        {
+          "event": "response",
+          "attempt": 12,
+          "status": 200
+        },
+        {
+          "event": "request",
+          "attempt": 13,
+          "model": "deepseek-v4.1-flash",
+          "reasoning_effort": "high",
+          "max_tokens": 384000,
+          "max_completion_tokens": null,
+          "request_body_sha256": "3221a09005415636126661e85fd64f8c0e8a3737b2f5ca383ec22b61a2ce7926"
+        },
+        {
+          "event": "response",
+          "attempt": 13,
+          "status": 200
+        },
+        {
+          "event": "request",
+          "attempt": 14,
+          "model": "deepseek-v4.1-flash",
+          "reasoning_effort": "high",
+          "max_tokens": 384000,
+          "max_completion_tokens": null,
+          "request_body_sha256": "3b7a34a9d1e48f2391e838ef97b9eb2419e2c2b49f4dc9573434e78ea16fd341"
+        },
+        {
+          "event": "response",
+          "attempt": 14,
+          "status": 200
+        }
+      ],
+      "model_failures": [],
+      "trace": {
+        "retryable_failures": [],
+        "duplicate_requested_call_ids": [],
+        "model_exchanges": 14,
+        "completed_model_exchanges": 13,
+        "requested_output_limits": [
+          384000
+        ],
+        "journal_sha256": "c21dee63560d7615c450dd873aff4ffcdddcfdd42eff53e81d9381f68b72f097",
+        "session": "target/performance/coding-harness/codex-cap-2026-11-12-01/flash_journal-segments_1_proteus-codex/runtime/sessions/workspace/1899102112"
+      },
+      "usage_complete": false,
+      "tokens": {
+        "input_tokens": null,
+        "output_tokens": null,
+        "cached_input_tokens": null,
+        "cache_creation_input_tokens": null,
+        "reasoning_output_tokens": null,
+        "uncached_input_tokens": null
+      },
+      "observed_partial_usage": {
+        "input_tokens": 555295,
+        "output_tokens": 41950,
+        "cached_input_tokens": 486272,
+        "cache_creation_input_tokens": 0,
+        "reasoning_output_tokens": 20415,
+        "uncached_input_tokens": null
+      },
+      "verification_ok": true
+    },
+    {
+      "case": "ledger-recovery",
+      "source": "target/performance/coding-harness/codex-cap-2026-11-12-01/flash_ledger-recovery_1_proteus-codex",
+      "baseline": "target/performance/coding-harness/reconnect-2026-11-12-01/fresh/flash_ledger-recovery_1_proteus-codex",
+      "pipeline_ok": false,
+      "grade": false,
+      "pass": false,
+      "seconds": 791.9470002140006,
+      "timed_out": false,
+      "model_verified": true,
+      "user_stopped": true,
+      "termination_reason": "user_stopped",
+      "evaluation_state": "interim_frozen_workspace",
+      "test_counts": {
+        "failed": 30,
+        "passed": 4
+      },
+      "completed_responses_with_output_usage": 5,
+      "maximum_completed_response_output_tokens": 22254,
+      "completed_responses_over_16384": 1,
+      "model_exchanges_with_unknown_output_usage": 1,
+      "unwritten_response_output_tokens": null,
+      "observer_sha256_verified": true,
+      "reasoning_verified": true,
+      "auth_removed": true,
+      "requests": 6,
+      "actions": 11,
+      "same_conditions": {
+        "prompt": true,
+        "fixture": true,
+        "model_effort": true,
+        "initial_request_except_cap_and_ids": true
+      },
+      "canonical_caps": [
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000
+      ],
+      "wire_caps": [
+        384000,
+        384000,
+        384000,
+        384000,
+        384000,
+        384000
+      ],
+      "wire_selection_verified": true,
+      "catalog_max_tokens": 384000,
+      "wire_cap_omitted": false,
+      "wire_server_limit_known": false,
+      "cap_removed_verified": true,
+      "wire_events": [
+        {
+          "event": "request",
+          "attempt": 1,
+          "model": "deepseek-v4.1-flash",
+          "reasoning_effort": "high",
+          "max_tokens": 384000,
+          "max_completion_tokens": null,
+          "request_body_sha256": "2dd77c3ef3922f1f565f01675b511330c65628793a1242646f02d002aa1ad5e9"
+        },
+        {
+          "event": "response",
+          "attempt": 1,
+          "status": 200
+        },
+        {
+          "event": "request",
+          "attempt": 2,
+          "model": "deepseek-v4.1-flash",
+          "reasoning_effort": "high",
+          "max_tokens": 384000,
+          "max_completion_tokens": null,
+          "request_body_sha256": "920818380dd97974515a382d9915a022a8077b093018192e815f866e15bd6f40"
+        },
+        {
+          "event": "response",
+          "attempt": 2,
+          "status": 200
+        },
+        {
+          "event": "request",
+          "attempt": 3,
+          "model": "deepseek-v4.1-flash",
+          "reasoning_effort": "high",
+          "max_tokens": 384000,
+          "max_completion_tokens": null,
+          "request_body_sha256": "ab3b102c3951c850fc4cc932695e71349768bfe2a2ce0e6f130e10a3cf7620a3"
+        },
+        {
+          "event": "response",
+          "attempt": 3,
+          "status": 200
+        },
+        {
+          "event": "request",
+          "attempt": 4,
+          "model": "deepseek-v4.1-flash",
+          "reasoning_effort": "high",
+          "max_tokens": 384000,
+          "max_completion_tokens": null,
+          "request_body_sha256": "3d601d65f214c4410f92657f7f8f483e9eee77a36ee60a56c649eee349f432c6"
+        },
+        {
+          "event": "response",
+          "attempt": 4,
+          "status": 200
+        },
+        {
+          "event": "request",
+          "attempt": 5,
+          "model": "deepseek-v4.1-flash",
+          "reasoning_effort": "high",
+          "max_tokens": 384000,
+          "max_completion_tokens": null,
+          "request_body_sha256": "169359780f6735cac45f96d1c95a9fe4649bba95be258cd3ef241b61efe4a9fc"
+        },
+        {
+          "event": "response",
+          "attempt": 5,
+          "status": 200
+        },
+        {
+          "event": "request",
+          "attempt": 6,
+          "model": "deepseek-v4.1-flash",
+          "reasoning_effort": "high",
+          "max_tokens": 384000,
+          "max_completion_tokens": null,
+          "request_body_sha256": "8a9c58b0fc157aa5e08a8d0d2686fc7050c696cca029c9e31a05f776f25610fd"
+        },
+        {
+          "event": "response",
+          "attempt": 6,
+          "status": 200
+        }
+      ],
+      "model_failures": [],
+      "trace": {
+        "retryable_failures": [],
+        "duplicate_requested_call_ids": [],
+        "model_exchanges": 6,
+        "completed_model_exchanges": 5,
+        "requested_output_limits": [
+          384000
+        ],
+        "journal_sha256": "d4271c955b7a313622c643a44186323cee44d8ab947bdbe560f283226b65f149",
+        "session": "target/performance/coding-harness/codex-cap-2026-11-12-01/flash_ledger-recovery_1_proteus-codex/runtime/sessions/workspace/9120675271"
+      },
+      "usage_complete": false,
+      "tokens": {
+        "input_tokens": null,
+        "output_tokens": null,
+        "cached_input_tokens": null,
+        "cache_creation_input_tokens": null,
+        "reasoning_output_tokens": null,
+        "uncached_input_tokens": null
+      },
+      "observed_partial_usage": {
+        "input_tokens": 75290,
+        "output_tokens": 37617,
+        "cached_input_tokens": 37504,
+        "cache_creation_input_tokens": 0,
+        "reasoning_output_tokens": 28997,
+        "uncached_input_tokens": null
+      },
+      "verification_ok": true
+    }
+  ],
+  "catalog": {
+    "model": {
+      "id": "deepseek-v4.1-flash",
+      "provider": "opencode-go",
+      "maxTokens": 384000,
+      "contextWindow": 1000000,
+      "api": "openai-completions"
+    },
+    "module": "/home/qweasd123tg/Code/Proteus/Proteus-desktop/build/Proteus/share/pi-runtime/tool/pi-tools/node_modules/@earendil-works/pi-coding-agent/dist/core/model-runtime.js",
+    "module_sha256": "b17018cb70007a194f10b2aaf5ec3631329db20cf853ddc9ce4088e6b4373ab1",
+    "network_model_refresh": false,
+    "model_calls": 0
+  },
+  "runtime": {
+    "unchanged": true,
+    "after": {
+      "prefix": "/home/qweasd123tg/Code/Proteus/Proteus-desktop/build/Proteus",
+      "hashes": {
+        "bin/proteus": "0705ccb8e20b83ded9f4a3fb3389ae4ad4740ce95c67101dd36a906cab7140ab",
+        "bin/proteus-claude-hooks-inspect": "0084cb85a04979c36712fdb0a6e5eb550f7ef8994469dafdf3320067fb7c0962",
+        "bin/proteus-code-mode-module": "e52a9a280b88475a1337650c05f1d2b329ee06f8d143e3742a10d8629c8fdc35",
+        "bin/proteus-codex-context-preparation-module": "f942708b29b7d352805f5fda1478bdf922def5914b0c143ba6d5dd24338754bc",
+        "bin/proteus-codex-patch-module": "f797d42925b5adc22d274d8faaba846a6b3dbf215520e6a0272d83ca7a474189",
+        "bin/proteus-coding-workflow-module": "0895aafadb5cc9bf767897805ecfa708ded8d3abc4414b451ece30616e9fb3b5",
+        "bin/proteus-context-pack-module": "6c3c2bd9fa8943c34e7e50425f88fcd3e2321b189a6ae30cda8962631122b890",
+        "bin/proteus-direct-patch-module": "cffa8ad60f6caf95881b240df9f2184b38a31f3a7833bfce68ce3a343ff2c7b6",
+        "bin/proteus-file-tools-module": "9da17dab19668ca40886189895480c48f133912979ff0109507aa23dbba89843",
+        "bin/proteus-git-tools-module": "a40cf6eb755b6c70c538fb42e4bb381571b9722194099ffe25a0bee42aababa3",
+        "bin/proteus-hook-pack-module": "b0527424c0260ec4a936da99e54b7e0372ed604be49c5b65ac285e944a3728db",
+        "bin/proteus-hook-worker": "5d6e0b23081a3cf1fd310fc5aa6aba391537d102d3b23d34227cac125fbeb53a",
+        "bin/proteus-memory-pack-module": "9ec4b3560b6c43417a593c784787412ff2b3983cc422cda06caf500b0f03b91b",
+        "bin/proteus-model-pack-module": "a7d49834e8ffe9f743fe75ef64b4757dad1c980bea804e3dd661646eca727e8f",
+        "bin/proteus-native": "faf526d4c99b407b882bea800eaee6035cadf7ee784218672e112ff6e677c7a9",
+        "bin/proteus-opencode-module": "dffc3e5af71efd027408d921aedb27ea092fddbc9d5bdcd5ffe2aaf2ee59d5ef",
+        "bin/proteus-pi-module": "2dd7a281f92c7f32ce8330b7f02e4aff1b2cec7cf70dd674454d431a76a525e1",
+        "bin/proteus-plan-tool-module": "731947d2ac3ec98ec8b1315834b71e08f8ac81b99c2c3cf2c9ef01ae6da9c6e1",
+        "bin/proteus-policy-pack-module": "548300e305aaaabfe35470f2a9e7fd782e3739d75cf73efab0b3e173f7285e97",
+        "bin/proteus-rg-search-module": "ce9a21d5cf19ae39f250386f357814738fd78820bfd3fa07d3eb39df3754ca18",
+        "bin/proteus-rust-lsp-module": "6f9aa2e929af445e45c56eb324670f2607244d6c401bf7d0a53ff3e04ac30328",
+        "bin/proteus-shell-tool-module": "6a1e4ee4cb1d0f903084a24d24c6a09a94947e22b10e061ccddab2209302f9a9",
+        "bin/proteus-skill-pack-module": "3f7bf4c3bca7a0b7700d5d84ca928d94b904ec18b791b2ccd891d4c2ff928153",
+        "bin/proteus-sqlite-memory-module": "b8eeed649a6b2030c40431a6085447141895c5a40386a18e5c50f46474b683c8",
+        "bin/proteus-tool-selection-hook-module": "6f4892e12512107a27938249964ae10ec7b23119e6c7cceee56e0127172c8b5c",
+        "share/pi-runtime/components/module-runtime-js/canonical.mjs": "0641943e9708efc96a74dc5624672575fc15978991ac69a674f6ad26b06dd891",
+        "share/pi-runtime/components/module-runtime-js/component.mjs": "8866d2192f50d8cad5b86d2c8ffd691404b5ced8666b77996106c27b2a2e9896",
+        "share/pi-runtime/components/module-runtime-js/model-stream.mjs": "4fa97fccfbc8b8b9213ef4c51a6ecb481abb6413cb612f7f246ff6e5ddfd25ea",
+        "share/pi-runtime/components/pi-runtime-js/messages.mjs": "a277f97df7c909cf6b57b508dcc40ae4795295637b7e165c751afbe5ea29f947",
+        "share/pi-runtime/model/pi-provider/adapter.mjs": "c82e24191237c3c12cc818a99f7f4ad513edf0b0070b93496f6e21538f4fd959",
+        "share/pi-runtime/tool/pi-tools/adapter.mjs": "1d3515ffda12e0eee7a1fdd956d581c2e7c8240ff9dac341ffe85300b31c7dd2",
+        "share/pi-runtime/tool/pi-tools/component.mjs": "8866d2192f50d8cad5b86d2c8ffd691404b5ced8666b77996106c27b2a2e9896",
+        "share/pi-runtime/tool/pi-tools/package-lock.json": "b4c2e6b27417648918b621b3516e5e5b26bb8f4a1c32b6aa7822479c7a5c18cb",
+        "share/pi-runtime/tool/pi-tools/worker.mjs": "e05f05f31d0ea4e9992366e904979811a89870511c4cc3bd78a3bc52528e593b",
+        "share/pi-runtime/workflow/pi-runtime/compaction.mjs": "84d901bb805559cdc294e497b3e50ae87109ecdda5604e9402862c465a8e294d",
+        "share/pi-runtime/workflow/pi-runtime/context.mjs": "27d227e67054823ac3026d777f88c79f8ec1d1ce9794047ce97abb878e6db833",
+        "share/pi-runtime/workflow/pi-runtime/exports.mjs": "ac2df74bc96a82ce795bccfa295de653c4ed18b26c1829bc9715c20b8b8dc01f",
+        "share/pi-runtime/workflow/pi-runtime/loop.mjs": "a2e16968af588e3b08c7398aedf46150c6c70fca426fd7c62202078442003c0a",
+        "share/pi-runtime/workflow/pi-runtime/messages.mjs": "c35a9f7708bfffe14232c5db76bea4c947f66cf07d859f9eed26c6ae889cc1c7",
+        "share/pi-runtime/workflow/pi-runtime/tool-arguments.mjs": "98c4e24bd948986fad6c81d537252b92a6d20b73e02827ee33db710a5cc52d89",
+        "share/pi-runtime/workflow/pi-runtime/upstream.mjs": "48bbfecb2ca94a2d81e03da3216d4c98e6d9085b8e3d30bad2f50d59d067e927",
+        "share/opencode-runtime/components/module-runtime-js/canonical.mjs": "0641943e9708efc96a74dc5624672575fc15978991ac69a674f6ad26b06dd891",
+        "share/opencode-runtime/components/module-runtime-js/component.mjs": "8866d2192f50d8cad5b86d2c8ffd691404b5ced8666b77996106c27b2a2e9896",
+        "share/opencode-runtime/components/module-runtime-js/model-stream.mjs": "4fa97fccfbc8b8b9213ef4c51a6ecb481abb6413cb612f7f246ff6e5ddfd25ea",
+        "share/opencode-runtime/components/pi-runtime-js/messages.mjs": "d3c1eac90fdc7347878046f8498d85a11433218ec1bae6d17985ed014b5943c5",
+        "share/opencode-runtime/workflow/opencode-runtime/compaction.mjs": "56e744cc7cf94cd9fae8b19468bcac9a1d9c56a171a2327173b7033675588100",
+        "share/opencode-runtime/workflow/opencode-runtime/component.mjs": "8866d2192f50d8cad5b86d2c8ffd691404b5ced8666b77996106c27b2a2e9896",
+        "share/opencode-runtime/workflow/opencode-runtime/context.mjs": "0a855f736aabe6002886f5c06f0e743d26afd2fd1f5b3f15c101428851589d10",
+        "share/opencode-runtime/workflow/opencode-runtime/dispatch.mjs": "a98a811fb56b26d705d2375dfcfd149f579c8efd5e1e41c9f352055661e1c629",
+        "share/opencode-runtime/workflow/opencode-runtime/files.mjs": "be2a489a79ebdab63d3390c0a2b453b921887c4cfb2b390a4e95ec20bdc128cf",
+        "share/opencode-runtime/workflow/opencode-runtime/instructions.mjs": "7350b9ec1c4bde6f141c006b8a6a0d7aff6c2c3800ab3a959b91b3722ae8733d",
+        "share/opencode-runtime/workflow/opencode-runtime/location.mjs": "660d5632f74a98dbb696c74ffef83e537d9726e94984d6b61972a667355788af",
+        "share/opencode-runtime/workflow/opencode-runtime/package-lock.json": "56341c8f1f0003f93cbd5d813d2bad8198cd768e0b87d98d372135fe986f948a",
+        "share/opencode-runtime/workflow/opencode-runtime/prompt.mjs": "57507c30e021712bd6d87ea0f6b6456c4bb30015c2a017200534376983511a4b",
+        "share/opencode-runtime/workflow/opencode-runtime/repair.mjs": "72bc45af72a7075d832e145e2b6e2c861ffccb1589df5bc051951d274a005f4b",
+        "share/opencode-runtime/workflow/opencode-runtime/retry.mjs": "c9f7b4ae01fe25047e86e1d31af7dbdb8e9869cd0b7baf358b7fc7ed818e36f3",
+        "share/opencode-runtime/workflow/opencode-runtime/selection.mjs": "6d8c7480829cbe4859da1d7efb055ad86cfaa9004bdd68a3a459febc36d302d3",
+        "share/opencode-runtime/workflow/opencode-runtime/shell.mjs": "9702b7fb411494f987ac439b0b94bbe920a93c5c024f65a8e1c655e7b2b03489",
+        "share/opencode-runtime/workflow/opencode-runtime/worker.mjs": "c7ea7c48df14922583e0f184f2cfbad4e5bdba6829582036a7b1e54e28a20bde",
+        "share/opencode-runtime/workflow/opencode-runtime/workflow.mjs": "bca43be8554cd375e006bd3b5918d8ce88872b0b9fe7021478c5e564958b3f6b"
+      }
+    }
+  },
+  "frozen_sources": {
+    "unchanged": true
+  },
+  "selection": {
+    "rows": [
+      {
+        "case": "schemelike-metacircular-eval",
+        "arm": "proteus-codex",
+        "attempt": 1,
+        "baseline": "target/performance/coding-harness/reconnect-2026-11-12-01/fresh/flash_schemelike-metacircular-eval_1_proteus-codex",
+        "baseline_caps": [
+          16384
+        ]
+      },
+      {
+        "case": "journal-segments",
+        "arm": "proteus-codex",
+        "attempt": 1,
+        "baseline": "target/performance/coding-harness/reconnect-2026-11-12-01/fresh/flash_journal-segments_1_proteus-codex",
+        "baseline_caps": [
+          16384
+        ]
+      },
+      {
+        "case": "ledger-recovery",
+        "arm": "proteus-codex",
+        "attempt": 1,
+        "baseline": "target/performance/coding-harness/reconnect-2026-11-12-01/fresh/flash_ledger-recovery_1_proteus-codex",
+        "baseline_caps": [
+          16384
+        ]
+      }
+    ],
+    "model": "opencode-go/deepseek-v4.1-flash",
+    "effort": "high",
+    "timeout_seconds": 1200,
+    "concurrency": 3,
+    "max_attempts_per_cell": 1,
+    "old_controls": [
+      {
+        "case": "journal-segments",
+        "source": "target/performance/coding-harness/long-cap-control/validated/flash_journal-segments_1_proteus-codex-cap384000",
+        "caps": [
+          384000
+        ],
+        "failure_taxonomy": {
+          "classes": [
+            "transport_or_cli_failure",
+            "solution_rejected_by_tests"
+          ],
+          "failed_tests": [
+            "test_roundtrip_preserves_bytes_blobs_and_reader_api",
+            "test_cli_empty_and_existing_output",
+            "test_invalid_row_limits_leave_no_output[0]",
+            "test_invalid_row_limits_leave_no_output[-1]",
+            "test_invalid_row_limits_leave_no_output[True]",
+            "test_invalid_row_limits_leave_no_output[1.5]",
+            "test_invalid_row_limits_leave_no_output[2]",
+            "test_invalid_row_limits_leave_no_output[None]",
+            "test_invalid_legacy_cannot_publish_partial_archive[sequence]",
+            "test_invalid_legacy_cannot_publish_partial_archive[blob]",
+            "test_invalid_legacy_cannot_publish_partial_archive[truncated]",
+            "test_invalid_legacy_cannot_publish_partial_archive[blank]",
+            "test_invalid_legacy_cannot_publish_partial_archive[storage]",
+            "test_invalid_legacy_cannot_publish_partial_archive[schema]",
+            "test_manifest_types_strict[version-True]",
+            "test_manifest_types_strict[version-2]",
+            "test_manifest_types_strict[version-1]",
+            "test_manifest_types_strict[segments-value3]",
+            "test_manifest_types_strict[extra-1]",
+            "test_segment_metadata_strict[relative_path-../escape]",
+            "test_segment_metadata_strict[relative_path-/tmp/file]",
+            "test_segment_metadata_strict[relative_path-segments/000003.jsonl]",
+            "test_segment_metadata_strict[bytes-True]",
+            "test_segment_metadata_strict[bytes--1]",
+            "test_segment_metadata_strict[bytes-3]",
+            "test_segment_metadata_strict[first_seq-True]",
+            "test_segment_metadata_strict[first_seq-99]",
+            "test_segment_metadata_strict[last_seq-999]",
+            "test_segment_metadata_strict[sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa]",
+            "test_segment_metadata_strict[extra-1]",
+            "test_segment_validated_before_first_record_yield",
+            "test_symlinks_rejected_even_for_in_tree_targets[segment]",
+            "test_symlinks_rejected_even_for_in_tree_targets[segment-dir]",
+            "test_symlinks_rejected_even_for_in_tree_targets[blob]",
+            "test_symlinks_rejected_even_for_in_tree_targets[blob-dir]",
+            "test_ambiguous_and_missing_formats",
+            "test_existing_consumers_and_public_helpers"
+          ],
+          "semantic_requirements": [
+            "filesystem_path_validation",
+            "journal_format_validation",
+            "compatibility_regression",
+            "input_validation"
+          ],
+          "notes": [],
+          "error_codes": [
+            "UND_ERR_SOCKET"
+          ]
+        }
+      },
+      {
+        "case": "ledger-recovery",
+        "source": "target/performance/coding-harness/long-cap-control/validated/flash_ledger-recovery_1_proteus-codex-cap384000",
+        "caps": [
+          384000
+        ],
+        "failure_taxonomy": {
+          "classes": [
+            "transport_or_cli_failure",
+            "solution_rejected_by_tests"
+          ],
+          "failed_tests": [
+            "test_public_release_suite",
+            "test_codec_independent_unicode_and_nested_json",
+            "test_codec_rejects_invalid_sequence[0]",
+            "test_codec_rejects_invalid_sequence[-1]",
+            "test_codec_rejects_invalid_sequence[True]",
+            "test_codec_rejects_invalid_sequence[1.5]",
+            "test_codec_rejects_invalid_sequence[1]",
+            "test_invalid_append_is_read_only[obj0]",
+            "test_invalid_append_is_read_only[obj1]",
+            "test_invalid_append_is_read_only[obj2]",
+            "test_invalid_append_is_read_only[obj3]",
+            "test_invalid_append_is_read_only[obj4]",
+            "test_invalid_append_is_read_only[obj5]",
+            "test_invalid_append_is_read_only[obj6]",
+            "test_new_open_is_read_only_and_copy_isolation",
+            "test_torn_tail_preserved_until_append",
+            "test_checksum_and_gap_are_corruption",
+            "test_duplicate_disk_frame_consumes_sequence_without_reapplying",
+            "test_snapshot_prefix_replay_after_interruption",
+            "test_failed_snapshot_replace_preserves_all_previous_bytes",
+            "test_append_and_snapshot_fsync",
+            "test_bad_snapshot_is_never_silently_reinitialized[bad0]",
+            "test_bad_snapshot_is_never_silently_reinitialized[bad1]",
+            "test_bad_snapshot_is_never_silently_reinitialized[bad2]",
+            "test_bad_snapshot_is_never_silently_reinitialized[bad3]",
+            "test_process_writers_lock_reload_and_deduplicate",
+            "test_migration_validates_before_effects_and_preserves_source",
+            "test_cli_json_null_missing_and_conflict",
+            "test_boolean_and_number_ids_are_different_events",
+            "test_nonjson_cycle_rejected_before_any_persistence"
+          ],
+          "semantic_requirements": [
+            "atomicity_or_recovery",
+            "journal_format_validation",
+            "concurrency_or_deduplication",
+            "sampler_aggregation",
+            "compatibility_regression",
+            "input_validation"
+          ],
+          "notes": [],
+          "error_codes": [
+            "UND_ERR_SOCKET"
+          ]
+        }
+      }
+    ]
+  },
+  "user_stop": {
+    "cases": [
+      "schemelike-metacircular-eval",
+      "journal-segments",
+      "ledger-recovery"
+    ],
+    "reason": "User requested immediate stop of paid requests because subscription limits were running out.",
+    "classification": "user_stopped",
+    "deadline_reached": false,
+    "model_calls_after_stop": 0,
+    "raw_receipts_preserved": true,
+    "assessment": "Offline authoritative grading of frozen workspaces after process-group termination; interim solutions, not completed attempts."
+  },
+  "source_provenance": {
+    "core": "9195367bad93503b9258f717f0e5e2ad7177ef0b",
+    "modules": "3270dc0f894eaf4d0360306052b806099b8f5351",
+    "verified_cli_sha256": "0705ccb8e20b83ded9f4a3fb3389ae4ad4740ce95c67101dd36a906cab7140ab",
+    "authorization": "Parent confirmed installed delivery before live start; three prepared fresh cells only."
+  },
+  "credential_audit": {
+    "active_go_keys_checked": 1,
+    "files_checked": 417,
+    "auth_files": 0,
+    "key_byte_matches": 0,
+    "verified": true
+  }
+}
