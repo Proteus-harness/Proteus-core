@@ -51,8 +51,11 @@ def error(request_id, code, message):
     send({"jsonrpc": "2.0", "id": request_id, "error": {"code": code, "message": message}})
 
 
-def tool(name, description, properties=None):
-    return {
+UNDECLARED_SCHEMA = object()
+
+
+def tool(name, description, properties=None, output_schema=UNDECLARED_SCHEMA):
+    spec = {
         "name": name,
         "description": description,
         "inputSchema": {
@@ -61,6 +64,9 @@ def tool(name, description, properties=None):
             "additionalProperties": False,
         },
     }
+    if output_schema is not UNDECLARED_SCHEMA:
+        spec["outputSchema"] = output_schema
+    return spec
 
 
 def call_tool(request_id, params):
@@ -204,6 +210,15 @@ for raw_line in sys.stdin:
                     "label": {"type": "string"},
                     "delay_ms": {"type": "integer"},
                     "mode": {"type": "string"},
+                }, output_schema={
+                    "type": "object",
+                    "properties": {
+                        "label": {"type": "string"},
+                        "generation": {"type": "integer"},
+                        "literal_env": {"type": ["string", "null"]},
+                        "optional_note": {"type": ["string", "null"]},
+                    },
+                    "additionalProperties": True,
                 }), tool("fail", "return an MCP tool error")],
                 "nextCursor": "page-2",
             })
@@ -212,8 +227,8 @@ for raw_line in sys.stdin:
                 tool("delay_write", "write after a delay", {
                     "marker": {"type": "string"},
                     "delay_ms": {"type": "integer"},
-                }),
-                tool("oversize", "return a response over the configured bound"),
+                }, output_schema=None),
+                tool("oversize", "return a response over the configured bound", output_schema={}),
             ]
             if SANDBOX:
                 tools.extend([tool("sandbox_probe", "probe explicit OS grants"),

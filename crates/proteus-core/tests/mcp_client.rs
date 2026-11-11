@@ -7,7 +7,7 @@ use std::{
 
 use proteus_contracts::{
     contracts::{CancellationToken, ExecutionAttribution, Tool, ToolContext},
-    domain::{ToolCall, ToolResult, ToolSafety, new_call_id, new_execution_id},
+    domain::{ToolCall, ToolResult, ToolSafety, ToolSurface, new_call_id, new_execution_id},
 };
 use proteus_core::core::{
     AppConfig, ConfiguredMcpServerConfig, ModuleCatalog, ProcessEnvironmentConfig,
@@ -149,6 +149,38 @@ async fn discovery_paginates_and_persistent_calls_preserve_content_error_and_env
     );
 
     let echo = fixture.tool(&registry, "echo");
+    assert_eq!(
+        echo.spec().surface,
+        ToolSurface::Function {
+            strict: false,
+            output_schema: Some(json!({
+                "type": "object",
+                "properties": {
+                    "label": {"type": "string"},
+                    "generation": {"type": "integer"},
+                    "literal_env": {"type": ["string", "null"]},
+                    "optional_note": {"type": ["string", "null"]},
+                },
+                "additionalProperties": true,
+            })),
+        },
+        "preserve the exact declared output schema, including nullable optional properties",
+    );
+    for name in ["fail", "delay_write"] {
+        assert_eq!(
+            fixture.tool(&registry, name).spec().surface,
+            ToolSurface::function(),
+            "absent/null MCP outputSchema stays None",
+        );
+    }
+    assert_eq!(
+        fixture.tool(&registry, "oversize").spec().surface,
+        ToolSurface::Function {
+            strict: false,
+            output_schema: Some(json!({})),
+        },
+        "an explicitly declared empty schema is not absence",
+    );
     let result = echo
         .invoke(
             &call("echo", json!({"label":"Привет"})),

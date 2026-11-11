@@ -319,6 +319,13 @@ truncation перед событием `ToolFinished` и передачей ре
 из результата `tools/list`. Model args не могут переопределить
 remote tool name; это сохраняет связь между `ToolSpec`, policy decision и
 фактическим downstream вызовом.
+Объявленный сервером `outputSchema` сохраняется в
+`ToolSurface::Function.output_schema` вместе с input schema. Отсутствие или
+`null` остаётся отсутствием схемы; host не выводит её из образца данных.
+Это описание результата инструмента, а не `response_format` ответа модели
+и не проверка полноты пользовательской задачи. MCP adapter не валидирует
+`structuredContent` по этой схеме: `ok: true` отражает отсутствие `isError`,
+а соответствие полей и предметные постусловия проверяет вызывающий код.
 
 MCP handshake и multiplexed request routing выполняет `rmcp`; запуск процесса,
 framing и receive limits остаются в protocol-neutral `ProcessTransport`.

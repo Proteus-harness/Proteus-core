@@ -3,7 +3,7 @@ use serde_json::{Value, json};
 
 use crate::{
     core::ConfiguredMcpServerConfig,
-    domain::{ToolSafety, ToolSpec},
+    domain::{ToolSafety, ToolSpec, ToolSurface},
 };
 
 #[derive(Debug)]
@@ -38,6 +38,12 @@ pub(super) fn mcp_tools_from_list(
                 input_schema,
                 effective_mcp_safety(server.safety.clone()),
             )
+            .with_surface(ToolSurface::Function {
+                strict: false,
+                output_schema: tool
+                    .output_schema
+                    .map(|schema| Value::Object(std::sync::Arc::unwrap_or_clone(schema))),
+            })
             .with_parallel_tool_calls(
                 server.supports_parallel_tool_calls
                     || tool
@@ -167,6 +173,27 @@ mod tests {
         .unwrap();
         assert_eq!(discovered[0].spec.input_schema, Value::Object(schema));
         assert_eq!(discovered[0].spec.description, "read");
+
+        // MCP's outputSchema is an optional object. Null has the same meaning
+        // as absence; unsupported wire shapes must still fail SDK decoding.
+        for output_schema in [None, Some(Value::Null)] {
+            let mut value = json!({"name":"read","inputSchema":{"type":"object"}});
+            if let Some(output_schema) = output_schema {
+                value["outputSchema"] = output_schema;
+            }
+            let tool = serde_json::from_value::<Tool>(value).unwrap();
+            assert!(tool.output_schema.is_none());
+            let discovered = mcp_tools_from_list(&server, vec![tool]).unwrap();
+            assert_eq!(discovered[0].spec.surface, ToolSurface::function());
+        }
+        for output_schema in [json!(false), json!([]), json!("object"), json!(1)] {
+            assert!(
+                serde_json::from_value::<Tool>(json!({
+                    "name":"read", "inputSchema":{"type":"object"}, "outputSchema":output_schema,
+                }))
+                .is_err()
+            );
+        }
     }
 
     #[test]
