@@ -1,0 +1,1389 @@
+{
+  "model": "opencode-go/deepseek-v4.1-flash",
+  "effort": "high",
+  "model_calls_for_this_report": 0,
+  "inputs": [
+    {
+      "source": "target/performance/coding-harness/flash-verified-metrics.json",
+      "sha256": "58443706fe2c1e7623c12789b2118514d2d47a4f793d02878c99717777793422"
+    },
+    {
+      "source": "examples/performance/results/2026-11-11-deepseek-long.json",
+      "sha256": "997e43f916a94e9314f55e46bbe062fee7d433ae8d869f70c14d1c442d51c2a6"
+    }
+  ],
+  "filter": {
+    "attempt": 1,
+    "excluded_terminal_classes": [
+      "agent_deadline",
+      "model_output_limit",
+      "transport_or_cli_failure"
+    ],
+    "same_cases_for_every_arm": true,
+    "exclude_reconnect_cap_controls_and_user_stopped": true,
+    "do_not_select_by_pass": true,
+    "note": "Tool errors and test failures remain eligible. Only observed model transport/CLI failures, output limits and agent deadlines are excluded."
+  },
+  "common_long_cases": [
+    "db-wal-recovery",
+    "go-review",
+    "write-compressor"
+  ],
+  "short_cases": [
+    "cancel-async-tasks",
+    "dominoes",
+    "forth",
+    "log-summary-date-ranges",
+    "poker",
+    "variable-length-quantity"
+  ],
+  "summary": [
+    {
+      "arm": "pi",
+      "tasks": 9,
+      "passed": 9,
+      "input_tokens": 936935,
+      "cached_input_tokens": 791680,
+      "output_tokens": 77784,
+      "uncached_input_tokens": 145255,
+      "actions": 89,
+      "requests": 82,
+      "sum_seconds": 1558.5870583840049,
+      "median_seconds": 60.74949420399935
+    },
+    {
+      "arm": "proteus-pi",
+      "tasks": 9,
+      "passed": 9,
+      "input_tokens": 932601,
+      "cached_input_tokens": 807424,
+      "output_tokens": 64715,
+      "uncached_input_tokens": 125177,
+      "actions": 95,
+      "requests": 88,
+      "sum_seconds": 1268.9937475269987,
+      "median_seconds": 61.62741174700204
+    },
+    {
+      "arm": "opencode",
+      "tasks": 9,
+      "passed": 9,
+      "input_tokens": 2391126,
+      "cached_input_tokens": 2139648,
+      "output_tokens": 118461,
+      "uncached_input_tokens": 251478,
+      "actions": 130,
+      "requests": null,
+      "sum_seconds": 1879.5155352119968,
+      "median_seconds": 89.98616918599873
+    },
+    {
+      "arm": "proteus-opencode",
+      "tasks": 9,
+      "passed": 9,
+      "input_tokens": 1520959,
+      "cached_input_tokens": 1335296,
+      "output_tokens": 103009,
+      "uncached_input_tokens": 185663,
+      "actions": 112,
+      "requests": 94,
+      "sum_seconds": 1609.550129055003,
+      "median_seconds": 98.889
+    },
+    {
+      "arm": "proteus-codex",
+      "tasks": 9,
+      "passed": 9,
+      "input_tokens": 2808758,
+      "cached_input_tokens": 2613120,
+      "output_tokens": 99479,
+      "uncached_input_tokens": 195638,
+      "actions": 151,
+      "requests": 117,
+      "sum_seconds": 1512.4243106489987,
+      "median_seconds": 105.72851470900059
+    }
+  ],
+  "long_primary_audit": [
+    {
+      "case": "db-wal-recovery",
+      "arm": "pi",
+      "source": "target/performance/coding-harness/long-flash-01/flash_db-wal-recovery_1_pi",
+      "excluded": false,
+      "recorded_classes": [],
+      "recorded_error_codes": [],
+      "pass": true,
+      "grade": true
+    },
+    {
+      "case": "db-wal-recovery",
+      "arm": "proteus-pi",
+      "source": "target/performance/coding-harness/long-flash-01/flash_db-wal-recovery_1_proteus-pi",
+      "excluded": false,
+      "recorded_classes": [],
+      "recorded_error_codes": [],
+      "pass": true,
+      "grade": true
+    },
+    {
+      "case": "db-wal-recovery",
+      "arm": "opencode",
+      "source": "target/performance/coding-harness/long-flash-01/flash_db-wal-recovery_1_opencode",
+      "excluded": false,
+      "recorded_classes": [],
+      "recorded_error_codes": [],
+      "pass": true,
+      "grade": true
+    },
+    {
+      "case": "db-wal-recovery",
+      "arm": "proteus-opencode",
+      "source": "target/performance/coding-harness/long-flash-01/flash_db-wal-recovery_1_proteus-opencode",
+      "excluded": false,
+      "recorded_classes": [],
+      "recorded_error_codes": [],
+      "pass": true,
+      "grade": true
+    },
+    {
+      "case": "db-wal-recovery",
+      "arm": "proteus-codex",
+      "source": "target/performance/coding-harness/long-flash-01/flash_db-wal-recovery_1_proteus-codex",
+      "excluded": false,
+      "recorded_classes": [],
+      "recorded_error_codes": [],
+      "pass": true,
+      "grade": true
+    },
+    {
+      "case": "write-compressor",
+      "arm": "pi",
+      "source": "target/performance/coding-harness/long-flash-01/flash_write-compressor_1_pi",
+      "excluded": false,
+      "recorded_classes": [],
+      "recorded_error_codes": [],
+      "pass": true,
+      "grade": true
+    },
+    {
+      "case": "write-compressor",
+      "arm": "proteus-pi",
+      "source": "target/performance/coding-harness/long-flash-01/flash_write-compressor_1_proteus-pi",
+      "excluded": false,
+      "recorded_classes": [],
+      "recorded_error_codes": [],
+      "pass": true,
+      "grade": true
+    },
+    {
+      "case": "write-compressor",
+      "arm": "opencode",
+      "source": "target/performance/coding-harness/long-flash-01/flash_write-compressor_1_opencode",
+      "excluded": false,
+      "recorded_classes": [],
+      "recorded_error_codes": [],
+      "pass": true,
+      "grade": true
+    },
+    {
+      "case": "write-compressor",
+      "arm": "proteus-opencode",
+      "source": "target/performance/coding-harness/long-flash-01/flash_write-compressor_1_proteus-opencode",
+      "excluded": false,
+      "recorded_classes": [],
+      "recorded_error_codes": [],
+      "pass": true,
+      "grade": true
+    },
+    {
+      "case": "write-compressor",
+      "arm": "proteus-codex",
+      "source": "target/performance/coding-harness/long-flash-01/flash_write-compressor_1_proteus-codex",
+      "excluded": false,
+      "recorded_classes": [],
+      "recorded_error_codes": [],
+      "pass": true,
+      "grade": true
+    },
+    {
+      "case": "schemelike-metacircular-eval",
+      "arm": "pi",
+      "source": "target/performance/coding-harness/long-flash-01/flash_schemelike-metacircular-eval_1_pi",
+      "excluded": true,
+      "recorded_classes": [
+        "agent_deadline",
+        "solution_rejected_by_tests"
+      ],
+      "recorded_error_codes": [
+        "UND_ERR_SOCKET"
+      ],
+      "pass": false,
+      "grade": false
+    },
+    {
+      "case": "schemelike-metacircular-eval",
+      "arm": "proteus-pi",
+      "source": "target/performance/coding-harness/long-flash-01/flash_schemelike-metacircular-eval_1_proteus-pi",
+      "excluded": true,
+      "recorded_classes": [
+        "transport_or_cli_failure",
+        "solution_rejected_by_tests"
+      ],
+      "recorded_error_codes": [
+        "UND_ERR_SOCKET"
+      ],
+      "pass": false,
+      "grade": false
+    },
+    {
+      "case": "schemelike-metacircular-eval",
+      "arm": "opencode",
+      "source": "target/performance/coding-harness/long-flash-01/flash_schemelike-metacircular-eval_1_opencode",
+      "excluded": true,
+      "recorded_classes": [
+        "transport_or_cli_failure"
+      ],
+      "recorded_error_codes": [
+        "ECONNRESET",
+        "UnsupportedContentType"
+      ],
+      "pass": false,
+      "grade": true
+    },
+    {
+      "case": "schemelike-metacircular-eval",
+      "arm": "proteus-opencode",
+      "source": "target/performance/coding-harness/long-flash-01/flash_schemelike-metacircular-eval_1_proteus-opencode",
+      "excluded": true,
+      "recorded_classes": [
+        "transport_or_cli_failure",
+        "solution_rejected_by_tests"
+      ],
+      "recorded_error_codes": [
+        "UND_ERR_SOCKET"
+      ],
+      "pass": false,
+      "grade": false
+    },
+    {
+      "case": "schemelike-metacircular-eval",
+      "arm": "proteus-codex",
+      "source": "target/performance/coding-harness/long-flash-01/flash_schemelike-metacircular-eval_1_proteus-codex",
+      "excluded": true,
+      "recorded_classes": [
+        "transport_or_cli_failure"
+      ],
+      "recorded_error_codes": [
+        "UND_ERR_SOCKET"
+      ],
+      "pass": false,
+      "grade": true
+    },
+    {
+      "case": "journal-segments",
+      "arm": "pi",
+      "source": "target/performance/coding-harness/long-flash-01/flash_journal-segments_1_pi",
+      "excluded": true,
+      "recorded_classes": [
+        "agent_deadline",
+        "solution_rejected_by_tests"
+      ],
+      "recorded_error_codes": [],
+      "pass": false,
+      "grade": false
+    },
+    {
+      "case": "journal-segments",
+      "arm": "proteus-pi",
+      "source": "target/performance/coding-harness/long-flash-01/flash_journal-segments_1_proteus-pi",
+      "excluded": false,
+      "recorded_classes": [
+        "solution_rejected_by_tests"
+      ],
+      "recorded_error_codes": [],
+      "pass": false,
+      "grade": false
+    },
+    {
+      "case": "journal-segments",
+      "arm": "opencode",
+      "source": "target/performance/coding-harness/long-flash-01/flash_journal-segments_1_opencode",
+      "excluded": true,
+      "recorded_classes": [
+        "transport_or_cli_failure",
+        "solution_rejected_by_tests"
+      ],
+      "recorded_error_codes": [
+        "ECONNRESET",
+        "UnsupportedContentType"
+      ],
+      "pass": false,
+      "grade": false
+    },
+    {
+      "case": "journal-segments",
+      "arm": "proteus-opencode",
+      "source": "target/performance/coding-harness/long-flash-01/flash_journal-segments_1_proteus-opencode",
+      "excluded": true,
+      "recorded_classes": [
+        "agent_deadline",
+        "solution_rejected_by_tests"
+      ],
+      "recorded_error_codes": [],
+      "pass": false,
+      "grade": false
+    },
+    {
+      "case": "journal-segments",
+      "arm": "proteus-codex",
+      "source": "target/performance/coding-harness/long-flash-01/flash_journal-segments_1_proteus-codex",
+      "excluded": true,
+      "recorded_classes": [
+        "model_output_limit",
+        "solution_rejected_by_tests"
+      ],
+      "recorded_error_codes": [],
+      "pass": false,
+      "grade": false
+    },
+    {
+      "case": "sampler-phase-report",
+      "arm": "pi",
+      "source": "target/performance/coding-harness/long-flash-01/flash_sampler-phase-report_1_pi",
+      "excluded": false,
+      "recorded_classes": [],
+      "recorded_error_codes": [],
+      "pass": true,
+      "grade": true
+    },
+    {
+      "case": "sampler-phase-report",
+      "arm": "proteus-pi",
+      "source": "target/performance/coding-harness/long-flash-01/flash_sampler-phase-report_1_proteus-pi",
+      "excluded": true,
+      "recorded_classes": [
+        "transport_or_cli_failure"
+      ],
+      "recorded_error_codes": [
+        "UND_ERR_SOCKET"
+      ],
+      "pass": false,
+      "grade": true
+    },
+    {
+      "case": "sampler-phase-report",
+      "arm": "opencode",
+      "source": "target/performance/coding-harness/long-flash-01/flash_sampler-phase-report_1_opencode",
+      "excluded": true,
+      "recorded_classes": [
+        "transport_or_cli_failure"
+      ],
+      "recorded_error_codes": [
+        "ECONNRESET",
+        "UnsupportedContentType"
+      ],
+      "pass": false,
+      "grade": true
+    },
+    {
+      "case": "sampler-phase-report",
+      "arm": "proteus-opencode",
+      "source": "target/performance/coding-harness/long-flash-01/flash_sampler-phase-report_1_proteus-opencode",
+      "excluded": false,
+      "recorded_classes": [],
+      "recorded_error_codes": [],
+      "pass": true,
+      "grade": true
+    },
+    {
+      "case": "sampler-phase-report",
+      "arm": "proteus-codex",
+      "source": "target/performance/coding-harness/long-flash-01/flash_sampler-phase-report_1_proteus-codex",
+      "excluded": true,
+      "recorded_classes": [
+        "transport_or_cli_failure",
+        "solution_rejected_by_tests"
+      ],
+      "recorded_error_codes": [
+        "UND_ERR_SOCKET"
+      ],
+      "pass": false,
+      "grade": false
+    },
+    {
+      "case": "ledger-recovery",
+      "arm": "pi",
+      "source": "target/performance/coding-harness/long-flash-01/flash_ledger-recovery_1_pi",
+      "excluded": false,
+      "recorded_classes": [
+        "solution_rejected_by_tests"
+      ],
+      "recorded_error_codes": [],
+      "pass": false,
+      "grade": false
+    },
+    {
+      "case": "ledger-recovery",
+      "arm": "proteus-pi",
+      "source": "target/performance/coding-harness/long-flash-01/flash_ledger-recovery_1_proteus-pi",
+      "excluded": false,
+      "recorded_classes": [],
+      "recorded_error_codes": [],
+      "pass": true,
+      "grade": true
+    },
+    {
+      "case": "ledger-recovery",
+      "arm": "opencode",
+      "source": "target/performance/coding-harness/long-flash-01/flash_ledger-recovery_1_opencode",
+      "excluded": true,
+      "recorded_classes": [
+        "transport_or_cli_failure"
+      ],
+      "recorded_error_codes": [
+        "UnsupportedContentType"
+      ],
+      "pass": false,
+      "grade": true
+    },
+    {
+      "case": "ledger-recovery",
+      "arm": "proteus-opencode",
+      "source": "target/performance/coding-harness/long-flash-01/flash_ledger-recovery_1_proteus-opencode",
+      "excluded": false,
+      "recorded_classes": [],
+      "recorded_error_codes": [],
+      "pass": true,
+      "grade": true
+    },
+    {
+      "case": "ledger-recovery",
+      "arm": "proteus-codex",
+      "source": "target/performance/coding-harness/long-flash-01/flash_ledger-recovery_1_proteus-codex",
+      "excluded": true,
+      "recorded_classes": [
+        "model_output_limit",
+        "solution_rejected_by_tests"
+      ],
+      "recorded_error_codes": [],
+      "pass": false,
+      "grade": false
+    },
+    {
+      "case": "go-review",
+      "arm": "pi",
+      "source": "target/performance/coding-harness/long-flash-01/flash_go-review_1_pi",
+      "excluded": false,
+      "recorded_classes": [],
+      "recorded_error_codes": [],
+      "pass": true,
+      "grade": true
+    },
+    {
+      "case": "go-review",
+      "arm": "proteus-pi",
+      "source": "target/performance/coding-harness/long-flash-01/flash_go-review_1_proteus-pi",
+      "excluded": false,
+      "recorded_classes": [],
+      "recorded_error_codes": [],
+      "pass": true,
+      "grade": true
+    },
+    {
+      "case": "go-review",
+      "arm": "opencode",
+      "source": "target/performance/coding-harness/long-flash-01/flash_go-review_1_opencode",
+      "excluded": false,
+      "recorded_classes": [],
+      "recorded_error_codes": [],
+      "pass": true,
+      "grade": true
+    },
+    {
+      "case": "go-review",
+      "arm": "proteus-opencode",
+      "source": "target/performance/coding-harness/long-flash-01/flash_go-review_1_proteus-opencode",
+      "excluded": false,
+      "recorded_classes": [],
+      "recorded_error_codes": [],
+      "pass": true,
+      "grade": true
+    },
+    {
+      "case": "go-review",
+      "arm": "proteus-codex",
+      "source": "target/performance/coding-harness/long-flash-01/flash_go-review_1_proteus-codex",
+      "excluded": false,
+      "recorded_classes": [],
+      "recorded_error_codes": [],
+      "pass": true,
+      "grade": true
+    }
+  ],
+  "selected_rows": [
+    {
+      "case": "cancel-async-tasks",
+      "arm": "pi",
+      "source": "target/performance/coding-harness/flash-native-matrix-01/flash_cancel-async-tasks_1_pi/result.json",
+      "seconds": 319.5636270209943,
+      "actions": 17,
+      "requests": 18,
+      "tokens": {
+        "uncached_input_tokens": 27239,
+        "cached_input_tokens": 246144,
+        "cache_creation_input_tokens": 0,
+        "output_tokens": 20552,
+        "reasoning_output_tokens": 15126,
+        "input_tokens": 273383
+      },
+      "pass": true,
+      "prompt_sha256": "218bfa0dc6e52188174771d869906658a853eaa67a0359b42731c16f390bd7c3",
+      "repo_sha256": "0f960dd55ff68ff31dfb2375540720080b7b42a795c69ac46ba2637667f3d7b8"
+    },
+    {
+      "case": "dominoes",
+      "arm": "pi",
+      "source": "target/performance/coding-harness/flash-native-matrix-01/flash_dominoes_1_pi/result.json",
+      "seconds": 60.74949420399935,
+      "actions": 7,
+      "requests": 6,
+      "tokens": {
+        "uncached_input_tokens": 7543,
+        "cached_input_tokens": 19968,
+        "cache_creation_input_tokens": 0,
+        "output_tokens": 3405,
+        "reasoning_output_tokens": 1925,
+        "input_tokens": 27511
+      },
+      "pass": true,
+      "prompt_sha256": "fe404a888b4677030618ab2f697e60e1fb9af1a6c9b1c039ae67cbf7d64961fe",
+      "repo_sha256": "f0b72de8599cf4c0fb4be4b367a64d8147d7b26ce2e11ffa9f9c68b855b44c69"
+    },
+    {
+      "case": "forth",
+      "arm": "pi",
+      "source": "target/performance/coding-harness/flash-native-matrix-01/flash_forth_1_pi/result.json",
+      "seconds": 125.68623715900321,
+      "actions": 9,
+      "requests": 6,
+      "tokens": {
+        "uncached_input_tokens": 12617,
+        "cached_input_tokens": 24064,
+        "cache_creation_input_tokens": 0,
+        "output_tokens": 4559,
+        "reasoning_output_tokens": 3047,
+        "input_tokens": 36681
+      },
+      "pass": true,
+      "prompt_sha256": "cf5ee0e2e60fb33217a18e1def3c4c70fa9c9a8030e7ae52169a35a022eeb097",
+      "repo_sha256": "f1b1ac5857855f34859eb5490a8f25c22f006140ca5a4de487192a3f11ef2fe3"
+    },
+    {
+      "case": "log-summary-date-ranges",
+      "arm": "pi",
+      "source": "target/performance/coding-harness/flash-native-matrix-01/flash_log-summary-date-ranges_1_pi/result.json",
+      "seconds": 59.37066713600507,
+      "actions": 3,
+      "requests": 4,
+      "tokens": {
+        "uncached_input_tokens": 12833,
+        "cached_input_tokens": 23808,
+        "cache_creation_input_tokens": 0,
+        "output_tokens": 1131,
+        "reasoning_output_tokens": 172,
+        "input_tokens": 36641
+      },
+      "pass": true,
+      "prompt_sha256": "9f2ad3a9c0392f5a51a25601a14f66457f8b3c7f012f163f88a3b89d900f2b8f",
+      "repo_sha256": "605d0cb33d285eb9b89ac7d39611fa78074ef1636df1dce3995aee7faad3f9fd"
+    },
+    {
+      "case": "poker",
+      "arm": "pi",
+      "source": "target/performance/coding-harness/flash-native-matrix-01/flash_poker_1_pi/result.json",
+      "seconds": 54.69833289500093,
+      "actions": 4,
+      "requests": 5,
+      "tokens": {
+        "uncached_input_tokens": 8541,
+        "cached_input_tokens": 13696,
+        "cache_creation_input_tokens": 0,
+        "output_tokens": 1127,
+        "reasoning_output_tokens": 33,
+        "input_tokens": 22237
+      },
+      "pass": true,
+      "prompt_sha256": "6502d20dc808ff1dedfefa7ee31bdcdc83190182a854428305dd9e43b6441394",
+      "repo_sha256": "7f3ee687298c5e4e38f8545524262c30ce5d27df04bda11ffb3f3eccd1bf3379"
+    },
+    {
+      "case": "variable-length-quantity",
+      "arm": "pi",
+      "source": "target/performance/coding-harness/flash-native-matrix-01/flash_variable-length-quantity_1_pi/result.json",
+      "seconds": 39.80769996900199,
+      "actions": 8,
+      "requests": 6,
+      "tokens": {
+        "uncached_input_tokens": 6835,
+        "cached_input_tokens": 17152,
+        "cache_creation_input_tokens": 0,
+        "output_tokens": 1094,
+        "reasoning_output_tokens": 223,
+        "input_tokens": 23987
+      },
+      "pass": true,
+      "prompt_sha256": "6f330d799e7903e9dea1b854a56b79e19c69eea13d47f069875443ef6270baea",
+      "repo_sha256": "6dd598fd730677e10d6d05293cf1ae7b903dfb039e51fbe6887ea363843165af"
+    },
+    {
+      "case": "cancel-async-tasks",
+      "arm": "opencode",
+      "source": "target/performance/coding-harness/flash-native-opencode-verified-matrix-02/flash_cancel-async-tasks_1_opencode/result.json",
+      "seconds": 519.3581750480007,
+      "actions": 26,
+      "requests": null,
+      "tokens": {
+        "uncached_input_tokens": 30771,
+        "visible_output_tokens": 4121,
+        "cached_input_tokens": 434688,
+        "cache_creation_input_tokens": 0,
+        "reasoning_output_tokens": 15671,
+        "input_tokens": 465459,
+        "output_tokens": 19792
+      },
+      "pass": true,
+      "prompt_sha256": "218bfa0dc6e52188174771d869906658a853eaa67a0359b42731c16f390bd7c3",
+      "repo_sha256": "0f960dd55ff68ff31dfb2375540720080b7b42a795c69ac46ba2637667f3d7b8"
+    },
+    {
+      "case": "variable-length-quantity",
+      "arm": "opencode",
+      "source": "target/performance/coding-harness/flash-native-opencode-verified-matrix-02/flash_variable-length-quantity_1_opencode/result.json",
+      "seconds": 46.72107022900309,
+      "actions": 8,
+      "requests": null,
+      "tokens": {
+        "uncached_input_tokens": 13162,
+        "visible_output_tokens": 928,
+        "cached_input_tokens": 38656,
+        "cache_creation_input_tokens": 0,
+        "reasoning_output_tokens": 404,
+        "input_tokens": 51818,
+        "output_tokens": 1332
+      },
+      "pass": true,
+      "prompt_sha256": "6f330d799e7903e9dea1b854a56b79e19c69eea13d47f069875443ef6270baea",
+      "repo_sha256": "6dd598fd730677e10d6d05293cf1ae7b903dfb039e51fbe6887ea363843165af"
+    },
+    {
+      "case": "dominoes",
+      "arm": "opencode",
+      "source": "target/performance/coding-harness/flash-native-opencode-verified-matrix-03/flash_dominoes_1_opencode/result.json",
+      "seconds": 77.687357281,
+      "actions": 8,
+      "requests": null,
+      "tokens": {
+        "uncached_input_tokens": 16651,
+        "visible_output_tokens": 1520,
+        "cached_input_tokens": 41344,
+        "cache_creation_input_tokens": 0,
+        "reasoning_output_tokens": 992,
+        "input_tokens": 57995,
+        "output_tokens": 2512
+      },
+      "pass": true,
+      "prompt_sha256": "fe404a888b4677030618ab2f697e60e1fb9af1a6c9b1c039ae67cbf7d64961fe",
+      "repo_sha256": "f0b72de8599cf4c0fb4be4b367a64d8147d7b26ce2e11ffa9f9c68b855b44c69"
+    },
+    {
+      "case": "forth",
+      "arm": "opencode",
+      "source": "target/performance/coding-harness/flash-native-opencode-verified-matrix-03/flash_forth_1_opencode/result.json",
+      "seconds": 89.98616918599873,
+      "actions": 12,
+      "requests": null,
+      "tokens": {
+        "uncached_input_tokens": 19484,
+        "visible_output_tokens": 2044,
+        "cached_input_tokens": 86016,
+        "cache_creation_input_tokens": 0,
+        "reasoning_output_tokens": 2867,
+        "input_tokens": 105500,
+        "output_tokens": 4911
+      },
+      "pass": true,
+      "prompt_sha256": "cf5ee0e2e60fb33217a18e1def3c4c70fa9c9a8030e7ae52169a35a022eeb097",
+      "repo_sha256": "f1b1ac5857855f34859eb5490a8f25c22f006140ca5a4de487192a3f11ef2fe3"
+    },
+    {
+      "case": "log-summary-date-ranges",
+      "arm": "opencode",
+      "source": "target/performance/coding-harness/flash-native-opencode-verified-matrix-03/flash_log-summary-date-ranges_1_opencode/result.json",
+      "seconds": 62.41696052499901,
+      "actions": 5,
+      "requests": null,
+      "tokens": {
+        "uncached_input_tokens": 22296,
+        "visible_output_tokens": 1566,
+        "cached_input_tokens": 56064,
+        "cache_creation_input_tokens": 0,
+        "reasoning_output_tokens": 383,
+        "input_tokens": 78360,
+        "output_tokens": 1949
+      },
+      "pass": true,
+      "prompt_sha256": "9f2ad3a9c0392f5a51a25601a14f66457f8b3c7f012f163f88a3b89d900f2b8f",
+      "repo_sha256": "605d0cb33d285eb9b89ac7d39611fa78074ef1636df1dce3995aee7faad3f9fd"
+    },
+    {
+      "case": "poker",
+      "arm": "opencode",
+      "source": "target/performance/coding-harness/flash-native-opencode-verified-matrix-03/flash_poker_1_opencode/result.json",
+      "seconds": 41.570802942995215,
+      "actions": 6,
+      "requests": null,
+      "tokens": {
+        "uncached_input_tokens": 16944,
+        "visible_output_tokens": 1321,
+        "cached_input_tokens": 25728,
+        "cache_creation_input_tokens": 0,
+        "reasoning_output_tokens": 287,
+        "input_tokens": 42672,
+        "output_tokens": 1608
+      },
+      "pass": true,
+      "prompt_sha256": "6502d20dc808ff1dedfefa7ee31bdcdc83190182a854428305dd9e43b6441394",
+      "repo_sha256": "7f3ee687298c5e4e38f8545524262c30ce5d27df04bda11ffb3f3eccd1bf3379"
+    },
+    {
+      "case": "cancel-async-tasks",
+      "arm": "proteus-codex",
+      "source": "target/performance/coding-harness/flash-proteus-pi-codex-matrix-01/flash_cancel-async-tasks_1_proteus-codex/result.json",
+      "seconds": 111.70720468299987,
+      "actions": 13,
+      "requests": 12,
+      "tokens": {
+        "input_tokens": 132959,
+        "output_tokens": 5823,
+        "cached_input_tokens": 118912,
+        "cache_creation_input_tokens": 0,
+        "reasoning_output_tokens": 2801,
+        "uncached_input_tokens": 14047
+      },
+      "pass": true,
+      "prompt_sha256": "218bfa0dc6e52188174771d869906658a853eaa67a0359b42731c16f390bd7c3",
+      "repo_sha256": "0f960dd55ff68ff31dfb2375540720080b7b42a795c69ac46ba2637667f3d7b8"
+    },
+    {
+      "case": "cancel-async-tasks",
+      "arm": "proteus-pi",
+      "source": "target/performance/coding-harness/flash-proteus-pi-codex-matrix-01/flash_cancel-async-tasks_1_proteus-pi/result.json",
+      "seconds": 191.59935669900005,
+      "actions": 13,
+      "requests": 14,
+      "tokens": {
+        "input_tokens": 123908,
+        "output_tokens": 11434,
+        "cached_input_tokens": 107776,
+        "cache_creation_input_tokens": 0,
+        "reasoning_output_tokens": 8723,
+        "uncached_input_tokens": 16132
+      },
+      "pass": true,
+      "prompt_sha256": "218bfa0dc6e52188174771d869906658a853eaa67a0359b42731c16f390bd7c3",
+      "repo_sha256": "0f960dd55ff68ff31dfb2375540720080b7b42a795c69ac46ba2637667f3d7b8"
+    },
+    {
+      "case": "dominoes",
+      "arm": "proteus-codex",
+      "source": "target/performance/coding-harness/flash-proteus-pi-codex-matrix-01/flash_dominoes_1_proteus-codex/result.json",
+      "seconds": 105.72851470900059,
+      "actions": 12,
+      "requests": 8,
+      "tokens": {
+        "input_tokens": 97364,
+        "output_tokens": 5096,
+        "cached_input_tokens": 86016,
+        "cache_creation_input_tokens": 0,
+        "reasoning_output_tokens": 1894,
+        "uncached_input_tokens": 11348
+      },
+      "pass": true,
+      "prompt_sha256": "fe404a888b4677030618ab2f697e60e1fb9af1a6c9b1c039ae67cbf7d64961fe",
+      "repo_sha256": "f0b72de8599cf4c0fb4be4b367a64d8147d7b26ce2e11ffa9f9c68b855b44c69"
+    },
+    {
+      "case": "dominoes",
+      "arm": "proteus-pi",
+      "source": "target/performance/coding-harness/flash-proteus-pi-codex-matrix-01/flash_dominoes_1_proteus-pi/result.json",
+      "seconds": 314.63454581699625,
+      "actions": 9,
+      "requests": 8,
+      "tokens": {
+        "input_tokens": 43365,
+        "output_tokens": 3976,
+        "cached_input_tokens": 34944,
+        "cache_creation_input_tokens": 0,
+        "reasoning_output_tokens": 1588,
+        "uncached_input_tokens": 8421
+      },
+      "pass": true,
+      "prompt_sha256": "fe404a888b4677030618ab2f697e60e1fb9af1a6c9b1c039ae67cbf7d64961fe",
+      "repo_sha256": "f0b72de8599cf4c0fb4be4b367a64d8147d7b26ce2e11ffa9f9c68b855b44c69"
+    },
+    {
+      "case": "forth",
+      "arm": "proteus-codex",
+      "source": "target/performance/coding-harness/flash-proteus-pi-codex-matrix-01/flash_forth_1_proteus-codex/result.json",
+      "seconds": 211.02613679500064,
+      "actions": 15,
+      "requests": 11,
+      "tokens": {
+        "input_tokens": 167716,
+        "output_tokens": 8851,
+        "cached_input_tokens": 143488,
+        "cache_creation_input_tokens": 0,
+        "reasoning_output_tokens": 3512,
+        "uncached_input_tokens": 24228
+      },
+      "pass": true,
+      "prompt_sha256": "cf5ee0e2e60fb33217a18e1def3c4c70fa9c9a8030e7ae52169a35a022eeb097",
+      "repo_sha256": "f1b1ac5857855f34859eb5490a8f25c22f006140ca5a4de487192a3f11ef2fe3"
+    },
+    {
+      "case": "forth",
+      "arm": "proteus-pi",
+      "source": "target/performance/coding-harness/flash-proteus-pi-codex-matrix-01/flash_forth_1_proteus-pi/result.json",
+      "seconds": 61.62741174700204,
+      "actions": 8,
+      "requests": 7,
+      "tokens": {
+        "input_tokens": 42453,
+        "output_tokens": 3048,
+        "cached_input_tokens": 32512,
+        "cache_creation_input_tokens": 0,
+        "reasoning_output_tokens": 1614,
+        "uncached_input_tokens": 9941
+      },
+      "pass": true,
+      "prompt_sha256": "cf5ee0e2e60fb33217a18e1def3c4c70fa9c9a8030e7ae52169a35a022eeb097",
+      "repo_sha256": "f1b1ac5857855f34859eb5490a8f25c22f006140ca5a4de487192a3f11ef2fe3"
+    },
+    {
+      "case": "log-summary-date-ranges",
+      "arm": "proteus-codex",
+      "source": "target/performance/coding-harness/flash-proteus-pi-codex-matrix-01/flash_log-summary-date-ranges_1_proteus-codex/result.json",
+      "seconds": 67.7804818930017,
+      "actions": 4,
+      "requests": 5,
+      "tokens": {
+        "input_tokens": 56869,
+        "output_tokens": 3854,
+        "cached_input_tokens": 47232,
+        "cache_creation_input_tokens": 0,
+        "reasoning_output_tokens": 1249,
+        "uncached_input_tokens": 9637
+      },
+      "pass": true,
+      "prompt_sha256": "9f2ad3a9c0392f5a51a25601a14f66457f8b3c7f012f163f88a3b89d900f2b8f",
+      "repo_sha256": "605d0cb33d285eb9b89ac7d39611fa78074ef1636df1dce3995aee7faad3f9fd"
+    },
+    {
+      "case": "log-summary-date-ranges",
+      "arm": "proteus-pi",
+      "source": "target/performance/coding-harness/flash-proteus-pi-codex-matrix-01/flash_log-summary-date-ranges_1_proteus-pi/result.json",
+      "seconds": 51.89649028400163,
+      "actions": 5,
+      "requests": 6,
+      "tokens": {
+        "input_tokens": 53478,
+        "output_tokens": 1874,
+        "cached_input_tokens": 41984,
+        "cache_creation_input_tokens": 0,
+        "reasoning_output_tokens": 589,
+        "uncached_input_tokens": 11494
+      },
+      "pass": true,
+      "prompt_sha256": "9f2ad3a9c0392f5a51a25601a14f66457f8b3c7f012f163f88a3b89d900f2b8f",
+      "repo_sha256": "605d0cb33d285eb9b89ac7d39611fa78074ef1636df1dce3995aee7faad3f9fd"
+    },
+    {
+      "case": "poker",
+      "arm": "proteus-codex",
+      "source": "target/performance/coding-harness/flash-proteus-pi-codex-matrix-01/flash_poker_1_proteus-codex/result.json",
+      "seconds": 57.974213856999995,
+      "actions": 9,
+      "requests": 6,
+      "tokens": {
+        "input_tokens": 69513,
+        "output_tokens": 3797,
+        "cached_input_tokens": 54016,
+        "cache_creation_input_tokens": 0,
+        "reasoning_output_tokens": 862,
+        "uncached_input_tokens": 15497
+      },
+      "pass": true,
+      "prompt_sha256": "6502d20dc808ff1dedfefa7ee31bdcdc83190182a854428305dd9e43b6441394",
+      "repo_sha256": "7f3ee687298c5e4e38f8545524262c30ce5d27df04bda11ffb3f3eccd1bf3379"
+    },
+    {
+      "case": "poker",
+      "arm": "proteus-pi",
+      "source": "target/performance/coding-harness/flash-proteus-pi-codex-matrix-01/flash_poker_1_proteus-pi/result.json",
+      "seconds": 54.99299516299652,
+      "actions": 9,
+      "requests": 6,
+      "tokens": {
+        "input_tokens": 30674,
+        "output_tokens": 2198,
+        "cached_input_tokens": 21632,
+        "cache_creation_input_tokens": 0,
+        "reasoning_output_tokens": 580,
+        "uncached_input_tokens": 9042
+      },
+      "pass": true,
+      "prompt_sha256": "6502d20dc808ff1dedfefa7ee31bdcdc83190182a854428305dd9e43b6441394",
+      "repo_sha256": "7f3ee687298c5e4e38f8545524262c30ce5d27df04bda11ffb3f3eccd1bf3379"
+    },
+    {
+      "case": "variable-length-quantity",
+      "arm": "proteus-codex",
+      "source": "target/performance/coding-harness/flash-proteus-pi-codex-matrix-01/flash_variable-length-quantity_1_proteus-codex/result.json",
+      "seconds": 49.079758711995964,
+      "actions": 11,
+      "requests": 6,
+      "tokens": {
+        "input_tokens": 63909,
+        "output_tokens": 2728,
+        "cached_input_tokens": 54784,
+        "cache_creation_input_tokens": 0,
+        "reasoning_output_tokens": 662,
+        "uncached_input_tokens": 9125
+      },
+      "pass": true,
+      "prompt_sha256": "6f330d799e7903e9dea1b854a56b79e19c69eea13d47f069875443ef6270baea",
+      "repo_sha256": "6dd598fd730677e10d6d05293cf1ae7b903dfb039e51fbe6887ea363843165af"
+    },
+    {
+      "case": "variable-length-quantity",
+      "arm": "proteus-pi",
+      "source": "target/performance/coding-harness/flash-proteus-pi-codex-matrix-01/flash_variable-length-quantity_1_proteus-pi/result.json",
+      "seconds": 35.88894781700219,
+      "actions": 8,
+      "requests": 6,
+      "tokens": {
+        "input_tokens": 24544,
+        "output_tokens": 1243,
+        "cached_input_tokens": 18432,
+        "cache_creation_input_tokens": 0,
+        "reasoning_output_tokens": 268,
+        "uncached_input_tokens": 6112
+      },
+      "pass": true,
+      "prompt_sha256": "6f330d799e7903e9dea1b854a56b79e19c69eea13d47f069875443ef6270baea",
+      "repo_sha256": "6dd598fd730677e10d6d05293cf1ae7b903dfb039e51fbe6887ea363843165af"
+    },
+    {
+      "case": "cancel-async-tasks",
+      "arm": "proteus-opencode",
+      "source": "target/performance/coding-harness/flash-opencode-proteus-01/flash_cancel-async-tasks_1_proteus-opencode/result.json",
+      "seconds": 306.96896042799926,
+      "actions": 18,
+      "requests": 16,
+      "tokens": {
+        "input_tokens": 264751,
+        "output_tokens": 21062,
+        "cached_input_tokens": 237696,
+        "cache_creation_input_tokens": 0,
+        "reasoning_output_tokens": 16764,
+        "uncached_input_tokens": 27055
+      },
+      "pass": true,
+      "prompt_sha256": "218bfa0dc6e52188174771d869906658a853eaa67a0359b42731c16f390bd7c3",
+      "repo_sha256": "0f960dd55ff68ff31dfb2375540720080b7b42a795c69ac46ba2637667f3d7b8"
+    },
+    {
+      "case": "dominoes",
+      "arm": "proteus-opencode",
+      "source": "target/performance/coding-harness/flash-opencode-proteus-01/flash_dominoes_1_proteus-opencode/result.json",
+      "seconds": 269.65902733999974,
+      "actions": 13,
+      "requests": 9,
+      "tokens": {
+        "input_tokens": 78156,
+        "output_tokens": 9661,
+        "cached_input_tokens": 62976,
+        "cache_creation_input_tokens": 0,
+        "reasoning_output_tokens": 6095,
+        "uncached_input_tokens": 15180
+      },
+      "pass": true,
+      "prompt_sha256": "fe404a888b4677030618ab2f697e60e1fb9af1a6c9b1c039ae67cbf7d64961fe",
+      "repo_sha256": "f0b72de8599cf4c0fb4be4b367a64d8147d7b26ce2e11ffa9f9c68b855b44c69"
+    },
+    {
+      "case": "forth",
+      "arm": "proteus-opencode",
+      "source": "target/performance/coding-harness/flash-opencode-proteus-01/flash_forth_1_proteus-opencode/result.json",
+      "seconds": 83.99487044700072,
+      "actions": 8,
+      "requests": 6,
+      "tokens": {
+        "input_tokens": 41539,
+        "output_tokens": 5247,
+        "cached_input_tokens": 29312,
+        "cache_creation_input_tokens": 0,
+        "reasoning_output_tokens": 3628,
+        "uncached_input_tokens": 12227
+      },
+      "pass": true,
+      "prompt_sha256": "cf5ee0e2e60fb33217a18e1def3c4c70fa9c9a8030e7ae52169a35a022eeb097",
+      "repo_sha256": "f1b1ac5857855f34859eb5490a8f25c22f006140ca5a4de487192a3f11ef2fe3"
+    },
+    {
+      "case": "log-summary-date-ranges",
+      "arm": "proteus-opencode",
+      "source": "target/performance/coding-harness/flash-opencode-proteus-01/flash_log-summary-date-ranges_1_proteus-opencode/result.json",
+      "seconds": 57.94865296000353,
+      "actions": 5,
+      "requests": 6,
+      "tokens": {
+        "input_tokens": 60303,
+        "output_tokens": 2258,
+        "cached_input_tokens": 47744,
+        "cache_creation_input_tokens": 0,
+        "reasoning_output_tokens": 897,
+        "uncached_input_tokens": 12559
+      },
+      "pass": true,
+      "prompt_sha256": "9f2ad3a9c0392f5a51a25601a14f66457f8b3c7f012f163f88a3b89d900f2b8f",
+      "repo_sha256": "605d0cb33d285eb9b89ac7d39611fa78074ef1636df1dce3995aee7faad3f9fd"
+    },
+    {
+      "case": "poker",
+      "arm": "proteus-opencode",
+      "source": "target/performance/coding-harness/flash-opencode-proteus-01/flash_poker_1_proteus-opencode/result.json",
+      "seconds": 45.682941496997955,
+      "actions": 6,
+      "requests": 5,
+      "tokens": {
+        "input_tokens": 28628,
+        "output_tokens": 1896,
+        "cached_input_tokens": 19072,
+        "cache_creation_input_tokens": 0,
+        "reasoning_output_tokens": 327,
+        "uncached_input_tokens": 9556
+      },
+      "pass": true,
+      "prompt_sha256": "6502d20dc808ff1dedfefa7ee31bdcdc83190182a854428305dd9e43b6441394",
+      "repo_sha256": "7f3ee687298c5e4e38f8545524262c30ce5d27df04bda11ffb3f3eccd1bf3379"
+    },
+    {
+      "case": "variable-length-quantity",
+      "arm": "proteus-opencode",
+      "source": "target/performance/coding-harness/flash-opencode-proteus-01/flash_variable-length-quantity_1_proteus-opencode/result.json",
+      "seconds": 51.19367638300173,
+      "actions": 10,
+      "requests": 7,
+      "tokens": {
+        "input_tokens": 33788,
+        "output_tokens": 1996,
+        "cached_input_tokens": 26240,
+        "cache_creation_input_tokens": 0,
+        "reasoning_output_tokens": 780,
+        "uncached_input_tokens": 7548
+      },
+      "pass": true,
+      "prompt_sha256": "6f330d799e7903e9dea1b854a56b79e19c69eea13d47f069875443ef6270baea",
+      "repo_sha256": "6dd598fd730677e10d6d05293cf1ae7b903dfb039e51fbe6887ea363843165af"
+    },
+    {
+      "case": "db-wal-recovery",
+      "arm": "pi",
+      "source": "target/performance/coding-harness/long-flash-01/flash_db-wal-recovery_1_pi",
+      "seconds": 48.536,
+      "actions": 6,
+      "requests": 7,
+      "tokens": {
+        "uncached_input_tokens": 9048,
+        "cached_input_tokens": 31744,
+        "cache_creation_input_tokens": 0,
+        "output_tokens": 2602,
+        "reasoning_output_tokens": 1531,
+        "input_tokens": 40792
+      },
+      "pass": true,
+      "prompt_sha256": "1cc2ed317b4a763cd63213edf37d3f96c73fe718d18ca7e9a90be43e2060e610",
+      "repo_sha256": "a6ee087841d05a92cc15fb02133aaa7ebaed851a28d9877bac20fa351e73b90b"
+    },
+    {
+      "case": "db-wal-recovery",
+      "arm": "proteus-pi",
+      "source": "target/performance/coding-harness/long-flash-01/flash_db-wal-recovery_1_proteus-pi",
+      "seconds": 53.145,
+      "actions": 7,
+      "requests": 7,
+      "tokens": {
+        "input_tokens": 41623,
+        "output_tokens": 2576,
+        "cached_input_tokens": 32640,
+        "cache_creation_input_tokens": 0,
+        "reasoning_output_tokens": 1169,
+        "uncached_input_tokens": 8983
+      },
+      "pass": true,
+      "prompt_sha256": "1cc2ed317b4a763cd63213edf37d3f96c73fe718d18ca7e9a90be43e2060e610",
+      "repo_sha256": "a6ee087841d05a92cc15fb02133aaa7ebaed851a28d9877bac20fa351e73b90b"
+    },
+    {
+      "case": "db-wal-recovery",
+      "arm": "opencode",
+      "source": "target/performance/coding-harness/long-flash-01/flash_db-wal-recovery_1_opencode",
+      "seconds": 161.234,
+      "actions": 27,
+      "requests": null,
+      "tokens": {
+        "uncached_input_tokens": 37323,
+        "visible_output_tokens": 3637,
+        "cached_input_tokens": 460416,
+        "cache_creation_input_tokens": 0,
+        "reasoning_output_tokens": 6874,
+        "input_tokens": 497739,
+        "output_tokens": 10511
+      },
+      "pass": true,
+      "prompt_sha256": "1cc2ed317b4a763cd63213edf37d3f96c73fe718d18ca7e9a90be43e2060e610",
+      "repo_sha256": "a6ee087841d05a92cc15fb02133aaa7ebaed851a28d9877bac20fa351e73b90b"
+    },
+    {
+      "case": "db-wal-recovery",
+      "arm": "proteus-opencode",
+      "source": "target/performance/coding-harness/long-flash-01/flash_db-wal-recovery_1_proteus-opencode",
+      "seconds": 98.889,
+      "actions": 12,
+      "requests": 11,
+      "tokens": {
+        "input_tokens": 225640,
+        "output_tokens": 4453,
+        "cached_input_tokens": 198528,
+        "cache_creation_input_tokens": 0,
+        "reasoning_output_tokens": 2088,
+        "uncached_input_tokens": 27112
+      },
+      "pass": true,
+      "prompt_sha256": "1cc2ed317b4a763cd63213edf37d3f96c73fe718d18ca7e9a90be43e2060e610",
+      "repo_sha256": "a6ee087841d05a92cc15fb02133aaa7ebaed851a28d9877bac20fa351e73b90b"
+    },
+    {
+      "case": "db-wal-recovery",
+      "arm": "proteus-codex",
+      "source": "target/performance/coding-harness/long-flash-01/flash_db-wal-recovery_1_proteus-codex",
+      "seconds": 69.585,
+      "actions": 6,
+      "requests": 5,
+      "tokens": {
+        "input_tokens": 55527,
+        "output_tokens": 4865,
+        "cached_input_tokens": 44032,
+        "cache_creation_input_tokens": 0,
+        "reasoning_output_tokens": 3277,
+        "uncached_input_tokens": 11495
+      },
+      "pass": true,
+      "prompt_sha256": "1cc2ed317b4a763cd63213edf37d3f96c73fe718d18ca7e9a90be43e2060e610",
+      "repo_sha256": "a6ee087841d05a92cc15fb02133aaa7ebaed851a28d9877bac20fa351e73b90b"
+    },
+    {
+      "case": "write-compressor",
+      "arm": "pi",
+      "source": "target/performance/coding-harness/long-flash-01/flash_write-compressor_1_pi",
+      "seconds": 648.31,
+      "actions": 12,
+      "requests": 12,
+      "tokens": {
+        "uncached_input_tokens": 33520,
+        "cached_input_tokens": 181632,
+        "cache_creation_input_tokens": 0,
+        "output_tokens": 26859,
+        "reasoning_output_tokens": 22512,
+        "input_tokens": 215152
+      },
+      "pass": true,
+      "prompt_sha256": "1ebcf87a2c764227b1d4401c72b1d8cb6f9fa69d48cb69630067e88022e13b42",
+      "repo_sha256": "c8212c273b57827cbf3c6ec5e793bfc1c22cd5d20d3617f79cd2a4a92d46e5e2"
+    },
+    {
+      "case": "write-compressor",
+      "arm": "proteus-pi",
+      "source": "target/performance/coding-harness/long-flash-01/flash_write-compressor_1_proteus-pi",
+      "seconds": 248.648,
+      "actions": 13,
+      "requests": 13,
+      "tokens": {
+        "input_tokens": 183818,
+        "output_tokens": 18468,
+        "cached_input_tokens": 160256,
+        "cache_creation_input_tokens": 0,
+        "reasoning_output_tokens": 13778,
+        "uncached_input_tokens": 23562
+      },
+      "pass": true,
+      "prompt_sha256": "1ebcf87a2c764227b1d4401c72b1d8cb6f9fa69d48cb69630067e88022e13b42",
+      "repo_sha256": "c8212c273b57827cbf3c6ec5e793bfc1c22cd5d20d3617f79cd2a4a92d46e5e2"
+    },
+    {
+      "case": "write-compressor",
+      "arm": "opencode",
+      "source": "target/performance/coding-harness/long-flash-01/flash_write-compressor_1_opencode",
+      "seconds": 571.513,
+      "actions": 14,
+      "requests": null,
+      "tokens": {
+        "uncached_input_tokens": 52752,
+        "visible_output_tokens": 8970,
+        "cached_input_tokens": 539648,
+        "cache_creation_input_tokens": 0,
+        "reasoning_output_tokens": 41118,
+        "input_tokens": 592400,
+        "output_tokens": 50088
+      },
+      "pass": true,
+      "prompt_sha256": "1ebcf87a2c764227b1d4401c72b1d8cb6f9fa69d48cb69630067e88022e13b42",
+      "repo_sha256": "c8212c273b57827cbf3c6ec5e793bfc1c22cd5d20d3617f79cd2a4a92d46e5e2"
+    },
+    {
+      "case": "write-compressor",
+      "arm": "proteus-opencode",
+      "source": "target/performance/coding-harness/long-flash-01/flash_write-compressor_1_proteus-opencode",
+      "seconds": 342.108,
+      "actions": 13,
+      "requests": 13,
+      "tokens": {
+        "input_tokens": 291326,
+        "output_tokens": 28488,
+        "cached_input_tokens": 258816,
+        "cache_creation_input_tokens": 0,
+        "reasoning_output_tokens": 22770,
+        "uncached_input_tokens": 32510
+      },
+      "pass": true,
+      "prompt_sha256": "1ebcf87a2c764227b1d4401c72b1d8cb6f9fa69d48cb69630067e88022e13b42",
+      "repo_sha256": "c8212c273b57827cbf3c6ec5e793bfc1c22cd5d20d3617f79cd2a4a92d46e5e2"
+    },
+    {
+      "case": "write-compressor",
+      "arm": "proteus-codex",
+      "source": "target/performance/coding-harness/long-flash-01/flash_write-compressor_1_proteus-codex",
+      "seconds": 296.952,
+      "actions": 24,
+      "requests": 20,
+      "tokens": {
+        "input_tokens": 482344,
+        "output_tokens": 22910,
+        "cached_input_tokens": 448256,
+        "cache_creation_input_tokens": 0,
+        "reasoning_output_tokens": 12839,
+        "uncached_input_tokens": 34088
+      },
+      "pass": true,
+      "prompt_sha256": "1ebcf87a2c764227b1d4401c72b1d8cb6f9fa69d48cb69630067e88022e13b42",
+      "repo_sha256": "c8212c273b57827cbf3c6ec5e793bfc1c22cd5d20d3617f79cd2a4a92d46e5e2"
+    },
+    {
+      "case": "go-review",
+      "arm": "pi",
+      "source": "target/performance/coding-harness/long-flash-01/flash_go-review_1_pi",
+      "seconds": 201.865,
+      "actions": 23,
+      "requests": 18,
+      "tokens": {
+        "uncached_input_tokens": 27079,
+        "cached_input_tokens": 233472,
+        "cache_creation_input_tokens": 0,
+        "output_tokens": 16455,
+        "reasoning_output_tokens": 11290,
+        "input_tokens": 260551
+      },
+      "pass": true,
+      "prompt_sha256": "c25e936d6c8789fa5b22d1121690c660ffca1a38a5800c04c0db147507509de7",
+      "repo_sha256": "3df050e41786917de08eb34aa79a6432a63625d7465058ce48d6b2d65b7bc079"
+    },
+    {
+      "case": "go-review",
+      "arm": "proteus-pi",
+      "source": "target/performance/coding-harness/long-flash-01/flash_go-review_1_proteus-pi",
+      "seconds": 256.561,
+      "actions": 23,
+      "requests": 21,
+      "tokens": {
+        "input_tokens": 388738,
+        "output_tokens": 19898,
+        "cached_input_tokens": 357248,
+        "cache_creation_input_tokens": 0,
+        "reasoning_output_tokens": 12696,
+        "uncached_input_tokens": 31490
+      },
+      "pass": true,
+      "prompt_sha256": "c25e936d6c8789fa5b22d1121690c660ffca1a38a5800c04c0db147507509de7",
+      "repo_sha256": "3df050e41786917de08eb34aa79a6432a63625d7465058ce48d6b2d65b7bc079"
+    },
+    {
+      "case": "go-review",
+      "arm": "opencode",
+      "source": "target/performance/coding-harness/long-flash-01/flash_go-review_1_opencode",
+      "seconds": 309.028,
+      "actions": 24,
+      "requests": null,
+      "tokens": {
+        "uncached_input_tokens": 42095,
+        "visible_output_tokens": 4599,
+        "cached_input_tokens": 457088,
+        "cache_creation_input_tokens": 0,
+        "reasoning_output_tokens": 21159,
+        "input_tokens": 499183,
+        "output_tokens": 25758
+      },
+      "pass": true,
+      "prompt_sha256": "c25e936d6c8789fa5b22d1121690c660ffca1a38a5800c04c0db147507509de7",
+      "repo_sha256": "3df050e41786917de08eb34aa79a6432a63625d7465058ce48d6b2d65b7bc079"
+    },
+    {
+      "case": "go-review",
+      "arm": "proteus-opencode",
+      "source": "target/performance/coding-harness/long-flash-01/flash_go-review_1_proteus-opencode",
+      "seconds": 353.105,
+      "actions": 27,
+      "requests": 21,
+      "tokens": {
+        "input_tokens": 496828,
+        "output_tokens": 27948,
+        "cached_input_tokens": 454912,
+        "cache_creation_input_tokens": 0,
+        "reasoning_output_tokens": 20691,
+        "uncached_input_tokens": 41916
+      },
+      "pass": true,
+      "prompt_sha256": "c25e936d6c8789fa5b22d1121690c660ffca1a38a5800c04c0db147507509de7",
+      "repo_sha256": "3df050e41786917de08eb34aa79a6432a63625d7465058ce48d6b2d65b7bc079"
+    },
+    {
+      "case": "go-review",
+      "arm": "proteus-codex",
+      "source": "target/performance/coding-harness/long-flash-01/flash_go-review_1_proteus-codex",
+      "seconds": 542.591,
+      "actions": 57,
+      "requests": 44,
+      "tokens": {
+        "input_tokens": 1682557,
+        "output_tokens": 41555,
+        "cached_input_tokens": 1616384,
+        "cache_creation_input_tokens": 0,
+        "reasoning_output_tokens": 22242,
+        "uncached_input_tokens": 66173
+      },
+      "pass": true,
+      "prompt_sha256": "c25e936d6c8789fa5b22d1121690c660ffca1a38a5800c04c0db147507509de7",
+      "repo_sha256": "3df050e41786917de08eb34aa79a6432a63625d7465058ce48d6b2d65b7bc079"
+    }
+  ]
+}
