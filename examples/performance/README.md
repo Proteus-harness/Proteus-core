@@ -3,14 +3,18 @@
 Постоянные стенды хранятся здесь; новые сценарии расширяют их, а не создают
 одноразовые скрипты в `/tmp`. Синтетические fixtures, логи и отчёты остаются
 генерируемыми данными под `target/performance/` или явным `--output`.
-Пользовательские сессии и сетевые модели для этих замеров не нужны.
+Большинству стендов пользовательские сессии и сетевые модели не нужны.
+Отдельный явно запускаемый live-сценарий CodeMode использует подключённую
+модель с действующей авторизацией и расходует её квоту.
 
 Зафиксированный baseline: [замеры 28 октября 2026](results/2026-10-28.md)
 с параметрами, версиями, памятью, запуском и пересборкой. Требуются Linux и
 Python 3.11+; измеряемые процессы должны разрешать чтение своих `/proc` данных.
+Результаты живого API-сравнения — [CodeMode, 11 ноября](results/2026-11-11-code-mode.md).
 
 | Стенд | Что измеряет |
 |---|---|
+| [code-mode](code-mode/README.md) | Живое сравнение прямых API calls и JavaScript orchestration: правильность, provider tokens, model requests и время |
 | [history-scale](history-scale/README.md) | 5 000/50 000 настоящих сообщений **в каждой** из десяти сессий: восстановление HTTP peers и отдельный сценарий AgentControl |
 | [multi-agent](multi-agent/README.md) | Конкурентные `AgentControlRuntime` peers, реальные tools, локальная fake model, resident pool, повторные ходы и replay |
 | [native-history](../../../Proteus-desktop/examples/performance/native-history/README.md) | Окно GPUI, backend и descendants: первое открытие длинной истории и повторный запуск |
