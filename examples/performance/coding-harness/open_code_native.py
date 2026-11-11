@@ -115,8 +115,8 @@ def save_registry(binary, environment, url, model, state):
     (state/'registry.json').write_text(json.dumps(proof, indent=2) + '\n')
 
 
-def save_usage(state):
-    database = Path(os.environ.get('XDG_DATA_HOME', str(Path.home()/'.local/share')))/'opencode/opencode.db'
+def save_usage(state, database=None, *, after_logout=True):
+    database = database or Path(os.environ.get('XDG_DATA_HOME', str(Path.home()/'.local/share')))/'opencode/opencode.db'
     with sqlite3.connect(database) as connection:
         connection.row_factory = sqlite3.Row
         sessions = [dict(row) for row in connection.execute(
@@ -131,10 +131,17 @@ def save_usage(state):
             messages.append({'session_id': row['session_id'], **{
                 key: message.get(key) for key in ['model', 'tokens', 'cost', 'finish', 'time']
             }, 'tools': [part['name'] for part in message.get('content', []) if part.get('type') == 'tool']})
+        turns = {row[0]: row[1] for row in connection.execute(
+            "SELECT session_id, count(*) FROM session_message WHERE type='user' GROUP BY session_id")}
         credentials = connection.execute('SELECT count(*) FROM credential').fetchone()[0]
         (state/'usage.json').write_text(json.dumps({
-            'sessions': sessions, 'assistant_messages': messages, 'credentials_remaining': credentials,
+            'sessions': sessions, 'assistant_messages': messages, 'user_turns': turns,
+            'partial': not after_logout, 'credentials_remaining': credentials,
+            'compaction_messages': connection.execute(
+                "SELECT count(*) FROM session_message WHERE type='compaction'").fetchone()[0],
         }, indent=2)+'\n')
+        if not after_logout:
+            return
         if credentials:
             raise RuntimeError('OpenCode private credential cleanup left stored credentials')
         # Native logout deletes logical credentials. Compact the disposable DB
@@ -181,7 +188,7 @@ def wait_model(binary, environment, url, model, timeout):
     raise RuntimeError(f'OpenCode private server has no available model {wanted}')
 
 
-def run(binary, model, prompt, state, startup_timeout=60, auth_export=None):
+def run(binary, model, prompt, state, startup_timeout=60, auth_export=None, session=None):
     state.mkdir(parents=True, exist_ok=True)
     state.chmod(0o700)
     environment = os.environ.copy()
@@ -213,7 +220,7 @@ def run(binary, model, prompt, state, startup_timeout=60, auth_export=None):
             save_registry(binary, environment, url, model, state)
             return subprocess.run(
                 [str(binary), 'run', '--server', url, '--auto', '--format', 'json',
-                 '--model', model, prompt],
+                 '--model', model, *(['--session', session] if session else []), prompt],
                 env=environment, stdin=subprocess.DEVNULL,
             ).returncode
         finally:
@@ -243,9 +250,10 @@ def main():
     parser.add_argument('--state', type=Path, required=True)
     parser.add_argument('--startup-timeout', type=int, default=60)
     parser.add_argument('--auth-export', type=Path)
+    parser.add_argument('--session')
     args = parser.parse_args()
     try:
-        return run(args.binary, args.model, args.prompt, args.state, args.startup_timeout, args.auth_export)
+        return run(args.binary, args.model, args.prompt, args.state, args.startup_timeout, args.auth_export, args.session)
     except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as error:
         print(f'OpenCode startup failed: {error}', file=sys.stderr)
         return 1

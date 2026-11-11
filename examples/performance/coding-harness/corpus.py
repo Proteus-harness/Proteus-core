@@ -137,11 +137,12 @@ def grade(case, workspace, output, reference=False):
     info = json.loads((case / "case.json").read_text())
     if manifest(case / "grader") != info["grader_hashes"]:
         raise ValueError("authoritative grader changed")
+    protected = info.get("immutable_files", [name for name in info["repo_hashes"]
+                          if name.endswith("_test.py") or name.startswith("logs/")])
     unchanged = all((workspace / name).resolve().is_relative_to(workspace)
                     and not (workspace / name).is_symlink()
-                    and (workspace / name).is_file() and digest(workspace / name) == sha
-                    for name, sha in info["repo_hashes"].items()
-                    if name.endswith("_test.py") or name.startswith("logs/"))
+                    and (workspace / name).is_file()
+                    and digest(workspace / name) == info["repo_hashes"][name] for name in protected)
     with tempfile.TemporaryDirectory(prefix="proteus-grade-") as temporary:
         work = Path(temporary) / "submission"
         shutil.copytree(workspace, work, symlinks=True,
@@ -164,10 +165,19 @@ def grade(case, workspace, output, reference=False):
             shutil.copy2(helper, work / "test.py")
         grading_inputs = Path(temporary) / "grader"
         grading_inputs.mkdir()
-        for path in private.glob("*.py"):
-            if path.name.startswith("test") or path.name.endswith("_test.py") or path.name == "conftest.py":
-                shutil.copy2(path, grading_inputs / path.name)
-        result = sandbox(work, grading_inputs, info["command"])
+        files = info.get("grader_files", [path.name for path in private.glob("*.py")
+                         if path.name.startswith("test") or path.name.endswith("_test.py") or path.name == "conftest.py"])
+        for name in files:
+            relative = Path(name)
+            if relative.is_absolute() or ".." in relative.parts or name not in info["grader_hashes"]:
+                raise ValueError("Invalid grading input: " + name)
+            target = grading_inputs / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(private / relative, target)
+        timeout = info.get("grader_timeout_seconds", 120)
+        if not 1 <= timeout <= 3600:
+            raise ValueError("invalid grading timeout")
+        result = sandbox(work, grading_inputs, info["command"], timeout=timeout)
     result.update({"case": info["id"], "fixture_unchanged": unchanged,
                    "passed": result["returncode"] == 0 and unchanged,
                    "reference_control": reference})

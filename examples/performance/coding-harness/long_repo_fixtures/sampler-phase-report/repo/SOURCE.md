@@ -1,0 +1,1 @@
+Public Proteus-core performance sources at commit 879183f3853ce469346b19634e9440c6d7d7cd0f, MIT. This task adds a new offline report feature using the unchanged real sampler/recorder data model. No implementation of the requested phase aggregator is included.

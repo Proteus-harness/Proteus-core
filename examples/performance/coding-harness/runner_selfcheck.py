@@ -3,7 +3,9 @@ import json
 from pathlib import Path
 import subprocess
 import tempfile
+from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 import adapters
 import runner
@@ -58,6 +60,27 @@ class RunnerChecks(unittest.TestCase):
             runner.remove_auth(runtime)
             self.assertFalse(destination.exists())
             self.assertFalse(native.exists())
+
+    def test_followups_bind_same_session_and_preserve_initial_prompt(self):
+        args = SimpleNamespace(agent='proteus', output=Path('/run'), timeout=1200)
+        report = {}
+        commands = []
+        def execute(cmd, output, timeout, environment, *, append):
+            commands.append((cmd[cmd.index('--')+1:], append))
+            return {'returncode':0, 'timed_out':False, 'wall_seconds':1}
+        with patch.object(runner, 'execute', side_effect=execute), patch.object(
+                runner, 'observed_session', side_effect=[('session',1),('session',2)]):
+            runner.run_turns(args, ['proteus','one'], [], {}, report, ['one','two'])
+        self.assertEqual(commands, [(['proteus','one'],False), (['proteus','--resume-session','session','two'],True)])
+        self.assertTrue(report['continuity_verified'])
+        self.assertEqual([x['observed_user_turns'] for x in report['turns']], [1,2])
+
+    def test_restarted_followup_session_is_a_pipeline_error(self):
+        args = SimpleNamespace(agent='pi', output=Path('/run'), timeout=1200)
+        with patch.object(runner, 'execute', return_value={'returncode':0,'timed_out':False,'wall_seconds':1}), patch.object(
+                runner, 'observed_session', side_effect=[('old',1),('new',1)]):
+            with self.assertRaisesRegex(ValueError, 'session identity'):
+                runner.run_turns(args, ['pi','one'], [], {}, {}, ['one','two'])
 
     def test_outer_sandbox_can_only_write_disposable_paths(self):
         with tempfile.TemporaryDirectory() as directory:

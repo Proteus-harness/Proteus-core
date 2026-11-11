@@ -1,0 +1,1 @@
+This fixture stages public Proteus-core performance sources at commit 879183f3853ce469346b19634e9440c6d7d7cd0f (MIT). The segmented archive requirements are a new benchmark maintenance feature. No existing solution is included.

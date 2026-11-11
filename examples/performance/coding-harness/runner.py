@@ -11,6 +11,7 @@ import subprocess
 import time
 
 import adapters
+import open_code_native
 
 
 def digest(path):
@@ -52,10 +53,11 @@ def sandbox_command(command, mounts, workspace, runtime):
     return [*result, '--', *command]
 
 
-def execute(command, output, timeout, environment):
+def execute(command, output, timeout, environment, *, append=False):
     started = time.monotonic()
     timed_out = False
-    with (output/'stdout.jsonl').open('w') as stdout, (output/'stderr.log').open('w') as stderr:
+    mode = 'a' if append else 'w'
+    with (output/'stdout.jsonl').open(mode) as stdout, (output/'stderr.log').open(mode) as stderr:
         process = subprocess.Popen(command, env=environment, stdin=subprocess.DEVNULL,
                                    stdout=stdout, stderr=stderr, start_new_session=True)
         try:
@@ -91,7 +93,7 @@ def check_pipeline(report):
     if report['agent'] == 'proteus':
         models = [json.loads(model)['model'] for model in metrics.get('model_refs', [])]
         efforts = [json.loads(effort).get('effort') for effort in metrics.get('reasoning_refs', [])]
-        settled = metrics.get('settlements') == [{'status':'success','error':None}]
+        settled = metrics.get('settlements') == [{'status':'success','error':None}] * report.get('expected_turns', 1)
         complete = metrics.get('model_requests', 0) == metrics.get('model_responses')
     else:
         models = metrics.get('models', [])
@@ -106,7 +108,68 @@ def check_pipeline(report):
     report['reasoning_verified'] = bool(efforts) and all(effort == report['reasoning'] for effort in efforts)
     report['pipeline_ok'] = bool(report.get('returncode') == 0 and not report.get('timed_out')
                                  and settled and complete and not metrics.get('error')
-                                 and report['model_verified'] and report['reasoning_verified'])
+                                 and report['model_verified'] and report['reasoning_verified']
+                                 and (report.get('expected_turns', 1) == 1 or report.get('continuity_verified')))
+
+
+def observed_session(agent, runtime):
+    """Return a resume handle and count admitted user turns from durable state."""
+    if agent == 'pi':
+        paths = list((runtime/'pi-sessions').glob('*.jsonl'))
+        if len(paths) == 1:
+            rows = adapters.json_lines(paths[0])
+            turns = sum(row.get('type') == 'message' and row.get('message', {}).get('role') == 'user'
+                        for row in rows)
+            return '/state/pi-sessions/' + paths[0].name, turns
+    elif agent == 'proteus':
+        paths = list((runtime/'sessions').rglob('journal.jsonl'))
+        if len(paths) == 1:
+            turns = sum(row.get('kind') == 'turn_opened' for row in adapters.json_lines(paths[0]))
+            return '/runtime/sessions/' + str(paths[0].parent.relative_to(runtime/'sessions')), turns
+    elif agent == 'opencode':
+        path = runtime/'native/usage.json'
+        if path.is_file():
+            data = json.loads(path.read_text())
+            if len(data['sessions']) == 1:
+                session = data['sessions'][0]['id']
+                return session, data['user_turns'].get(session, 0)
+    raise ValueError(f'{agent} did not leave exactly one resumable session')
+
+
+def run_turns(args, inner, mounts, environment, report, prompts):
+    runtime, workspace = args.output/'runtime', args.output/'workspace'
+    started = time.monotonic()
+    session = None
+    report['turns'] = []
+    for index, prompt in enumerate(prompts):
+        command = list(inner)
+        if index:
+            if args.agent == 'opencode':
+                command[command.index('--prompt') + 1] = prompt
+                command += ['--session', session]
+            else:
+                flag = '--resume-session' if args.agent == 'proteus' else '--session'
+                command[-1:] = [flag, session, prompt]
+        remaining = args.timeout - (time.monotonic() - started)
+        if remaining <= 0:
+            report.update(returncode=124, timed_out=True)
+            break
+        status = execute(sandbox_command(command, mounts, workspace, runtime), args.output, remaining,
+                         environment, append=bool(index))
+        receipt = {**status, 'number': index+1, 'prompt_sha256': hashlib.sha256(prompt.encode()).hexdigest()}
+        report['turns'].append(receipt)
+        report.update(status)
+        if status['returncode'] or status['timed_out']:
+            break
+        if len(prompts) > 1:
+            handle, count = observed_session(args.agent, runtime)
+            receipt.update(session=handle, observed_user_turns=count)
+            if count != index+1 or (session is not None and session != handle):
+                raise ValueError('follow-up session identity or journal length differs')
+            session = handle
+    report['wall_seconds'] = time.monotonic() - started
+    report['continuity_verified'] = bool(session and len(report['turns']) == len(prompts)
+                                         and report['turns'][-1].get('observed_user_turns') == len(prompts))
 
 
 def main():
@@ -152,6 +215,12 @@ def main():
     before = tree_manifest(workspace)
     prompt = (args.case_dir/'prompt.txt').read_bytes()
     (args.output/'prompt.txt').write_bytes(prompt)
+    prompts = [prompt.decode()]
+    if (args.case_dir/'followups.json').is_file():
+        extra = json.loads((args.case_dir/'followups.json').read_text())
+        if args.agent == 'codex' or not isinstance(extra, list) or not all(isinstance(t, str) and t.strip() for t in extra):
+            parser.error('followups require supported agent and nonempty text turns')
+        prompts.extend(extra)
     try:
         inner, mounts = adapters.prepare(args,runtime)
     except (ValueError, OSError) as error:
@@ -167,10 +236,23 @@ def main():
               'prompt_sha256':hashlib.sha256(prompt).hexdigest(),
               'fixture_files_sha256':before,'command':command,
               'environment_names':sorted(environment),'isolation':'bubblewrap-system-readonly-workspace-state-write',
-              'auth_present':True,'prepared_only':args.prepare_only}
+              'auth_present':True,'prepared_only':args.prepare_only, 'expected_turns':len(prompts)}
+    if len(prompts) > 1:
+        report['prompt_sha256'] = hashlib.sha256(json.dumps(prompts, ensure_ascii=False).encode()).hexdigest()
     try:
         if not args.prepare_only:
-            report.update(execute(command,args.output,args.timeout,environment))
+            started = time.monotonic()
+            try:
+                run_turns(args, inner, mounts, environment, report, prompts)
+            except (OSError, ValueError, KeyError) as error:
+                report.update(returncode=1, pipeline_error=str(error), wall_seconds=time.monotonic()-started)
+            if args.agent == 'opencode' and not (runtime/'native/usage.json').is_file():
+                database = runtime/'home/.local/share/opencode/opencode.db'
+                if database.is_file() and (runtime/'native/registry.json').is_file():
+                    try:
+                        open_code_native.save_usage(runtime/'native', database, after_logout=False)
+                    except (OSError, ValueError, open_code_native.sqlite3.Error) as error:
+                        report['partial_usage_error'] = str(error)
             try:
                 report['metrics'] = adapters.metrics(args.agent,args.output)
             except (ValueError,KeyError,OSError) as error:

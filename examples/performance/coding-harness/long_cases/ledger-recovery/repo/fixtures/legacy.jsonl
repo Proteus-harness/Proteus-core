@@ -1,0 +1,4 @@
+{"id":"import-a","op":"put","key":"colour","value":"синий"}
+{"id":"import-b","op":"put","key":"count","value":4}
+{"id":"import-a","op":"put","key":"colour","value":"синий"}
+{"id":"import-c","op":"delete","key":"count"}

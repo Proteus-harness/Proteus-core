@@ -15,8 +15,8 @@ CASES = ["variable-length-quantity", "cancel-async-tasks", "forth", "poker", "lo
 
 
 def run(job):
-    root, model, case, attempt, arm = job
-    case_dir = DATA / "cases" / case
+    root, model, case, attempt, arm, case_root, timeout = job
+    case_dir = case_root / case
     output = root / f"{model}_{case}_{attempt}_{arm}"
     if model == "flash" and arm == "codex":
         output.mkdir(mode=0o700)
@@ -33,7 +33,7 @@ def run(job):
     native = not arm.startswith("proteus-")
     agent = arm if native else "proteus"
     argv = [sys.executable, "-B", str(HERE/"runner.py"), "--agent", agent, "--case-dir", str(case_dir),
-            "--output", str(output), "--model", MODELS[model][0], "--reasoning", MODELS[model][1]]
+            "--output", str(output), "--timeout", str(timeout), "--model", MODELS[model][0], "--reasoning", MODELS[model][1]]
     if not native:
         argv.extend(["--base-config", str(CORE/"configs"/(arm.removeprefix("proteus-")+".config.toml"))])
     elif arm == "pi":
@@ -58,13 +58,18 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--arms", choices=ARMS, nargs="+", required=True)
     parser.add_argument("--models", choices=MODELS, nargs="+", default=["flash"])
-    parser.add_argument("--cases", choices=CASES, nargs="+", default=CASES)
+    parser.add_argument("--cases", nargs="+", default=CASES)
+    parser.add_argument("--case-root", type=Path, default=DATA/"cases")
+    parser.add_argument("--timeout", type=int, default=600, help="total wall seconds per task, including follow-ups")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--jobs", type=int, choices=range(1,9), default=4)
     parser.add_argument("--repeat", action="store_true", help="repeat first case in a fresh session")
     args = parser.parse_args()
-    if not (DATA/"cases").is_dir():
-        parser.error("prepare corpus first")
+    if not 1 <= args.timeout <= 3600:
+        parser.error("--timeout must be 1..3600")
+    for case in args.cases:
+        if Path(case).name != case or not (args.case_root/case/"case.json").is_file():
+            parser.error("missing prepared case: " + case)
     args.output.mkdir(parents=True, exist_ok=True)
     cases = [(c,1) for c in args.cases] + ([(args.cases[0],2)] if args.repeat else [])
     jobs = []
@@ -72,7 +77,7 @@ def main():
         for model in args.models:
             shift = index % len(args.arms)
             for arm in args.arms[shift:]+args.arms[:shift]:
-                jobs.append((args.output.resolve(),model,case,attempt,arm))
+                jobs.append((args.output.resolve(),model,case,attempt,arm,args.case_root.resolve(),args.timeout))
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
         results = list(pool.map(run,jobs))
     return 0 if all(results) else 1
