@@ -1,5 +1,7 @@
 #[path = "module_swap/independent.rs"]
 mod independent;
+#[path = "module_swap/code_mode.rs"]
+mod code_mode;
 #[path = "module_swap/patch.rs"]
 mod patch;
 #[path = "support/model.rs"]

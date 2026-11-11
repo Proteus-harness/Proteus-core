@@ -877,7 +877,7 @@ context_provider: skills, rg_search, jsonl_memory, sqlite_memory
 policy:           allow_all, ask_write, codex_policy, opencode_policy
 hook:             tool_selection.dynamic, codex_compact, hook.instructions, hook.output_budget
 tool:             reference.tools и узкие selectors, direct_patch, codex_patch,
-                  rg_search, jsonl_memory, sqlite_memory
+                  rg_search, jsonl_memory, sqlite_memory, code_mode
 ```
 
 Это reference/test inventory, не обязательный пакет. Любой другой executable,
@@ -898,6 +898,18 @@ tool:             reference.tools и узкие selectors, direct_patch, codex_p
 [пример на tgrep](../../examples/modules/tgrep-search/README.md) и
 [самостоятельный профиль](../../examples/configs/proteus.tgrep-search.example.toml).
 Он заменяет tool implementation; context provider отдельно не добавляется.
+
+Для выполнения JavaScript со вложенными вызовами инструментов есть отдельный
+пакет `code-mode` в Proteus-modules и
+[opt-in профиль `code-mode`](../../configs/code-mode.config.toml).
+Export `tool/code_mode` предоставляет инструмент `code_mode`; массив
+`tools.enabled` должен содержать также настоящие имена вызываемых инструментов.
+`await tools.call(name, args)` возвращает `ToolResult`, а `text()` и `console.log()`
+выбирают короткий вывод модели. Дочерние вызовы проходят общий policy/approval
+и сохраняются в журнале; JavaScript сам по себе не получает файловые, сетевые
+или системные API. Это process tool, а не формат Agent Plugins 1.0.
+API, ограничения и сборка — в
+[документации пакета](https://github.com/Proteus-harness/Proteus-modules/tree/main/tool/code-mode).
 
 Одноимённые `context_provider` exports добавляют результаты автоматического
 чтения; они не зависят от `tools.enabled` и не вызывают tools. Каждый export

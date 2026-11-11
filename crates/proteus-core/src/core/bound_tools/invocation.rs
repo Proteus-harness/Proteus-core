@@ -65,6 +65,7 @@ impl BoundTools {
                 },
                 lineage: crate::core::model_call_scope::current_tool_lineage(),
                 cancellation: tool_cancellation.clone(),
+                child_gate: Default::default(),
             },
         ));
         let timeout_future = async move {

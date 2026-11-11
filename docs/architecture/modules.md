@@ -454,6 +454,16 @@ host-owned `ExecutionAttribution`: обязательный `ExecutionId` и opt
 `policy_tools`. Они используют тот же `tool/v6` contract; selector не
 меняет authority.
 
+`tool/code_mode` из отдельного пакета `code-mode` исполняет JavaScript и
+делегирует вызовы через уже существующий invocation-bound `host.tools.execute`.
+Это orchestration tool без нового slot или callback authority. Скрипт получает
+результаты как данные и явно печатает итог; Core сохраняет дочерние facts для
+journal/replay. Sibling callbacks одного invocation учитывают зарегистрированное
+`supports_parallel_tool_calls`; отдельный gate каждого поколения детей сохраняет
+вложенные вызовы без reentrant deadlock. Подключение — через
+[профиль `code-mode`](../../configs/code-mode.config.toml), API и бюджеты принадлежат
+[реализации](https://github.com/Proteus-harness/Proteus-modules/tree/main/tool/code-mode).
+
 `apply_patch` предоставляется отдельным export `tool/direct_patch` или
 `tool/codex_patch`, не входит в агрегат `reference.tools` и не имеет собственного
 слота. Оба exports объявляют одно имя `apply_patch`; подключайте только один,

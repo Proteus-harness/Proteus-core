@@ -8,6 +8,33 @@ fn workspace_root() -> PathBuf {
 }
 
 #[tokio::test]
+async fn code_mode_profile_adds_the_optional_tool_to_the_existing_composition() {
+    let root = workspace_root();
+    let base = AppConfig::load(Some(&root.join("configs/codex.config.toml")))
+        .await
+        .unwrap();
+    let experiment = AppConfig::load(Some(&root.join("configs/code-mode.config.toml")))
+        .await
+        .unwrap();
+    let mut expected = base.tools.enabled.clone();
+    expected.push("code_mode".into());
+    expected.sort();
+    let mut actual = experiment.tools.enabled.clone();
+    actual.sort();
+    assert_eq!(actual, expected);
+    for key in ["modules", "providers", "instructions", "module_config"] {
+        assert_eq!(
+            serde_json::to_value(&experiment).unwrap()[key],
+            serde_json::to_value(&base).unwrap()[key],
+            "unrelated configuration changed: {key}"
+        );
+    }
+    assert_eq!(experiment.components.len(), base.components.len() + 1);
+    assert_eq!(experiment.components["code-mode"].exports().count(), 1);
+    ModuleCatalog::from_config(&experiment).unwrap();
+}
+
+#[tokio::test]
 async fn context_search_profile_changes_only_the_context_selection_and_configuration() {
     let root = workspace_root();
     let base = AppConfig::load(Some(&root.join("configs/config.toml")))

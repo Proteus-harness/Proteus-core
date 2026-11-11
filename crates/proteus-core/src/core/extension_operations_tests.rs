@@ -13,6 +13,9 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
+#[path = "extension_operations_tests/nested_scheduling.rs"]
+mod nested_scheduling;
+
 #[derive(Default)]
 struct Facts {
     requests: Mutex<Vec<(ModelCallOrigin, OperationOwner)>>,

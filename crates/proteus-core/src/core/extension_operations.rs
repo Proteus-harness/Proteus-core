@@ -13,6 +13,7 @@ use crate::{
 };
 use anyhow::{Result, anyhow, ensure};
 use async_trait::async_trait;
+use futures_util::future::Either;
 use std::{
     path::PathBuf,
     sync::{Arc, Weak},
@@ -135,6 +136,9 @@ pub(crate) struct DelegatingToolHost {
     pub owner: OperationOwner,
     pub lineage: Vec<usize>,
     pub cancellation: CancellationToken,
+    // Sibling callbacks share a gate; descendants receive their own facade so
+    // a serial parent can still await a child without acquiring its own lock.
+    pub child_gate: tokio::sync::RwLock<()>,
 }
 #[async_trait]
 impl ToolHost for DelegatingToolHost {
@@ -155,6 +159,20 @@ impl ToolHost for DelegatingToolHost {
         .await
     }
     async fn execute_tool(&self, call: ToolCall) -> Result<ToolResult> {
+        let acquire = async {
+            if self.tools.supports_parallel_tool_calls(&call.name) {
+                Either::Left(self.child_gate.read().await)
+            } else {
+                Either::Right(self.child_gate.write().await)
+            }
+        };
+        let _permit = tokio::select! {
+            biased;
+            _ = self.cancellation.cancelled() => {
+                return Err(anyhow!("nested tool call canceled before scheduling"));
+            }
+            permit = acquire => permit,
+        };
         with_operation_scope(
             self.owner.clone(),
             self.lineage.clone(),

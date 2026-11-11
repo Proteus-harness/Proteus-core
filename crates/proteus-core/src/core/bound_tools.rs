@@ -162,6 +162,12 @@ impl BoundTools {
         &self.binding
     }
 
+    pub(crate) fn supports_parallel_tool_calls(&self, name: &str) -> bool {
+        self.registry
+            .get(name)
+            .is_some_and(|tool| tool.spec().supports_parallel_tool_calls)
+    }
+
     pub fn with_hooks(mut self, hooks: Arc<dyn crate::contracts::ExecutionHooks>) -> Self {
         self.hooks = hooks;
         self
