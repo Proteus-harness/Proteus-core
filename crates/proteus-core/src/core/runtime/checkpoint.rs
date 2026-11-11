@@ -33,6 +33,9 @@ pub(super) struct TurnHistoryRecorder {
     pub(super) steering: Option<SteeringModel>,
     pub(super) tools: Arc<dyn ToolExecutionRecorder>,
     pub(super) capture: Mutex<HistoryCapture>,
+    /// The journal admits requests durably when present. In-memory turns retain
+    /// the same identity guard independently of compacted history checkpoints.
+    pub(super) admitted_calls: Option<Mutex<std::collections::HashSet<String>>>,
     pub(super) recorded_changed_compactions: std::sync::atomic::AtomicUsize,
     pub(super) recorded_compactions: Mutex<usize>,
     pub(super) pending_effects: Mutex<Vec<ToolResult>>,
@@ -225,6 +228,13 @@ impl ToolExecutionRecorder for TurnHistoryRecorder {
     ) -> Result<()> {
         if attribution == self.attribution && owner == crate::contracts::OperationOwner::Workflow {
             self.capture.lock().await.validate_call(call)?;
+        }
+        if let Some(admitted_calls) = &self.admitted_calls {
+            ensure!(
+                admitted_calls.lock().await.insert(call.id.clone()),
+                "tool call {} was requested more than once",
+                call.id
+            );
         }
         self.tools
             .tool_call_requested(attribution, owner, call)

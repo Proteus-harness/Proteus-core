@@ -369,6 +369,7 @@ impl AgentRuntime {
             steering: steering_model.clone(),
             tools: workflow_context.tool_recorder.clone(),
             capture: Default::default(),
+            admitted_calls: self.session.session_store.is_none().then(Default::default),
             recorded_compactions: Default::default(),
             recorded_changed_compactions: Default::default(),
             pending_effects: Default::default(),

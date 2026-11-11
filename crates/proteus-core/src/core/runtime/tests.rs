@@ -24,6 +24,7 @@ mod reasoning_reload;
 mod resume_cache;
 mod snapshot_atomicity;
 mod steering_integration;
+mod tool_admission;
 
 fn test_catalog() -> ModuleCatalog {
     crate::test_support::module_catalog()
