@@ -1,7 +1,7 @@
 # Opt-in CodeMode поверх локальной подписочной сборки.
 # Установите пакет code-mode из Proteus-modules; Core должен поддерживать
 # scheduling вложенных tool callbacks по supports_parallel_tool_calls.
-include = ["codex.config.toml"]
+include = ["config.toml"]
 
 [profile]
 name = "code-mode"

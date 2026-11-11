@@ -775,14 +775,17 @@ Grant store принадлежит `ExecutionContext`, а `RequestOrigin`
 ## opencode_policy
 
 `opencode_policy` поставляется тем же `policy-pack` и используется
-экспериментальным named config `opencode` (`configs/opencode.config.toml`). Это порт
-permission engine из OpenCode (`permission/index.ts` + `util/wildcard.ts`).
+named config `opencode` (`configs/opencode.config.toml`). Это порт permission
+engine OpenCode (`permission/index.ts` + `util/wildcard.ts`); разрешение эффектов
+остаётся в Core. Native npm tools дополнительно отклоняют неподдерживаемые
+`external_directory` approvals. Native Session/DB approval lifecycle этим
+policy export не воспроизводится.
 
 Порядок решения:
 
 1. tool маппится в permission-группу через
    `module_config.policy.opencode_policy.groups` (например, `edit` покрывает
-   `edit_file`/`write_file`); без группы permission = имя tool-а;
+   `edit`/`write`/`patch`); без группы permission = имя tool-а;
 2. из аргументов вызова извлекаются patterns по `pattern_args` группы
    (`command` для bash-группы, `path` для file-групп); при
    `split_commands = true` составная команда разбивается по `&& || ; |`

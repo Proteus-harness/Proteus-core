@@ -121,6 +121,7 @@ install_config "context-search-chatgpt.config.toml" "configs/context-search-chat
 install_config "codex-explore.config.toml" "configs/codex-explore.config.toml"
 install_config "codex-coder.config.toml" "configs/codex-coder.config.toml"
 install_config "opencode.config.toml" "configs/opencode.config.toml"
+install_config "pi.config.toml" "configs/pi.config.toml"
 install_config "proteus.provider.example.toml" "configs/proteus.provider.example.toml"
 
 # Managed fragments и prompt-файлы обновляются при каждой установке: это код
@@ -144,6 +145,7 @@ install_managed_config_asset "fragments/codex-runtime.toml"
 install_managed_config_asset "fragments/codex-behavior.toml"
 install_managed_config_asset "fragments/codex-components.toml"
 install_managed_config_asset "fragments/codex-subscription.toml"
+install_managed_config_asset "fragments/codex-upstream.toml"
 install_managed_config_asset "fragments/restricted-components.toml"
 install_managed_config_asset "fragments/codex-profile.toml"
 install_managed_config_asset "fragments/codex-peer-runtime.toml"

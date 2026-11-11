@@ -13,9 +13,12 @@ Python 3.11+; измеряемые процессы должны разреша�
 Результаты живого API-сравнения — [CodeMode, 11 ноября](results/2026-11-11-code-mode.md).
 Причины ошибок, контроль Luna/Sol и исправления —
 [продолжение сравнения](results/2026-11-11-code-mode-followup.md).
+Сравнение оригинальных агентов с профилями Proteus на шести задачах —
+[результаты Pi, Codex и OpenCode](results/2026-11-11-harness-fidelity.md).
 
 | Стенд | Что измеряет |
 |---|---|
+| [coding-harness](coding-harness/README.md) | Шесть публичных задач, независимый grader и расход оригинальных Pi, Codex, OpenCode и профилей Proteus |
 | [code-mode](code-mode/README.md) | Живое сравнение прямых API calls и JavaScript orchestration: правильность, provider tokens, model requests и время |
 | [history-scale](history-scale/README.md) | 5 000/50 000 настоящих сообщений **в каждой** из десяти сессий: восстановление HTTP peers и отдельный сценарий AgentControl |
 | [multi-agent](multi-agent/README.md) | Конкурентные `AgentControlRuntime` peers, реальные tools, локальная fake model, resident pool, повторные ходы и replay |

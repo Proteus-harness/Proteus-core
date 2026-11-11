@@ -1,0 +1,21 @@
+# Explicit Codex-only selection of public rust-v0.167.0 model templates and
+# native patch grammar. Other assemblies retain their own instructions/tools.
+instructions = []
+
+[modules]
+hooks = ["codex_compact", "codex_base_instructions"]
+
+[components.codex-context-preparation.exports.hook.codex_base_instructions]
+
+[module_config.model.openai_codex.capabilities]
+supports_freeform_tools = true
+
+[module_config.tool.codex_patch]
+freeform = true
+reject_self_move = false
+
+[module_config.context.codex_context]
+providers = ["project_instructions", "skills", "environment"]
+
+[tools]
+enabled = ["exec_command", "write_stdin", "apply_patch", "update_plan", "request_user_input"]

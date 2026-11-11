@@ -10,7 +10,7 @@ fn workspace_root() -> PathBuf {
 #[tokio::test]
 async fn code_mode_profile_adds_the_optional_tool_to_the_existing_composition() {
     let root = workspace_root();
-    let base = AppConfig::load(Some(&root.join("configs/codex.config.toml")))
+    let base = AppConfig::load(Some(&root.join("configs/config.toml")))
         .await
         .unwrap();
     let experiment = AppConfig::load(Some(&root.join("configs/code-mode.config.toml")))
@@ -32,6 +32,32 @@ async fn code_mode_profile_adds_the_optional_tool_to_the_existing_composition() 
     assert_eq!(experiment.components.len(), base.components.len() + 1);
     assert_eq!(experiment.components["code-mode"].exports().count(), 1);
     ModuleCatalog::from_config(&experiment).unwrap();
+}
+
+#[tokio::test]
+async fn upstream_codex_profile_uses_public_templates_and_freeform_patch() {
+    let config = AppConfig::load(Some(&workspace_root().join("configs/codex.config.toml")))
+        .await
+        .unwrap();
+    assert_eq!(
+        config.tools.enabled,
+        [
+            "exec_command",
+            "write_stdin",
+            "apply_patch",
+            "update_plan",
+            "request_user_input"
+        ]
+    );
+    assert_eq!(
+        config.modules.hooks,
+        ["codex_compact", "codex_base_instructions"]
+    );
+    assert!(config.instructions.is_empty());
+    assert_eq!(
+        config.process_export_config("tool", "codex_patch").unwrap()["freeform"],
+        true
+    );
 }
 
 #[tokio::test]

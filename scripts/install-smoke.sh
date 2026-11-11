@@ -59,12 +59,13 @@ test -x "${runtime_home}/current/bin/proteus-model-pack-module"
 test ! -e "${runtime_home}/current/proteus-reference-module"
 test -f "${config_home}/configs/config.toml"
 test -f "${config_home}/configs/codex.config.toml"
+test -f "${config_home}/configs/pi.config.toml"
 test -f "${config_home}/configs/restricted.config.toml"
 test -f "${config_home}/configs/context-search-chatgpt.config.toml"
 test -f "${config_home}/configs/codex-explore.config.toml"
 test -f "${config_home}/configs/codex-coder.config.toml"
 test -f "${config_home}/configs/fragments/openai-chatgpt.toml"
-for fragment in codex-runtime codex-behavior codex-components codex-subscription restricted-components; do
+for fragment in codex-runtime codex-behavior codex-components codex-subscription codex-upstream restricted-components; do
   test -f "${config_home}/configs/fragments/${fragment}.toml"
 done
 test -f "${config_home}/configs/fragments/codex-peer-runtime.toml"

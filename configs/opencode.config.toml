@@ -1,164 +1,72 @@
+# Native OpenCode 2.0.22 slot adapters; source pin 527f0b931d1f9b3ebd34e106c51b31ce5db5b075.
+# Install: Proteus-modules/workflow/opencode-runtime/install.py --prefix /ready/Proteus
 include = "proteus.provider.example.toml"
 
-[[instructions]]
-kind = "System"
-file = "prompts/direct-patch.md"
-priority = 90
-
-# Настраиваемый Proteus prompt, сокращённый из адаптации OpenCode GPT prompt
-# (packages/opencode/src/session/prompt/gpt.txt), не pinned upstream копия.
-# Сохраняет экспериментальную edit_file/write_file поверхность, Proteus
-# tool names и нейтральные progress updates / final answers.
-[[instructions]]
-kind = "System"
-file = "prompts/opencode-default.md"
-priority = 100
-
 [profile]
-name = "opencode-experimental"
+name = "opencode"
 
 [modules]
-hooks = ["codex_compact"]
-# Experimental OpenCode-shaped profile: reuse codex_context/codex compactor
-# и codex loop, opencode-специфика — policy, tool surface и prompt.
-workflow = "coding.codex_loop"
-context = "codex_context"
+workflow = "opencode_loop"
+context = "opencode_context"
 policy = "opencode_policy"
+hooks = ["opencode_prompt", "opencode_compact"]
 
-[components.reference-workflow]
-command = "proteus-coding-workflow-module"
+[agent_control]
+surface = "none"
+roles = []
 
-[components.reference-workflow.exports.workflow."coding.codex_loop"]
+[addons]
+plugins = []
 
-[components.reference-context]
-command = "proteus-context-pack-module"
-
-[components.reference-context.exports.context.codex_context]
-
-[components.rg-search]
-command = "proteus-rg-search-module"
-env_allowlist = ["HOME", "PROTEUS_HOME"]
-
-[components.rg-search.exports.tool.rg_search]
-
-[components.rg-search.exports.context_provider.rg_search]
-
-[components.direct-patch]
-command = "proteus-direct-patch-module"
-env_allowlist = ["HOME", "PROTEUS_HOME"]
-
-[components.direct-patch.exports.tool.direct_patch]
-
-[components.file-tools]
-command = "proteus-file-tools-module"
-env_allowlist = ["HOME", "PROTEUS_HOME"]
-
-[components.file-tools.exports.tool.file_tools]
-
-[components.git-tools]
-command = "proteus-git-tools-module"
-env_allowlist = ["HOME", "PROTEUS_HOME"]
-
-[components.git-tools.exports.tool.git_tools]
-
-[components.shell-tool]
-command = "proteus-shell-tool-module"
-env_allowlist = ["HOME", "PROTEUS_HOME"]
-
-[components.shell-tool.exports.tool.shell_tools]
-
-[components.plan-tool]
-command = "proteus-plan-tool-module"
-env_allowlist = ["HOME", "PROTEUS_HOME"]
-
-[components.plan-tool.exports.tool.plan_tool]
-
-[components.rust-lsp]
-command = "proteus-rust-lsp-module"
-env_allowlist = ["HOME", "PROTEUS_HOME"]
-
-[components.rust-lsp.exports.tool.rust_lsp]
-
-[components.skill-pack]
-command = "proteus-skill-pack-module"
-env_allowlist = ["HOME", "PROTEUS_HOME"]
-
-[components.skill-pack.exports.tool.skill_tool]
-
-[components.skill-pack.exports.context_provider.skills]
+[components.opencode-runtime]
+command = "proteus-opencode-module"
+env_allowlist = ["HOME", "PATH", "SHELL", "LANG", "LC_ALL", "XDG_STATE_HOME", "PROTEUS_OPENCODE_RUNTIME_DIR", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy"]
+[components.opencode-runtime.exports.workflow.opencode_loop]
+[components.opencode-runtime.exports.context.opencode_context]
+[components.opencode-runtime.exports.hook.opencode_prompt]
+[components.opencode-runtime.exports.hook.opencode_compact]
+[components.opencode-runtime.exports.tool.opencode_tools]
 
 [components.policy-pack]
 command = "proteus-policy-pack-module"
-env_allowlist = ["HOME", "PROTEUS_HOME"]
-
-[components.policy-pack.exports.tool.policy_tools]
-
 [components.policy-pack.exports.policy.opencode_policy]
 
-[components.codex-context-preparation]
-command = "proteus-codex-context-preparation-module"
-env_allowlist = ["HOME", "PROTEUS_HOME"]
-
-[components.codex-context-preparation.exports.hook.codex_compact]
-
 [tools]
-enabled = ["skill", "read_file", "read_many_files", "list_dir", "grep", "find_files", "lsp_diagnostics", "edit_file", "write_file", "shell", "update_plan", "request_user_input"]
+enabled = ["read", "write", "edit", "patch", "shell", "glob", "grep"]
+mcp_servers = []
 
 [permissions]
 mode = "normal"
 
-# OpenCode-shaped permission engine: правила (permission, pattern, action),
-# последнее совпавшее правило побеждает, дефолт без совпадений — ask.
-# Рулсет повторяет upstream build-агент: allow-by-default с точечными ask
-# (env-файлы, push/destructive git/rm). Ужесточайте под свой уровень доверия.
+# Core remains the effect admission boundary. The upstream file/shell plugin's
+# additional external_directory requests fail closed inside the adapter.
 [module_config.policy.opencode_policy]
 rules = [
   { permission = "*", action = "allow" },
   { permission = "read", pattern = "*.env", action = "ask" },
   { permission = "read", pattern = "*.env.*", action = "ask" },
   { permission = "read", pattern = "*.env.example", action = "allow" },
-  { permission = "bash", pattern = "git push*", action = "ask" },
-  { permission = "bash", pattern = "git reset --hard*", action = "ask" },
-  { permission = "bash", pattern = "git checkout -- *", action = "ask" },
-  { permission = "bash", pattern = "rm -rf*", action = "ask" },
+  { permission = "shell", pattern = "git push*", action = "ask" },
+  { permission = "shell", pattern = "git reset --hard*", action = "ask" },
+  { permission = "shell", pattern = "git checkout -- *", action = "ask" },
+  { permission = "shell", pattern = "rm -rf*", action = "ask" },
 ]
-
-# В groups перечисляются только включённые tools; при добавлении
-# apply_patch/exec_command в tools.enabled допишите их в edit/bash группы.
 [module_config.policy.opencode_policy.groups.edit]
-tools = ["edit_file", "write_file"]
+tools = ["edit", "write", "patch"]
 pattern_args = ["path"]
-
-[module_config.policy.opencode_policy.groups.bash]
+[module_config.policy.opencode_policy.groups.shell]
 tools = ["shell"]
 pattern_args = ["command"]
 split_commands = true
-
 [module_config.policy.opencode_policy.groups.read]
-tools = ["read_file", "read_many_files"]
-pattern_args = ["path", "paths"]
-
-# Context как у upstream: только project instructions (AGENTS.md и аналоги)
-# + environment; модель исследует репо сама через tools.
-[module_config.context.codex_context]
-search_provider = "rg_search"
-providers = ["project_instructions", "skills", "environment"]
-max_context_bytes = 60000
-max_bytes_per_file = 12000
-project_instruction_files = ["AGENTS.override.md", "AGENTS.md", "CLAUDE.md", ".cursorrules"]
-
-# Экспериментальная сборка использует local Codex compactor с порогом 90% окна.
-# Это явное отличие от механизма compaction OpenCode.
-[module_config.hook.codex_compact]
-# trigger_tokens может задать меньший абсолютный порог.
+tools = ["read"]
+pattern_args = ["path"]
 
 [app_server]
 approval_timeout_ms = 0
-
 [runtime]
 model_timeout_ms = 10800000
 context_timeout_ms = 30000
 workflow_timeout_ms = 14400000
-
 [event_log]
 path = ".proteus/events.jsonl"

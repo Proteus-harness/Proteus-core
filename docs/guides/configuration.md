@@ -911,6 +911,22 @@ Export `tool/code_mode` предоставляет инструмент `code_mo
 API, ограничения и сборка — в
 [документации пакета](https://github.com/Proteus-harness/Proteus-modules/tree/main/tool/code-mode).
 
+[Профиль Pi](../../configs/pi.config.toml) использует компонент `proteus-pi-module`
+из Proteus-modules. Для установки выполните в Modules
+`python3 tool/pi-tools/install.py --prefix /путь/к/Proteus`. Требуется Node.js
+версии 22.19 или выше. Пакет закрепляет Pi 1.5.2 и его зависимости в npm lockfile.
+
+`pi_tools` экспортирует штатные `read`, `bash`, `edit` и `write`. Экспорт
+`pi_context` загружает контекст проекта через Pi. Workflow `pi_loop` строит
+системный промпт штатным генератором и вызывает upstream agent loop. Hook
+`pi_compact` использует порог, выбор сохраняемой истории и генерацию сводки Pi.
+Все запросы к модели и действия инструментов проходят через host Proteus.
+Экспорт модели `pi_codex` вызывает Pi ModelRuntime с `openai-codex` и читает
+авторизацию Pi. Для DeepSeek в стенде выбраны `opencode-go` в этом экспорте
+и тот же `catalog_provider` в `pi_loop` и `pi_compact`.
+Для `bash`, `edit` и `write` интерактивная policy запрашивает разрешение.
+В стенде тестов доступ на запись ограничивается внешней песочницей.
+
 Одноимённые `context_provider` exports добавляют результаты автоматического
 чтения; они не зависят от `tools.enabled` и не вызывают tools. Каждый export
 получает отдельный config. Для общего хранилища задайте одинаковый `path`:
@@ -965,10 +981,15 @@ Entry задаёт ровно одно из `file` и `text`. Relative file path
 от config file. Runtime превращает entries в ordered canonical
 `InstructionBlock` list.
 
-Packaged `codex-default.md` и `opencode-default.md` — настраиваемые prompts
-Proteus, не точные копии upstream. Они задают цель, завершение работы и
-особенности доступных tools. Runtime parity проверяется отдельно; при
-сравнении сборок фиксируйте также instructions и project context.
+Packaged `opencode-default.md` сохраняется как настраиваемый пример, но профиль
+`opencode` его не использует. `proteus-opencode-module` импортирует pinned
+`@opencode/core@2.0.22`: native system template и model plugins выполняются
+перед каждым запросом. Context получает native AGENTS/date/environment;
+workflow и compaction используют upstream SessionStep/SessionCompaction.
+Описание ограничений и установка находятся в
+`Proteus-modules/workflow/opencode-runtime/README.md`. Это перенесённые slots,
+а не заявление о полной эквивалентности всему OpenCode. При сравнении
+фиксируйте код handlers, npm lock, инструменты и project context.
 
 Общие правила держите в prompt, локальные соглашения — в `AGENTS.md`,
 инструкции отдельного workflow — в skill. Описывайте результат и условия
