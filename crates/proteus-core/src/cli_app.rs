@@ -132,15 +132,28 @@ impl CliAppClient {
                 bail!("local app-server did not acknowledge shutdown before deadline");
             }
         };
-        let status = match tokio::time::timeout_at(deadline, self.child.wait()).await {
-            Ok(status) => status.context("wait for local app-server")?,
+        // The response can overtake events still queued by the server bridge.
+        // Keep consuming its pipe while waiting: otherwise a final event larger
+        // than the pipe capacity blocks the server's writer and therefore exit.
+        let mut stdout = self.stdout.into_inner();
+        let cleanup = async {
+            let mut sink = tokio::io::sink();
+            let (status, drained) =
+                tokio::join!(self.child.wait(), tokio::io::copy(&mut stdout, &mut sink));
+            drained.context("drain local app-server output during shutdown")?;
+            status.context("wait for local app-server")
+        };
+        let status = match tokio::time::timeout_at(deadline, cleanup).await {
+            Ok(status) => status,
             Err(_) => {
                 let _ = self.child.start_kill();
                 let _ = self.child.wait().await;
-                bail!("local app-server did not stop after shutdown")
+                Err(anyhow!("local app-server did not stop after shutdown"))
             }
         };
+        // Preserve a failed request even if the child's cleanup also times out.
         response?;
+        let status = status?;
         if !status.success() {
             bail!("local app-server exited with {status}");
         }
@@ -408,6 +421,59 @@ mod tests {
         assert!(error.to_string().contains("acknowledge shutdown"));
         #[cfg(unix)]
         assert_eq!(unsafe { libc::kill(pid as i32, 0) }, -1);
+    }
+
+    async fn shutdown_fixture(script: &str) -> Result<()> {
+        let mut child = Command::new("python3")
+            .args(["-c", script])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap();
+        let stdin = child.stdin.take().unwrap();
+        let stdout = BufReader::new(child.stdout.take().unwrap()).lines();
+        CliAppClient {
+            child,
+            stdin,
+            stdout,
+            interactive_terminal: false,
+            next_id: 1,
+            pending_control_responses: HashSet::new(),
+        }
+        .shutdown()
+        .await
+    }
+
+    #[tokio::test]
+    async fn shutdown_drains_trailing_events_before_waiting_for_exit() {
+        shutdown_fixture(
+            r#"
+import json, sys
+request = json.loads(sys.stdin.readline())
+print(json.dumps({"type":"response", "id":request["id"], "ok":True, "output":None, "error":None}), flush=True)
+# Bigger than a pipe buffer: ACK consumption alone cannot allow exit.
+print(json.dumps({"type":"event", "event":{"type":"error", "message":"x" * (2 * 1024 * 1024)}}), flush=True)
+"#,
+        )
+        .await
+        .expect("shutdown must consume post-response events and let the writer finish");
+    }
+
+    #[tokio::test]
+    async fn shutdown_preserves_request_error_when_child_also_fails_to_exit() {
+        let error = shutdown_fixture(
+            r#"
+import json, sys, time
+request = json.loads(sys.stdin.readline())
+print(json.dumps({"type":"response", "id":request["id"], "ok":False, "output":None, "error":"shutdown fixture rejected"}), flush=True)
+time.sleep(30)
+"#,
+        )
+        .await
+        .expect_err("failed request must remain the primary error after bounded cleanup");
+        assert!(error.to_string().contains("shutdown fixture rejected"));
     }
 
     #[test]

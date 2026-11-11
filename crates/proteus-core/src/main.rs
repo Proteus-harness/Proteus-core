@@ -243,11 +243,12 @@ async fn run_cli() -> Result<()> {
     )
     .await?;
     let output = client.send(cli.task.join(" ")).await;
+    if let Ok(output) = &output {
+        println!("{}", output.text);
+    }
     let shutdown = client.shutdown().await;
-    let output = output?;
-    shutdown?;
-    println!("{}", output.text);
-    Ok(())
+    output?;
+    shutdown
 }
 
 fn render_module_list(manifests: &[ModuleManifest]) -> String {
