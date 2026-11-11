@@ -198,7 +198,7 @@ def model_request(
         "reasoning": runtime["reasoning"],
         "limits": {
             "max_input_tokens": runtime["max_input_tokens"],
-            "max_output_tokens": 16384,
+            "max_output_tokens": None,
         },
         "cache": {
             "cache_instructions": True,

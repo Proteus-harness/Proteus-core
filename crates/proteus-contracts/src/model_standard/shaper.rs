@@ -125,6 +125,49 @@ mod tests {
     };
 
     #[test]
+    fn output_limit_uses_explicit_request_and_model_capability() {
+        for (requested, available, expected) in [
+            (None, None, None),
+            (None, Some(384_000), Some(384_000)),
+            (Some(1_024), Some(384_000), Some(1_024)),
+            (Some(1_024), None, Some(1_024)),
+            (Some(384_000), Some(64_000), Some(64_000)),
+        ] {
+            let mut request = CanonicalModelRequest::new(
+                ModelRef::new("local", "model"),
+                vec![CanonicalMessage::text(MessageRole::User, "answer")],
+            );
+            assert_eq!(request.limits.max_output_tokens, None);
+            request.limits.max_output_tokens = requested;
+            let shaped = RequestShaper
+                .shape(
+                    request,
+                    &ModelCapabilities::empty().with_max_output_tokens(available),
+                )
+                .unwrap();
+            assert_eq!(shaped.limits.max_output_tokens, expected);
+        }
+    }
+
+    #[test]
+    fn recorded_explicit_output_limit_survives_deserialization_and_shaping() {
+        let mut request = CanonicalModelRequest::new(
+            ModelRef::new("local", "model"),
+            vec![CanonicalMessage::text(MessageRole::User, "answer")],
+        );
+        request.limits.max_output_tokens = Some(16_384);
+        let stored = serde_json::to_value(request).unwrap();
+        let restored: CanonicalModelRequest = serde_json::from_value(stored).unwrap();
+        let shaped = RequestShaper
+            .shape(
+                restored,
+                &ModelCapabilities::empty().with_max_output_tokens(Some(384_000)),
+            )
+            .unwrap();
+        assert_eq!(shaped.limits.max_output_tokens, Some(16_384));
+    }
+
+    #[test]
     fn freeform_tools_require_explicit_model_capability() {
         let request = CanonicalModelRequest::new(
             ModelRef::new("openai", "custom-proxy-model"),

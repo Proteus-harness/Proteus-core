@@ -75,7 +75,7 @@ impl ReasoningConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[non_exhaustive]
 #[serde(deny_unknown_fields)]
 pub struct ModelLimits {
@@ -88,15 +88,6 @@ impl ModelLimits {
         Self {
             max_input_tokens,
             max_output_tokens,
-        }
-    }
-}
-
-impl Default for ModelLimits {
-    fn default() -> Self {
-        Self {
-            max_input_tokens: None,
-            max_output_tokens: Some(16_384),
         }
     }
 }

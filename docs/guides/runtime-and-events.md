@@ -658,6 +658,13 @@ validator отвергает такой незавершённый ответ; �
 `ModelFailureKind::ContextWindowExceeded` и не основание для его автоматического
 повтора или compaction.
 
+Новый `CanonicalModelRequest` по умолчанию оставляет `max_output_tokens`
+пустым. При подготовке запроса `RequestShaper` использует максимум выбранной
+модели, если адаптер его объявил. Workflow может явно запросить меньший бюджет.
+Преобразование в HTTP зависит от провайдера. Например, ChatGPT Codex опускает
+поле лимита в Responses API. Журнал хранит подготовленный запрос с фактическим
+лимитом, в том числе для воспроизведения старых сессий.
+
 Provider prompt cache не является локальным response-cache. Workflow выставляет
 `CanonicalModelRequest.cache`, `RequestShaper` оставляет hints только если
 активный adapter заявил `supports_cache_hints`, а provider adapter переводит их
