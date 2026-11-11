@@ -10,6 +10,7 @@ import sys
 import threading
 
 from fixtures import read_json, write_json
+from schemas import declared_tools
 
 
 def tool(name, description, properties, required, readonly):
@@ -98,8 +99,10 @@ class IssueService:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--state-dir", type=Path, required=True)
+    parser.add_argument("--api-schemas", action="store_true")
     args = parser.parse_args()
     service = IssueService(args.state_dir)
+    tools = declared_tools(TOOLS, service.state["case"]) if args.api_schemas else TOOLS
     output_lock = threading.Lock()
     pending = queue.Queue(maxsize=128)
 
@@ -118,7 +121,7 @@ def main():
         elif method == "ping":
             value = {}
         elif method == "tools/list":
-            value = {"tools": TOOLS}
+            value = {"tools": tools}
         elif method == "tools/call":
             value = service.invoke(params.get("name"), params.get("arguments", {}))
         else:

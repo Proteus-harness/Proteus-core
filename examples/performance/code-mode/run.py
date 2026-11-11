@@ -35,7 +35,7 @@ def atomic_json(value, path):
     temporary.replace(path)
 
 
-def config_for(mode, state, workspace, run_root, base, model, reasoning, timeout):
+def config_for(mode, state, workspace, run_root, base, model, reasoning, timeout, api_schemas=False):
     instruction = (
         "Use code_mode to orchestrate this API task. Write your own JavaScript; tools.call takes "
         "exactly (name, args) and returns a ToolResult. Check .ok; JSON.parse(result.output) "
@@ -57,7 +57,7 @@ def config_for(mode, state, workspace, run_root, base, model, reasoning, timeout
             "policy": {"codex_policy": {"allow": API_TOOLS + ["code_mode"], "allow_sandboxed": [], "ask_before": []}}},
         "tools": {"enabled": ["code_mode"] if mode == "code-mode" else [], "mcp_servers": [{
             "name": "lab", "command": sys.executable,
-            "args": ["-B", str(HERE / "server.py"), "--state-dir", str(state)],
+            "args": ["-B", str(HERE / "server.py"), "--state-dir", str(state)] + (["--api-schemas"] if api_schemas else []),
             "cwd": str(workspace), "protocol_version": "2025-11-25", "safety": "RunsCommands",
             "supports_parallel_tool_calls": False, "timeout_ms": 30_000,
             "max_response_bytes": 100_000}]},
@@ -84,7 +84,7 @@ def execute_run(case, mode, number, output, args):
     workspace = output / "workspace"
     workspace.mkdir(exist_ok=True)
     config = config_for(mode, state, workspace, run_root, args.base_config,
-                        args.model, args.reasoning, args.timeout)
+                        args.model, args.reasoning, args.timeout, args.api_schemas)
     config_path = run_root / "config.json"
     atomic_json(config, config_path)
     (run_root / "prompt.txt").write_text(task["prompt"])
@@ -129,7 +129,10 @@ def execute_run(case, mode, number, output, args):
                          else metrics["nested_mcp_tool_calls"] > 0)
             complete = metrics["model_requests"] > 0 and metrics["model_requests"] == metrics["model_responses"]
             model_matches = all(json.loads(model)["model"] == args.model for model in metrics["model_refs"])
-            result["task_passed"] = score["passed"] and settled and complete and model_matches
+            reasoning_matches = all((json.loads(reasoning) or {}).get("effort") == args.reasoning
+                                    for reasoning in metrics["reasoning_refs"])
+            result["requested_model_and_reasoning_used"] = model_matches and reasoning_matches
+            result["task_passed"] = score["passed"] and settled and complete and model_matches and reasoning_matches
             result["mode_exercised"] = exercised
             result["passed"] = result["cli_shutdown_ok"] and result["task_passed"] and exercised
             result["api_delivery"] = {"root_mcp_calls": metrics["root_mcp_tool_calls"],
@@ -157,6 +160,7 @@ def main():
     parser.add_argument("--base-config", type=Path, default=ROOT / "configs/code-mode.config.toml")
     parser.add_argument("--model", default="gpt-5.6-luna")
     parser.add_argument("--reasoning", default="high")
+    parser.add_argument("--api-schemas", action="store_true", help="declare API output and report field schemas")
     parser.add_argument("--timeout", type=int, default=300)
     parser.add_argument("--case", choices=["audit", "update"], action="append")
     parser.add_argument("--mode", choices=["direct", "code-mode"], action="append")
@@ -170,14 +174,14 @@ def main():
         parser.error("timeout must be between 30 and 900 seconds")
     args.output.mkdir(parents=True, exist_ok=False)
     report = {"format": 1, "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-              "model": args.model, "reasoning": args.reasoning,
+              "model": args.model, "reasoning": args.reasoning, "api_schemas": args.api_schemas,
               "revisions": {"core": revision(ROOT), "modules": revision(ROOT.parent / "Proteus-modules")},
               "binary": {"path": str(args.binary), "sha256": sha256(args.binary)},
               "runtime_modules_sha256": {name: sha256(args.binary.parent / name) for name in
                                          ["proteus-code-mode-module", "proteus-model-pack-module"]
                                          if (args.binary.parent / name).is_file()},
               "benchmark_sources_sha256": {name: sha256(HERE / name) for name in
-                                            ["run.py", "measurements.py", "fixtures.py", "server.py"]},
+                                            ["run.py", "measurements.py", "fixtures.py", "server.py", "schemas.py"]},
               "base_config": str(args.base_config), "runs": []}
     atomic_json(report, args.output / "report.json")
     snapshot = args.output / "benchmark_sources"

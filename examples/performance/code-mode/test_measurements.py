@@ -9,7 +9,8 @@ from measurements import measure
 def request(identity):
     return ({"kind": "model_request_recorded"}, {
         "exchange_id": identity, "origin": "direct",
-        "request": {"model": {"provider": "openai_codex", "model": "fixture"}, "messages": []}})
+        "request": {"model": {"provider": "openai_codex", "model": "fixture"},
+                    "reasoning": {"effort": "xhigh", "summary": True}, "messages": [], "tools": []}})
 
 
 def response(identity, usage):

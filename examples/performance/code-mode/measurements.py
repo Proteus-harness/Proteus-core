@@ -1,5 +1,6 @@
 """Read provider usage and operation ownership from the canonical journal."""
 import collections
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -16,6 +17,7 @@ USAGE_FIELDS = ("input_tokens", "output_tokens", "cached_input_tokens",
 
 def measure(session):
     requests, responses, calls = {}, {}, {}
+    spec_hashes = collections.defaultdict(set)
     tools_by_owner = collections.Counter()
     tool_names = collections.Counter()
     failures, settlements, compactions = [], [], 0
@@ -30,6 +32,10 @@ def measure(session):
             if identity in requests:
                 raise ValueError("duplicate canonical model exchange")
             request = payload["request"]
+            for spec in request["tools"]:
+                if spec["name"] == "code_mode" or spec["name"].startswith("lab__"):
+                    encoded = json.dumps(spec, sort_keys=True, ensure_ascii=False).encode()
+                    spec_hashes[spec["name"]].add(hashlib.sha256(encoded).hexdigest())
             result_bytes = 0
             for message in request["messages"]:
                 for part in message["parts"]:
@@ -38,6 +44,7 @@ def measure(session):
                         result_bytes += len(json.dumps(result, ensure_ascii=False).encode())
             model_tool_result_bytes += result_bytes
             requests[identity] = {"origin": payload["origin"], "model": request["model"],
+                                  "reasoning": request.get("reasoning"),
                                   "tool_result_bytes": result_bytes}
         elif kind == "model_response_recorded":
             identity = payload["exchange_id"]
@@ -86,6 +93,8 @@ def measure(session):
             "partial_reported_usage_sums": reported_sums,
             "usage_fields_reported_by_responses": known,
             "model_refs": sorted({json.dumps(row["model"], sort_keys=True) for row in requests.values()}),
+            "reasoning_refs": sorted({json.dumps(row["reasoning"], sort_keys=True) for row in requests.values()}),
+            "tool_spec_sha256": {name: sorted(hashes) for name, hashes in spec_hashes.items()},
             "model_visible_tool_calls": tools_by_owner["workflow"],
             "nested_tool_calls": tools_by_owner["tool"], "all_tool_calls": len(calls),
             "root_mcp_tool_calls": sum(call["owner"] == "workflow" and call["name"].startswith("lab__")
@@ -103,6 +112,7 @@ def write_markdown(report, destination):
     rows = ["# CodeMode: живое сравнение API orchestration", "",
             f"Модель: `{report['model']}`, reasoning `{report['reasoning']}`. "
             f"Core: `{report['revisions']['core']}`; Modules: `{report['revisions']['modules']}`.", "",
+            f"Объявленные output/report schemas API: {'включены' if report['api_schemas'] else 'выключены'}.", "",
             "Синтетический stdio MCP: отбор 64 карточек и перенос 16 из 48 с readback. "
             "Прямому режиму разрешены пакетные вызовы. Между режимами меняются только "
             "доступность CodeMode и инструкция способа вызова; общие tools и данные одинаковы.", "",

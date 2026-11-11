@@ -167,6 +167,10 @@ def score_case(case: str, state_dir: Path) -> dict:
         "update_scope_exact": set(actual_updates) == expected_ids,
         "no_duplicate_updates": len(actual_updates) == len(set(actual_updates)),
         "single_submission": len(submissions) == 1 and submissions[0]["outcome"]["ok"],
+        "submission_after_all_operations": len(submissions) == 1 and all(
+            event["ordinal"] < submissions[0]["ordinal"]
+            for event in events if event["method"] != "submit_report"
+        ),
     }
     if case == "update":
         # Log ordinals are assigned while holding the state lock. A later get
