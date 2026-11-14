@@ -6,7 +6,7 @@ fn quota() -> Value {
         "id":"custom-resource","name":"Custom resource","allowed":true,"limit_reached":false,
         "informational":true,
         "windows":[{"id":"rolling","used_percent":42.5,"duration_seconds":90,"resets_at":1900000042,
-            "amount":{"used":4.25,"limit":10,"unit":"USD"}}]
+            "amount":{"used":4.25,"limit":10.0,"unit":"USD"}}]
     }]})
 }
 
