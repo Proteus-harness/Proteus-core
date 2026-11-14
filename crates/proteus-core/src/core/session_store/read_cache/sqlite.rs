@@ -5,9 +5,9 @@ use rusqlite::{Connection, OpenFlags, params};
 mod update;
 pub(in crate::core::session_store) use update::Updater;
 
-// Transcript rows include nested tool/hook calls from durable lifecycle facts.
-// Old source-valid views omit those rows and must be reprojected.
-pub(super) const FORMAT: i64 = 4;
+// Transcript rows include separate readable reasoning alongside the answer.
+// Source-valid views from earlier formats omit those rows and must be rebuilt.
+pub(super) const FORMAT: i64 = 5;
 const SCHEMA: &str = "CREATE TABLE records(section TEXT NOT NULL,position INTEGER NOT NULL,
     payload BLOB NOT NULL,checksum BLOB NOT NULL,PRIMARY KEY(section,position)) WITHOUT ROWID;
     CREATE TABLE keyed_records(section TEXT NOT NULL,key TEXT NOT NULL,
