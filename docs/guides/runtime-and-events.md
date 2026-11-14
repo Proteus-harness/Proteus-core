@@ -1051,6 +1051,11 @@ store; stdio остаётся привязанным к одной session пр�
   `error`; отсутствие данных не превращается в 100% или безлимит. Snapshot
   содержит момент получения данных провайдером, группы и окна с процентом
   использования, длительностью и временем сброса, optional plan/credits.
+  Optional `window.amount {used, limit, unit}` передаёт абсолютные значения
+  в единицах провайдера. `bucket.informational = true` обозначает дополнительный
+  ресурс, применимость которого к активной модели неизвестна. Его остаток
+  показывается отдельно от доступной модели квоты. `notices` содержит пояснения
+  провайдера о частично недоступных данных, например доступе к бюджетам.
   Это discovery без turn, tools и inference exchange; подробный DTO описан в
   [model contract](../architecture/process-module-architecture.md#model-streaming).
 - `GET /config/builder` - snapshot selectable modules/tools/providers и

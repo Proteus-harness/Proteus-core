@@ -1,9 +1,12 @@
 use super::*;
 
 fn quota() -> Value {
-    json!({"observed_at":1900000000,"plan":"external-plan","credits":null,"buckets":[{
+    json!({"observed_at":1900000000,"plan":"external-plan","credits":null,
+        "notices":["Additional account details unavailable"],"buckets":[{
         "id":"custom-resource","name":"Custom resource","allowed":true,"limit_reached":false,
-        "windows":[{"id":"rolling","used_percent":42.5,"duration_seconds":90,"resets_at":1900000042}]
+        "informational":true,
+        "windows":[{"id":"rolling","used_percent":42.5,"duration_seconds":90,"resets_at":1900000042,
+            "amount":{"used":4.25,"limit":10,"unit":"USD"}}]
     }]})
 }
 
@@ -43,7 +46,9 @@ async fn external_quota_rejects_invalid_shapes_and_values() {
     negative["buckets"][0]["windows"][0]["used_percent"] = json!(-1);
     let mut zero = quota();
     zero["buckets"][0]["windows"][0]["duration_seconds"] = json!(0);
-    for invalid in [unknown, duplicate, negative, zero] {
+    let mut amount = quota();
+    amount["buckets"][0]["windows"][0]["amount"]["limit"] = json!(-1);
+    for invalid in [unknown, duplicate, negative, zero, amount] {
         let mut settings = settings();
         settings["quota"] = invalid;
         let adapter = model(&config("external", settings), cwd.path()).unwrap();
