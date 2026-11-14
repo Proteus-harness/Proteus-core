@@ -127,3 +127,43 @@ fn reset_discards_lookup_and_standalone_results_become_indexed() {
     assert_eq!(tool.name, "tool");
     assert_eq!(tool.result.as_deref(), Some("second"));
 }
+
+#[test]
+fn late_reasoning_precedes_answer_and_keeps_shifted_tool_and_reasoning_indexes_valid() {
+    let mut rows = TranscriptRows::default();
+    let first = CanonicalMessage::text(MessageRole::Assistant, "first answer");
+    let second = CanonicalMessage::text(MessageRole::Assistant, "second answer");
+    for (index, message) in [&first, &second].into_iter().enumerate() {
+        append_transcript_message(&mut rows, message);
+        rows.rows.last_mut().unwrap().timestamp_ms = Some((index as i64 + 1) * 100);
+        append_transcript_tool_call(
+            &mut rows,
+            &ToolCall::new(format!("call-{index}"), "probe", json!({})),
+        );
+    }
+    rows.append_reasoning(second.id, "second thought");
+    rows.append_reasoning(first.id, "first thought");
+    rows.append_reasoning(second.id, "second tail");
+    for index in 0..2 {
+        append_transcript_tool_result(
+            &mut rows,
+            &ToolResult::ok(format!("call-{index}"), format!("result {index}")),
+        );
+    }
+    assert_eq!(rows.rows.len(), 6);
+    for (base, thought, answer, timestamp) in [
+        (0, "first thought", "first answer", 100),
+        (3, "second thought\nsecond tail", "second answer", 200),
+    ] {
+        assert_eq!(rows.rows[base].role, "reasoning");
+        assert_eq!(rows.rows[base].text, thought);
+        assert_eq!(rows.rows[base].timestamp_ms, Some(timestamp));
+        assert_eq!(rows.rows[base + 1].text, answer);
+        assert_eq!(rows.rows[base].message_id, rows.rows[base + 1].message_id);
+        assert_eq!(rows.rows[base + 2].tool.as_ref().unwrap().status, "done");
+        assert_eq!(
+            rows.rows[base + 2].tool.as_ref().unwrap().result.as_deref(),
+            Some(format!("result {}", base / 3).as_str())
+        );
+    }
+}

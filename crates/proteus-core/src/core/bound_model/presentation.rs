@@ -12,6 +12,7 @@ pub(super) fn present_stream(
         let mut text_offsets = std::collections::HashMap::new();
         let mut reasoning_offsets = std::collections::HashMap::new();
         let mut completed = std::collections::HashMap::new();
+        let mut anonymous_summary_published = false;
 
         while let Some(event) = stream.next().await {
             let event = event?;
@@ -20,7 +21,7 @@ pub(super) fn present_stream(
                     if !suppress_stream_deltas {
                         for message in &response.messages {
                             if !binding
-                                .emit_message(message, &mut completed, deadline, &cancellation)
+                                .emit_message(message, &mut completed, anonymous_summary_published, deadline, &cancellation)
                                 .await
                             {
                                 break;
@@ -68,7 +69,7 @@ pub(super) fn present_stream(
                 }
                 ModelStreamEvent::MessageCompleted { message } if !suppress_stream_deltas => {
                     binding
-                        .emit_message(message, &mut completed, deadline, &cancellation)
+                        .emit_message(message, &mut completed, anonymous_summary_published, deadline, &cancellation)
                         .await;
                 }
                 ModelStreamEvent::ToolCallDelta {
@@ -88,7 +89,7 @@ pub(super) fn present_stream(
                         .await;
                 }
                 ModelStreamEvent::ReasoningSummaryDelta { text } if !suppress_stream_deltas => {
-                    binding
+                    anonymous_summary_published |= binding
                         .emit_delta_before_deadline(
                             Event::AssistantReasoningDelta { text: text.clone() },
                             deadline,
@@ -115,12 +116,17 @@ impl ModelExecutionBinding {
         &self,
         message: &crate::model_standard::CanonicalMessage,
         completed: &mut std::collections::HashMap<crate::domain::MessageId, CompletedMessage>,
+        anonymous_summary_published: bool,
         deadline: Option<tokio::time::Instant>,
         cancellation: &crate::contracts::CancellationToken,
     ) -> bool {
         let state = completed.entry(message.id).or_default();
         let reasoning = message.reasoning_text();
-        if (!reasoning.is_empty() || state.reasoning_streamed || state.reasoning.is_some())
+        // Anonymous summaries have already been published as progress, but cannot
+        // be associated honestly with any canonical item. Identified reasoning
+        // still owns its completion; terminal-only reasoning has no prior progress.
+        if (!anonymous_summary_published || state.reasoning_streamed)
+            && (!reasoning.is_empty() || state.reasoning_streamed || state.reasoning.is_some())
             && state.reasoning.as_ref() != Some(&reasoning)
         {
             state.reasoning = Some(reasoning.clone());

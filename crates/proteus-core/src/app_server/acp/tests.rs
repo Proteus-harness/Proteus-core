@@ -212,3 +212,5 @@ fn unsupported_inputs_and_duplicate_mcp_names_are_rejected() {
     assert_eq!(config.tools.mcp_servers[0].environment.env["KEY"], "value");
     assert!(input::session_config(config, vec![server]).is_err());
 }
+
+mod reasoning_presentation;

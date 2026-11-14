@@ -315,7 +315,12 @@ non-contiguous `seq`. `seq` относится к полному runtime event s
 `AssistantReasoningTextDelta` с canonical `message_id` и UTF-8 byte `offset`.
 `AssistantReasoningMessageCompleted` содержит полный подтверждённый текст;
 он заменяет накопленный live prefix и не повторяется для того же item при
-terminal response. Подписи, encrypted/redacted данные остаются `Opaque` и
+terminal response. Если invocation уже опубликовал анонимный summary, Core
+не связывает его по тексту с canonical item и не отправляет дополнительный
+completed-readable event для item без идентифицированных reasoning delta.
+Это сохраняет один ACP thought stream; identified reasoning по-прежнему
+получает completion, а terminal-only readable reasoning — отдельный канал.
+Cold history независимо показывает canonical readable parts. Подписи, encrypted/redacted данные остаются `Opaque` и
 в этот канал не попадают. Core не разбирает metadata конкретного провайдера.
 
 Сами дельты без `persist_deltas = true` не восстанавливаются после restart,

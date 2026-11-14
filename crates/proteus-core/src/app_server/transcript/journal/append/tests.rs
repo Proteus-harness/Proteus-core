@@ -194,6 +194,10 @@ fn a_whole_new_settled_turn_with_intra_suffix_repeats_is_independent() {
                 text: "checking".into(),
             },
             ContentPart::ToolCall { call: call.clone() },
+            ContentPart::Reasoning {
+                text: "late readable reasoning".into(),
+                signature: None,
+            },
         ],
     );
     let entries = vec![
@@ -263,7 +267,25 @@ fn a_whole_new_settled_turn_with_intra_suffix_repeats_is_independent() {
     assert_split_equivalence(&records);
     let appended = append_records(&records, 1).unwrap().unwrap();
     assert_eq!(appended.conversation_appended, 1);
-    assert!(appended.transcript.iter().any(|row| row.text == "checking"));
+    let reasoning = appended
+        .transcript
+        .iter()
+        .position(|row| row.role == "reasoning")
+        .unwrap();
+    let answer = appended
+        .transcript
+        .iter()
+        .position(|row| row.text == "checking")
+        .unwrap();
+    assert!(reasoning < answer);
+    assert_eq!(
+        appended.transcript[reasoning].text,
+        "late readable reasoning"
+    );
+    assert_eq!(
+        appended.transcript[reasoning].timestamp_ms,
+        appended.transcript[answer].timestamp_ms
+    );
     let tool = appended
         .transcript
         .iter()
@@ -445,4 +467,40 @@ fn a_scan_failure_is_reported_even_after_the_suffix_is_known_to_overlap() {
     )
     .unwrap_err();
     assert_eq!(error.to_string(), "changed source");
+}
+
+#[test]
+fn late_reasoning_on_an_old_item_requires_full_projection_and_preserves_first_date() {
+    let original = CanonicalMessage::new(
+        MessageRole::Assistant,
+        vec![
+            ContentPart::Text {
+                text: "answer".into(),
+            },
+            ContentPart::ToolCall {
+                call: ToolCall::new("old-call", "probe", json!({})),
+            },
+        ],
+    );
+    let late = CanonicalMessage::new(
+        MessageRole::Assistant,
+        vec![ContentPart::Reasoning {
+            text: "late thought".into(),
+            signature: None,
+        }],
+    )
+    .with_id(original.id);
+    let records = vec![history(1, vec![original]), history(2, vec![late])];
+    assert!(
+        append_records(&records, 1).unwrap().is_none(),
+        "old row order changed; append cannot publish this suffix"
+    );
+    assert_split_equivalence(&records);
+    let rows = super::super::source::from_records(&records, None).unwrap();
+    assert_eq!(rows[0].role, "reasoning");
+    assert_eq!(rows[0].text, "late thought");
+    assert_eq!(rows[1].text, "answer");
+    assert_eq!(rows[0].timestamp_ms, Some(100));
+    assert_eq!(rows[1].timestamp_ms, Some(100));
+    assert!(rows[2].tool.is_some());
 }
