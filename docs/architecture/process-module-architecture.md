@@ -965,6 +965,11 @@ Descriptor, catalog, quota, capabilities, stream events и terminal DTO откл
 - До terminal модуль последовательно вызывает `host.model.emit` с
   `ProcessModelEvent { sequence, event }` и ждёт `null` ack. Нумерация с нуля,
   без пропусков; `Response` и `Error` через emit запрещены.
+- `ReasoningDelta { message_id, text }` передаёт читаемые reasoning parts
+  того же canonical item отдельным каналом; `Opaque` и подписи не отображаются.
+  При нескольких читаемых reasoning parts поток использует тот же разделитель
+  `\n`, что canonical reasoning projection. Анонимный `ReasoningSummaryDelta`
+  остаётся summary/status без identity строки.
 - `TextDelta { message_id, phase, text }` адресует canonical message id;
   optional `MessageCompleted { message }` завершает один item. Terminal
   Response сохраняет те же ids и typed phases. Provider без классификации

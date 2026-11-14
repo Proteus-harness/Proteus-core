@@ -7,6 +7,7 @@ pub(super) struct Projection {
     session: RuntimeSessionId,
     root: Option<ThreadId>,
     texts: HashMap<MessageId, String>,
+    thoughts: HashMap<MessageId, String>,
     last_message: Option<MessageId>,
     tools: HashSet<String>,
 }
@@ -17,6 +18,7 @@ impl Projection {
             session,
             root: None,
             texts: HashMap::new(),
+            thoughts: HashMap::new(),
             last_message: None,
             tools: HashSet::new(),
         }
@@ -69,6 +71,14 @@ impl Projection {
                 let suffix = suffix.to_owned();
                 *current = text;
                 self.message_chunk(message_id, suffix)
+            }
+            Event::AssistantReasoningTextDelta {
+                message_id,
+                offset,
+                text,
+            } => self.thought_chunk(message_id, Some(offset), text)?,
+            Event::AssistantReasoningMessageCompleted { message_id, text } => {
+                self.thought_chunk(message_id, None, text)?
             }
             Event::AssistantReasoningDelta { text } => Some(SessionUpdate::AgentThoughtChunk(
                 ContentChunk::new(ContentBlock::Text(TextContent::new(text))),
@@ -124,6 +134,44 @@ impl Projection {
         } else {
             None
         }
+    }
+
+    fn thought_chunk(
+        &mut self,
+        message_id: MessageId,
+        offset: Option<usize>,
+        text: String,
+    ) -> Result<Option<SessionUpdate>> {
+        let current = self.thoughts.entry(message_id).or_default();
+        let suffix = if let Some(offset) = offset {
+            if offset > current.len() || !current.is_char_boundary(offset) {
+                return Err(super::internal("reasoning stream has a gap"));
+            }
+            let overlap = (current.len() - offset).min(text.len());
+            if !text.is_char_boundary(overlap)
+                || !current.is_char_boundary(offset + overlap)
+                || current[offset..offset + overlap] != text[..overlap]
+            {
+                return Err(super::internal("reasoning stream changed published text"));
+            }
+            let suffix = text[overlap..].to_owned();
+            current.push_str(&suffix);
+            suffix
+        } else {
+            let Some(suffix) = text.strip_prefix(current.as_str()) else {
+                return Err(super::internal(
+                    "completed reasoning changed published text",
+                ));
+            };
+            let suffix = suffix.to_owned();
+            *current = text;
+            suffix
+        };
+        Ok((!suffix.is_empty()).then(|| {
+            SessionUpdate::AgentThoughtChunk(ContentChunk::new(ContentBlock::Text(
+                TextContent::new(suffix),
+            )))
+        }))
     }
 
     fn message_chunk(&mut self, id: MessageId, text: String) -> Option<SessionUpdate> {

@@ -140,6 +140,54 @@ fn canonical_completion_does_not_repeat_streamed_unicode_or_peer_text() {
 }
 
 #[test]
+fn readable_reasoning_uses_thought_chunks_without_duplicate_completion_or_answer_state() {
+    let session = new_session_id();
+    let thread = new_thread_id();
+    let mut projection = projection::Projection::new(session);
+    let context = EventContext::new(session, thread, None);
+    let event = |event| EventEnvelope::new(context.clone(), 0, event);
+    projection
+        .event(event(Event::TurnStarted {
+            session_id: session,
+            thread_id: thread,
+            turn_id: crate::domain::new_turn_id(),
+        }))
+        .unwrap();
+    let id = new_message_id();
+    let thought = Event::AssistantReasoningTextDelta {
+        message_id: id,
+        offset: 0,
+        text: "Мысль".into(),
+    };
+    let first = projection.event(event(thought.clone())).unwrap();
+    assert_eq!(
+        serde_json::to_value(&first[0]).unwrap()["sessionUpdate"],
+        "agent_thought_chunk"
+    );
+    assert!(projection.event(event(thought)).unwrap().is_empty());
+    assert!(
+        projection
+            .event(event(Event::AssistantReasoningMessageCompleted {
+                message_id: id,
+                text: "Мысль".into()
+            }))
+            .unwrap()
+            .is_empty()
+    );
+    let answer = projection
+        .event(event(Event::AssistantMessageCompleted {
+            message_id: id,
+            phase: None,
+            text: "answer".into(),
+        }))
+        .unwrap();
+    assert_eq!(
+        serde_json::to_value(&answer[0]).unwrap()["content"]["text"],
+        "answer"
+    );
+}
+
+#[test]
 fn unsupported_inputs_and_duplicate_mcp_names_are_rejected() {
     let image = serde_json::from_value(serde_json::json!({
         "type":"image", "data":"aGVsbG8=", "mimeType":"image/png"

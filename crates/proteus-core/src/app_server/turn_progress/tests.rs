@@ -594,3 +594,6 @@ fn terminal_button_is_bound_before_tool_result_and_survives_final_metadata() {
     assert_eq!(tool.status, "done");
     assert_eq!(tool.terminal, Some(terminal));
 }
+
+#[path = "tests/reasoning.rs"]
+mod reasoning;

@@ -40,6 +40,11 @@ fn append_transcript_parts<'a>(
     let mut images = Vec::new();
     for part in parts {
         match &part.payload {
+            ContentPart::Reasoning { text, .. } | ContentPart::ReasoningSummary { text }
+                if message.role == MessageRole::Assistant =>
+            {
+                transcript.append_reasoning(message.id, text);
+            }
             ContentPart::Image { image } => images.push(image.clone()),
             ContentPart::Text { text } if !text.trim().is_empty() => {
                 text_parts.push(text.as_str());
@@ -67,7 +72,7 @@ fn append_transcript_parts<'a>(
         if let Some(item) = transcript
             .rows
             .last_mut()
-            .filter(|item| item.message_id == Some(message.id))
+            .filter(|item| item.message_id == Some(message.id) && item.role == role)
         {
             item.images = images;
         } else {
@@ -348,12 +353,27 @@ mod tests {
             .parts
             .extend(CanonicalMessage::text(MessageRole::Assistant, "answer").parts);
 
-        assert!(transcript_messages(&[reasoning]).is_empty());
+        let reasoning_rows = transcript_messages(&[reasoning]);
+        assert_eq!(reasoning_rows.len(), 1);
+        assert_eq!(reasoning_rows[0].role, "reasoning");
+        assert_eq!(reasoning_rows[0].text, "summary\nreasoning");
+        mixed.parts.push(crate::model_standard::CanonicalPart::new(
+            crate::model_standard::PartProvenance::Model,
+            crate::model_standard::PartScope::Conversation,
+            ContentPart::Opaque {
+                format: "provider-hidden".into(),
+                data: json!({"secret":"opaque"}),
+            },
+        ));
         let transcript = transcript_messages(&[mixed.clone()]);
-        assert_eq!(transcript.len(), 1);
-        assert_eq!(transcript[0].text, "answer");
+        assert_eq!(transcript.len(), 2);
+        assert_eq!(transcript[0].role, "reasoning");
+        assert_eq!(transcript[0].text, "summary\nreasoning");
+        assert_eq!(transcript[1].text, "answer");
         assert_eq!(transcript[0].message_id, Some(mixed.id));
-        assert_eq!(transcript[0].phase, mixed.phase);
+        assert_eq!(transcript[1].message_id, Some(mixed.id));
+        assert_eq!(transcript[1].phase, mixed.phase);
+        assert_eq!(mixed.display_text(), "answer");
     }
 
     #[test]

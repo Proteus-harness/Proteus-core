@@ -69,6 +69,7 @@ pub fn is_streaming_delta(event: &Event) -> bool {
     matches!(
         event,
         Event::AssistantTextDelta { .. }
+            | Event::AssistantReasoningTextDelta { .. }
             | Event::AssistantToolArgsDelta { .. }
             | Event::AssistantReasoningDelta { .. }
     )
@@ -142,6 +143,11 @@ mod tests {
             message_id: crate::domain::new_message_id(),
             phase: None,
             text: "x".to_owned()
+        }));
+        assert!(is_streaming_delta(&Event::AssistantReasoningTextDelta {
+            offset: 0,
+            message_id: crate::domain::new_message_id(),
+            text: "thought".to_owned()
         }));
         assert!(is_streaming_delta(&Event::AssistantToolArgsDelta {
             call_id: "call-1".to_owned(),

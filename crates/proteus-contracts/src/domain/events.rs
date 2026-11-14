@@ -258,6 +258,18 @@ pub enum Event {
         phase: Option<MessagePhase>,
         text: String,
     },
+    /// Readable reasoning is a separate display channel for the same item.
+    AssistantReasoningTextDelta {
+        message_id: MessageId,
+        /// UTF-8 byte offset within the item's readable reasoning.
+        offset: usize,
+        text: String,
+    },
+    /// Authoritative readable reasoning, excluding opaque provider data.
+    AssistantReasoningMessageCompleted {
+        message_id: MessageId,
+        text: String,
+    },
     /// Частичные аргументы tool call'а от модели. Приходит построчно
     /// через SSE, дополняет `AssistantTextDelta` при stream'е ответа
     /// со смешанным содержимым.
@@ -265,9 +277,7 @@ pub enum Event {
         call_id: CallId,
         args_delta: String,
     },
-    /// Частичное reasoning-summary (только OpenAI o-series), plain text.
-    /// Anthropic этого не шлёт, событие будет отсутствовать для их
-    /// ответов.
+    /// Anonymous provider summary/status, without a canonical display item.
     AssistantReasoningDelta {
         text: String,
     },

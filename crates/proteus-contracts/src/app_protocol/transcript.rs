@@ -36,6 +36,8 @@ pub struct AppTranscriptMessage {
     /// canonical journal time; unavailable source dates stay unknown.
     pub timestamp_ms: Option<i64>,
     pub phase: Option<MessagePhase>,
+    /// Display channel: user, assistant, system, or readable provider reasoning.
+    /// Reasoning and assistant rows may share a message_id; identity includes role.
     pub role: String,
     pub text: String,
     pub images: Vec<crate::domain::ImageRef>,

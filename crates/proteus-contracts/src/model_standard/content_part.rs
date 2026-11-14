@@ -158,6 +158,23 @@ impl CanonicalMessage {
             .join("\n")
     }
 
+    /// Readable reasoning for a separate presentation channel. Opaque provider
+    /// records and signatures are deliberately absent from this projection.
+    pub fn reasoning_text(&self) -> String {
+        self.parts
+            .iter()
+            .filter_map(|part| match &part.payload {
+                ContentPart::Reasoning { text, .. } | ContentPart::ReasoningSummary { text }
+                    if !text.trim().is_empty() =>
+                {
+                    Some(text.as_str())
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
     pub fn text(role: MessageRole, text: impl Into<String>) -> Self {
         Self::new(role, vec![ContentPart::Text { text: text.into() }])
     }

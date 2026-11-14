@@ -364,8 +364,83 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn reasoning_has_independent_byte_offsets_and_authoritative_completion_once() {
+        let message = CanonicalMessage::new(
+            MessageRole::Assistant,
+            vec![
+                ContentPart::Reasoning {
+                    text: "Мысль".into(),
+                    signature: Some("opaque".into()),
+                },
+                ContentPart::Text {
+                    text: "answer".into(),
+                },
+            ],
+        );
+        let id = message.id;
+        let response = CanonicalModelResponse::new(message.clone(), vec![], FinishReason::Stop);
+        let adapter = Arc::new(ScriptedAdapter::new(vec![
+            ModelStreamEvent::ReasoningDelta {
+                message_id: id,
+                text: "Мы".into(),
+            },
+            ModelStreamEvent::TextDelta {
+                message_id: id,
+                phase: None,
+                text: "a".into(),
+            },
+            ModelStreamEvent::ReasoningDelta {
+                message_id: id,
+                text: "сль".into(),
+            },
+            ModelStreamEvent::MessageCompleted { message },
+            ModelStreamEvent::Response { response },
+        ]));
+        let sink = Arc::new(CollectingSink::default());
+        let model = BoundModel::new(
+            Arc::new(ModelService::new(adapter)),
+            ModelExecutionBinding::for_turn(
+                ExecutionScope::fresh(CancellationToken::new()),
+                Arc::new(EventEmitter::new(sink.clone())),
+                new_session_id(),
+                new_thread_id(),
+                new_turn_id(),
+                Arc::new(NoopExecutionRecorder),
+            ),
+            0,
+        );
+        model.complete(sample_request()).await.unwrap();
+        let captured = sink.events.lock().await;
+        assert_eq!(
+            captured.len(),
+            5,
+            "terminal response must not repeat completed item channels"
+        );
+        assert!(
+            matches!(&captured[0].event, Event::AssistantReasoningTextDelta { message_id, offset:0, text } if *message_id == id && text == "Мы")
+        );
+        assert!(matches!(
+            &captured[1].event,
+            Event::AssistantTextDelta { offset: 0, .. }
+        ));
+        assert!(
+            matches!(&captured[2].event, Event::AssistantReasoningTextDelta { offset, text, .. } if *offset == "Мы".len() && text == "сль")
+        );
+        assert!(
+            matches!(&captured[3].event, Event::AssistantReasoningMessageCompleted { message_id, text } if *message_id == id && text == "Мысль")
+        );
+        assert!(
+            matches!(&captured[4].event, Event::AssistantMessageCompleted { message_id, text, .. } if *message_id == id && text == "answer")
+        );
+    }
+
+    #[tokio::test]
     async fn request_metadata_can_suppress_stream_deltas() {
         let adapter = Arc::new(ScriptedAdapter::new(vec![
+            ModelStreamEvent::ReasoningDelta {
+                message_id: proteus_contracts::domain::new_message_id(),
+                text: "readable".into(),
+            },
             ModelStreamEvent::TextDelta {
                 message_id: proteus_contracts::domain::new_message_id(),
                 phase: None,

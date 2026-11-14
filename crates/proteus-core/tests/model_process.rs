@@ -72,6 +72,10 @@ async fn arbitrary_model_exports_preserve_exact_canonical_request_stream_and_ter
                 phase: None,
                 text: "hello".into(),
             },
+            ModelStreamEvent::ReasoningDelta {
+                message_id: response().messages[0].id,
+                text: "readable reasoning".into(),
+            },
             ModelStreamEvent::ReasoningSummaryDelta {
                 text: "summary".into(),
             },

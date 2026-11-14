@@ -2,6 +2,8 @@ use crate::domain::{Event, EventEnvelope, ThreadId, ToolCall};
 
 use super::transcript::{AppTranscriptMessage, AppTranscriptSubagent, AppTranscriptTool};
 
+mod text;
+
 const MAX_BACKGROUND_SUBAGENTS: usize = 64;
 const MAX_SUBAGENT_TOOLS: usize = 64;
 const MAX_SUBAGENT_TOOL_RESULT_BYTES: usize = 10_000;
@@ -76,6 +78,23 @@ impl TurnProgress {
                 self.update_text(*message_id, *phase, text, true, envelope.timestamp_ms);
             }
             Event::AssistantMessageCompleted { .. } => {}
+            Event::AssistantReasoningTextDelta {
+                message_id,
+                offset,
+                text,
+            } if self
+                .turn_thread_id
+                .is_none_or(|id| id == envelope.thread_id) =>
+            {
+                self.update_reasoning(*message_id, Some(*offset), text, envelope.timestamp_ms);
+            }
+            Event::AssistantReasoningMessageCompleted { message_id, text }
+                if self
+                    .turn_thread_id
+                    .is_none_or(|id| id == envelope.thread_id) =>
+            {
+                self.update_reasoning(*message_id, None, text, envelope.timestamp_ms);
+            }
             Event::SteeringDelivered {
                 message_id,
                 text,
@@ -327,51 +346,6 @@ impl TurnProgress {
         messages.extend(self.failed_queued_inputs.clone());
         messages.extend(self.background_subagents.clone());
         messages
-    }
-
-    fn update_text(
-        &mut self,
-        message_id: crate::domain::MessageId,
-        phase: Option<crate::model_standard::MessagePhase>,
-        text: &str,
-        completed: bool,
-        timestamp_ms: i64,
-    ) {
-        if let Some(message) = self
-            .messages
-            .iter_mut()
-            .find(|message| message.message_id == Some(message_id))
-        {
-            if completed {
-                message.text = text.to_owned();
-            } else {
-                message.text.push_str(text);
-            }
-            message.phase = if completed {
-                phase
-            } else {
-                phase.or(message.phase)
-            };
-            message.streaming = !completed;
-            return;
-        }
-        if text.is_empty() {
-            return;
-        }
-        for message in &mut self.messages {
-            message.streaming = false;
-        }
-        self.messages.push(AppTranscriptMessage {
-            timestamp_ms: Some(timestamp_ms),
-            images: Vec::new(),
-            message_id: Some(message_id),
-            phase,
-            role: "assistant".to_owned(),
-            text: text.to_owned(),
-            tool: None,
-            subagent: None,
-            streaming: !completed,
-        });
     }
 
     fn append_tool_call(&mut self, thread_id: &str, call: &ToolCall, timestamp_ms: i64) {

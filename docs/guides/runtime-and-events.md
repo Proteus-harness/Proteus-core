@@ -301,22 +301,29 @@ event
 `EventEmitter` создаёт envelope один раз перед fan-out, поэтому durable JSONL log и live sinks получают один и тот же `event_id`, `seq` и timestamp для одного logical event. `turn_id = null` используется для событий уровня session, например `SessionStarted`. Это событие несёт `session_id`, `cwd`, а также startup metadata для клиентов: активную `model` и `session_dir`, если session store подключён.
 
 По умолчанию `event_log.persist_deltas = false`: streaming delta events
-(`AssistantTextDelta`, `AssistantToolArgsDelta`, `AssistantReasoningDelta`)
+(`AssistantTextDelta`, `AssistantReasoningTextDelta`, `AssistantToolArgsDelta`,
+`AssistantReasoningDelta`)
 не пишутся в durable JSONL, но продолжают идти в live broadcast sinks для UI.
 Текущая форма `EventEnvelope` имеет `schema_version = 2`.
 Envelope создаётся до фильтрации, поэтому durable log может иметь
 non-contiguous `seq`. `seq` относится к полному runtime event stream, а не
 только к persisted subset.
 
-UI-клиенты сами решают, показывать ли `AssistantReasoningDelta`. Reasoning
-summary приходит только если provider вернул reasoning/thinking delta и/или
-config запросил такой режим через provider profile `reasoning`. Это не raw
-chain-of-thought. Без `event_log.persist_deltas = true` сами дельты не
-восстанавливаются после restart/resume; завершённые reasoning parts остаются
-в canonical history и сохраняют свой тип при следующем запросе модели.
-Обычный app transcript строит текст сообщения только из `ContentPart::Text`:
-reasoning не превращается в дополнительный assistant-ответ после settlement
-или чтения cold `/history`.
+`AssistantReasoningDelta` передаёт анонимный summary/status провайдера.
+Читаемые reasoning/thinking parts используют отдельный канал:
+`ModelStreamEvent::ReasoningDelta {message_id,text}` превращается в
+`AssistantReasoningTextDelta` с canonical `message_id` и UTF-8 byte `offset`.
+`AssistantReasoningMessageCompleted` содержит полный подтверждённый текст;
+он заменяет накопленный live prefix и не повторяется для того же item при
+terminal response. Подписи, encrypted/redacted данные остаются `Opaque` и
+в этот канал не попадают. Core не разбирает metadata конкретного провайдера.
+
+Сами дельты без `persist_deltas = true` не восстанавливаются после restart,
+но читаемые `ContentPart::Reasoning`/`ReasoningSummary` остаются в canonical
+history. Live `/history` и cold transcript показывают их отдельной строкой
+`role="reasoning"`, не смешивая с обычным assistant-ответом. Все reasoning
+parts одного item объединяются; identity строки включает `(message_id,role)`,
+поскольку reasoning и ответ могут принадлежать одному canonical message.
 
 Terminal OpenAI Responses сохраняет ordered assistant items и typed
 `MessagePhase` (`commentary`/`final_answer`) в canonical response, history и

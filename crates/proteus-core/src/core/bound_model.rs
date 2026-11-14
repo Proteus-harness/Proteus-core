@@ -207,34 +207,6 @@ impl ModelExecutionBinding {
             _ = self.emit_delta(event) => true,
         }
     }
-
-    async fn emit_message(
-        &self,
-        message: &crate::model_standard::CanonicalMessage,
-        completed: &mut std::collections::HashMap<
-            crate::domain::MessageId,
-            (Option<crate::model_standard::MessagePhase>, String),
-        >,
-        deadline: Option<tokio::time::Instant>,
-        cancellation: &crate::contracts::CancellationToken,
-    ) -> bool {
-        let text = message.display_text();
-        if !text.is_empty() && completed.get(&message.id) != Some(&(message.phase, text.clone())) {
-            completed.insert(message.id, (message.phase, text.clone()));
-            return self
-                .emit_delta_before_deadline(
-                    Event::AssistantMessageCompleted {
-                        message_id: message.id,
-                        phase: message.phase,
-                        text,
-                    },
-                    deadline,
-                    cancellation,
-                )
-                .await;
-        }
-        true
-    }
 }
 
 /// A model capability bound immutably to one `ExecutionScope`.

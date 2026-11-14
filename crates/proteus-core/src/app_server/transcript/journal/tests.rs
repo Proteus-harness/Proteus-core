@@ -214,10 +214,29 @@ fn failed_turn_recovers_model_text_tool_card_and_terminal_error_from_journal() {
             .iter()
             .any(|message| message.role == "assistant" && message.text == "checking")
     );
+    let reasoning: Vec<_> = transcript
+        .iter()
+        .filter(|row| row.role == "reasoning")
+        .collect();
+    assert_eq!(
+        reasoning.len(),
+        1,
+        "journal message/response/history facts must not duplicate reasoning"
+    );
+    assert_eq!(reasoning[0].text, "private summary\nprivate reasoning");
+    assert_eq!(reasoning[0].timestamp_ms, Some(4));
+    assert_eq!(
+        reasoning[0].message_id,
+        transcript
+            .iter()
+            .find(|row| row.text == "checking")
+            .unwrap()
+            .message_id
+    );
     assert!(
         transcript
             .iter()
-            .all(|message| !message.text.contains("private"))
+            .all(|row| !row.text.contains("opaque signature"))
     );
     assert_eq!(
         transcript

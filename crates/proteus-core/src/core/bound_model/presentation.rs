@@ -10,6 +10,7 @@ pub(super) fn present_stream(
 ) -> ModelEventStream {
     Box::pin(async_stream::try_stream! {
         let mut text_offsets = std::collections::HashMap::new();
+        let mut reasoning_offsets = std::collections::HashMap::new();
         let mut completed = std::collections::HashMap::new();
 
         while let Some(event) = stream.next().await {
@@ -41,6 +42,23 @@ pub(super) fn present_stream(
                                 offset,
                                 message_id: *message_id,
                                 phase: *phase,
+                                text: text.clone(),
+                            },
+                            deadline,
+                            &cancellation,
+                        )
+                        .await;
+                }
+                ModelStreamEvent::ReasoningDelta { message_id, text } if !suppress_stream_deltas => {
+                    let cursor = reasoning_offsets.entry(*message_id).or_insert(0);
+                    let offset = *cursor;
+                    *cursor += text.len();
+                    completed.entry(*message_id).or_insert_with(CompletedMessage::default).reasoning_streamed = true;
+                    binding
+                        .emit_delta_before_deadline(
+                            Event::AssistantReasoningTextDelta {
+                                message_id: *message_id,
+                                offset,
                                 text: text.clone(),
                             },
                             deadline,
@@ -83,4 +101,59 @@ pub(super) fn present_stream(
             yield event;
         }
     })
+}
+
+#[derive(Default)]
+struct CompletedMessage {
+    text: Option<(Option<crate::model_standard::MessagePhase>, String)>,
+    reasoning: Option<String>,
+    reasoning_streamed: bool,
+}
+
+impl ModelExecutionBinding {
+    async fn emit_message(
+        &self,
+        message: &crate::model_standard::CanonicalMessage,
+        completed: &mut std::collections::HashMap<crate::domain::MessageId, CompletedMessage>,
+        deadline: Option<tokio::time::Instant>,
+        cancellation: &crate::contracts::CancellationToken,
+    ) -> bool {
+        let state = completed.entry(message.id).or_default();
+        let reasoning = message.reasoning_text();
+        if (!reasoning.is_empty() || state.reasoning_streamed || state.reasoning.is_some())
+            && state.reasoning.as_ref() != Some(&reasoning)
+        {
+            state.reasoning = Some(reasoning.clone());
+            if !self
+                .emit_delta_before_deadline(
+                    Event::AssistantReasoningMessageCompleted {
+                        message_id: message.id,
+                        text: reasoning,
+                    },
+                    deadline,
+                    cancellation,
+                )
+                .await
+            {
+                return false;
+            }
+        }
+        let text = message.display_text();
+        let identity = (message.phase, text);
+        if !identity.1.is_empty() && state.text.as_ref() != Some(&identity) {
+            state.text = Some(identity.clone());
+            return self
+                .emit_delta_before_deadline(
+                    Event::AssistantMessageCompleted {
+                        message_id: message.id,
+                        phase: identity.0,
+                        text: identity.1,
+                    },
+                    deadline,
+                    cancellation,
+                )
+                .await;
+        }
+        true
+    }
 }

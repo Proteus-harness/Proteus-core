@@ -33,6 +33,12 @@ pub enum ModelStreamEvent {
     ToolCallFinished {
         call: ToolCall,
     },
+    /// Readable provider reasoning belongs to the same canonical assistant item
+    /// as its answer. Opaque/redacted provider content must not use this event.
+    ReasoningDelta {
+        message_id: MessageId,
+        text: String,
+    },
     ReasoningSummaryDelta {
         text: String,
     },
