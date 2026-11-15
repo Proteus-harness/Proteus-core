@@ -7,6 +7,8 @@ import math
 from pathlib import Path
 import statistics
 
+from common.proc_sampler import PHASE_INTERVAL_POLICY, PhaseIntervals
+
 
 def get(value, *keys):
     for key in keys:
@@ -110,6 +112,9 @@ def main():
                 readiness[(scenario, 'внешнее наблюдение готовности, мс')][side].append(external * 1000 if number(external) else None)
             else:
                 phases = measurement.get('phases', {})
+                if phases and measurement.get('phase_interval_policy') != PHASE_INTERVAL_POLICY:
+                    notices.append(f'{path}: сохранённые subject phase CPU aggregates не подтверждают whole-interval policy; '
+                                   'они показаны как записаны, без ретроактивного пересчёта.')
                 memory[scenario + ': пик всего кейса'][side].append(dict(
                     peak_rss=measurement.get('sampled_peak_rss_kib'),
                     peak_pss_swap=measurement.get('sampled_peak_pss_swap_kib')))
@@ -123,6 +128,10 @@ def main():
                     values.update(peak_rss=get(data, 'rss_kib', 'peak'), peak_pss_swap=get(data, 'pss_swap_kib', 'peak'),
                                   cpu=data.get('cpu_percent_one_core_weighted_mean'))
                     memory[scenario + ': ' + phase][side].append(values)
+                    if data.get('excluded_interval_seconds', 0) > 0:
+                        notices.append(f'{path}, {phase}: из phase CPU/IO исключено '
+                                       f'{data["excluded_interval_seconds"]:.6g} с смешанных/неподтверждённых интервалов; '
+                                       f'учтено {data.get("observed_interval_seconds", 0):.6g} с.')
                 if kind == 'idle':
                     for cache in ('first', 'restart'):
                         for key in ('all_http_bound_ms', 'all_snapshots_ready_ms'):
@@ -131,18 +140,27 @@ def main():
                     events = measurement.get('events', [])
                     samples_path = Path(row.get('path', path.parent)) / 'samples.jsonl'
                     if samples_path.is_file():
-                        samples = [item for line in samples_path.read_text().splitlines()
-                                   if (item := json.loads(line)).get('type') == 'sample'
-                                   and item.get('phase') == 'resident_idle']
+                        phase_intervals = PhaseIntervals()
+                        samples = []
+                        for line in samples_path.read_text().splitlines():
+                            item = json.loads(line)
+                            eligible = phase_intervals.observe(item)
+                            if item.get('type') == 'sample' and item.get('phase') == 'resident_idle':
+                                item['phase_interval_eligible'] = eligible
+                                samples.append(item)
                         if samples:
                             values = {key: statistics.median(item[key] for item in samples)
                                       for key in ('rss_kib','pss_kib','swap_pss_kib','pss_swap_kib')}
-                            intervals = [item for item in samples if item.get('interval_seconds')]
+                            intervals = [item for item in samples if item['phase_interval_eligible']]
                             values.update(peak_rss=max(item['rss_kib'] for item in samples),
                                           peak_pss_swap=max(item['pss_swap_kib'] for item in samples),
                                           cpu=sum((item.get('interval_cpu_percent_one_core') or 0)*item['interval_seconds'] for item in intervals)
                                           / sum(item['interval_seconds'] for item in intervals) if intervals else None)
                             memory[scenario+': resident_idle + управляющий процесс'][side].append(values)
+                            if len(intervals) != len(samples):
+                                notices.append(f'{samples_path}: full-tree idle CPU использует '
+                                               f'{len(intervals)}/{len(samples)} сэмплов с подтверждённым целым интервалом; '
+                                               'границы и legacy samples без interval-start provenance исключены, память сохранена.')
                     for phase in ('parent_ready', 'all_models_entered', 'round_settled'):
                         elapsed = [event.get('elapsed_ms') for event in events if event.get('phase') == phase]
                         readiness[(scenario, phase + ' (первое событие), мс')][side].append(elapsed[0] if elapsed else None)
@@ -155,11 +173,13 @@ def main():
              'и read_file; Python/driver overhead исключён из измеряемой памяти. Число сообщений задано в каждой сессии.', '',
              'Дополнительные строки «+ управляющий процесс» включают Rust AgentControl driver и всё его дерево; внешний Python измеритель в них не входит.', '',
              'CPU — среднее с весом по времени внутри фазы (100% = одно ядро), затем медиана повторов. '
+             'Новая history-scale policy учитывает лишь интервалы целиком после наблюдавшегося phase marker; '
+             'coverage и исключения приведены отдельно. Сохранённые legacy aggregates не переоцениваются. '
              'RSS суммирует разделяемые страницы; PSS распределяет их. PSS+SwapPss учитывает вытеснение в swap. '
              'Пики — максимумы одновременных сэмплов внутри каждого кейса/фазы, затем медиана повторов; '
              'короткие пики между сэмплами могут быть пропущены. OS cache не сбрасывается; first — пустой кэш приложения, restart — повторный процесс.', '']
     if notices:
-        lines += ['## Незавершённые прогоны', ''] + [f'- {escape(item)}' for item in notices] + ['']
+        lines += ['## Ограничения и неполные данные', ''] + [f'- {escape(item)}' for item in notices] + ['']
     lines += ['## Память и CPU', '']
     memory_rows = []
     for scenario, sides in sorted(memory.items()):

@@ -13,11 +13,25 @@ sys.path.insert(0, str(CODE))
 import journal
 
 
-def archiver():
-    spec = importlib.util.spec_from_file_location('archive_under_test', CODE/'archive.py')
+def load_module(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module.archive
+    missing = object()
+    previous = sys.modules.get(spec.name, missing)
+    sys.modules[spec.name] = module
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        if previous is missing:
+            sys.modules.pop(spec.name, None)
+        else:
+            sys.modules[spec.name] = previous
+        raise
+    return module
+
+
+def archiver():
+    return load_module('archive_under_test', CODE/'archive.py').archive
 
 
 def source(path, n=7):
@@ -162,8 +176,7 @@ def test_existing_consumers_and_public_helpers(tmp_path):
     src,dst=tmp_path/'source',tmp_path/'out'
     src.mkdir();(src/'journal.jsonl').write_text('')
     archiver()(src,dst)
-    spec=importlib.util.spec_from_file_location('usage_under_test',ROOT/'examples/performance/code-mode/measurements.py')
-    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+    module=load_module('usage_under_test',ROOT/'examples/performance/code-mode/measurements.py')
     assert module.measure(dst)['all_tool_calls'] == 0
     m={'id':'m','role':'User','parts':[{'payload':{'Text':{'text':'hello'}}}]}
     assert journal.text(m)=='hello'

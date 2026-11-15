@@ -203,7 +203,7 @@ class PreservationTests(unittest.TestCase):
         metrics.tree = SimpleNamespace(last={}, clock_ticks=100, totals=lambda: {})
         metrics.small = []
         for elapsed, ticks in ((0.1, 10), (0.9, 0)):
-            metrics.small.append(dict(phase="idle", interval_seconds=elapsed, rss_kib=10, pss_kib=8,
+            metrics.small.append(dict(phase="idle", interval_seconds=elapsed, phase_interval_eligible=True, rss_kib=10, pss_kib=8,
                 pss_swap_kib=9, swap_pss_kib=1, private_kib=4, cpu_percent_one_core=100 * ticks / 100 / elapsed,
                 interval_counters=dict(cpu_ticks=ticks, read_bytes=0, write_bytes=0, rchar=0, wchar=0)))
         phase = metrics.summary()["phases"]["idle"]

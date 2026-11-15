@@ -12,6 +12,7 @@ import time
 
 import adapters
 import open_code_native
+from pi_terminal import successful_pi_generations
 
 
 def digest(path):
@@ -99,7 +100,8 @@ def check_pipeline(report):
         models = metrics.get('models', [])
         efforts = metrics.get('reasoning_efforts', [])
         settled = metrics.get('settled', False)
-        complete = not metrics.get('errors')
+        complete = (successful_pi_generations(metrics.get('pi_outcome', {}), report.get('expected_turns', 1))
+                    if report['agent'] == 'pi' else not metrics.get('errors'))
     expected_model = report['model'].split('/', 1)[-1]
     report['model_verified'] = bool(models) and all(model == expected_model for model in models)
     if report['agent'] == 'opencode' or '/' in report['model']:

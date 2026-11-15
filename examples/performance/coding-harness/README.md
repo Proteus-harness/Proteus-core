@@ -67,6 +67,10 @@ Matrix ищет Pi в `~/.local/bin/pi`, OpenCode в
 `~/.opencode/bin/opencode`, Codex в `/usr/lib/chatgpt/resources/codex`, Proteus в
 соседней portable-поставке. Одиночный runner ищет native CLI в PATH,
 путь также задаётся `--binary`.
+Для Proteus имя executable в подготовленной команде берётся из нормализованного
+`--binary`, как и путь/hash в metadata: переименованный candidate не заменяется
+соседним файлом с именем `proteus`. Это правило построения argv, не проверка
+неизменности файла между подготовкой и фактическим запуском.
 Профиль Proteus задаётся `--base-config` внутри `configs/` Core.
 
 Для Flash требуется действующий ключ Go в native OpenCode. Runner получает
@@ -95,6 +99,74 @@ python3 -B examples/performance/coding-harness/corpus.py grade \
 копии workspace. Такие же два контроля нужны для остальных пяти задач.
 Сохранённые исходные контроли находятся в
 `target/performance/coding-harness/corpus-controls.json`.
+
+## Terminal outcome Native Pi
+
+Для pinned Pi 1.5.2 (`b4afdddf44e059c67ccf5097e5317d913521b470`)
+`agent_end` завершает лишь низкоуровневый проход: после него возможны retry,
+compaction и continuation. Общий `pi_terminal.py` использует окончательный
+assistant из последнего `agent_end.messages` перед `agent_settled` и сбрасывает
+его при новой активности. Для clean generation требуются ровно `expected_turns`
+settlements, каждый с `stopReason=stop` и `aborted=false`, без незавершённого хвоста.
+Прочие и неизвестные причины не считаются clean success этого coding evaluator;
+это не универсальное объявление `toolUse` или `deferred` ошибками протокола Pi.
+
+Metrics сохраняют прежние ошибки попыток и usage, отдельно записывают
+`pi_outcome` с итоговыми settlements и наблюдавшимися stop reasons. Успешное
+восстановление больше не проваливает pipeline только из-за старого error.
+Невосстановленный terminal `length` даёт diagnostic `length limit` и остаётся
+отдельным от grader PASS. Промежуточный recovered length сохраняется в
+`observed_stop_reasons`, но не становится terminal output-limit failure.
+
+Runner по-прежнему требует успешный exit, отсутствие timeout, model/reasoning
+verification и continuity. Report fallback использует тот же generation predicate:
+это не доказательство успешного CLI postprocessing или полноты всех billable calls.
+Полнота generation по-прежнему не гарантирует presence каждой usage category;
+проверка observed completion rows описана ниже.
+Старый неуспешный artifact без полной settlement boundary теперь даёт unknown.
+Сохранённый `pipeline_ok=true` fast path не переоценивается, старые результаты,
+оценки и benchmark таблицы автоматически не переписываются.
+
+Локальные synthetic controls, без CLI/API/LLM:
+
+```sh
+python3 -B examples/performance/coding-harness/pi_terminal_test.py
+python3 -B examples/performance/coding-harness/usage_report_test.py
+```
+
+## Coverage наблюдаемых native usage rows
+
+Pi и Codex учитывают usage не только по surviving dict-valued blocks.
+`expected_usage_rows` сохраняет число наблюдавшихся assistant `message_end`
+для Pi или `turn.completed` для Codex. Это **не** число всех provider requests,
+пропавших событий или billable calls; Codex `model_requests` остаётся unknown.
+`native_usage` сохраняет прежний список реально найденных dict-valued blocks,
+без вставленных вымышленных rows.
+
+Общий `usage_evidence` выдаёт строгий `provider_usage` только если для category
+есть integer contribution от каждой expected row. Отсутствующая, null или
+non-dict usage row делает full totals unknown, не zero. Отдельно сохраняются
+`partial_reported_usage_sums` и per-category `usage_fields_reported_by_rows`.
+Нет observation — partial null/count 0; одна row с reported zero — partial 0/count 1.
+Для Pi combined input требует `input`, `cacheRead`, `cacheWrite` в одной row;
+части разных неполных rows не складываются в выдуманное полное observation.
+
+Report projection из PR126 сохраняет такие partial sums отдельно от full totals.
+При ожидаемых nonnegative token counters это observed lower bounds, не доказанная
+цена полного run. Exact-int правило не валидирует arbitrary malformed data:
+negative integers не исправляются и не запрещаются этим изменением.
+Завершение pipeline/generation и полнота token fields остаются разными понятиями.
+Valid complete totals и raw usage не меняются; historical files/scores не
+пересчитываются автоматически. Исчезнувший целый completion event или auxiliary
+usage, которого нет в этом stream, данным cardinality check не обнаруживается.
+OpenCode сохраняет прежние значения totals через совместимый `sum_usage` wrapper;
+новая expected-event cardinality для него не заявляется.
+
+Focused synthetic check без native CLI/API/LLM:
+
+```sh
+python3 -B examples/performance/coding-harness/native_usage_test.py
+```
 
 ## Живой запуск
 
@@ -128,6 +200,17 @@ python3 -B examples/performance/coding-harness/report.py \
 Матрица записывает pipeline и grading для каждой клетки, сохраняет неуспехи и
 возвращает ненулевой exit при любом FAIL. Повтор учитывается отдельно от шести
 первых попыток. `report.py` проверяет одинаковые prompt/repository hashes.
+
+Короткий и длинный отчёты используют одну политику полноты usage. Числовой
+subtotal сам по себе не подтверждает завершение generation: для незавершённого
+запуска полные `tokens` и итоговые `input`/`cached`/`output` остаются unknown.
+Исходные числа сохраняются в `reported_usage`, наблюдаемые нижние границы —
+в `observed_partial_usage`. Сводка первичных попыток отдельно содержит
+`known_token_runs` и `observed_token_sums`; повторы не входят в эти суммы.
+Нулевой observed sum без known runs не доказывает нулевой полный расход.
+Флаг `usage_complete` описывает завершение по существующей policy и не означает,
+что провайдер сообщил каждую token category. Метрики grader/pipeline, правила
+отбора и сохранённые результаты прогонов этим представлением не меняются.
 
 `proteus-codex` можно добавить как самостоятельную конфигурацию. Для Flash она
 использует Pi model transport и JSON surface настоящего patch engine. Native
