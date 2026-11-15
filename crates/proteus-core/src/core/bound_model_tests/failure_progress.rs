@@ -190,7 +190,10 @@ async fn embedded_failure_progress_merges_without_comparing_generated_part_ids()
         part.part_id = new_part_id();
     }
     let second = completed("second", MessagePhase::FinalAnswer);
-    let failure = ModelFailure::other("provider stopped")
+    let kind = crate::model_standard::ModelFailureKind::Retryable {
+        retry_delay_ms: Some(17),
+    };
+    let failure = ModelFailure::new(kind, "provider stopped")
         .with_completed_messages(vec![duplicate, second.clone()]);
     let (model, recorder) = recording_model(vec![
         ModelStreamEvent::MessageCompleted {
@@ -204,6 +207,8 @@ async fn embedded_failure_progress_merges_without_comparing_generated_part_ids()
         .await
         .unwrap_err();
     let failure = ModelFailure::from_error(&error);
+    assert_eq!(failure.kind, kind);
+    assert_eq!(failure.message, "provider stopped");
     assert_eq!(failure.completed_messages, [first.clone(), second.clone()]);
     assert_eq!(recorder.facts.lock().await.errors[0].2, [first, second]);
 }

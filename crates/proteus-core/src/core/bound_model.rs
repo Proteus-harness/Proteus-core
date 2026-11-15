@@ -23,9 +23,7 @@ use crate::{
         Event, EventContext, ExchangeId, ModelRef, SessionId, ThreadId, ToolSpec, TurnId,
         new_exchange_id,
     },
-    model_standard::{
-        CanonicalModelRequest, CanonicalModelResponse, ModelCapabilities, ModelStreamEvent,
-    },
+    model_standard::{CanonicalModelRequest, ModelCapabilities, ModelStreamEvent},
 };
 
 const RESERVED_ATTRIBUTION_KEYS: [&str; 3] = ["session_id", "thread_id", "turn_id"];
@@ -360,18 +358,6 @@ impl Model for BoundModel {
             deadline,
             crate::core::model_call_scope::operation_cancellation(&self.binding.scope.cancellation),
         ))
-    }
-
-    async fn complete(&self, request: CanonicalModelRequest) -> Result<CanonicalModelResponse> {
-        let mut stream = self.stream(request).await?;
-        while let Some(event) = stream.next().await {
-            match event? {
-                ModelStreamEvent::Response { response } => return Ok(response),
-                ModelStreamEvent::Error { failure } => return Err(failure.into()),
-                _ => {}
-            }
-        }
-        Err(anyhow!("model stream ended without Response event"))
     }
 }
 

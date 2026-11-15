@@ -109,7 +109,7 @@ async fn inherited_complete_keeps_start_and_stream_item_errors_typed() {
     let expected = failure(ModelFailureKind::Interrupted);
     let start = StreamOnlyModel::start_failure(expected.clone());
     let item = StreamOnlyModel::events(vec![Err(
-        anyhow::Error::new(expected.clone()).context("stream item context"),
+        anyhow::Error::new(expected.clone()).context("stream item context")
     )]);
     for model in [start, item] {
         let error = model.complete(request()).await.unwrap_err();

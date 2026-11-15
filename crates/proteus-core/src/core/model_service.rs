@@ -8,8 +8,8 @@ use crate::{
     contracts::{Model, ModelEventStream},
     domain::{ModelRef, ToolSpec},
     model_standard::{
-        CanonicalModelRequest, CanonicalModelResponse, ModelCapabilities, ModelStreamEvent,
-        RequestShaper, validate_model_response_against_request,
+        CanonicalModelRequest, ModelCapabilities, ModelStreamEvent, RequestShaper,
+        validate_model_response_against_request,
     },
 };
 
@@ -73,24 +73,6 @@ impl Model for ModelService {
         let validation_request = request.clone();
         let stream = self.start_prepared(request).await?;
         Ok(validating_stream(stream, validation_request))
-    }
-
-    async fn complete(&self, request: CanonicalModelRequest) -> Result<CanonicalModelResponse> {
-        let mut stream = self.stream(request).await?;
-
-        while let Some(event) = stream.next().await {
-            let event = event?;
-            match event {
-                ModelStreamEvent::Response { response } => {
-                    return Ok(response);
-                }
-                ModelStreamEvent::Error { failure } => {
-                    return Err(anyhow::Error::new(failure));
-                }
-                _ => {}
-            }
-        }
-        Err(anyhow!("model stream ended without Response event"))
     }
 }
 
@@ -502,12 +484,25 @@ mod tests {
 
     #[tokio::test]
     async fn stream_error_propagates_as_anyhow() {
+        let failure = crate::model_standard::ModelFailure::new(
+            crate::model_standard::ModelFailureKind::Retryable {
+                retry_delay_ms: Some(17),
+            },
+            "provider exploded",
+        )
+        .with_completed_messages(vec![CanonicalMessage::text(
+            MessageRole::Assistant,
+            "completed before failure",
+        )]);
         let adapter = Arc::new(ScriptedAdapter::new(vec![ModelStreamEvent::Error {
-            failure: crate::model_standard::ModelFailure::other("provider exploded"),
+            failure: failure.clone(),
         }]));
         let service = ModelService::new(adapter);
         let err = service.complete(sample_request()).await.unwrap_err();
-        assert!(err.to_string().contains("provider exploded"), "{err}");
+        assert_eq!(
+            crate::model_standard::ModelFailure::from_error(&err),
+            failure
+        );
     }
 
     #[tokio::test]

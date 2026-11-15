@@ -13,7 +13,9 @@ use crate::{
     },
     core::{JournalEntry, SessionExecutionRecorder, SessionStore, TurnOpened},
     domain::{AgentTask, EventEnvelope, new_session_id, new_thread_id, new_turn_id},
-    model_standard::{CanonicalMessage, ContentPart, FinishReason, MessageRole},
+    model_standard::{
+        CanonicalMessage, CanonicalModelResponse, ContentPart, FinishReason, MessageRole,
+    },
 };
 
 #[path = "bound_model_tests/deadline.rs"]
