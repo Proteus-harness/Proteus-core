@@ -1351,6 +1351,20 @@ bounds. Поставляемый `codex.config.toml` использует
 `codex-explore` и `codex-coder`; их tool surfaces и policy
 находятся в отдельных child profiles.
 
+Профиль `codex-go` включает актуальный `codex.config.toml` и каталог
+`fragments/opencode-go.toml`: workflow, upstream-инструкции, context, tools и
+policy принадлежат Codex-сборке, запросы моделей идут через OpenCode Go.
+По умолчанию выбрана `gpt-5.6-luna`; остальные записи Go доступны в выборе
+модели. Роли используют `codex-go-explore` и `codex-go-coder`, поэтому их
+запросы также идут через Go. Это process peers с собственными child profiles.
+Для общего набора Go `apply_patch` представлен как function tool с той же
+грамматикой patch в строковом аргументе, а не как свободный custom tool.
+Ключ читается из `$HOME/.config/Proteus-agent/secrets/opencode-go.json`, поле
+`api_key`; файл хранится вне репозитория. Model worker передаёт собственный
+User-Agent и `x-opencode-session` из identity текущего разговора.
+Каталог в fragment — явный снимок моделей, его обновление требует обновить
+профиль; наличие записи не подтверждает доступность модели для аккаунта.
+
 In-process mini-agent, loop-oriented slot и его inline role schema удалены без
 legacy alias, fallback или dual-read. `agent_control` — отдельная top-level
 секция: `modules.subagent` и `module_config.subagent.*` являются неизвестной

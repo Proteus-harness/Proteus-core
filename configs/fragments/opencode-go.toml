@@ -1,0 +1,235 @@
+# Каталог OpenCode Go: обновлён 2026-11-15.
+# Источник: https://opencode.ai/inference/go/v1/models
+
+# Beam Free
+[providers.go_beam_free]
+provider = "opencode_go"
+model = "beam-free"
+stream = true
+reasoning_efforts = ["low", "medium", "high", "xhigh", "max"]
+
+# Claude Haiku 5.5
+[providers.go_claude_haiku_5_5]
+provider = "opencode_go"
+model = "claude-haiku-5-5"
+stream = true
+reasoning_efforts = ["low", "medium", "high", "xhigh", "max"]
+
+# DeepSeek V4 Pro
+[providers.go_deepseek_v4_pro]
+provider = "opencode_go"
+model = "deepseek-v4-pro"
+stream = true
+reasoning_efforts = ["high", "max"]
+
+# DeepSeek V4.1 Flash 1017
+[providers.go_deepseek_v4_1_flash]
+provider = "opencode_go"
+model = "deepseek-v4.1-flash"
+stream = true
+reasoning_efforts = ["low", "high", "max"]
+
+# Gemini 4 Argon
+[providers.go_gemini_4_argon]
+provider = "opencode_go"
+model = "gemini-4-argon"
+stream = true
+reasoning_efforts = ["low", "medium", "high"]
+
+# GLM-5.2
+[providers.go_glm_5_2]
+provider = "opencode_go"
+model = "glm-5.2"
+stream = true
+reasoning_efforts = ["high", "max"]
+
+# GLM-5.3
+[providers.go_glm_5_3]
+provider = "opencode_go"
+model = "glm-5.3"
+stream = true
+reasoning_efforts = ["low", "high", "max"]
+
+# GLM-5.3-Flash
+[providers.go_glm_5_3_flash]
+provider = "opencode_go"
+model = "glm-5.3-flash"
+stream = true
+reasoning_efforts = ["low", "high", "max"]
+
+# GPT-5.6 Luna
+[providers.go_gpt_5_6_luna]
+provider = "opencode_go"
+model = "gpt-5.6-luna"
+stream = true
+reasoning_efforts = ["none", "low", "medium", "high", "xhigh", "max"]
+
+# GPT-6 Luna
+[providers.go_gpt_6_luna]
+provider = "opencode_go"
+model = "gpt-6-luna"
+stream = true
+reasoning_efforts = ["none", "low", "medium", "high", "xhigh", "max"]
+
+# Grok 4.7
+[providers.go_grok_4_7]
+provider = "opencode_go"
+model = "grok-4.7"
+stream = true
+reasoning_efforts = ["low", "medium", "high", "xhigh"]
+
+# Hy3
+[providers.go_hy3]
+provider = "opencode_go"
+model = "hy3"
+stream = true
+reasoning_efforts = ["none", "low", "high"]
+
+# Hy4
+[providers.go_hy4]
+provider = "opencode_go"
+model = "hy4"
+stream = true
+reasoning_efforts = ["none", "high"]
+
+# Hy4 preview
+[providers.go_hy4_preview]
+provider = "opencode_go"
+model = "hy4-preview"
+stream = true
+reasoning_efforts = ["none", "high"]
+
+# Iceman Contributor Free
+[providers.go_iceman_contributor_free]
+provider = "opencode_go"
+model = "iceman-contributor-free"
+stream = true
+reasoning_efforts = []
+
+# Kimi K2.7 Code
+[providers.go_kimi_k2_7_code]
+provider = "opencode_go"
+model = "kimi-k2.7-code"
+stream = true
+reasoning_efforts = []
+
+# Kimi K3
+[providers.go_kimi_k3]
+provider = "opencode_go"
+model = "kimi-k3"
+stream = true
+reasoning_efforts = ["max"]
+
+# Kimi K3.1 Pro
+[providers.go_kimi_k3_1_pro]
+provider = "opencode_go"
+model = "kimi-k3.1-pro"
+stream = true
+reasoning_efforts = ["low", "high", "max"]
+
+# LongCat-2.0
+[providers.go_longcat_2_0]
+provider = "opencode_go"
+model = "longcat-2.0"
+stream = true
+reasoning_efforts = []
+
+# LongCat 2.5 Free
+[providers.go_longcat_2_5_free]
+provider = "opencode_go"
+model = "longcat-2.5-free"
+stream = true
+reasoning_efforts = []
+
+# MiMo-V2.6-Flash
+[providers.go_mimo_v2_6_flash]
+provider = "opencode_go"
+model = "mimo-v2.6-flash"
+stream = true
+reasoning_efforts = []
+
+# MiMo-V2.6-Pro
+[providers.go_mimo_v2_6_pro]
+provider = "opencode_go"
+model = "mimo-v2.6-pro"
+stream = true
+reasoning_efforts = []
+
+# MiniMax-M3
+[providers.go_minimax_m3]
+provider = "opencode_go"
+model = "minimax-m3"
+stream = true
+reasoning_efforts = []
+
+# MiniMax M3.1 Flash
+[providers.go_minimax_m3_1_flash]
+provider = "opencode_go"
+model = "minimax-m3.1-flash"
+stream = true
+reasoning_efforts = ["low", "medium", "high", "xhigh", "max"]
+
+# Muse Spark 1.2 Contributor
+[providers.go_muse_spark_1_2_contributor]
+provider = "opencode_go"
+model = "muse-spark-1.2-contributor"
+stream = true
+reasoning_efforts = ["minimal", "low", "medium", "high", "xhigh"]
+
+# Muse Spark 1.3 Contributor
+[providers.go_muse_spark_1_3_contributor]
+provider = "opencode_go"
+model = "muse-spark-1.3-contributor"
+stream = true
+reasoning_efforts = ["minimal", "low", "medium", "high", "xhigh"]
+
+# Qwen3.7 Plus
+[providers.go_qwen3_7_plus]
+provider = "opencode_go"
+model = "qwen3.7-plus"
+stream = true
+reasoning_efforts = []
+
+# Qwen3.8 Flash
+[providers.go_qwen3_8_flash]
+provider = "opencode_go"
+model = "qwen3.8-flash"
+stream = true
+reasoning_efforts = ["low", "medium", "xhigh"]
+
+# Qwen3.8 Max
+[providers.go_qwen3_8_max]
+provider = "opencode_go"
+model = "qwen3.8-max"
+stream = true
+reasoning_efforts = ["low", "medium", "xhigh"]
+
+# Step 5 Preview
+[providers.go_step_5_preview]
+provider = "opencode_go"
+model = "step-5-preview"
+stream = true
+reasoning_efforts = ["low", "medium", "high"]
+
+[components.reference-model]
+command = "proteus-model-pack-module"
+env_allowlist = ["HOME", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy"]
+
+[components.reference-model.exports.model.opencode_go]
+
+[module_config.model.opencode_go]
+implementation = "openai_compatible"
+base_url = "https://opencode.ai/inference/go/openai/v1"
+api_key_file = "$HOME/.config/Proteus-agent/secrets/opencode-go.json"
+api_key_json_key = "api_key"
+user_agent = "Proteus/0.1.0"
+session_header = "x-opencode-session"
+max_input_tokens = 180000
+prompt_cache = true
+
+[module_config.model.opencode_go.capabilities]
+supports_image_input = false
+supports_parallel_tool_calls = false
+supports_freeform_tools = false
+supports_json_schema = false
+supports_reasoning_config = true

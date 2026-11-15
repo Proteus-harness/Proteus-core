@@ -1,0 +1,22 @@
+# Codex workflow, upstream-инструкции и инструменты; провайдер — OpenCode Go.
+include = ["codex.config.toml", "fragments/opencode-go.toml"]
+active_provider = "go_gpt_5_6_luna"
+
+[profile]
+name = "codex-go"
+
+# Go переводит единый Responses API в нативные API моделей.
+# Общая поверхность набора использует apply_patch как function tool.
+[module_config.tool.codex_patch]
+freeform = false
+
+[providers.go_gpt_5_6_luna.reasoning]
+effort = "high"
+summary = true
+
+[agent_control]
+surface = "collaboration"
+roles = [
+  { name = "explore", description = "Read-only explorer using the Codex Go profile.", config = "codex-go-explore", parallel_safe = true, max_processes = 4, timeout_ms = 14400000, max_summary_bytes = 8192 },
+  { name = "coder", description = "Isolated coder using the Codex Go profile.", config = "codex-go-coder", isolation = "worktree", max_processes = 4, timeout_ms = 14400000, max_summary_bytes = 8192 },
+]

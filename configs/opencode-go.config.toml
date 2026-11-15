@@ -1,0 +1,14 @@
+# Отдельный профиль Go; все доступные модели выбираются в чате.
+include = ["fragments/codex-runtime.toml", "fragments/codex-profile.toml", "fragments/opencode-go.toml"]
+active_provider = "go_glm_5_3_flash"
+
+[profile]
+name = "opencode-go"
+
+[agent_control]
+surface = "none"
+roles = []
+
+[components.reference-model]
+command = "proteus-model-pack-module"
+env_allowlist = ["HOME", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy"]
