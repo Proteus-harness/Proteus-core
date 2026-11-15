@@ -5,7 +5,6 @@ import os
 from pathlib import Path
 import subprocess
 import sys
-from unittest.mock import patch
 import pytest
 
 sys.path.insert(0, "/app")
@@ -155,34 +154,20 @@ def test_snapshot_prefix_replay_after_interruption(tmp_path):
     assert Store.open(tmp_path).get("x") == [4]
 
 
+def run_io_probe(name, root):
+    result = subprocess.run(
+        [sys.executable, str(Path(__file__).with_name("io_probe.py")), name, str(root)],
+        cwd="/app", capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 def test_failed_snapshot_replace_preserves_all_previous_bytes(tmp_path):
-    store = Store.open(tmp_path)
-    store.put("x", [1], event_id="1")
-    store.compact()
-    store.put("x", [2], event_id="2")
-    (tmp_path / "foreign-file").write_text("preserved")
-    before = disk(tmp_path)
-    with patch("os.replace", side_effect=OSError("injected snapshot publication failure")):
-        with pytest.raises(OSError):
-            store.compact()
-    assert disk(tmp_path) == before
-    assert Store.open(tmp_path).get("x") == [2]
+    run_io_probe("replace", tmp_path)
 
 
 def test_append_and_snapshot_fsync(tmp_path):
-    store = Store.open(tmp_path)
-    real = os.fsync
-    kinds = []
-    import stat
-    def sync(fd):
-        kinds.append("directory" if stat.S_ISDIR(os.fstat(fd).st_mode) else "file")
-        return real(fd)
-    with patch("os.fsync", side_effect=sync):
-        store.put("x", 1, event_id="1")
-        assert "file" in kinds
-        kinds.clear()
-        store.compact()
-    assert kinds.count("file") >= 2 and "directory" in kinds
+    run_io_probe("fsync", tmp_path)
 
 
 @pytest.mark.parametrize("bad", [
