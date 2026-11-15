@@ -43,19 +43,21 @@ config file. Includes merge-ятся слева направо, затем те�
 Поставляемая подписочная сборка `codex` использует явные fragments:
 
 ```text
-configs/config.toml                 основной профиль на базе codex.config.toml
-configs/codex.config.toml           подписочная сборка
+configs/config.toml                 основная подписочная сборка с расширенными tools
+configs/codex.config.toml           строгая Codex-shaped подписочная сборка
 configs/restricted.config.toml      рабочая Linux-сборка с частичной изоляцией
 configs/fragments/codex-behavior.toml общий выбор modules/tools и peer routing
-configs/fragments/codex-components.toml доверенная process-композиция
+configs/fragments/codex-components.toml единая доверенная process-композиция root и peers
 configs/fragments/restricted-components.toml частично ограниченная композиция
 configs/fragments/openai-chatgpt.toml OAuth provider launch/capabilities
 configs/fragments/codex-runtime.toml behavior + trusted components
 configs/fragments/codex-profile.toml strict Codex policy/context overlay
-configs/fragments/codex-subscription.toml общие provider/policy/roles подписки
-configs/fragments/codex-peer-runtime.toml общий workflow/components/runtime peers
+configs/fragments/codex-subscription.toml только отличия ролей, context и порядка tools подписки
+configs/fragments/codex-peer-runtime.toml workflow/runtime peers с include общих components
 configs/fragments/codex-{explore,coder}-peer.toml prompt/tools/policy конкретного peer
 configs/codex-{explore,coder}.config.toml подписочные named child configs
+configs/fragments/opencode-go.toml подключение Go через Pi model export
+configs/catalogs/opencode-go.toml   описания моделей Go без выбора активной
 ```
 
 Fragment не является profile, module pack или неявным default: он не
@@ -66,6 +68,35 @@ merge-ится рекурсивно: например, profile может доб
 
 Root `codex` и основной `config.toml` используют подписочные child configs.
 Отдельные API/proxy-профили не поставляются.
+
+Базовые параметры OAuth model export задаются в `openai-chatgpt.toml`,
+а process-композиция root и peers — в `codex-components.toml`.
+`codex-subscription.toml` сохраняет только отличающиеся значения, включая
+полные массивы ролей и tools: их порядок и role descriptions входят в сборку.
+`codex-peer-runtime.toml` включает общий список components, а параметры
+конкретного peer задаются его собственным фрагментом.
+
+Основная и строгая сборки различаются намеренно. `config.toml` сохраняет
+расширенный набор из 19 tools и context providers с `repo_tree`.
+`codex.config.toml` дополнительно включает `codex-upstream.toml`: пять tools,
+hook `codex_base_instructions` и context providers
+`project_instructions`, `skills`, `environment`. Общие фрагменты не делают
+эти profiles взаимозаменяемыми. `codex-profile.toml` и общий runtime также
+используются `proteus init codex` с его явно выбранным API-подключением.
+
+Личное подключение Go разделяет три ответственности: сборка `codex` задаёт
+поведение и роли, `fragments/opencode-go.toml` — запуск model component,
+export и его настройки, `catalogs/opencode-go.toml` — доступные записи моделей.
+Каталог не выбирает `active_provider`, не содержит credentials и не выбирает
+workflow, context или policy. Личный overlay включает нужные файлы и сохраняет
+только выбранную модель/effort и путь к собственному каталогу credentials.
+Общий model overlay может подключаться и родителем, и дочерними profiles;
+при этом роль продолжает владеть своими tools, permissions и instructions.
+
+Пути `instructions.file` разрешаются относительно корневого файла profile,
+а не вложенного include. Если личный wrapper включает поставляемый child
+profile, его `prompts/` должен указывать на общую папку промптов поставки
+либо содержать рабочие копии этих файлов. Сам `include` базу путей не меняет.
 
 `~`, `$HOME` и `${HOME}` раскрываются в path fields.
 
@@ -129,7 +160,7 @@ OS-ограничения относятся к persistent process generation, �
 
 ## Личные Настройки В Checkout
 
-`configs/` — поставляемые profiles, fragments и prompts для installer и
+`configs/` — поставляемые profiles, fragments, catalogs и prompts для installer и
 проверок. Рабочие копии с личными настройками можно хранить в игнорируемом
 `.local/configs/`:
 
@@ -147,7 +178,7 @@ PROTEUS_CONFIG_HOME="$PWD/.local" proteus --config codex
 правки в изменения исходников.
 
 Installer сохраняет существующие named configs, но обновляет managed
-`fragments/` и `prompts/`. Личные overrides задаются в named config или его
+`fragments/`, `catalogs/` и `prompts/`. Личные overrides задаются в named config или его
 собственном include. Настройка сворачивания карточек tools хранится клиентом;
 устаревшая секция `[web]` не принимается agent config.
 

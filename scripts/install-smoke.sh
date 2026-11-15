@@ -65,6 +65,8 @@ test -f "${config_home}/configs/context-search-chatgpt.config.toml"
 test -f "${config_home}/configs/codex-explore.config.toml"
 test -f "${config_home}/configs/codex-coder.config.toml"
 test -f "${config_home}/configs/fragments/openai-chatgpt.toml"
+test -f "${config_home}/configs/fragments/opencode-go.toml"
+test -f "${config_home}/configs/catalogs/opencode-go.toml"
 for fragment in codex-runtime codex-behavior codex-components codex-subscription codex-upstream restricted-components; do
   test -f "${config_home}/configs/fragments/${fragment}.toml"
 done
