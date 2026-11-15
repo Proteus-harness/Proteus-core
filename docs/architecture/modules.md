@@ -295,6 +295,11 @@ contract для любых workflow implementations, а не восстанов�
 его используют `coding.codex_loop` и Python example. Без checkpoint внутренние
 model/tool facts по-прежнему не превращаются в conversation history автоматически.
 
+Общий `Model::complete` принимает terminal `Response` без реконструкции deltas
+и возвращает terminal `Error` как исходный typed `ModelFailure`, сохраняя причину,
+retry metadata и завершённые messages. Настоящий EOF без terminal остаётся
+отдельной ошибкой. Обёртки bound model и model service используют тот же fold.
+
 `host.model.stream.start/next` дают invocation-scoped cursor и ordered completed
 items до terminal. Core владеет IO, UI deltas и cancellation; workflow выбирает
 checkpoint и исполнение calls. `coding.codex_loop` исполняет завершённый call

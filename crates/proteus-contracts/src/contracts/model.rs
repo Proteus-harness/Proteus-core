@@ -46,13 +46,20 @@ pub trait Model: Send + Sync {
     /// emit that response; consumers do not reconstruct it from deltas.
     async fn stream(&self, request: CanonicalModelRequest) -> Result<ModelEventStream>;
 
+    /// Собирает terminal outcome из выбранного stream, не реконструируя deltas.
+    /// Canonical Error возвращается как исходный typed ModelFailure.
     async fn complete(&self, request: CanonicalModelRequest) -> Result<CanonicalModelResponse> {
         let mut stream = self.stream(request).await?;
         while let Some(event) = stream.next().await {
-            if let ModelStreamEvent::Response { response } = event? {
-                return Ok(response);
+            match event? {
+                ModelStreamEvent::Response { response } => return Ok(response),
+                ModelStreamEvent::Error { failure } => return Err(anyhow::Error::new(failure)),
+                _ => {}
             }
         }
         anyhow::bail!("model stream ended without a complete response")
     }
 }
+
+#[cfg(test)]
+mod tests;
