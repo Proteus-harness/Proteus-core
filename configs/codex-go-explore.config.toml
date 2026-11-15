@@ -1,5 +1,5 @@
 # Дочерняя роль Codex с тем же подключением Go.
-include = ["codex-explore.config.toml", "fragments/opencode-go.toml"]
+include = ["codex-explore.config.toml", "fragments/codex-go-models.toml"]
 active_provider = "go_gpt_5_6_luna"
 
 [profile]

@@ -1,5 +1,5 @@
 # Дочерняя роль Codex с тем же подключением Go.
-include = ["codex-coder.config.toml", "fragments/opencode-go.toml"]
+include = ["codex-coder.config.toml", "fragments/codex-go-models.toml"]
 active_provider = "go_gpt_5_6_luna"
 
 [profile]
@@ -8,3 +8,6 @@ name = "codex-go-coder"
 [providers.go_gpt_5_6_luna.reasoning]
 effort = "high"
 summary = true
+
+[module_config.tool.codex_patch]
+freeform = false

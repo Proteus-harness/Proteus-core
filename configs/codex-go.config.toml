@@ -1,11 +1,11 @@
 # Codex workflow, upstream-инструкции и инструменты; провайдер — OpenCode Go.
-include = ["codex.config.toml", "fragments/opencode-go.toml"]
+include = ["codex.config.toml", "fragments/codex-go-models.toml"]
 active_provider = "go_gpt_5_6_luna"
 
 [profile]
 name = "codex-go"
 
-# Go переводит единый Responses API в нативные API моделей.
+# Адаптер выбирает нативный API и параметры каждой модели Go.
 # Общая поверхность набора использует apply_patch как function tool.
 [module_config.tool.codex_patch]
 freeform = false
