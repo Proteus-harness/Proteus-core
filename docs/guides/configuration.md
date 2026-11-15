@@ -56,8 +56,7 @@ configs/fragments/codex-subscription.toml только отличия ролей
 configs/fragments/codex-peer-runtime.toml workflow/runtime peers с include общих components
 configs/fragments/codex-{explore,coder}-peer.toml prompt/tools/policy конкретного peer
 configs/codex-{explore,coder}.config.toml подписочные named child configs
-configs/fragments/opencode-go.toml подключение Go через Pi model export
-configs/catalogs/opencode-go.toml   описания моделей Go без выбора активной
+configs/fragments/opencode-go.toml нативное подключение Go и автоматический каталог OpenCode
 ```
 
 Fragment не является profile, module pack или неявным default: он не
@@ -84,12 +83,34 @@ hook `codex_base_instructions` и context providers
 эти profiles взаимозаменяемыми. `codex-profile.toml` и общий runtime также
 используются `proteus init codex` с его явно выбранным API-подключением.
 
-Личное подключение Go разделяет три ответственности: сборка `codex` задаёт
-поведение и роли, `fragments/opencode-go.toml` — запуск model component,
-export и его настройки, `catalogs/opencode-go.toml` — доступные записи моделей.
-Каталог не выбирает `active_provider`, не содержит credentials и не выбирает
-workflow, context или policy. Личный overlay включает нужные файлы и сохраняет
-только выбранную модель/effort и путь к собственному каталогу credentials.
+Личное подключение Go разделяет ответственности: сборка `codex` задаёт
+поведение и роли, `fragments/opencode-go.toml` — запуск нативного OpenCode
+model component, export и его настройки. Каталог моделей и точные варианты
+effort предоставляет SDK OpenCode через `model.catalog.v1`; статический TOML
+с записью каждой модели не нужен. Каталог обновляется по запросу с кешем на
+пять минут и не выбирает workflow, context или policy. Личный overlay:
+
+```toml
+include = ["/путь/к/Proteus/share/configs/fragments/opencode-go.toml"]
+active_provider = "opencode-go"
+
+[providers.opencode-go]
+model = "deepseek-v4.1-flash"
+[providers.opencode-go.reasoning]
+effort = "high"
+```
+
+В Modules установите Node runtime командой
+`python3 workflow/opencode-runtime/install.py --prefix /путь/к/Proteus`.
+Авторизация читается без изменений из штатной базы OpenCode 2
+`$XDG_DATA_HOME/opencode/opencode.db` (по умолчанию
+`~/.local/share/opencode/opencode.db`). Нужен сохранённый API key; OAuth refresh
+этот отдельный model export не выполняет. При отсутствии сохранённого ключа
+доступны переменные окружения, объявленные каталогом провайдера и разрешённые
+`env_allowlist` компонента. Базу авторизации не включайте в публикуемый config.
+Пути `database_path`, `models_file` и `models_url` при необходимости задаются
+в `[module_config.model.opencode]`. Запуск полного агента OpenCode не требуется.
+
 Общий model overlay может подключаться и родителем, и дочерними profiles;
 при этом роль продолжает владеть своими tools, permissions и instructions.
 
@@ -160,7 +181,7 @@ OS-ограничения относятся к persistent process generation, �
 
 ## Личные Настройки В Checkout
 
-`configs/` — поставляемые profiles, fragments, catalogs и prompts для installer и
+`configs/` — поставляемые profiles, fragments и prompts для installer и
 проверок. Рабочие копии с личными настройками можно хранить в игнорируемом
 `.local/configs/`:
 
@@ -178,7 +199,7 @@ PROTEUS_CONFIG_HOME="$PWD/.local" proteus --config codex
 правки в изменения исходников.
 
 Installer сохраняет существующие named configs, но обновляет managed
-`fragments/`, `catalogs/` и `prompts/`. Личные overrides задаются в named config или его
+`fragments/` и `prompts/`. Личные overrides задаются в named config или его
 собственном include. Настройка сворачивания карточек tools хранится клиентом;
 устаревшая секция `[web]` не принимается agent config.
 

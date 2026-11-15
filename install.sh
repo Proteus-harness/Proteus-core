@@ -124,11 +124,10 @@ install_config "opencode.config.toml" "configs/opencode.config.toml"
 install_config "pi.config.toml" "configs/pi.config.toml"
 install_config "proteus.provider.example.toml" "configs/proteus.provider.example.toml"
 
-# Managed fragments, catalogs и prompt-файлы обновляются при каждой установке: это код
+# Managed fragments и prompt-файлы обновляются при каждой установке: это код
 # профиля, а не пользовательские правки (в отличие от named configs, которые
 # не перезаписываются).
 mkdir -p "${configs_dir}/fragments"
-mkdir -p "${configs_dir}/catalogs"
 mkdir -p "${configs_dir}/prompts"
 install_managed_config_asset() {
   relative_path="$1"
@@ -143,7 +142,6 @@ install_managed_config_asset() {
 }
 install_managed_config_asset "fragments/openai-chatgpt.toml"
 install_managed_config_asset "fragments/opencode-go.toml"
-install_managed_config_asset "catalogs/opencode-go.toml"
 install_managed_config_asset "fragments/codex-runtime.toml"
 install_managed_config_asset "fragments/codex-behavior.toml"
 install_managed_config_asset "fragments/codex-components.toml"
