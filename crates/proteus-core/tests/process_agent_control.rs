@@ -11,6 +11,10 @@ mod agent_context;
 #[path = "process_agent_control/output_limits.rs"]
 mod output_limits;
 
+#[cfg(unix)]
+#[path = "process_agent_control/origin.rs"]
+mod origin;
+
 #[path = "process_agent_control/depth.rs"]
 mod depth;
 
@@ -469,15 +473,16 @@ async fn process_agent_startup_crash_does_not_fail_a_live_sibling() {
 #[tokio::test]
 async fn cancellation_never_pools_peer_with_an_unsettled_message_started_turn() {
     use std::os::unix::fs::PermissionsExt as _;
-    let fixture = tempfile::tempdir().unwrap();
-    let workspace = tempfile::tempdir().unwrap();
-    let marker = fixture.path().join("first");
-    let started = fixture.path().join("second");
-    let pid_file = fixture.path().join("pid");
-    let binary = fixture.path().join("race.py");
-    let startup = include_str!("fixtures/agent_session_start.py");
-    let script = format!(
-        r#"#!/usr/bin/env python3
+    for cancel in [false, true] {
+        let fixture = tempfile::tempdir().unwrap();
+        let workspace = tempfile::tempdir().unwrap();
+        let marker = fixture.path().join("first");
+        let started = fixture.path().join("second");
+        let pid_file = fixture.path().join("pid");
+        let binary = fixture.path().join("race.py");
+        let startup = include_str!("fixtures/agent_session_start.py");
+        let script = format!(
+            r#"#!/usr/bin/env python3
 import json, pathlib, sys, os
 {startup}
 pathlib.Path({pid_file:?}).write_text(str(os.getpid()))
@@ -495,57 +500,67 @@ for line in sys.stdin:
         print(json.dumps({{"type":"response","id":first,"ok":True,
             "output":{{"text":"old A","metadata":None}},"error":None}}), flush=True)
 "#,
-        pid_file = pid_file.to_str().unwrap(),
-        marker = marker.to_str().unwrap(),
-        started = started.to_str().unwrap()
-    );
-    std::fs::write(&binary, script).unwrap();
-    std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755)).unwrap();
-    let runner = runner_from_json(json!({
-        "binary":binary,"max_parallel":1,"max_idle_processes":1,
-        "roles":[{"name":"helper","description":"race","config":"fixture",
-            "parallel_safe":true,"max_processes":1,"timeout_ms":10000}]
-    }));
-    let handle = runner
-        .spawn(
-            collaboration_request(
-                "helper",
-                "race",
-                "initial",
-                AgentTask::new("delegate", workspace.path().into()),
-            ),
-            test_runtime_context(),
-        )
-        .await
-        .unwrap();
-    async fn wait(path: &std::path::Path) {
-        tokio::time::timeout(std::time::Duration::from_secs(3), async {
-            while !path.exists() {
-                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            pid_file = pid_file.to_str().unwrap(),
+            marker = marker.to_str().unwrap(),
+            started = started.to_str().unwrap()
+        );
+        std::fs::write(&binary, script).unwrap();
+        std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let runner = runner_from_json(json!({
+            "binary":binary,"max_parallel":1,"max_idle_processes":1,
+            "roles":[{"name":"helper","description":"race","config":"fixture",
+                "parallel_safe":true,"max_processes":1,"timeout_ms":if cancel {10000} else {600}}]
+        }));
+        let handle = runner
+            .spawn(
+                collaboration_request(
+                    "helper",
+                    "race",
+                    "initial",
+                    AgentTask::new("delegate", workspace.path().into()),
+                ),
+                test_runtime_context(),
+            )
+            .await
+            .unwrap();
+        async fn wait(path: &std::path::Path) {
+            tokio::time::timeout(std::time::Duration::from_secs(3), async {
+                while !path.exists() {
+                    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                }
+            })
+            .await
+            .unwrap();
+        }
+        wait(&marker).await;
+        runner
+            .send(&handle, agent_message("race", "B"))
+            .await
+            .unwrap();
+        wait(&started).await;
+        if cancel {
+            runner.cancel(&handle).await.unwrap();
+        }
+        let result = tokio::time::timeout(std::time::Duration::from_secs(3), runner.wait(&handle))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            result.status,
+            if cancel {
+                AgentLifecycleStatus::Cancelled
+            } else {
+                AgentLifecycleStatus::TimedOut
             }
-        })
-        .await
-        .unwrap();
+        );
+        assert_eq!(result.metadata["resumable"], false);
+        let pid: i32 = std::fs::read_to_string(pid_file).unwrap().parse().unwrap();
+        assert_eq!(
+            unsafe { libc::kill(pid, 0) },
+            -1,
+            "ambiguous peer must be reaped"
+        );
     }
-    wait(&marker).await;
-    runner
-        .send(&handle, agent_message("race", "B"))
-        .await
-        .unwrap();
-    wait(&started).await;
-    runner.cancel(&handle).await.unwrap();
-    let result = tokio::time::timeout(std::time::Duration::from_secs(3), runner.wait(&handle))
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(result.status, AgentLifecycleStatus::Cancelled);
-    assert_eq!(result.metadata["resumable"], false);
-    let pid: i32 = std::fs::read_to_string(pid_file).unwrap().parse().unwrap();
-    assert_eq!(
-        unsafe { libc::kill(pid, 0) },
-        -1,
-        "ambiguous peer must be reaped"
-    );
 }
 
 #[cfg(unix)]

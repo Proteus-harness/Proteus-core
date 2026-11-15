@@ -284,14 +284,6 @@ impl CollaborationControl {
         Ok(records.into_iter().map(|(_, view)| view).collect())
     }
 
-    pub(super) fn has_completions(&self, session_id: SessionId) -> Result<bool> {
-        let state = self.lock()?;
-        Ok(state
-            .sessions
-            .get(&session_id)
-            .is_some_and(|session| !session.completions.is_empty()))
-    }
-
     pub(super) fn drain_completions(
         &self,
         session_id: SessionId,

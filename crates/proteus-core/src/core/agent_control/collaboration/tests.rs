@@ -6,6 +6,7 @@ use serde_json::{Value, json};
 use super::control::{FollowupRequest, MAX_OUTSTANDING_COMPLETIONS};
 use super::spec::{followup_spec, send_message_spec};
 use super::*;
+mod wait;
 use crate::{
     contracts::{
         AgentControlHandle, AgentControlMessage, AgentControlRequest, AgentControlResult,

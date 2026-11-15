@@ -1,7 +1,7 @@
 //! One stdio turn on a leased process child: event forwarding, interactive
 //! request bridging, usage tracking and cancel/timeout protocol.
 
-use std::{sync::Mutex, time::Duration};
+use std::time::Duration;
 
 use anyhow::{Context as _, Result, bail};
 use proteus_contracts::app_protocol::{AppServerEvent, StdioOutput, StdioRequest};
@@ -17,7 +17,7 @@ use crate::{
         AgentLifecycleStatus, AgentWorkflowContext, ApprovalRequest, ExecutionAttribution,
         RequestOrigin, UserInputResponse,
     },
-    domain::{AgentOutput, Event, EventContext, ThreadId},
+    domain::{AgentOutput, Event, EventContext, EventEnvelope, ThreadId},
 };
 
 /// Терминальный исход turn-а ребёнка (fatal-ошибки идут через `Err`).
@@ -33,7 +33,9 @@ pub(super) struct TurnTracker {
     /// источник partial summary при cancel/timeout.
     last_text: Option<String>,
     stream_buffer: String,
-    cancel_sent: bool,
+    // A cancel target is published only after its complete Send frame.
+    pub(super) active_send_id: Option<String>,
+    message_delivery: PeerMessageDelivery,
     /// Messages confirmed by the peer app-server during this logical
     /// generation. The initial task prompt is not counted.
     pub(super) delivered_messages: u64,
@@ -72,8 +74,8 @@ impl TurnTracker {
     }
 }
 
-/// Пере-эмиссия событий ребёнка в родительский event stream под
-/// `child_thread_id` и форвардинг интерактивных запросов.
+/// Project the peer's physical root into its logical child alias. Descendant
+/// threads and source turn/execution identity survive every forwarding hop.
 pub(super) struct ChildEventForwarder<'a> {
     pub(super) ctx: &'a AgentWorkflowContext,
     pub(super) child_thread_id: ThreadId,
@@ -113,32 +115,43 @@ impl ChildEventForwarder<'_> {
         Ok(())
     }
 
-    fn event_context(&self) -> EventContext {
-        EventContext::new(
-            self.ctx.session_id,
-            self.child_thread_id,
-            Some(self.ctx.turn_id),
-        )
+    fn origin(&self, child: &ChildProcess, source: Option<RequestOrigin>) -> RequestOrigin {
+        match source {
+            Some(mut origin) => {
+                if let Some(thread) = origin.thread_id {
+                    let projected = child.project_thread(thread, self.child_thread_id);
+                    if projected != thread {
+                        origin.label = Some(self.role.clone());
+                    }
+                    origin.thread_id = Some(projected);
+                }
+                origin
+            }
+            // The contract permits transports outside runtime attribution.
+            None => RequestOrigin::for_turn(
+                self.ctx.execution.scope.execution_id,
+                self.child_thread_id,
+                self.ctx.turn_id,
+            )
+            .with_label(self.role.clone()),
+        }
     }
 
-    fn origin(&self) -> RequestOrigin {
-        RequestOrigin::for_turn(
-            self.ctx.execution.scope.execution_id,
-            self.child_thread_id,
-            self.ctx.turn_id,
-        )
-        .with_label(self.role.clone())
-    }
-
-    async fn forward_runtime_event(&self, event: Event) {
-        if !should_forward_child_event(&event) {
+    async fn forward_runtime_event(&self, child: &ChildProcess, envelope: EventEnvelope) {
+        if !should_forward_child_event(&envelope.event) {
             return;
         }
-        let _ = self.ctx.events.emit(self.event_context(), event).await;
+        let context = EventContext::new(
+            self.ctx.session_id,
+            child.project_thread(envelope.thread_id, self.child_thread_id),
+            envelope.turn_id,
+        );
+        let _ = self.ctx.events.emit(context, envelope.event).await;
     }
 
     async fn forward_approval(
         &self,
+        child: &ChildProcess,
         request: proteus_contracts::app_protocol::AppApprovalRequest,
     ) -> Option<StdioRequest> {
         let approval_id = request.approval_id.clone();
@@ -148,7 +161,7 @@ impl ChildEventForwarder<'_> {
             request.reason.clone(),
             request.tool_spec.clone(),
         )
-        .with_origin(self.origin());
+        .with_origin(self.origin(child, request.origin));
         let response = tokio::select! {
             response = self.ctx.execution.approval.request_approval(forwarded) => response,
             _ = self.ctx.execution.scope.cancellation.cancelled() => return None,
@@ -172,10 +185,12 @@ impl ChildEventForwarder<'_> {
 
     async fn forward_user_input(
         &self,
+        child: &ChildProcess,
         request: crate::contracts::UserInputRequest,
     ) -> Option<StdioRequest> {
         let request_id = request.request_id.clone();
-        let forwarded = request.with_origin(self.origin());
+        let mut forwarded = request;
+        forwarded.origin = Some(self.origin(child, forwarded.origin.take()));
         let response = tokio::select! {
             response = self.ctx.user_input.request_user_input(forwarded) => response,
             _ = self.ctx.execution.scope.cancellation.cancelled() => return None,
@@ -209,54 +224,40 @@ pub(super) async fn drive_turn(
     forwarder: &ChildEventForwarder<'_>,
     send_id: &str,
     tracker: &mut TurnTracker,
-    cancel_grace: Duration,
     mailbox: &ChildMailbox,
-    published_active_send_id: &Mutex<String>,
 ) -> Result<TurnEnd> {
     let mut active_send_id = send_id.to_owned();
     let mut active_started_by_message = false;
     let mut active_terminal_seen = false;
-    let mut message_delivery = PeerMessageDelivery::default();
     let mut pending_terminal = None;
     let mut pending_from_message_turn = false;
 
     loop {
-        if forwarder.ctx.execution.scope.cancellation.is_cancelled() && !tracker.cancel_sent {
-            return finish_cancelled(
-                child,
-                forwarder,
-                &active_send_id,
-                tracker,
-                cancel_grace,
-                message_delivery.is_settled(),
-            )
-            .await;
+        if forwarder.ctx.execution.scope.cancellation.is_cancelled() {
+            return Ok(TurnEnd::Interrupted(AgentLifecycleStatus::Cancelled));
         }
 
         let delivery_guard = mailbox.lock_delivery().await;
-        if forwarder.ctx.execution.scope.cancellation.is_cancelled() && !tracker.cancel_sent {
+        if forwarder.ctx.execution.scope.cancellation.is_cancelled() {
             drop(delivery_guard);
-            return finish_cancelled(
-                child,
-                forwarder,
-                &active_send_id,
-                tracker,
-                cancel_grace,
-                message_delivery.is_settled(),
-            )
-            .await;
+            return Ok(TurnEnd::Interrupted(AgentLifecycleStatus::Cancelled));
         }
-        if active_terminal_seen && message_delivery.is_settled() && pending_terminal.is_some() {
+        if active_terminal_seen
+            && tracker.message_delivery.is_settled()
+            && pending_terminal.is_some()
+        {
             let messages = mailbox.drain_or_close()?;
             if messages.is_empty() {
                 return Ok(pending_terminal
                     .take()
                     .expect("terminal checked before mailbox close"));
             }
-            active_send_id = message_delivery.start_continuation(child, messages).await?;
-            *published_active_send_id
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner()) = active_send_id.clone();
+            tracker.active_send_id = None;
+            active_send_id = tracker
+                .message_delivery
+                .start_continuation(child, messages)
+                .await?;
+            tracker.active_send_id = Some(active_send_id.clone());
             active_started_by_message = true;
             active_terminal_seen = false;
             pending_terminal = None;
@@ -264,7 +265,7 @@ pub(super) async fn drive_turn(
         } else {
             let messages = mailbox.drain()?;
             if !messages.is_empty() {
-                message_delivery.queue(child, messages).await?;
+                tracker.message_delivery.queue(child, messages).await?;
             }
         }
         drop(delivery_guard);
@@ -272,15 +273,7 @@ pub(super) async fn drive_turn(
         let output = tokio::select! {
             output = child.next_output() => output,
             _ = forwarder.ctx.execution.scope.cancellation.cancelled() => {
-                return finish_cancelled(
-                    child,
-                    forwarder,
-                    &active_send_id,
-                    tracker,
-                    cancel_grace,
-                    message_delivery.is_settled(),
-                )
-                .await;
+                return Ok(TurnEnd::Interrupted(AgentLifecycleStatus::Cancelled));
             }
             _ = mailbox.notified() => continue,
         };
@@ -288,16 +281,7 @@ pub(super) async fn drive_turn(
             bail!("subagent child process exited unexpectedly");
         };
 
-        match handle_output(
-            child,
-            forwarder,
-            &active_send_id,
-            tracker,
-            &mut message_delivery,
-            output,
-        )
-        .await?
-        {
+        match handle_output(child, forwarder, &active_send_id, tracker, output).await? {
             OutputVerdict::Continue => {}
             OutputVerdict::Finished(TurnEnd::Completed(text)) => {
                 active_terminal_seen = true;
@@ -315,58 +299,43 @@ pub(super) async fn drive_turn(
             }
             OutputVerdict::Finished(end) => return Ok(end),
             OutputVerdict::CancelRequested => {
-                return finish_cancelled(
-                    child,
-                    forwarder,
-                    &active_send_id,
-                    tracker,
-                    cancel_grace,
-                    message_delivery.is_settled(),
-                )
-                .await;
+                return Ok(TurnEnd::Interrupted(AgentLifecycleStatus::Cancelled));
             }
         }
     }
 }
 
-async fn finish_cancelled(
+/// One owner for user cancellation and role timeout. Only a complete Send with
+/// no ambiguous message receipts can be canceled by id and safely pooled again.
+pub(super) async fn finish_interrupted(
     child: &mut ChildProcess,
     forwarder: &ChildEventForwarder<'_>,
-    send_id: &str,
-    tracker: &mut TurnTracker,
-    cancel_grace: Duration,
-    messages_settled: bool,
-) -> Result<TurnEnd> {
-    // A pending Send may have started a new turn after the original terminal
-    // response. Targeted cancellation of the old request cannot prove idle.
-    if !messages_settled {
-        child.kill().await;
-        return Ok(TurnEnd::Interrupted(AgentLifecycleStatus::Cancelled));
-    }
-    finish_interrupted_with(
-        child,
-        forwarder,
-        send_id,
-        tracker,
-        cancel_grace,
-        AgentLifecycleStatus::Cancelled,
-    )
-    .await
-}
-
-async fn finish_interrupted_with(
-    child: &mut ChildProcess,
-    forwarder: &ChildEventForwarder<'_>,
-    send_id: &str,
     tracker: &mut TurnTracker,
     cancel_grace: Duration,
     status: AgentLifecycleStatus,
-) -> Result<TurnEnd> {
-    let clean = cancel_child_turn(child, forwarder, send_id, tracker, cancel_grace).await;
+) -> TurnEnd {
+    let clean = if child.has_complete_write() && tracker.message_delivery.is_settled() {
+        if let Some(send_id) = tracker.active_send_id.clone() {
+            let deadline = Instant::now() + cancel_grace;
+            child.set_write_budget(Some(deadline), None);
+            // The whole settlement is bounded, including event forwarding and
+            // the Cancel write, not only reads from the peer's stdout.
+            timeout_at(
+                deadline,
+                cancel_child_turn(child, forwarder, &send_id, tracker),
+            )
+            .await
+            .unwrap_or(false)
+        } else {
+            false
+        }
+    } else {
+        false
+    };
     if !clean {
         child.kill().await;
     }
-    Ok(TurnEnd::Interrupted(status))
+    TurnEnd::Interrupted(status)
 }
 
 enum OutputVerdict {
@@ -381,7 +350,6 @@ async fn handle_output(
     forwarder: &ChildEventForwarder<'_>,
     send_id: &str,
     tracker: &mut TurnTracker,
-    message_delivery: &mut PeerMessageDelivery,
     output: StdioOutput,
 ) -> Result<OutputVerdict> {
     match output {
@@ -391,7 +359,7 @@ async fn handle_output(
                     forwarder.bind_session(child, tracker).await?;
                 }
                 tracker.observe(&envelope.event);
-                forwarder.forward_runtime_event(envelope.event).await;
+                forwarder.forward_runtime_event(child, *envelope).await;
                 Ok(OutputVerdict::Continue)
             }
             AppServerEvent::SessionSnapshot { snapshot } => {
@@ -405,7 +373,7 @@ async fn handle_output(
                 let reply = tokio::select! {
                     biased;
                     error = health.stopped() => return Err(error),
-                    reply = forwarder.forward_approval(*request) => reply,
+                    reply = forwarder.forward_approval(child, *request) => reply,
                 };
                 match reply {
                     Some(reply) => {
@@ -420,7 +388,7 @@ async fn handle_output(
                 let reply = tokio::select! {
                     biased;
                     error = health.stopped() => return Err(error),
-                    reply = forwarder.forward_user_input(*request) => reply,
+                    reply = forwarder.forward_user_input(child, *request) => reply,
                 };
                 match reply {
                     Some(reply) => {
@@ -440,7 +408,9 @@ async fn handle_output(
             error,
         } => {
             if let Some(response) =
-                message_delivery.confirm(&id, ok, output.as_ref(), error.as_deref())?
+                tracker
+                    .message_delivery
+                    .confirm(&id, ok, output.as_ref(), error.as_deref())?
             {
                 return Ok(match response {
                     PeerMessageResponse::Queued => {
@@ -463,11 +433,6 @@ async fn handle_output(
                 forwarder.bind_session(child, tracker).await?;
                 return Ok(OutputVerdict::Finished(TurnEnd::Completed(text)));
             }
-            if tracker.cancel_sent {
-                return Ok(OutputVerdict::Finished(TurnEnd::Interrupted(
-                    AgentLifecycleStatus::Cancelled,
-                )));
-            }
             bail!(
                 "subagent child turn failed: {}",
                 error.unwrap_or_else(|| "unknown error".to_owned())
@@ -477,37 +442,33 @@ async fn handle_output(
     }
 }
 
-pub(super) async fn cancel_child_turn(
+async fn cancel_child_turn(
     child: &mut ChildProcess,
     forwarder: &ChildEventForwarder<'_>,
     send_id: &str,
     tracker: &mut TurnTracker,
-    cancel_grace: Duration,
 ) -> bool {
-    let deadline = Instant::now() + cancel_grace;
-    child.set_write_budget(Some(deadline), None);
-    if !tracker.cancel_sent {
-        tracker.cancel_sent = true;
-        let cancel = StdioRequest::Cancel {
+    if child
+        .send(&StdioRequest::Cancel {
             id: None,
             target_id: send_id.to_owned(),
-        };
-        if child.send(&cancel).await.is_err() {
-            return false;
-        }
+        })
+        .await
+        .is_err()
+    {
+        return false;
     }
-
     loop {
-        let output = match timeout_at(deadline, child.next_output()).await {
-            Ok(Ok(Some(output))) => output,
-            Ok(Ok(None) | Err(_)) | Err(_) => return false,
+        let output = match child.next_output().await {
+            Ok(Some(output)) => output,
+            Ok(None) | Err(_) => return false,
         };
         match output {
             StdioOutput::Response { id, .. } if id.as_deref() == Some(send_id) => return true,
             StdioOutput::Event { event } => {
                 if let AppServerEvent::Runtime { envelope } = *event {
                     tracker.observe(&envelope.event);
-                    forwarder.forward_runtime_event(envelope.event).await;
+                    forwarder.forward_runtime_event(child, *envelope).await;
                 }
             }
             _ => {}

@@ -274,10 +274,9 @@ impl Tool for WaitAgentTool {
             ));
         }
         let notify = self.control.session_notify(session_id)?;
-        let completed = if self.control.has_completions(session_id)? {
-            self.control.drain_completions(session_id)?
-        } else if timeout_ms == 0 {
-            Vec::new()
+        let completed = self.control.drain_completions(session_id)?;
+        let completed = if !completed.is_empty() || timeout_ms == 0 {
+            completed
         } else {
             let control = self.control.clone();
             tokio::time::timeout(Duration::from_millis(timeout_ms), async move {
@@ -285,8 +284,9 @@ impl Tool for WaitAgentTool {
                     let notified = notify.notified();
                     tokio::pin!(notified);
                     notified.as_mut().enable();
-                    if control.has_completions(session_id)? {
-                        return control.drain_completions(session_id);
+                    let completed = control.drain_completions(session_id)?;
+                    if !completed.is_empty() {
+                        return Ok::<_, anyhow::Error>(completed);
                     }
                     notified.as_mut().await;
                     // Another concurrent waiter can drain the queue after the

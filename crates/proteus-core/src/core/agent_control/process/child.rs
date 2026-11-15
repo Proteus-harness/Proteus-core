@@ -18,7 +18,7 @@ use tokio::{
 };
 
 use super::output::{ChildOutputs, OutputHealth};
-use crate::contracts::CancellationToken;
+use crate::{contracts::CancellationToken, domain::ThreadId};
 use tokio::time::Instant;
 
 pub(super) struct ChildProcess {
@@ -27,7 +27,10 @@ pub(super) struct ChildProcess {
     outputs: ChildOutputs,
     deadline: Option<Instant>,
     cancellation: Option<CancellationToken>,
-    session: Option<AppSubagentSession>,
+    // Durable session and its physical root thread are one bound identity.
+    session: Option<(AppSubagentSession, ThreadId)>,
+    // Remains set if an outer deadline drops send before a complete JSONL frame.
+    write_in_flight: bool,
 }
 
 impl ChildProcess {
@@ -80,6 +83,7 @@ impl ChildProcess {
             deadline: None,
             cancellation: None,
             session: None,
+            write_in_flight: false,
         })
     }
 
@@ -90,6 +94,7 @@ impl ChildProcess {
         let health = self.outputs.health();
         let deadline = self.deadline;
         let cancellation = self.cancellation.clone();
+        self.write_in_flight = true;
         let result = tokio::select! {
             biased;
             _ = async {
@@ -108,8 +113,14 @@ impl ChildProcess {
         // Such a connection must never be returned to the process pool.
         if result.is_err() {
             self.kill().await;
+        } else {
+            self.write_in_flight = false;
         }
         result
+    }
+
+    pub(super) fn has_complete_write(&self) -> bool {
+        !self.write_in_flight
     }
 
     pub(super) fn set_write_budget(
@@ -141,7 +152,19 @@ impl ChildProcess {
     }
 
     pub(super) fn session(&self) -> Option<&AppSubagentSession> {
-        self.session.as_ref()
+        self.session.as_ref().map(|(session, _)| session)
+    }
+
+    pub(super) fn project_thread(&self, source: ThreadId, logical_child: ThreadId) -> ThreadId {
+        if self
+            .session
+            .as_ref()
+            .is_some_and(|(_, root)| *root == source)
+        {
+            logical_child
+        } else {
+            source
+        }
     }
 
     /// Bootstrap and rotation obey the same deadline/cancellation as Send.
@@ -165,7 +188,7 @@ impl ChildProcess {
                 _ => {}
             }
         }
-        Ok(self.session.clone().expect("session checked"))
+        Ok(self.session().cloned().expect("session checked"))
     }
 
     pub(super) async fn new_session(&mut self) -> Result<AppSubagentSession> {
@@ -193,13 +216,13 @@ impl ChildProcess {
                     )
                     .context("invalid new session identity")?;
                     anyhow::ensure!(
-                        self.session.as_ref() == Some(&session),
+                        self.session() == Some(&session),
                         "new session response disagrees with SessionStarted"
                     );
                     anyhow::ensure!(
                         previous
                             .as_ref()
-                            .is_none_or(|old| old.session_id != session.session_id),
+                            .is_none_or(|(old, _)| old.session_id != session.session_id),
                         "new session reused the previous identity"
                     );
                     return Ok(session);
@@ -240,11 +263,12 @@ impl ChildProcess {
             deadline: None,
             cancellation: None,
             session: None,
+            write_in_flight: false,
         }
     }
 }
 
-fn observe_session(session: &mut Option<AppSubagentSession>, output: &StdioOutput) {
+fn observe_session(session: &mut Option<(AppSubagentSession, ThreadId)>, output: &StdioOutput) {
     if let StdioOutput::Event { event } = output
         && let AppServerEvent::Runtime { envelope } = event.as_ref()
         && let crate::domain::Event::SessionStarted {
@@ -253,9 +277,12 @@ fn observe_session(session: &mut Option<AppSubagentSession>, output: &StdioOutpu
             ..
         } = &envelope.event
     {
-        *session = Some(AppSubagentSession {
-            session_id: *session_id,
-            session_dir: session_dir.clone(),
-        });
+        *session = Some((
+            AppSubagentSession {
+                session_id: *session_id,
+                session_dir: session_dir.clone(),
+            },
+            envelope.thread_id,
+        ));
     }
 }

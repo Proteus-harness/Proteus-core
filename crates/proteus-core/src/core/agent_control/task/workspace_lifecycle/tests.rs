@@ -252,7 +252,19 @@ async fn unsuccessful_dispatched_work_preserves_clean_checkout_without_guessing_
                 .invoke(&call, context(repo.path().into(), host.clone()))
                 .await
                 .unwrap();
-            assert_eq!(result.ok, !fail_terminal);
+            assert!(
+                !result.ok,
+                "an unsettled or canceled task is not successful"
+            );
+            if !fail_terminal {
+                assert_eq!(result.metadata["status"], "cancelled");
+                assert!(
+                    result
+                        .text_or_status()
+                        .contains("Task completion was not confirmed")
+                );
+                assert!(result.text_or_status().contains("settled"));
+            }
             assert!(
                 !host.cancellation.is_cancelled(),
                 "normal completion disarms the waiter guard"

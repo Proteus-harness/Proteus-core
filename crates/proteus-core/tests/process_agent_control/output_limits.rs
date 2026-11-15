@@ -52,6 +52,10 @@ impl UserInputTransport for DelayedInteraction {
 }
 
 fn runner(root: &std::path::Path) -> Arc<dyn AgentControl> {
+    runner_with_timeout(root, None)
+}
+
+fn runner_with_timeout(root: &std::path::Path, timeout_ms: Option<u64>) -> Arc<dyn AgentControl> {
     use std::os::unix::fs::PermissionsExt;
     let binary = root.join("peer.py");
     std::fs::write(&binary, include_str!("../fixtures/agent_output_peer.py")).unwrap();
@@ -59,9 +63,11 @@ fn runner(root: &std::path::Path) -> Arc<dyn AgentControl> {
     runner_from_json(json!({
         "binary": binary,
         "max_parallel": 2,
+        "cancel_grace_ms": 100,
         "roles": [{
             "name": "helper", "description": "Output limit fixture",
-            "config": "unused", "parallel_safe": true, "max_processes": 2
+            "config": "unused", "parallel_safe": true, "max_processes": 2,
+            "timeout_ms": timeout_ms
         }]
     }))
 }
@@ -167,6 +173,146 @@ async fn queued_output_preserves_approval_result_and_targeted_cancel() {
         } else {
             assert_eq!(result.status, AgentLifecycleStatus::Completed);
             assert_eq!(result.summary, "approved result");
+        }
+    }
+}
+
+#[tokio::test]
+async fn role_deadline_cancels_pending_interaction_and_reuses_settled_peer() {
+    for mode in ["normal", "input-timeout"] {
+        let root = tempfile::tempdir().unwrap();
+        let runner = runner_with_timeout(root.path(), Some(600));
+        let mut ctx = test_runtime_context();
+        let interaction = Arc::new(DelayedInteraction {
+            waiting: root.path().join("waiting"),
+            release: Notify::new(),
+        });
+        ctx.execution.approval = interaction.clone();
+        ctx.user_input = interaction;
+        let task = AgentTask::new("deadline", root.path().to_path_buf());
+        let handle = runner
+            .spawn(
+                AgentControlRequest::new("helper", mode, task.clone()),
+                ctx.clone(),
+            )
+            .await
+            .unwrap();
+        wait_for(&root.path().join("produced")).await;
+        let result = tokio::time::timeout(Duration::from_secs(3), runner.wait(&handle))
+            .await
+            .expect("bounded role timeout and settlement")
+            .unwrap();
+        assert_eq!(result.status, AgentLifecycleStatus::TimedOut);
+        assert_eq!(result.metadata["resumable"], true);
+        assert!(root.path().join("cancelled").exists());
+        assert!(!root.path().join("answered").exists());
+        if mode == "normal" {
+            assert_eq!(
+                result.summary,
+                (0..32).map(|i| format!("{i:02};")).collect::<String>()
+            );
+        }
+        let resumed = runner
+            .run(
+                AgentControlRequest::new("helper", "healthy", task)
+                    .with_metadata(json!({"task_id": handle.child_thread_id.to_string()})),
+                ctx,
+            )
+            .await
+            .expect("settled peer is resumable");
+        assert_eq!(resumed.status, AgentLifecycleStatus::Completed);
+        assert_eq!(resumed.summary, "healthy peer");
+        let requests = requests(root.path());
+        assert_eq!(requests.len(), 3, "Send, exact Cancel, resumed Send");
+        assert_eq!(
+            requests[1]["request"]["target_id"],
+            requests[0]["request"]["id"]
+        );
+        assert_eq!(requests[0]["pid"], requests[2]["pid"]);
+    }
+}
+
+fn requests(root: &std::path::Path) -> Vec<serde_json::Value> {
+    std::fs::read_to_string(root.join("requests.jsonl"))
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect()
+}
+
+struct BlockSettlementEvents(PathBuf);
+
+#[async_trait]
+impl proteus_contracts::contracts::EventSink for BlockSettlementEvents {
+    async fn append(
+        &self,
+        envelope: proteus_contracts::domain::EventEnvelope,
+    ) -> anyhow::Result<()> {
+        if matches!(
+            envelope.event,
+            proteus_contracts::domain::Event::Error { .. }
+        ) {
+            std::fs::write(&self.0, "entered").unwrap();
+            std::future::pending::<()>().await;
+        }
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn role_deadline_does_not_pool_unsettled_or_partially_written_peer() {
+    for mode in ["ignore-cancel", "blocked-settlement-event", "stop-reading"] {
+        let root = tempfile::tempdir().unwrap();
+        let runner = runner_with_timeout(root.path(), Some(600));
+        let mut ctx = test_runtime_context();
+        ctx.execution.approval = Arc::new(DelayedInteraction {
+            waiting: root.path().join("waiting"),
+            release: Notify::new(),
+        });
+        if mode == "blocked-settlement-event" {
+            ctx.events = Arc::new(proteus_contracts::contracts::EventEmitter::new(Arc::new(
+                BlockSettlementEvents(root.path().join("event-blocked")),
+            )));
+        }
+        let handle = runner
+            .spawn(
+                collaboration_request(
+                    "helper",
+                    "alpha",
+                    mode,
+                    AgentTask::new("deadline", root.path().to_path_buf()),
+                ),
+                ctx,
+            )
+            .await
+            .unwrap();
+        wait_for(&root.path().join("produced")).await;
+        if mode == "stop-reading" {
+            // Four valid 16 KB envelopes encode above normal pipe capacity;
+            // the peer has stopped reading, so delivery cannot finish.
+            for _ in 0..4 {
+                runner
+                    .send(&handle, agent_message("alpha", &"\nx".repeat(8_000)))
+                    .await
+                    .unwrap();
+            }
+        }
+        let result = tokio::time::timeout(Duration::from_secs(3), runner.wait(&handle))
+            .await
+            .expect("the entire grace including forwarding is bounded")
+            .unwrap();
+        assert_eq!(result.status, AgentLifecycleStatus::TimedOut);
+        assert_eq!(result.metadata["resumable"], false, "{mode}");
+        if mode == "blocked-settlement-event" {
+            assert!(root.path().join("event-blocked").exists());
+        }
+        if mode != "stop-reading" {
+            assert!(root.path().join("cancelled").exists(), "{mode}");
+            let requests = requests(root.path());
+            assert_eq!(
+                requests[1]["request"]["target_id"],
+                requests[0]["request"]["id"]
+            );
         }
     }
 }

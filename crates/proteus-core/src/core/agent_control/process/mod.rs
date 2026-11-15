@@ -67,7 +67,7 @@ use outcome::{status_label, truncate_summary};
 use pool::{PooledChild, ProcessPool, ReleaseOutcome, ResumeReservation};
 #[cfg(test)]
 use turn::should_forward_child_event;
-use turn::{ChildEventForwarder, TurnEnd, TurnTracker, drive_turn};
+use turn::{ChildEventForwarder, TurnEnd, TurnTracker, drive_turn, finish_interrupted};
 
 pub(super) struct ProcessAgentControl {
     inner: Arc<RunnerInner>,
@@ -289,7 +289,6 @@ impl RunnerInner {
             Some(forwarder.ctx.execution.scope.cancellation.clone()),
         );
         let send_id = new_call_id();
-        let active_send_id = StdMutex::new(send_id.clone());
         let body = async {
             leased.child.drain_stale_outputs()?;
             if !is_resume && leased.used {
@@ -306,21 +305,18 @@ impl RunnerInner {
                     text: request.prompt.clone(),
                 })
                 .await?;
-            drive_turn(
-                &mut leased.child,
-                forwarder,
-                &send_id,
-                tracker,
-                self.cancel_grace,
-                mailbox,
-                &active_send_id,
-            )
-            .await
+            tracker.active_send_id = Some(send_id.clone());
+            drive_turn(&mut leased.child, forwarder, &send_id, tracker, mailbox).await
         };
         let result = match deadline {
-            Some(deadline) => timeout_at(deadline, body)
-                .await
-                .unwrap_or_else(|_| Err(anyhow!("subagent role deadline exceeded"))),
+            Some(deadline) => timeout_at(deadline, body).await.unwrap_or_else(|_| {
+                let status = if forwarder.ctx.execution.scope.cancellation.is_cancelled() {
+                    AgentLifecycleStatus::Cancelled
+                } else {
+                    AgentLifecycleStatus::TimedOut
+                };
+                Ok(TurnEnd::Interrupted(status))
+            }),
             None => body.await,
         };
         let interrupted = if forwarder.ctx.execution.scope.cancellation.is_cancelled() {
@@ -330,17 +326,27 @@ impl RunnerInner {
         } else {
             None
         };
-        if result.is_err() {
-            // Setup or an in-flight write may have stopped midway through a
-            // frame. Invalidate the connection instead of appending Cancel.
-            leased.child.kill().await;
-        }
+        let result = match result {
+            Ok(TurnEnd::Interrupted(status)) => Ok(finish_interrupted(
+                &mut leased.child,
+                forwarder,
+                tracker,
+                self.cancel_grace,
+                status,
+            )
+            .await),
+            Err(error) => {
+                // A protocol/setup/write error remains fatal even if a cancel
+                // or deadline became visible at the same time.
+                leased.child.kill().await;
+                match interrupted {
+                    Some(status) => Ok(TurnEnd::Interrupted(status)),
+                    None => Err(error),
+                }
+            }
+            completed => completed,
+        };
         leased.child.set_write_budget(None, None);
-        if result.is_err()
-            && let Some(status) = interrupted
-        {
-            return Ok(TurnEnd::Interrupted(status));
-        }
         result
     }
 

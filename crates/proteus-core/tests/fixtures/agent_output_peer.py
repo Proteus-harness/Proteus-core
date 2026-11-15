@@ -30,6 +30,8 @@ emit({"type": "event", "event": {"type": "runtime", "envelope": {
 
 for line in sys.stdin:
     request = json.loads(line)
+    with pathlib.Path("requests.jsonl").open("a") as log:
+        log.write(json.dumps({"pid": os.getpid(), "request": request}) + "\n")
     kind = request["type"]
     if kind == "send":
         active_id = request["id"]
@@ -37,7 +39,11 @@ for line in sys.stdin:
         if mode == "healthy":
             result(active_id, "healthy peer")
             continue
-        if mode == "input-overflow":
+        if mode == "stop-reading":
+            pathlib.Path("produced").touch()
+            time.sleep(30)
+            continue
+        if mode in ("input-overflow", "input-timeout"):
             event = {"type": "user_input_requested", "request": {
                 "request_id": "input", "cwd": str(pathlib.Path.cwd()),
                 "title": None, "questions": [], "origin": None, "seq": 0}}
@@ -83,6 +89,15 @@ for line in sys.stdin:
         result(active_id, "approved result")
     elif kind == "cancel":
         pathlib.Path("cancelled").touch()
+        # An unrelated Cancel ACK is not the targeted Send terminal.
+        result(None, "cancel accepted")
+        if mode == "ignore-cancel":
+            continue
+        if mode == "blocked-settlement-event":
+            emit({"type": "event", "event": {"type": "runtime", "envelope": {
+                "schema_version": 2, "event_id": identity, "session_id": identity,
+                "thread_id": identity, "turn_id": identity, "seq": 99,
+                "timestamp_ms": 0, "event": {"Error": {"message": "settling"}}}}})
         result(request["target_id"], "cancelled result")
     elif kind == "clear_history":
         result(request["id"], "cleared")

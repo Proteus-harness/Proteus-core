@@ -105,7 +105,114 @@ fn task_result_preserves_exact_child_session_and_existing_metadata() {
     assert_eq!(result.metadata["child_thread_id"], json!(child));
     assert_eq!(result.metadata["tool"], TASK_TOOL);
     assert_eq!(result.metadata["status"], "completed");
-    assert!(result.output.starts_with("bounded summary\n\n[task_id:"));
+    assert!(result.ok);
+    assert_eq!(result.error, None);
+    assert_eq!(
+        result.output,
+        format!("bounded summary\n\n[task_id: {child}]")
+    );
+}
+
+#[test]
+fn non_completed_task_outcomes_keep_status_partial_summary_and_workspace_visible() {
+    let child = crate::domain::new_thread_id();
+    let summary = "Edited config.rs before interruption";
+    let note = "[worktree: /tmp/task | branch: partial-work]";
+    for (status, label) in [
+        (AgentLifecycleStatus::Starting, "starting"),
+        (AgentLifecycleStatus::Running, "running"),
+        (AgentLifecycleStatus::TimedOut, "timed_out"),
+        (AgentLifecycleStatus::Cancelled, "cancelled"),
+        (AgentLifecycleStatus::Errored, "errored"),
+        (AgentLifecycleStatus::Unknown, "unknown"),
+    ] {
+        let result = AgentControlResult::new(summary, status)
+            .with_child_thread_id(child)
+            .with_metadata(json!({ "resumable": true, "agent_messages_delivered": 3 }));
+        let result = result_to_tool_result(
+            "task-call",
+            result,
+            Some(child.to_string()),
+            Some(note.into()),
+        );
+        let expected = format!(
+            "[task status: \"{label}\"]\nTask completion was not confirmed. The summary below may be incomplete; actions may already have taken effect.\n\n{summary}\n\n[task_id: {child}]\n{note}"
+        );
+        assert!(!result.ok, "{label}");
+        assert!(result.output.is_empty());
+        assert_eq!(result.error.as_deref(), Some(expected.as_str()));
+        assert_eq!(result.text_or_status(), expected);
+        assert_eq!(result.call_id, "task-call");
+        assert_eq!(result.metadata["status"], label);
+        assert_eq!(result.metadata["child_thread_id"], json!(child));
+        assert_eq!(result.metadata["resumable"], true);
+        assert_eq!(result.metadata["agent_messages_delivered"], 3);
+    }
+}
+
+#[test]
+fn empty_timeout_is_explicit_and_empty_completed_result_keeps_old_semantics() {
+    let timed_out = result_to_tool_result(
+        "timeout-call",
+        AgentControlResult::new("", AgentLifecycleStatus::TimedOut),
+        None,
+        None,
+    );
+    assert!(!timed_out.ok);
+    assert!(
+        timed_out
+            .text_or_status()
+            .starts_with("[task status: \"timed_out\"]")
+    );
+    assert!(
+        timed_out
+            .text_or_status()
+            .contains("completion was not confirmed")
+    );
+    assert!(!timed_out.text_or_status().contains("(no output)"));
+
+    let completed = result_to_tool_result(
+        "completed-call",
+        AgentControlResult::new("", AgentLifecycleStatus::Completed),
+        None,
+        None,
+    );
+    assert!(completed.ok);
+    assert!(completed.output.is_empty());
+    assert_eq!(completed.error, None);
+    assert_eq!(completed.text_or_status(), "(no output)");
+}
+
+struct TimedOutAgentHost;
+
+#[async_trait]
+impl AgentControlToolHost for TimedOutAgentHost {
+    async fn run_agent(&self, _: AgentControlRequest) -> Result<AgentControlResult> {
+        Ok(
+            AgentControlResult::new("Partial child answer", AgentLifecycleStatus::TimedOut)
+                .with_metadata(json!({ "resumable": false })),
+        )
+    }
+}
+
+#[tokio::test]
+async fn invoke_exposes_incomplete_child_outcome_without_losing_partial_text() {
+    let tool = TaskTool::new(vec![role("explore")], 1_000);
+    let parent_task = crate::domain::AgentTask::new("parent task", "/tmp".into());
+    let mut ctx = ToolContext::new(parent_task.cwd.clone(), test_tool_attribution());
+    ctx.task = Some(parent_task);
+    ctx.agent_control = Some(Arc::new(TimedOutAgentHost));
+    let call = ToolCall::new(
+        "task-timeout",
+        TASK_TOOL,
+        json!({ "agent_type": "explore", "prompt": "inspect" }),
+    );
+    let result = tool.invoke(&call, ctx).await.unwrap();
+    assert!(!result.ok);
+    assert_eq!(result.metadata["status"], "timed_out");
+    assert_eq!(result.metadata["resumable"], false);
+    assert!(result.text_or_status().contains("Partial child answer"));
+    assert!(!result.text_or_status().contains("[task_id:"));
 }
 
 #[test]
@@ -129,6 +236,10 @@ fn spec_describes_roles_parallelism_and_resume() {
     assert!(role_help.contains("explore (parallel-safe)"));
     assert!(role_help.contains("coder (worktree-isolated)"));
     assert!(spec.description.contains("NOTHING is merged automatically"));
+    assert!(
+        spec.description
+            .contains("Only completed tasks return success")
+    );
 }
 
 #[test]
