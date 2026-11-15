@@ -981,6 +981,13 @@ Entry задаёт ровно одно из `file` и `text`. Relative file path
 от config file. Runtime превращает entries в ordered canonical
 `InstructionBlock` list.
 
+Если Config Builder восстанавливает отсутствующий standalone profile из
+загруженной конфигурации, file-backed entries сохраняют `file`, а не копию
+уже прочитанного `text`. Inline entries сохраняют свой текст и порядок.
+Это восстановление по прежнему пути: оно не переносит relative references
+и не восстанавливает отсутствующие prompt assets. Существующие source entries
+и directory overlays при обычном Save не переписываются этим преобразованием.
+
 Packaged `opencode-default.md` сохраняется как настраиваемый пример, но профиль
 `opencode` его не использует. `proteus-opencode-module` импортирует pinned
 `@opencode/core@2.0.22`: native system template и model plugins выполняются
@@ -1213,7 +1220,12 @@ MCP client использует официальный Rust SDK `rmcp` 3.3.0 п�
 задаёт рабочий каталог процесса; относительный путь отсчитывается от workspace.
 Неудачный start/handshake/list изолируется на этом сервере: его tools не
 регистрируются, остальные подключения работают, ошибка видна в `/addons`.
-Name collision остаётся блокирующей ошибкой сборки. Список `tools` в MCP status
+Весь discovered list сначала проверяется, включая input schemas; ошибка любого
+элемента отклоняет весь список до регистрации, без сохранения valid prefix.
+Только успешно подготовленный список участвует в общей регистрации, где name
+collision остаётся блокирующей ошибкой сборки. Если список содержит и invalid
+schema, и потенциальную collision, сначала отклоняется discovery этого сервера:
+collision из уже отклонённого списка не проверяется. Список `tools` в MCP status
 отражает discovery при подготовке epoch, а не непрерывную проверку live health.
 
 Текущий MCP scope — stdio tool discovery/invocation. HTTP, OAuth, resources,
@@ -1557,6 +1569,14 @@ runtime snapshot меняется одним обновлением. Он не �
 из воздуха: selection доступен только для entries текущего catalog. Existing
 `components` и opaque `module_config` сохраняются.
 
+Выбор `active_provider` не редактирует определения `providers`. В существующем
+TOML/JSON-профиле и directory overlay конструктор сохраняет как явные
+определения, так и отсутствие этой секции: провайдеры из includes/fragments
+не копируются в верхний файл при сохранении других настроек. Явные локальные
+переопределения остаются приоритетными. При первом сохранении отсутствующего
+standalone-файла записывается полная конфигурация, включая определения
+провайдеров, нужные её выбору модели.
+
 `GET /config/builder` возвращает для каждого модуля nullable `config_schema`.
 Модельные exports находятся в `model_modules`, обработчики — в
 `hook_modules`, остальные выбираемые реализации — в `slots[].modules`.
@@ -1625,6 +1645,12 @@ host, клиент не редактирует его напрямую.
 
 Save сериализует read/prepare/persist/publish по каноническому пути профиля;
 повторное сохранение читает актуальный source, а файл заменяется atomic rename.
+После применения request итоговый config проходит те же semantic checks,
+что загрузка с диска: выбор provider, допустимые `module_config` slots, hooks
+и prompt commands. Неизвестный slot отвергается до подготовки сборки, записи
+истории и файла; live config и epoch остаются прежними. Разрешение instruction
+files остаётся в reader: уже загруженный текст не проверяется как новый source.
+TOML-представимость значений и подготовка runtime остаются отдельными проверками.
 Все fallible проверки runtime проходят до persistence. Выбор модели и reload
 используют один lock, поэтому изменение selection не может сорвать publication
 уже записанного config. Принятый save завершается и при отключении HTTP caller.

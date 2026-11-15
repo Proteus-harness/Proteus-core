@@ -7,8 +7,6 @@ use std::{
 use anyhow::{Context, Result, bail};
 use serde_json::{Map, Value};
 
-use crate::core::core_slots::{CoreSlotSelection, core_slot_descriptor_by_id};
-
 use super::{AppConfig, ConfigInputs};
 
 impl AppConfig {
@@ -76,28 +74,8 @@ impl AppConfig {
                 path.display()
             )
         })?;
-        config.selected_model_config()?;
-        config.validate_module_config_slots()?;
-        config.modules.validate_hooks()?;
-        config.validate_commands()?;
+        config.validate_semantics()?;
         Ok(config)
-    }
-
-    fn validate_module_config_slots(&self) -> Result<()> {
-        for slot in self.module_config.keys() {
-            if matches!(
-                slot.as_str(),
-                "tool" | "context_provider" | "model" | "hook"
-            ) {
-                continue;
-            }
-            match core_slot_descriptor_by_id(slot) {
-                Some(descriptor) if descriptor.selection == CoreSlotSelection::ModulesConfig => {}
-                Some(_) => bail!("module_config is not supported for slot {slot:?}"),
-                None => bail!("unknown module_config slot {slot:?}"),
-            }
-        }
-        Ok(())
     }
 
     pub fn default_user_config_path() -> Option<PathBuf> {

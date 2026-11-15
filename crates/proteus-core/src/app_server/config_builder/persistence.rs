@@ -44,11 +44,6 @@ struct ModuleConfigToml<'a> {
     module_config: &'a BTreeMap<String, BTreeMap<String, Value>>,
 }
 
-#[derive(serde::Serialize)]
-struct ProvidersToml<'a> {
-    providers: &'a BTreeMap<String, ProviderProfileConfig>,
-}
-
 pub(super) fn validate_module_config_toml(
     module_config: &BTreeMap<String, BTreeMap<String, Value>>,
 ) -> Result<()> {
@@ -62,6 +57,17 @@ fn module_config_toml_document(
         .context("module_config contains values that cannot be represented as TOML")?;
     text.parse::<toml_edit::DocumentMut>()
         .context("serialized module_config TOML could not be parsed")
+}
+
+/// Initial source must retain file references, not their resolved runtime text.
+fn initial_profile_source(config: &AppConfig) -> AppConfig {
+    let mut source = config.clone();
+    for entry in &mut source.instructions {
+        if entry.file.is_some() {
+            entry.text = None;
+        }
+    }
+    source
 }
 
 #[cfg(test)]
@@ -89,7 +95,7 @@ pub(super) async fn persist_config_builder_with_components(
         && path.file_name().and_then(|name| name.to_str())
             != Some(crate::core::CONFIG_BUILDER_OVERLAY)
     {
-        toml::to_string_pretty(config)
+        toml::to_string_pretty(&initial_profile_source(config))
             .context("cannot serialize initial profile")?
             .parse::<toml_edit::DocumentMut>()?
     } else {
@@ -101,17 +107,6 @@ pub(super) async fn persist_config_builder_with_components(
     } else {
         doc.remove("active_provider");
     }
-    if doc.get("providers").is_none() {
-        let text = toml::to_string_pretty(&ProvidersToml {
-            providers: &config.providers,
-        })
-        .context("providers cannot be represented as TOML")?;
-        let providers_doc = text
-            .parse::<toml_edit::DocumentMut>()
-            .context("serialized providers TOML could not be parsed")?;
-        doc["providers"] = providers_doc["providers"].clone();
-    }
-
     if doc
         .get("permissions")
         .is_none_or(|item| !item.is_table_like())
@@ -229,7 +224,9 @@ async fn persist_json_profile(
     let mut document: Value = match tokio::fs::read(path).await {
         Ok(bytes) => serde_json::from_slice(&bytes)
             .with_context(|| format!("failed to parse config JSON at {}", path.display()))?,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => next.clone(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            serde_json::to_value(initial_profile_source(config))?
+        }
         Err(error) => return Err(error.into()),
     };
     let root = document
@@ -240,8 +237,6 @@ async fn persist_json_profile(
     } else {
         root.remove("active_provider");
     }
-    root.entry("providers")
-        .or_insert_with(|| next["providers"].clone());
     for key in ["modules", "module_config", "addons"] {
         root.insert(key.into(), next[key].clone());
     }

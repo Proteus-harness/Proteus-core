@@ -17,6 +17,7 @@ mod commands;
 mod files;
 mod inputs;
 mod loading;
+mod validation;
 pub use commands::PromptCommandConfig;
 pub(crate) use files::config_files;
 pub(crate) use inputs::ConfigInputs;
