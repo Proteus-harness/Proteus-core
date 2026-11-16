@@ -54,6 +54,9 @@ pub(in crate::core::session_store) fn conversation(
     store: &SessionStore,
 ) -> Option<ConversationSnapshot> {
     let reader = Reader::open(store.session_dir(), VIEW_CACHE)?;
+    if !reader.was_current_at_open() {
+        return None;
+    }
     let header: Header = reader.one("header")?;
     if !matches(store, &header) {
         return None;
@@ -69,6 +72,9 @@ pub(in crate::core::session_store) fn conversation(
 
 pub(super) fn load(store: &SessionStore) -> Option<(SourceFingerprint, SessionReadModel, bool)> {
     let reader = Reader::open(store.session_dir(), VIEW_CACHE)?;
+    if !reader.was_current_at_open() {
+        return None;
+    }
     let header: Header = reader.one("header")?;
     if !matches(store, &header) {
         return None;
@@ -155,6 +161,12 @@ fn page_inner(
     limit: usize,
 ) -> Option<proteus_contracts::app_protocol::AppTranscriptPage> {
     let reader = Reader::open(store.session_dir(), VIEW_CACHE)?;
+    let revision = reader.revision()?;
+    if expected.is_some_and(|value| value != revision)
+        || (expected.is_none() && !stale_display && !reader.was_current_at_open())
+    {
+        return None;
+    }
     let header: Header = reader.one("header")?;
     if !matches(store, &header) {
         return None;
@@ -165,13 +177,10 @@ fn page_inner(
     }
     let start = end.saturating_sub(limit);
     let messages = reader.page("transcript", start, end)?;
-    let (source, fresh) = reader.finish()?;
-    let revision = source.revision()?;
+    let (_, fresh) = reader.finish()?;
     // A client may keep reading an older completed display while a live turn
     // appends to the canonical journal. Never mix rows from different revisions.
-    if expected.is_some_and(|value| value != revision)
-        || (expected.is_none() && !fresh && !stale_display)
-    {
+    if expected.is_none() && !fresh && !stale_display {
         return None;
     }
     Some(proteus_contracts::app_protocol::AppTranscriptPage {

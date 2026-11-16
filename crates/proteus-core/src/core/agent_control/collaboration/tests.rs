@@ -10,8 +10,8 @@ mod wait;
 use crate::{
     contracts::{
         AgentControlHandle, AgentControlMessage, AgentControlRequest, AgentControlResult,
-        AgentControlToolHost, AgentIsolation, AgentLifecycleStatus, AgentProfile,
-        CancellationToken, ExecutionAttribution,
+        AgentControlToolHost, AgentDeliveryDisposition, AgentIsolation, AgentLifecycleStatus,
+        AgentMessageReceipt, AgentProfile, CancellationToken, ExecutionAttribution,
     },
     domain::{AgentTask, ToolCall, new_call_id, new_execution_id, new_session_id, new_thread_id},
 };
@@ -255,8 +255,15 @@ async fn running_send_and_followup_use_the_child_mailbox_without_spawning() {
         .await
         .expect("followup");
 
-    assert_eq!(output(&sent)["turn_started"], false);
-    assert_eq!(output(&followed)["turn_started"], false);
+    for (result, operation) in [(&sent, "send_message"), (&followed, "followup_task")] {
+        assert!(result.ok);
+        assert_eq!(result.metadata["tool"], operation);
+        let receipt: AgentMessageReceipt = serde_json::from_str(&result.output).unwrap();
+        assert_eq!(receipt.path, AgentAddress::parse("/root/scan").unwrap());
+        assert_eq!(receipt.delivery, AgentDeliveryDisposition::Queued);
+        assert!(!receipt.turn_started);
+        assert_eq!(receipt.generation, None);
+    }
     assert_eq!(host.requests.lock().unwrap().len(), 1);
     assert_eq!(
         *host.messages.lock().unwrap(),

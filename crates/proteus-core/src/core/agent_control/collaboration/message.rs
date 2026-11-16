@@ -10,7 +10,7 @@ use async_trait::async_trait;
 use serde_json::json;
 
 use super::{
-    control::{CollaborationControl, FollowupRequest},
+    control::{CollaborationControl, FollowupRequest, RunningAgent},
     host, json_result, required_string, session_id, spawn_monitor,
     spec::{followup_spec, send_message_spec},
     tool_error,
@@ -55,24 +55,7 @@ impl Tool for SendMessageTool {
             Ok(running) => running,
             Err(error) => return Ok(tool_error(call, "send_message", error.to_string())),
         };
-        let target = AgentAddress::parse(&running.path)?;
-        let message = match AgentControlMessage::from_root(target.clone(), message) {
-            Ok(message) => message,
-            Err(error) => return Ok(tool_error(call, "send_message", error.to_string())),
-        };
-        if let Err(error) = running.owner.send_agent(&running.handle, message).await {
-            return Ok(tool_error(call, "send_message", format!("{error:#}")));
-        }
-        Ok(json_result(
-            call,
-            "send_message",
-            serde_json::to_value(AgentMessageReceipt {
-                path: target,
-                delivery: AgentDeliveryDisposition::Queued,
-                turn_started: false,
-                generation: None,
-            })?,
-        ))
+        send_running_message(call, "send_message", &running, message).await
     }
 }
 
@@ -111,26 +94,7 @@ impl Tool for FollowupTaskTool {
 
         match followup {
             FollowupRequest::Running(running) => {
-                let target = AgentAddress::parse(&running.path)?;
-                let message = match AgentControlMessage::from_root(target.clone(), message) {
-                    Ok(message) => message,
-                    Err(error) => {
-                        return Ok(tool_error(call, "followup_task", error.to_string()));
-                    }
-                };
-                if let Err(error) = running.owner.send_agent(&running.handle, message).await {
-                    return Ok(tool_error(call, "followup_task", format!("{error:#}")));
-                }
-                Ok(json_result(
-                    call,
-                    "followup_task",
-                    serde_json::to_value(AgentMessageReceipt {
-                        path: target,
-                        delivery: AgentDeliveryDisposition::Queued,
-                        turn_started: false,
-                        generation: None,
-                    })?,
-                ))
+                send_running_message(call, "followup_task", &running, message).await
             }
             FollowupRequest::Idle(idle) => {
                 let mut launch = super::reservation::LaunchReservation::new(
@@ -228,6 +192,32 @@ impl Tool for FollowupTaskTool {
             }
         }
     }
+}
+
+async fn send_running_message(
+    call: &ToolCall,
+    operation: &str,
+    running: &RunningAgent,
+    message: &str,
+) -> Result<ToolResult> {
+    let target = AgentAddress::parse(&running.path)?;
+    let message = match AgentControlMessage::from_root(target.clone(), message) {
+        Ok(message) => message,
+        Err(error) => return Ok(tool_error(call, operation, error.to_string())),
+    };
+    if let Err(error) = running.owner.send_agent(&running.handle, message).await {
+        return Ok(tool_error(call, operation, format!("{error:#}")));
+    }
+    Ok(json_result(
+        call,
+        operation,
+        serde_json::to_value(AgentMessageReceipt {
+            path: target,
+            delivery: AgentDeliveryDisposition::Queued,
+            turn_started: false,
+            generation: None,
+        })?,
+    ))
 }
 
 fn required_message(call: &ToolCall) -> Result<&str> {

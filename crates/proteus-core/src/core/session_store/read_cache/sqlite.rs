@@ -100,6 +100,11 @@ impl Reader {
         self.source.revision()
     }
 
+    /// Early rejection only; finish still verifies changes during the read.
+    pub(in crate::core::session_store) fn was_current_at_open(&self) -> bool {
+        self.source == self.before
+    }
+
     pub(in crate::core::session_store) fn row_matches(
         &self,
         section: &str,
@@ -111,7 +116,7 @@ impl Reader {
 
     pub(in crate::core::session_store) fn finish(self) -> Option<(SourceFingerprint, bool)> {
         let after = SourceFingerprint::read(&self.dir, MAX_BLOBS)?;
-        let fresh = self.source == self.before && after == self.before;
+        let fresh = self.was_current_at_open() && after == self.before;
         Some((self.source, fresh))
     }
 }

@@ -14,20 +14,18 @@ use crate::{
 #[derive(Debug, Clone, Default)]
 pub(crate) struct HistoryCapture {
     base: usize,
-    calls: Vec<(ToolCall, WorkflowToolResultBinding, bool)>,
+    calls: Vec<(WorkflowToolResultBinding, bool)>,
 }
 
 impl HistoryCapture {
     pub(crate) fn contains_call(&self, call_id: &str) -> bool {
         self.calls
             .iter()
-            .any(|(_, binding, _)| binding.call_id == call_id)
+            .any(|(binding, _)| binding.call_id == call_id)
     }
 
     pub(crate) fn has_binding(&self, binding: &WorkflowToolResultBinding) -> bool {
-        self.calls
-            .iter()
-            .any(|(_, existing, _)| existing == binding)
+        self.calls.iter().any(|(existing, _)| existing == binding)
     }
 
     /// Extend the model prefix while retaining the already committed result
@@ -48,7 +46,7 @@ impl HistoryCapture {
             .iter()
             .map(|binding| (binding.call_id.as_str(), binding))
             .collect::<HashMap<_, _>>();
-        for (_, binding, _) in &self.calls {
+        for (binding, _) in &self.calls {
             if let Some(reused) = bindings_by_call.get(binding.call_id.as_str()) {
                 ensure!(
                     *reused == binding,
@@ -59,11 +57,7 @@ impl HistoryCapture {
         if compacted || proposed.starts_with(current) {
             return Ok((next, history));
         }
-        let recorded = self
-            .calls
-            .iter()
-            .filter(|(_, _, recorded)| *recorded)
-            .count();
+        let recorded = self.calls.iter().filter(|(_, recorded)| *recorded).count();
         ensure!(
             self.base + recorded == current.len() && proposed.starts_with(&current[..self.base]),
             "checkpoint discarded committed history without a new compaction"
@@ -73,10 +67,10 @@ impl HistoryCapture {
             // Preserve iter().find()'s first match even for repeated message IDs.
             proposed_by_id.entry(message.id).or_insert(message);
         }
-        for ((_, binding, _), message) in self
+        for ((binding, _), message) in self
             .calls
             .iter()
-            .filter(|(_, _, recorded)| *recorded)
+            .filter(|(_, recorded)| *recorded)
             .zip(&current[self.base..])
         {
             // An earlier ACK can already have delivered some results to the
@@ -174,7 +168,7 @@ impl HistoryCapture {
                 !history_results.contains(binding.call_id.as_str()),
                 "checkpoint binding already has a history result"
             );
-            calls.push((binding.execution_call.clone(), binding.clone(), false));
+            calls.push((binding.clone(), false));
         }
         Ok(Self {
             base: history.len(),
@@ -183,13 +177,13 @@ impl HistoryCapture {
     }
 
     pub(crate) fn validate_call(&self, call: &ToolCall) -> Result<()> {
-        if let Some((expected, _, _)) = self
+        if let Some((binding, _)) = self
             .calls
             .iter()
-            .find(|(expected, _, _)| expected.id == call.id)
+            .find(|(binding, _)| binding.execution_call.id == call.id)
         {
             ensure!(
-                call == expected,
+                call == &binding.execution_call,
                 "executed tool call disagrees with checkpoint execution binding"
             );
         }
@@ -214,15 +208,15 @@ impl HistoryCapture {
         let Some(index) = self
             .calls
             .iter()
-            .position(|(_, binding, _)| binding.call_id == result.call_id)
+            .position(|(binding, _)| binding.call_id == result.call_id)
         else {
             return Ok(None);
         };
         let offset = self.calls[..index]
             .iter()
-            .filter(|(_, _, recorded)| *recorded)
+            .filter(|(_, recorded)| *recorded)
             .count();
-        let (_, binding, recorded) = &mut self.calls[index];
+        let (binding, recorded) = &mut self.calls[index];
         ensure!(!*recorded, "checkpoint received a duplicate tool result");
         ensure!(
             self.base + offset <= history.len(),

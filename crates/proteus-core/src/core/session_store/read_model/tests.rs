@@ -367,6 +367,9 @@ async fn external_append_shows_old_view_then_explicit_refresh_publishes_current_
     let workspace = tempfile::tempdir().unwrap();
     let store = saved(root.path(), workspace.path(), "first").await;
     let old = store.project_read_model(render).unwrap();
+    let old_page = store.saved_transcript_page(None, None).unwrap();
+    assert_eq!(sqlite::conversation(&store).unwrap(), old.conversation);
+    assert!(sqlite::load(&store).unwrap().2);
     let external = SessionStore::open(store.session_dir().to_owned()).unwrap();
     external
         .append_history(
@@ -380,6 +383,14 @@ async fn external_append_shows_old_view_then_explicit_refresh_publishes_current_
         .await
         .unwrap();
     let journal = fs::read(store.journal_path()).unwrap();
+    assert!(sqlite::conversation(&store).is_none());
+    assert!(sqlite::load(&store).is_none());
+    assert!(store.saved_transcript_page(None, None).is_none());
+    let named = store
+        .saved_transcript_page(None, Some(&old_page.revision))
+        .unwrap();
+    assert_eq!(named.revision, old_page.revision);
+    assert_eq!(named.messages.len(), old.transcript.len());
     let (prepared_store, stale_model, deferred, stale) =
         PreparedSession::from_dir(store.session_dir().to_owned())
             .unwrap()
@@ -390,6 +401,11 @@ async fn external_append_shows_old_view_then_explicit_refresh_publishes_current_
     let refreshed = prepared_store.project_read_model(render).unwrap();
     assert_eq!(refreshed.conversation.messages.len(), 2);
     assert!(refreshed.conversation.revision > old.conversation.revision);
+    assert_eq!(
+        sqlite::conversation(&prepared_store).unwrap(),
+        refreshed.conversation
+    );
+    assert!(sqlite::load(&prepared_store).unwrap().2);
     let (_, current, deferred, stale) = PreparedSession::from_dir(store.session_dir().to_owned())
         .unwrap()
         .into_display_view(|_| panic!("strict refresh must persist its new view"))
