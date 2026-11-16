@@ -76,6 +76,19 @@ def runtime_identity(config, binary):
 
 
 def initialize(args):
+    if args.tool_preflight is None:
+        raise ValueError('A successful no-inference tool preflight is required before paid admission')
+    preflight_path = args.tool_preflight.resolve()
+    preflight = read_json(preflight_path)
+    languages = preflight.get('languages', [])
+    if (preflight.get('passed') is not True or preflight.get('paid_model_requests') != 0
+            or {row.get('language') for row in languages} != {'python', 'go', 'java', 'rust', 'javascript', 'cpp'}
+            or len(languages) != 6
+            or any(row.get('passed') is not True or row.get('tool_calls') != 2
+                   or row.get('tool_results') != 2
+                   or row.get('cache_survives_separate_exec_commands') is not True
+                   or row.get('tmpfs_isolated_per_tool') is not True for row in languages)):
+        raise ValueError('Tool preflight must certify two isolated calls for all six languages')
     case_root = args.cases.resolve()
     source = read_json(case_root/'manifest.json')
     cases = []
@@ -101,6 +114,9 @@ def initialize(args):
               'model_catalog': catalog_receipt(),
               'toolchain_setup_sha256': corpus.digest(grader.TOOLS/'receipt.json'),
               'toolchain_versions': read_json(grader.TOOLS/'receipt.json')['versions'],
+              'tool_environment_preflight': {'path': str(preflight_path),
+                                             'sha256': corpus.digest(preflight_path),
+                                             'receipt': preflight},
               'upstream_methodology': read_json(DATA/'upstream-methodology/provenance.json'),
               'conditions': {'model': MODEL, 'effort': EFFORT, 'maximum_agent_turns': 2,
                              'agent_seconds_per_case': args.timeout,
@@ -451,6 +467,7 @@ def main():
     parser.add_argument('--budget', type=float, default=20.0)
     parser.add_argument('--jobs', type=int, choices=[1, 2, 3, 4], default=2)
     parser.add_argument('--only', nargs='+')
+    parser.add_argument('--tool-preflight', type=Path)
     args = parser.parse_args()
     if args.action == 'init':
         initialize(args)

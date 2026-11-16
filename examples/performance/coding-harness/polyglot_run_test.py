@@ -14,6 +14,15 @@ PRICES = {'input': .15, 'cache_read': .003, 'output': .6}
 
 
 class PaidAdmissionTests(unittest.TestCase):
+    def test_admission_rejects_missing_or_incomplete_tool_preflight(self):
+        with self.assertRaisesRegex(ValueError, 'preflight is required'):
+            run.initialize(SimpleNamespace(tool_preflight=None))
+        with tempfile.TemporaryDirectory(dir=run.DATA) as temporary:
+            path = Path(temporary)/'preflight.json'
+            run.write_json(path, {'passed': True, 'paid_model_requests': 0, 'languages': []})
+            with self.assertRaisesRegex(ValueError, 'all six languages'):
+                run.initialize(SimpleNamespace(tool_preflight=path))
+
     def test_scheduler_stops_new_admission_after_an_unmetered_trial(self):
         with tempfile.TemporaryDirectory(dir=run.DATA) as temporary:
             root = Path(temporary)

@@ -43,17 +43,26 @@ def runtime_env():
 
 
 def agent_runtime(runtime, language):
-    """Private writable caches alongside read-only shared dependency inputs."""
+    """Caches must survive separate tool sandboxes and stay workspace-writable."""
     runtime = Path(runtime)
+    workspace = runtime.parent/'workspace'
+    cache = workspace/'.benchmark-cache'
+    for name in ('cargo', 'gradle', 'go-build', 'npm'):
+        (cache/name).mkdir(parents=True, exist_ok=True)
     environment = runtime_env()
     environment.pop('HOME')  # Preserve the isolated native model credential HOME.
-    environment['CARGO_HOME'] = '/state/home/.cargo'
-    environment['GRADLE_USER_HOME'] = '/state/home/.gradle'
+    environment.update(CARGO_HOME='/workspace/.benchmark-cache/cargo',
+                       GRADLE_USER_HOME='/workspace/.benchmark-cache/gradle',
+                       GOCACHE='/workspace/.benchmark-cache/go-build',
+                       NPM_CONFIG_CACHE='/workspace/.benchmark-cache/npm')
     if language == 'rust':
-        cargo = runtime/'home/.cargo'
-        cargo.mkdir(parents=True, exist_ok=True)
-        (cargo/'registry').symlink_to('/polyglot/cargo-home/registry')
-    return runtime_mounts(language), environment
+        registry = cache/'cargo/registry'
+        if not registry.is_symlink():
+            registry.symlink_to('/polyglot/cargo-home/registry')
+    mounts = runtime_mounts(language)
+    if language == 'javascript':
+        mounts.append((TOOLS/'npm/node_modules', '/workspace/node_modules'))
+    return mounts, environment
 
 
 COMMANDS = {

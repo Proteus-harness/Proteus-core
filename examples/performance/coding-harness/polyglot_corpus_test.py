@@ -98,6 +98,21 @@ class PolyglotCorpusTests(unittest.TestCase):
         (xml/'sample.xml').write_text('<testsuite tests="3" skipped="3"/>')
         self.assertEqual(grader.executed_tests('java', '', self.root), 0)
 
+    def test_agent_caches_are_workspace_writable_and_dependencies_readonly(self):
+        runtime = self.root/'runtime'
+        runtime.mkdir()
+        mounts, environment = grader.agent_runtime(runtime, 'rust')
+        cache = self.root/'workspace/.benchmark-cache'
+        for key, name in [('CARGO_HOME', 'cargo'), ('GRADLE_USER_HOME', 'gradle'),
+                          ('GOCACHE', 'go-build'), ('NPM_CONFIG_CACHE', 'npm')]:
+            self.assertEqual(environment[key], '/workspace/.benchmark-cache/' + name)
+            self.assertTrue((cache/name).is_dir())
+        self.assertNotIn('HOME', environment)
+        self.assertEqual((cache/'cargo/registry').readlink(), Path('/polyglot/cargo-home/registry'))
+        self.assertIn((grader.TOOLS/'cargo-home', '/polyglot/cargo-home'), mounts)
+        mounts, _ = grader.agent_runtime(runtime, 'javascript')
+        self.assertIn((grader.TOOLS/'npm/node_modules', '/workspace/node_modules'), mounts)
+
     def test_known_preflight_defects_do_not_become_successful_solutions(self):
         result = {'starter': {'passed': True}, 'reference': {'passed': True}}
         result.update(corpus.control_disposition('go--ledger', result))

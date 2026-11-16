@@ -451,8 +451,9 @@ data=target/performance/polyglot-225
 python3 "$suite/polyglot_setup.py"
 python3 "$suite/polyglot_corpus.py" prepare
 python3 "$suite/polyglot_corpus.py" controls --workers 2
+python3 "$suite/polyglot_tool_preflight.py" --output "$data/my-tool-preflight"
 python3 "$suite/polyglot_run.py" init --output "$data/runs/my-run" \
-  --timeout 1200 --budget 20
+  --timeout 1200 --budget 20 --tool-preflight "$data/my-tool-preflight/result.json"
 python3 "$suite/polyglot_run.py" run --output "$data/runs/my-run" --jobs 4
 python3 "$suite/polyglot_report.py" --runs "$data/runs/my-run" \
   --output "$data/runs/my-run/report.json"
@@ -460,7 +461,12 @@ python3 "$suite/polyglot_report.py" --runs "$data/runs/my-run" \
 
 `setup` закрепляет JDK21, Gradle8.7, JS dependencies, Cargo caches и недостающий
 Boost для двух C++ задач; версии и хеши находятся в `toolchains/receipt.json`.
-Cache/toolchain mounts доступны только для чтения. Writable state и home
+Toolchain/dependency mounts доступны только для чтения. Рабочие кеши Cargo,
+Gradle, Go и npm находятся в `/workspace/.benchmark-cache`: эта область
+доступна для записи также во внутренней песочнице Proteus и сохраняется между
+отдельными tool calls. `/tmp` для этого не подходит: shell создаёт его заново
+при каждом вызове. Подготовленный `node_modules` смонтирован для чтения прямо
+в workspace JavaScript-задач. Writable state и home
 раздельны для каждого task/agent; пользовательские конфиги и секреты в них
 не копируются целиком. В disposable Proteus shell component разрешаются только
 нужные benchmark toolchain env keys, чтобы условия совпадали с OpenCode.
@@ -470,6 +476,11 @@ Cache/toolchain mounts доступны только для чтения. Writab
 без headers/body/credentials. Ограничение и запрет скачивания tests явно заданы
 одинаковым benchmark prompt prefix для обоих харнесов. Стандартные localhost
 RPC native OpenCode работают внутри namespace.
+Перед новым платным cohort `polyglot_tool_preflight.py --output <new-directory>`
+проверяет все шесть языков через текущие workflow/policy/shell slots Proteus.
+Только model slot заменён детерминированной fixture: два отдельных
+`exec_command` проверяют offline compiler/dependencies, запись и сохранение
+cache marker, а также отдельный tmpfs каждого вызова. Платных запросов нет.
 Grader не имеет сети и требует наблюдаемого исполнения тестов, а не одного
 exit0. Используются Java unskip, Rust include-ignored и все C++ tests; для JS
 активируются также 23 `xit` проверки `grep`, пропущенные upstream script.
