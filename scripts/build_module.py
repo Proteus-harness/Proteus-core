@@ -34,17 +34,25 @@ def build(profile="dev", target_dir=None, env=None):
     return executable
 
 
-def build_packages(profile="dev", target_dir=None, env=None, destination=None, reuse=False):
+def build_packages(profile="dev", target_dir=None, env=None, destination=None, reuse=False,
+                   node_runtimes=False):
     """Resolve caller-owned output paths before changing the child working directory."""
+    if node_runtimes and destination is None:
+        raise ValueError("--node-runtimes requires --bundle")
     source = resolve("modules")
+    bundle = Path(destination).resolve() if destination is not None else None
     command = [sys.executable, str(source / "package.py"), "--profile", profile]
-    command += ["--bundle", str(Path(destination).resolve())] if destination else ["--print-artifacts"]
+    command += ["--bundle", str(bundle)] if bundle is not None else ["--print-artifacts"]
     if target_dir:
         command += ["--target-dir", str(Path(target_dir).resolve())]
     if reuse:
         command.append("--no-build")
     output = subprocess.check_output(command, cwd=source, env=env, text=True)
-    return None if destination else json.loads(output)
+    if node_runtimes:
+        for relative in ("tool/pi-tools/install.py", "workflow/opencode-runtime/install.py"):
+            subprocess.run([sys.executable, str(source / relative), "--prefix", str(bundle)],
+                           cwd=source, env=env, check=True)
+    return None if bundle is not None else json.loads(output)
 
 
 if __name__ == "__main__":
@@ -53,8 +61,13 @@ if __name__ == "__main__":
     parser.add_argument("--target-dir")
     parser.add_argument("--bundle", type=Path, help="deliver independent production modules into this runtime root")
     parser.add_argument("--no-build", action="store_true", help="reuse recorded production artifacts with --bundle")
+    parser.add_argument("--node-runtimes", action="store_true",
+                        help="also install pinned Pi/OpenCode Node workers into --bundle")
     args = parser.parse_args()
+    if args.node_runtimes and args.bundle is None:
+        parser.error("--node-runtimes requires --bundle")
     if args.bundle:
-        build_packages(args.profile, args.target_dir, destination=args.bundle, reuse=args.no_build)
+        build_packages(args.profile, args.target_dir, destination=args.bundle, reuse=args.no_build,
+                       node_runtimes=args.node_runtimes)
     else:
         print(build(args.profile, args.target_dir))

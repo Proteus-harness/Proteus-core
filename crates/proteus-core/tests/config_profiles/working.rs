@@ -3,21 +3,9 @@ use super::*;
 use proteus_core::core::AgentControlRuntime;
 
 #[tokio::test]
-async fn standalone_working_profiles_share_go_without_replacing_native_behavior_slots() {
+async fn standalone_reference_profiles_share_go_without_replacing_native_behavior_slots() {
     let root = workspace_root();
     for (name, workflow, context, tools) in [
-        (
-            "config.toml",
-            "coding.codex_loop",
-            "codex_context",
-            vec![
-                "exec_command",
-                "write_stdin",
-                "apply_patch",
-                "update_plan",
-                "request_user_input",
-            ],
-        ),
         (
             "codex.config.toml",
             "coding.codex_loop",
@@ -116,6 +104,19 @@ async fn collaboration_and_worktree_task_profiles_advertise_only_supported_roles
         serde_json::json!(["explore"])
     );
     assert!(tools.get("task").is_none());
+    let explore = &collaboration.agent_control.roles[0];
+    assert!(explore.model.is_none(), "explore inherits the parent model");
+    let child = AppConfig::load(Some(Path::new(&explore.config)))
+        .await
+        .unwrap();
+    assert_eq!(child.providers["cheap"].model, "deepseek-v4.1-flash");
+    assert_eq!(
+        child.modules.hooks,
+        ["codex_compact", "codex_base_instructions"]
+    );
+    assert!(child.instructions.iter().all(|instruction| {
+        instruction.priority == 110 && instruction.file.is_none() && instruction.text.is_some()
+    }));
 
     let moved = tempfile::tempdir().unwrap();
     let path = moved.path().join("codex-task.toml");
@@ -164,15 +165,16 @@ async fn standalone_default_moves_as_one_file_and_preserves_root_and_peer_behavi
         behavior_without_model_or_labels(&config),
         behavior_without_model_or_labels(&baseline)
     );
-    assert_eq!(config.profile.name, "default");
-    assert_eq!(config.providers.len(), 1);
-    assert_eq!(config.providers["cheap"].provider, "opencode");
-    assert_eq!(config.providers["cheap"].model, "deepseek-v4.1-flash");
+    assert_eq!(config.profile.name, baseline.profile.name);
+    assert_eq!(config.active_provider, baseline.active_provider);
     assert_eq!(
-        config.providers["cheap"].reasoning.effort.as_deref(),
-        Some("high")
+        serde_json::to_value(&config.providers).unwrap(),
+        serde_json::to_value(&baseline.providers).unwrap()
     );
-    assert_eq!(config.agent_control.roles.len(), 1);
+    assert_eq!(
+        config.agent_control.roles.len(),
+        baseline.agent_control.roles.len()
+    );
     for role in &config.agent_control.roles {
         let reference = Path::new(&role.config);
         assert_eq!(proteus_core::core::physical_config_path(reference), path);
@@ -192,26 +194,17 @@ async fn standalone_default_moves_as_one_file_and_preserves_root_and_peer_behavi
             "{} behavior",
             role.name
         );
-        assert_eq!(child.providers["cheap"].model, "deepseek-v4.1-flash");
-        assert!(
-            role.model.is_none(),
-            "the role must inherit the parent selection"
+        assert_eq!(child.profile.name, source_child.profile.name);
+        assert_eq!(child.active_provider, source_child.active_provider);
+        assert_eq!(
+            serde_json::to_value(&child.providers).unwrap(),
+            serde_json::to_value(&source_child.providers).unwrap()
         );
         assert_eq!(
-            child.modules.hooks,
-            ["codex_compact", "codex_base_instructions"]
-        );
-        assert!(
-            child
-                .instructions
-                .iter()
-                .all(|instruction| instruction.priority == 110)
-        );
-        assert!(
-            child
-                .instructions
-                .iter()
-                .all(|instruction| instruction.file.is_none() && instruction.text.is_some())
+            serde_json::to_value(&role.model).unwrap(),
+            serde_json::to_value(&source_role.model).unwrap(),
+            "{} model inheritance",
+            role.name
         );
     }
     assert_eq!(std::fs::read_dir(moved.path()).unwrap().count(), 1);

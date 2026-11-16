@@ -11,6 +11,14 @@ config_home="${PROTEUS_CONFIG_HOME:-${HOME}/.config/Proteus-agent}"
 configs_dir="${config_home}/configs"
 build_target="${CARGO_TARGET_DIR:-${project_dir}/target}"
 
+# The shipped model and behavior profiles include pinned Node workers.
+for runtime_command in node npm; do
+  if ! command -v "${runtime_command}" >/dev/null 2>&1; then
+    echo "Cannot install Pi/OpenCode runtimes: required command '${runtime_command}' not found" >&2
+    exit 1
+  fi
+done
+
 cargo build --locked --release --manifest-path "${project_dir}/Cargo.toml" \
   --target-dir "${build_target}" \
   -p proteus-core
@@ -64,7 +72,7 @@ chmod 755 "${module_tmp}"
 # Stage the host and independent modules before the atomic snapshot switch.
 mkdir -p "${release_tmp}"
 cp "${build_target}/release/proteus" "${release_tmp}/proteus"
-python3 "${project_dir}/scripts/build_module.py" --profile release --bundle "${release_tmp}"
+python3 "${project_dir}/scripts/build_module.py" --profile release --bundle "${release_tmp}" --node-runtimes
 chmod 755 "${release_tmp}/proteus"
 
 mkdir -p "${releases_dir}"

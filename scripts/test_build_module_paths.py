@@ -109,6 +109,28 @@ class BuildModulePathTests(unittest.TestCase):
             self.builder.build_packages(destination=Path('out'))
         self.assertIs(caught.exception, error)
 
+    def test_node_workers_use_the_same_resolved_source_and_bundle(self):
+        env = {'SYNTHETIC_OPTION': 'value'}
+        with chdir(self.caller), patch.object(self.builder.subprocess, 'run') as run:
+            self.builder.build_packages(destination=Path('staged runtime'), env=env,
+                                        node_runtimes=True)
+        command, _ = self.command()
+        destination = str(self.caller / 'staged runtime')
+        self.assertEqual(command[-2:], ['--bundle', destination])
+        self.builder.resolve.assert_called_once_with('modules')
+        self.assertEqual(run.call_count, 2)
+        for call, relative in zip(run.call_args_list,
+                                  ('tool/pi-tools/install.py', 'workflow/opencode-runtime/install.py')):
+            self.assertEqual(call.args[0], [sys.executable, str(self.modules / relative),
+                                           '--prefix', destination])
+            self.assertEqual(call.kwargs, {'cwd': self.modules, 'env': env, 'check': True})
+
+    def test_node_workers_require_a_bundle_before_resolving_sources(self):
+        with self.assertRaisesRegex(ValueError, 'requires --bundle'):
+            self.builder.build_packages(node_runtimes=True)
+        self.builder.resolve.assert_not_called()
+        self.output.assert_not_called()
+
 
 if __name__ == '__main__':
     unittest.main()
