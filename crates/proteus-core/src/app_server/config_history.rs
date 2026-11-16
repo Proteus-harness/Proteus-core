@@ -28,11 +28,26 @@ impl AppServerHandle {
 pub(super) fn config_history_dir(config_path: &Path) -> PathBuf {
     let root = config_store_root(config_path);
     let target = config_builder_target_path(Some(config_path)).unwrap_or_default();
-    let relative = target
+    let physical = crate::core::physical_config_path(&target);
+    let relative = physical
         .strip_prefix(&root)
         .map(Path::to_path_buf)
-        .unwrap_or_else(|_| target.file_name().map(PathBuf::from).unwrap_or_default());
-    root.join("config-history").join(relative)
+        .unwrap_or_else(|_| physical.file_name().map(PathBuf::from).unwrap_or_default());
+    let directory = root.join("config-history").join(relative);
+    let selection = crate::core::config_selection(config_path).unwrap_or_default();
+    if selection.is_empty() {
+        return directory;
+    }
+    use ring::digest::{SHA256, digest};
+    let key = digest(
+        &SHA256,
+        &serde_json::to_vec(&selection).expect("role names serialize"),
+    )
+    .as_ref()
+    .iter()
+    .map(|byte| format!("{byte:02x}"))
+    .collect::<String>();
+    directory.join("agents").join(key)
 }
 
 /// Keeps the state a save is about to replace, unless it is already the

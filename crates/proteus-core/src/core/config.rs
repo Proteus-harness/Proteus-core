@@ -17,6 +17,7 @@ mod commands;
 mod files;
 mod inputs;
 mod loading;
+mod reference;
 mod validation;
 pub use commands::PromptCommandConfig;
 pub(crate) use files::config_files;
@@ -24,6 +25,9 @@ pub(crate) use inputs::ConfigInputs;
 
 pub use crate::domain::{ConfiguredMcpServerConfig, ProcessEnvironmentConfig};
 pub use loading::expand_user_path;
+pub use reference::{
+    config_reference, config_selection, physical_config_path, selected_config_value_mut,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -146,7 +150,9 @@ impl Default for AgentControlConfig {
 pub struct AgentProfileConfig {
     pub name: String,
     pub description: String,
-    /// Named child config (или путь), передаваемый в `--config`.
+    /// Named child config, путь или нормализованная ссылка на inline-role.
+    /// Source loader принимает также объект полного child AppConfig и заменяет
+    /// его ссылкой на ту же секцию исходного файла перед десериализацией.
     pub config: String,
     #[serde(default)]
     pub args: Vec<String>,
@@ -559,3 +565,5 @@ fn default_workflow_timeout_ms() -> u64 {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod inline_tests;

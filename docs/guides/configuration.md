@@ -10,6 +10,42 @@ Proteus принимает TOML и JSON; init и Config Builder сохраняю
 Минимальный fake-model профиль:
 [proteus.example.toml](../../examples/configs/proteus.example.toml).
 
+## Самодостаточный Конфиг Агента
+
+[configs/agent.toml](../../configs/agent.toml) — один файл рабочей сборки
+с поведением Codex и моделью через OpenCode Go. В нём явно описаны provider,
+слоты, настройки tools/policy/context, process components и обе дочерние роли.
+`include`, внешних child configs и файлов prompts для этой сборки не требуется:
+тексты инструкций находятся в `instructions.text`. Поле `profile.name` не
+требуется и не выбирает поведение: реализации выбирают `modules` и `components`.
+
+```sh
+/path/to/Proteus/bin/proteus --config /path/to/agent.toml --cwd /path/to/project
+```
+
+Переносятся готовая поставка и этот файл. Process workers и их SDK принадлежат
+поставке, а не встраиваются в TOML. Авторизация OpenCode подключается на новом
+компьютере отдельно. Настройки Desktop, виджетов и расширений хранятся отдельно
+от агента в `~/.config/dev.proteus.native/preferences.json`.
+
+Каждая запись `[[agent_control.roles]]` принимает `config` как путь/named config
+или как полную вложенную конфигурацию. Вложенный объект — самостоятельный
+`AppConfig`: он не наследует модель, инструменты или разрешения родителя.
+Например, настройки дочерней модели задаются в
+`[agent_control.roles.config.providers.opencode-go]`, слоты — в
+`[agent_control.roles.config.modules]`. Полные примеры — в `agent.toml`.
+
+При загрузке внутренний reference роли указывает на ту же секцию исходного
+файла: `agent.toml#agent=/explore`. Имя роли кодируется как JSON pointer token
+(`~0` для `~`, `~1` для `/`); несколько токенов выбирают вложенные роли. Такие
+references создаёт loader; вручную перечислять их в самодостаточном конфиге
+не нужно. Дочерние процессы читают свою секцию и следят за изменениями исходного
+файла, без временных копий конфигурации. История остаётся в общем config store;
+выбор модели и история правок конфигурации разделены по роли. Сохранение настроек
+роли меняет её секцию, сохраняя родителя и соседей. Ошибки вложенных конфигов
+проверяются уже при загрузке родителя. Inline-роли требуют одного исходного
+файла, а не directory mode.
+
 ## Resolution
 
 Без `--config` путь выбирается в таком порядке:

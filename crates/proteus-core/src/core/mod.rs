@@ -50,7 +50,8 @@ pub use config::{
     AgentControlConfig, AgentControlSurface, AgentProfileConfig, AppConfig, AppServerConfig,
     ConfiguredMcpServerConfig, EventLogConfig, InstructionSourceConfig, ModelConfig, ModulesConfig,
     PermissionsConfig, ProcessEnvironmentConfig, ProfileConfig, PromptCommandConfig,
-    ProviderProfileConfig, RuntimeConfig, ToolsConfig, expand_user_path,
+    ProviderProfileConfig, RuntimeConfig, ToolsConfig, config_reference, config_selection,
+    expand_user_path, physical_config_path, selected_config_value_mut,
 };
 pub use config_snapshot::{
     CONFIG_SNAPSHOT_FILE, SessionConfigModules, SessionConfigSnapshot, SessionConfigTool,

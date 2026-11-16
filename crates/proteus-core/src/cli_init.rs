@@ -171,6 +171,9 @@ pub(crate) fn run_init(profile: InitProfile, explicit_config: Option<&Path>) -> 
         .map(init_config_path_from_arg)
         .or_else(AppConfig::default_user_config_path)
         .ok_or_else(|| anyhow::anyhow!("could not resolve default config path"))?;
+    if !proteus_core::core::config_selection(&config_path)?.is_empty() {
+        bail!("init requires a config file or directory, not an inline agent selection");
+    }
     let destination = init_destination_path(&config_path, profile);
     if let Some(parent) = destination.parent() {
         fs::create_dir_all(parent)?;

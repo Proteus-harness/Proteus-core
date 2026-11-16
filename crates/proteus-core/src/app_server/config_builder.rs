@@ -1,4 +1,5 @@
 mod component_packages;
+mod inline_source;
 mod persistence;
 mod plugins;
 #[cfg(test)]
@@ -154,11 +155,12 @@ impl AppServerHandle {
         let current_plan = self.runtime.assembly_plan().await;
         validate_config_builder_modules(&modules, current_plan.catalog_entries())?;
 
-        let mut next_config = if tokio::fs::try_exists(config_path).await? {
-            AppConfig::load(Some(config_path)).await?
-        } else {
-            self.config.read().await.clone()
-        };
+        let mut next_config =
+            if tokio::fs::try_exists(crate::core::physical_config_path(config_path)).await? {
+                AppConfig::load(Some(config_path)).await?
+            } else {
+                self.config.read().await.clone()
+            };
         let replaced_state = config_builder_state(&next_config);
         let component_ids =
             component_packages::apply(&mut next_config, component_packages, &self.cwd)?;
@@ -207,7 +209,7 @@ impl AppServerHandle {
         next_config.validate_semantics()?;
         let target = config_builder_target_path(Some(config_path))
             .context("config target is not available")?;
-        if !target
+        if !crate::core::physical_config_path(&target)
             .extension()
             .is_some_and(|extension| extension == "json")
         {

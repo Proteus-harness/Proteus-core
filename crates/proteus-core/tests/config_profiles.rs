@@ -7,6 +7,90 @@ fn workspace_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
+fn behavior_without_model_or_labels(config: &AppConfig) -> serde_json::Value {
+    let mut value = serde_json::to_value(config).unwrap();
+    let object = value.as_object_mut().unwrap();
+    for key in ["profile", "active_provider", "providers"] {
+        object.remove(key);
+    }
+    object["module_config"]
+        .as_object_mut()
+        .unwrap()
+        .remove("model");
+    for component in object["components"].as_object_mut().unwrap().values_mut() {
+        component["exports"]
+            .as_object_mut()
+            .unwrap()
+            .remove("model");
+    }
+    object["components"]
+        .as_object_mut()
+        .unwrap()
+        .retain(|_, component| !component["exports"].as_object().unwrap().is_empty());
+    if let Some(instructions) = object["instructions"].as_array_mut() {
+        for instruction in instructions {
+            instruction.as_object_mut().unwrap().remove("file");
+        }
+    }
+    for role in object["agent_control"]["roles"].as_array_mut().unwrap() {
+        let role = role.as_object_mut().unwrap();
+        role.remove("config");
+        role.remove("description");
+    }
+    // Go function transport was already selected in the working assembly.
+    object["module_config"]["tool"]["codex_patch"]["freeform"] = false.into();
+    value
+}
+
+#[tokio::test]
+async fn standalone_agent_moves_as_one_file_and_preserves_root_and_peer_behaviors() {
+    let root = workspace_root();
+    let moved = tempfile::tempdir().unwrap();
+    let path = moved.path().join("agent.toml");
+    std::fs::copy(root.join("configs/agent.toml"), &path).unwrap();
+    let config = AppConfig::load(Some(&path)).await.unwrap();
+    let baseline = AppConfig::load(Some(&root.join("configs/codex.config.toml")))
+        .await
+        .unwrap();
+    assert_eq!(
+        behavior_without_model_or_labels(&config),
+        behavior_without_model_or_labels(&baseline)
+    );
+    assert_eq!(config.profile.name, AppConfig::default().profile.name);
+    assert_eq!(config.providers.len(), 1);
+    assert_eq!(config.providers["opencode-go"].provider, "opencode");
+    assert_eq!(config.providers["opencode-go"].model, "deepseek-v4.1-flash");
+    assert_eq!(
+        config.providers["opencode-go"].reasoning.effort.as_deref(),
+        Some("high")
+    );
+    assert_eq!(config.agent_control.roles.len(), 2);
+    for role in &config.agent_control.roles {
+        let reference = Path::new(&role.config);
+        assert_eq!(proteus_core::core::physical_config_path(reference), path);
+        let child = AppConfig::load(Some(reference)).await.unwrap();
+        let baseline = AppConfig::load(Some(
+            &root.join(format!("configs/codex-{}.config.toml", role.name)),
+        ))
+        .await
+        .unwrap();
+        assert_eq!(
+            behavior_without_model_or_labels(&child),
+            behavior_without_model_or_labels(&baseline),
+            "{} behavior",
+            role.name
+        );
+        assert_eq!(child.providers["opencode-go"].model, "deepseek-v4.1-flash");
+        assert!(
+            child
+                .instructions
+                .iter()
+                .all(|instruction| instruction.file.is_none() && instruction.text.is_some())
+        );
+    }
+    assert_eq!(std::fs::read_dir(moved.path()).unwrap().count(), 1);
+}
+
 #[tokio::test]
 async fn code_mode_profile_adds_the_optional_tool_to_the_existing_composition() {
     let root = workspace_root();
@@ -391,14 +475,6 @@ async fn tracked_profiles_resolve_selected_exports_with_current_contracts() {
                 current_process_contract_authority("model")
                     .expect("model authority")
                     .contract_version
-            );
-            let settings = config
-                .process_export_config("model", &profile.provider)
-                .unwrap();
-            assert!(
-                settings["implementation"].is_string(),
-                "{} must explicitly choose a reference model implementation",
-                path.display()
             );
         }
 

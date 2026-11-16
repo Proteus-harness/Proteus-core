@@ -178,12 +178,51 @@ fn process_runner_with_idle_cap(
     }))
 }
 
+async fn inline_process_runner(
+    config_home: &std::path::Path,
+    children: &[(&str, &std::path::Path)],
+) -> Arc<dyn AgentControl> {
+    let roles = children
+        .iter()
+        .map(|(name, path)| {
+            let source = std::fs::read_to_string(path).expect("child source");
+            let child: toml::Value = toml::from_str(&source).expect("child TOML");
+            json!({
+                "name": name,
+                "description": "Explicit inline process peer",
+                "timeout_ms": 60000,
+                "config": child,
+            })
+        })
+        .collect::<Vec<_>>();
+    let path = config_home.join("configs/agent.json");
+    std::fs::write(
+        &path,
+        serde_json::to_vec_pretty(&json!({
+            "agent_control": {"binary": proteus_binary(), "roles": roles}
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    // The source is genuinely self-contained: no child file remains to load.
+    for (_, child) in children {
+        std::fs::remove_file(child).unwrap();
+    }
+    let config = proteus_core::core::AppConfig::load(Some(&path))
+        .await
+        .expect("load the one-file assembly");
+    AgentControlRuntime::from_config(&config.agent_control)
+        .expect("inline process runner")
+        .service()
+        .unwrap()
+}
+
 #[tokio::test]
 async fn process_agent_pool_round_trips_turn_resume_and_fresh_task() {
     let config_home = tempfile::tempdir().expect("config home");
     let workspace = tempfile::tempdir().expect("workspace");
     let config_path = write_child_config(config_home.path());
-    let runner = process_runner(&config_path);
+    let runner = inline_process_runner(config_home.path(), &[("helper", &config_path)]).await;
 
     let events = Arc::new(InMemoryEventStore::new());
     let mut ctx = test_runtime_context(events.clone());
@@ -317,9 +356,8 @@ async fn process_agent_pool_round_trips_turn_resume_and_fresh_task() {
     );
 }
 
-/// Parent role metadata carries only the child config reference. Two real
-/// Proteus peers therefore expose different model-facing tools even though
-/// they are launched by the same root runner with an empty root registry.
+/// Two independent inline configs in one source retain separate tool authority.
+/// The parent has no configured tools and no external child files survive.
 #[tokio::test]
 async fn process_peers_derive_distinct_tool_surfaces_from_child_configs() {
     let config_home = tempfile::tempdir().expect("config home");
@@ -327,23 +365,11 @@ async fn process_peers_derive_distinct_tool_surfaces_from_child_configs() {
     let empty_config = write_tool_surface_child_config(config_home.path(), "empty", &[]);
     let memory_config =
         write_tool_surface_child_config(config_home.path(), "memory", &["remember_fact"]);
-    let runner = runner_from_json(json!({
-        "binary": proteus_binary(),
-        "roles": [
-            {
-                "name": "empty",
-                "description": "Peer without tools",
-                "config": empty_config.to_string_lossy(),
-                "timeout_ms": 60000
-            },
-            {
-                "name": "memory",
-                "description": "Peer with a process memory tool",
-                "config": memory_config.to_string_lossy(),
-                "timeout_ms": 60000
-            }
-        ]
-    }));
+    let runner = inline_process_runner(
+        config_home.path(),
+        &[("empty", &empty_config), ("memory", &memory_config)],
+    )
+    .await;
 
     assert!(
         runner

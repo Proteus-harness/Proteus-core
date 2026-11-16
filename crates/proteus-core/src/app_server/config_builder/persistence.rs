@@ -32,11 +32,20 @@ pub(in crate::app_server) fn config_builder_target_path(
     config_path: Option<&Path>,
 ) -> Option<PathBuf> {
     let path = config_path?;
-    if path.is_dir() {
-        Some(path.join(crate::core::CONFIG_BUILDER_OVERLAY))
+    let selection = crate::core::config_selection(path).ok()?;
+    let physical = crate::core::physical_config_path(path);
+    let mut target = if physical.is_dir() {
+        if !selection.is_empty() {
+            return None;
+        }
+        physical.join(crate::core::CONFIG_BUILDER_OVERLAY)
     } else {
-        Some(std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()))
+        std::fs::canonicalize(&physical).unwrap_or(physical)
+    };
+    for role in selection {
+        target = crate::core::config_reference(&target, &role).ok()?;
     }
+    Some(target)
 }
 
 #[derive(serde::Serialize)]
@@ -80,27 +89,37 @@ pub(super) async fn persist_config_builder_with_components(
     config: &AppConfig,
     component_ids: &BTreeSet<String>,
 ) -> Result<()> {
-    if let Some(parent) = path.parent() {
+    let selection = crate::core::config_selection(path)?;
+    let physical = crate::core::physical_config_path(path);
+    if let Some(parent) = physical.parent() {
         tokio::fs::create_dir_all(parent).await?;
     }
 
-    if path
+    if physical
         .extension()
         .is_some_and(|extension| extension == "json")
     {
         return persist_json_profile(path, config, component_ids).await;
     }
 
-    let mut doc = if !tokio::fs::try_exists(path).await?
-        && path.file_name().and_then(|name| name.to_str())
+    let mut doc = if !tokio::fs::try_exists(&physical).await?
+        && physical.file_name().and_then(|name| name.to_str())
             != Some(crate::core::CONFIG_BUILDER_OVERLAY)
     {
+        anyhow::ensure!(selection.is_empty(), "inline-agent source is unavailable");
+        super::inline_source::ensure_bootstrap_has_no_inline_references(config)?;
         toml::to_string_pretty(&initial_profile_source(config))
             .context("cannot serialize initial profile")?
             .parse::<toml_edit::DocumentMut>()?
     } else {
-        read_toml_document_or_empty(path).await?
+        read_toml_document_or_empty(&physical).await?
     };
+    let mut outer = None;
+    if !selection.is_empty() {
+        let selected = super::inline_source::selected_toml_document(&mut doc, &selection)?;
+        outer = Some(doc);
+        doc = selected;
+    }
 
     if let Some(provider) = &config.active_provider {
         doc["active_provider"] = toml_edit::value(provider.clone());
@@ -197,7 +216,12 @@ pub(super) async fn persist_config_builder_with_components(
             doc["components"][id] = components["components"][id].clone();
         }
     }
-    atomic_write(path, doc.to_string().as_bytes()).await?;
+    if let Some(mut source) = outer {
+        super::inline_source::replace_selected_toml_document(&mut source, &selection, doc)?;
+        atomic_write(&physical, source.to_string().as_bytes()).await?;
+    } else {
+        atomic_write(&physical, doc.to_string().as_bytes()).await?;
+    }
     Ok(())
 }
 
@@ -220,16 +244,20 @@ async fn persist_json_profile(
     config: &AppConfig,
     component_ids: &BTreeSet<String>,
 ) -> Result<()> {
+    let selection = crate::core::config_selection(path)?;
+    let physical = crate::core::physical_config_path(path);
     let next = serde_json::to_value(config)?;
-    let mut document: Value = match tokio::fs::read(path).await {
+    let mut document: Value = match tokio::fs::read(&physical).await {
         Ok(bytes) => serde_json::from_slice(&bytes)
             .with_context(|| format!("failed to parse config JSON at {}", path.display()))?,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            anyhow::ensure!(selection.is_empty(), "inline-agent source is unavailable");
+            super::inline_source::ensure_bootstrap_has_no_inline_references(config)?;
             serde_json::to_value(initial_profile_source(config))?
         }
         Err(error) => return Err(error.into()),
     };
-    let root = document
+    let root = crate::core::selected_config_value_mut(&mut document, &selection)?
         .as_object_mut()
         .context("config JSON root must be an object")?;
     if config.active_provider.is_some() {
@@ -264,5 +292,5 @@ async fn persist_json_profile(
             components.insert(id.clone(), next["components"][id].clone());
         }
     }
-    atomic_write(path, &serde_json::to_vec_pretty(&document)?).await
+    atomic_write(&physical, &serde_json::to_vec_pretty(&document)?).await
 }

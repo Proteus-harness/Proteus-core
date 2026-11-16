@@ -1,3 +1,4 @@
+mod inline_roles;
 mod validation;
 
 use super::super::AgentAppServer;

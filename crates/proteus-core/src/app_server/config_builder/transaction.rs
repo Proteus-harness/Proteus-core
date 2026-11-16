@@ -7,7 +7,7 @@ use tokio::sync::Mutex;
 
 pub(in crate::app_server) fn path_lock(path: &Path) -> Result<Arc<Mutex<()>>> {
     static LOCKS: OnceLock<StdMutex<HashMap<PathBuf, Weak<Mutex<()>>>>> = OnceLock::new();
-    let absolute = std::path::absolute(path)?;
+    let absolute = std::path::absolute(crate::core::physical_config_path(path))?;
     let key = absolute
         .ancestors()
         .find_map(|ancestor| {

@@ -5,11 +5,12 @@ pub(crate) fn config_files(config_path: Option<&Path>) -> Vec<PathBuf> {
     let Some(path) = config_path else {
         return Vec::new();
     };
+    let path = super::physical_config_path(path);
     if path.is_file() {
         return vec![path.to_path_buf()];
     }
     let mut files = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(path) {
+    if let Ok(entries) = std::fs::read_dir(&path) {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_file()
