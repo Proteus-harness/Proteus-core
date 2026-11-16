@@ -100,6 +100,10 @@ impl ProcessComponentConfig {
         self.description.as_deref()
     }
 
+    pub(crate) fn set_icon(&mut self, icon: String) {
+        self.icon = Some(icon);
+    }
+
     pub fn icon(&self) -> Option<&str> {
         self.icon.as_deref()
     }

@@ -477,6 +477,7 @@ async fn history_restore_preserves_connections_registered_after_the_revision() {
                         .to_string_lossy()
                         .into_owned(),
                 ],
+                icon: None,
                 env_allowlist: Vec::new(),
                 initial_config: BTreeMap::from([(
                     "model".into(),

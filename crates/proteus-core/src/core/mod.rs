@@ -47,10 +47,10 @@ pub use bound_model::{BoundModel, ModelExecutionBinding};
 pub use bound_tools::{BoundTools, ToolExecutionBinding};
 pub use config::{
     AgentControlConfig, AgentControlSurface, AgentProfileConfig, AppConfig, AppServerConfig,
-    ConfiguredMcpServerConfig, EventLogConfig, InstructionSourceConfig, ModelConfig,
-    ModelSourceMetadata, ModulesConfig, PermissionsConfig, ProcessEnvironmentConfig, ProfileConfig,
-    PromptCommandConfig, ProviderProfileConfig, RuntimeConfig, SourceModelRole, ToolsConfig,
-    config_reference, config_selection, expand_user_path, physical_config_path,
+    BehaviorSourceMetadata, ConfiguredMcpServerConfig, EventLogConfig, InstructionSourceConfig,
+    ModelConfig, ModelSourceMetadata, ModulesConfig, PermissionsConfig, ProcessEnvironmentConfig,
+    ProfileConfig, PromptCommandConfig, ProviderProfileConfig, RuntimeConfig, SourceModelRole,
+    ToolsConfig, config_reference, config_selection, expand_user_path, physical_config_path,
     selected_config_value_mut,
 };
 pub(crate) use config::{ConfigInputs, ModelSourceEdits};

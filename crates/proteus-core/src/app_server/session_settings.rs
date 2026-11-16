@@ -131,7 +131,11 @@ impl super::AppServerHandle {
             reasoning,
             summary,
         } = self.model_selection().await;
-        render(self.permission_mode().await, &active, &reasoning, &summary)
+        let mut settings = render(self.permission_mode().await, &active, &reasoning, &summary);
+        if let Some(behavior) = super::session_behavior::setting(self).await {
+            settings.insert(0, behavior);
+        }
+        settings
     }
 
     pub async fn set_session_setting(&self, update: SessionSettingUpdate) -> Result<()> {
@@ -163,8 +167,9 @@ impl super::AppServerHandle {
         match update.id.as_str() {
             "mode" => {
                 self.set_permission_mode(serde_json::from_value(serde_json::Value::String(value))?)
-                    .await
+                    .await?
             }
+            "behavior_mode" => self.set_behavior_mode(value).await?,
             "model" => self.set_model_name(value).await?,
             "reasoning_effort" => {
                 self.set_reasoning_effort(value.strip_prefix("effort:").map(str::to_owned))

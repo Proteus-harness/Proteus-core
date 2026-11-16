@@ -7,6 +7,8 @@
 
 pub mod addons;
 pub use addons::*;
+pub mod behavior_mode;
+pub use behavior_mode::BehaviorModeDefinition;
 pub mod compaction;
 pub mod config_schema;
 pub mod context;

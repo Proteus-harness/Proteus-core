@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     env,
     path::{Path, PathBuf},
 };
@@ -129,29 +129,31 @@ impl AppConfig {
     }
 
     async fn load_path(path: &Path, inputs: &mut ConfigInputs) -> Result<Self> {
-        Self::load_path_models(path, inputs, None).await
+        Self::load_path_settings(path, inputs, None, None).await
     }
 
     /// Validate a model proposal through the same source normalizer as loading,
     /// without writing a temporary file or publishing runtime state.
-    pub(crate) async fn load_with_model_edits(
+    pub(crate) async fn load_with_settings_edits(
         path: &Path,
-        edits: &super::ModelSourceEdits,
+        edits: Option<&super::ModelSourceEdits>,
+        modes: Option<&BTreeMap<String, crate::domain::BehaviorModeDefinition>>,
     ) -> Result<Self> {
         let resolved = Self::resolve_config_path(Some(path))
             .await?
             .context("config path is unavailable")?;
         let mut inputs = ConfigInputs::default();
-        Self::load_path_models(&resolved, &mut inputs, Some(edits))
+        Self::load_path_settings(&resolved, &mut inputs, edits, modes)
             .await?
             .with_resolved_instructions(Some(&resolved), &mut inputs)
             .await
     }
 
-    async fn load_path_models(
+    async fn load_path_settings(
         path: &Path,
         inputs: &mut ConfigInputs,
         edits: Option<&super::ModelSourceEdits>,
+        modes: Option<&BTreeMap<String, crate::domain::BehaviorModeDefinition>>,
     ) -> Result<Self> {
         let selection = config_selection(path)?;
         let physical = physical_config_path(path);
@@ -167,7 +169,13 @@ impl AppConfig {
             let mut local = load_config_value(&physical)?;
             selected_config_value_mut(&mut local, &selection)
                 .ok()
-                .map(|value| super::model_settings::source_view(value))
+                .map(|value| {
+                    let mut view = super::model_settings::source_view(value);
+                    if let Some(modes) = value.get("modes") {
+                        view["modes"] = modes.clone();
+                    }
+                    view
+                })
         } else {
             None
         };
@@ -202,6 +210,26 @@ impl AppConfig {
                 ownership.apply(local, edits)?;
             }
         }
+        if let Some(modes) = modes {
+            let source = selected_config_value_mut(&mut value, &selection)?;
+            let existing = source
+                .get("modes")
+                .cloned()
+                .unwrap_or_else(|| serde_json::json!({}));
+            let probe = AppConfig {
+                modes: serde_json::from_value(existing)?,
+                ..AppConfig::default()
+            };
+            anyhow::ensure!(
+                super::BehaviorSourceMetadata::capture(local.as_ref(), &probe, metadata.is_file())
+                    .writable,
+                "behavior modes are inherited; edit their owning source"
+            );
+            source["modes"] = serde_json::to_value(modes)?;
+            if let Some(local) = &mut local {
+                local["modes"] = serde_json::to_value(modes)?;
+            }
+        }
         let (source_choice, choice_writable) =
             super::model_settings::source_choice(&mut value, &selection)?;
         let source_models =
@@ -230,6 +258,8 @@ impl AppConfig {
             &config.providers,
             metadata.is_file(),
         );
+        config.behavior_source =
+            super::BehaviorSourceMetadata::capture(local.as_ref(), &config, metadata.is_file());
         config.model_source.choice = Some(source_choice);
         config.model_source.resolved_choice = config.active_provider.clone();
         config.model_source.choice_writable = choice_writable;

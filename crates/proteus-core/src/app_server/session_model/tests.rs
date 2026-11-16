@@ -186,7 +186,10 @@ async fn exact_configuration_rebinds_provider_and_preserves_source_and_permissio
     let baseline = config();
     let server = launch(baseline.clone(), root.path(), cwd.path()).await;
     let original = std::fs::read(root.path().join("agent.json")).unwrap();
-    server.set_permission_mode(PermissionMode::Auto).await;
+    server
+        .set_permission_mode(PermissionMode::Auto)
+        .await
+        .unwrap();
     server
         .apply_model_configuration(ModelRef::new("second", "second-other"), reasoning(), false)
         .await
@@ -419,6 +422,22 @@ async fn builder_model_definitions_remain_saved_when_session_uses_another_route(
         baseline.providers["main"].reasoning
     );
     assert_eq!(snapshot.models["cheap"].model, "second-default");
+    assert!(
+        snapshot
+            .model_modules
+            .iter()
+            .find(|module| module.id == "first")
+            .unwrap()
+            .active
+    );
+    assert!(
+        !snapshot
+            .model_modules
+            .iter()
+            .find(|module| module.id == "second")
+            .unwrap()
+            .active
+    );
     assert_eq!(snapshot.module_config, baseline.module_config);
     assert_eq!(
         server.runtime.model_ref().await.unwrap(),

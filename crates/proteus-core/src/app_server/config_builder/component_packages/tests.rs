@@ -7,6 +7,7 @@ fn package(command: &str) -> ComponentPackageInstall {
     ComponentPackageInstall {
         id: "installed-package".into(),
         command: vec![command.into(), "package-argument".into()],
+        icon: None,
         env_allowlist: Vec::new(),
         initial_config: BTreeMap::new(),
         exports: BTreeMap::from([
@@ -31,7 +32,7 @@ fn component_packages_preserve_alias_descriptors_and_only_replace_explicit_comma
         "command": "/old/worker", "args": ["--custom"], "cwd": "workspace",
         "env_allowlist": ["LANG"], "env": {"FIXTURE": "yes"},
         "sandbox": {"mode": "restricted", "read_only": ["."], "read_write": [], "network": false},
-        "handshake_timeout_ms": 4321, "description": "custom launch",
+        "handshake_timeout_ms": 4321, "description": "custom launch", "icon":"assets/original.svg",
         "exports": {"tool": {"direct_patch": {"timeout_ms": 1234, "description": "custom export"}}}
     });
     let mut config = AppConfig::default();
@@ -218,6 +219,7 @@ async fn component_packages_transaction_updates_aliases_persists_new_exports_and
         .push(replacement("test-model", old.to_str().unwrap()));
     let mut extra = package(old.to_str().unwrap());
     extra.id = "new-tool-package".into();
+    extra.icon = Some("/package/assets/logo.svg".into());
     extra.command.truncate(1);
     extra.exports.remove("model");
     let snapshot = server
@@ -235,6 +237,20 @@ async fn component_packages_transaction_updates_aliases_persists_new_exports_and
                 .any(|export| export.slot == "tool" && export.id == "direct_patch")
     }));
     let loaded = AppConfig::load(Some(&profiles)).await.unwrap();
+    assert_eq!(
+        loaded.components["new-tool-package"].icon(),
+        Some("/package/assets/logo.svg")
+    );
+    assert_eq!(
+        snapshot
+            .plugins
+            .iter()
+            .find(|plugin| plugin.id == "new-tool-package")
+            .unwrap()
+            .icon
+            .as_deref(),
+        Some("/package/assets/logo.svg")
+    );
     assert_eq!(
         loaded.components["test-model"].command(),
         executable.to_str().unwrap()
@@ -383,6 +399,7 @@ async fn independent_registrations_from_stale_windows_preserve_both_connection_s
         let install = ComponentPackageInstall {
             id: format!("connection-{id}"),
             command: vec![command.to_string_lossy().into_owned()],
+            icon: None,
             env_allowlist: Vec::new(),
             initial_config: BTreeMap::from([(
                 "model".into(),

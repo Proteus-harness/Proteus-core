@@ -94,8 +94,8 @@ async fn file_and_ui_updates_reach_other_open_sessions_and_bad_source_preserves_
     .unwrap();
     let mut first_events = first.subscribe();
     let mut second_events = second.subscribe();
-    first.set_permission_mode(PermissionMode::Auto).await;
-    second.set_permission_mode(PermissionMode::Plan).await;
+    first.set_permission_mode(PermissionMode::Auto).await.unwrap();
+    second.set_permission_mode(PermissionMode::Plan).await.unwrap();
     assert!(skill(&first).await.ok);
     assert!(skill(&second).await.ok);
     // Includes are read through the same parser, not a special watcher schema.
@@ -152,7 +152,7 @@ async fn file_and_ui_updates_reach_other_open_sessions_and_bad_source_preserves_
     );
 
     // An actual profile-default change still replaces both session overrides.
-    second.set_permission_mode(PermissionMode::Normal).await;
+    second.set_permission_mode(PermissionMode::Normal).await.unwrap();
     first
         .set_config_builder(
             Default::default(),

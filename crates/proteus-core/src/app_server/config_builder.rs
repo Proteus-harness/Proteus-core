@@ -1,3 +1,4 @@
+mod behaviors;
 mod component_packages;
 mod inline_source;
 mod models;
@@ -44,10 +45,10 @@ pub use proteus_contracts::app_protocol::config_builder::{
 impl AppServerHandle {
     pub async fn config_builder_snapshot(&self) -> ConfigBuilderSnapshot {
         let (runtime, _, _, mode) = self.runtime.configuration_view().await;
-        let tools = runtime.registry.tools.entries();
+        let tools = &runtime.registry.tool_inventory;
         let topology = build_topology_snapshot(TopologyBuildInput {
             plan: &runtime.assembly_plan,
-            tools: &tools,
+            tools,
             module_epoch: runtime.epoch,
             permission_mode: mode,
             extra_warnings: Vec::new(),
@@ -121,6 +122,8 @@ impl AppServerHandle {
                 models: None,
                 expected_models: None,
                 role_models: None,
+                modes: None,
+                expected_modes: None,
                 permission_mode,
                 addon_settings: None,
                 component_packages: Vec::new(),
@@ -152,6 +155,8 @@ impl AppServerHandle {
             models,
             expected_models,
             role_models,
+            modes,
+            expected_modes,
             permission_mode,
             addon_settings,
             component_packages,
@@ -188,14 +193,21 @@ impl AppServerHandle {
             models.as_ref(),
             role_models.as_ref(),
         )?;
-        if let Some(edits) = &model_edits {
-            if matches!(edits.selected, Some(None)) {
+        let mode_edits =
+            behaviors::proposal(&next_config, modes.as_ref(), expected_modes.as_ref())?;
+        if model_edits.is_some() || mode_edits.is_some() {
+            if model_edits
+                .as_ref()
+                .is_some_and(|edits| matches!(edits.selected, Some(None)))
+            {
                 anyhow::ensure!(
                     AppConfig::inherited_model_choice_key(config_path)?.is_none(),
                     "cannot remove an inherited model selection from an additive include wrapper"
                 );
             }
-            next_config = AppConfig::load_with_model_edits(config_path, edits).await?;
+            next_config =
+                AppConfig::load_with_settings_edits(config_path, model_edits.as_ref(), mode_edits)
+                    .await?;
         }
         let component_ids =
             component_packages::apply(&mut next_config, component_packages, &self.cwd)?;
@@ -293,6 +305,7 @@ pub(super) fn config_builder_state(config: &AppConfig) -> ConfigBuilderState {
             .collect::<std::collections::BTreeSet<_>>()
             .into_iter()
             .collect(),
+        modes: config.modes.clone(),
         permission_mode: permission_mode_str(config.permissions.mode),
         active_modules: config
             .modules
@@ -335,7 +348,7 @@ pub(super) fn config_builder_snapshot_from_topology(
         })
         .collect();
 
-    let (tools, tool_warnings) = plugins::builder_tools(topology, process_tool_specs);
+    let (tools, tool_warnings) = plugins::builder_tools(topology, process_tool_specs, config);
     let plugins = plugins::builder_plugins(config, &tools);
     let state = config_builder_state(config);
     ConfigBuilderSnapshot {
@@ -347,11 +360,21 @@ pub(super) fn config_builder_snapshot_from_topology(
         model_writable: models::choice_writable(config),
         models: state.models,
         models_writable: config.model_source.catalogue_writable,
+        modes: state.modes,
+        modes_writable: config.behavior_source.writable,
         model_roles: models::roles(config),
         model_modules: modules
             .iter()
             .filter(|module| module.slot == "model")
-            .map(config_builder_module)
+            .map(|module| {
+                let mut item = config_builder_module(module);
+                item.active = config
+                    .active_provider
+                    .as_ref()
+                    .and_then(|alias| config.providers.get(alias))
+                    .is_some_and(|preset| preset.provider == module.id);
+                item
+            })
             .collect(),
         permission_mode: state.permission_mode,
         permission_modes: PERMISSION_MODES
@@ -363,7 +386,11 @@ pub(super) fn config_builder_snapshot_from_topology(
         hook_modules: modules
             .iter()
             .filter(|module| module.slot == "hook")
-            .map(config_builder_module)
+            .map(|module| {
+                let mut item = config_builder_module(module);
+                item.active = config.modules.hooks.contains(&module.id);
+                item
+            })
             .collect(),
         module_config: state.module_config,
         tools_enabled: state.tools_enabled,

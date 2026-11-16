@@ -44,6 +44,7 @@ mod model_selection;
 mod path_utils;
 mod queued_messages;
 mod runs;
+mod session_behavior;
 mod session_model;
 mod session_selection;
 mod session_settings;
@@ -219,9 +220,8 @@ impl AppServerHandle {
         Ok(AppRememberResult::new(kind, content))
     }
 
-    pub async fn set_permission_mode(&self, mode: PermissionMode) {
-        // A session override must not change the published profile's reload baseline.
-        self.runtime.set_permission_mode(mode).await;
+    pub async fn set_permission_mode(&self, mode: PermissionMode) -> Result<()> {
+        self.set_behavior_permission(mode).await
     }
 
     pub async fn permission_mode(&self) -> PermissionMode {
@@ -596,9 +596,12 @@ impl AgentAppServer {
                 runs: Arc::new(Mutex::new(runs::RunRegistry::default())),
                 profile_stop: CancellationToken::new(),
                 profile_error: Mutex::new(None),
+                settings_transition: Mutex::new(()),
+                behavior: RwLock::new(Default::default()),
             }),
         };
         session_model::restore(&handle, selection_is_new).await?;
+        Box::pin(session_behavior::restore(&handle, selection_is_new)).await?;
         handle.command_catalog().await?;
         profile_watch::start(&handle).await;
         if refresh_stale_view {

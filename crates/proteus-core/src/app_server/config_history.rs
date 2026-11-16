@@ -187,13 +187,15 @@ mod tests {
         std::fs::create_dir(&configs).unwrap();
         assert_eq!(
             config_history_dir(&configs.join("codex.config.toml")),
-            dir.path().join("config-history/configs/codex.config.toml")
+            dir.path()
+                .join("config-history/v2/configs/codex.config.toml")
         );
         let profile = dir.path().join("work");
         std::fs::create_dir(&profile).unwrap();
         assert_eq!(
             config_history_dir(&profile),
-            dir.path().join("config-history/work/config-builder.toml")
+            dir.path()
+                .join("config-history/v2/work/config-builder.toml")
         );
     }
 }

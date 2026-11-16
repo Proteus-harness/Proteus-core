@@ -34,7 +34,7 @@ fn sha256(bytes: &[u8]) -> String {
         .collect()
 }
 
-fn resolved_path(path: &Path) -> Result<PathBuf> {
+pub(super) fn resolved_path(path: &Path) -> Result<PathBuf> {
     let selection = crate::core::config_selection(path)?;
     let absolute = std::path::absolute(crate::core::physical_config_path(path))?;
     let mut resolved = absolute
@@ -102,7 +102,7 @@ fn last_path(config: &AppConfig, path: &Path) -> Result<PathBuf> {
         .join(format!("{}.json", sha256(&key))))
 }
 
-fn read_bytes(path: &Path) -> Result<Option<Vec<u8>>> {
+pub(super) fn read_bytes(path: &Path) -> Result<Option<Vec<u8>>> {
     let file = match std::fs::File::open(path) {
         Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -138,7 +138,7 @@ fn read_selection(path: &Path, expected: &str) -> Result<Option<Selection>> {
     Ok((selection.binding == expected).then_some(selection))
 }
 
-fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
+pub(super) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
     let parent = path.parent().context("selection path has no parent")?;
     std::fs::create_dir_all(parent)?;
     let temporary = parent.join(format!(".selection-{}.tmp", crate::domain::new_call_id()));
@@ -205,6 +205,7 @@ impl super::AppServerHandle {
     pub(super) async fn update_selection(&self, update: SelectionUpdate) -> Result<()> {
         let server = self.clone();
         tokio::spawn(async move {
+            let _transition = server.settings_transition.lock().await;
             match update {
                 SelectionUpdate::Model(model) => {
                     server

@@ -137,6 +137,7 @@ pub(super) async fn persist_config_builder_with_components(
         AppConfig::inherited_model_choice_key(path)?,
     )?;
     super::models::toml_roles(&mut doc, config, baseline.as_ref())?;
+    super::behaviors::toml(&mut doc, config, baseline.as_ref())?;
     if doc
         .get("permissions")
         .is_none_or(|item| !item.is_table_like())
@@ -316,6 +317,7 @@ async fn persist_json_profile(
         AppConfig::inherited_model_choice_key(path)?,
     )?;
     super::models::json_roles(root, config, baseline.as_ref())?;
+    super::behaviors::json(root, config, baseline.as_ref())?;
     let omit_model_settings = !selection.is_empty()
         && omitted_model_settings_unchanged(
             config,

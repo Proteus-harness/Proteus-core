@@ -74,7 +74,7 @@ pub(super) async fn execute_new_session(
         // Inherit the source session override without changing the published
         // profile that config saves and unrelated reloads use as their baseline.
         if let Some(mode) = permission_mode {
-            next.set_permission_mode(mode).await;
+            next.set_permission_mode(mode).await?;
         }
         next.start_session().await?;
         state.remember_server(next.clone()).await;

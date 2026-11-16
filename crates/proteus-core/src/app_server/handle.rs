@@ -27,6 +27,8 @@ pub struct AppServerState {
     pub(super) runs: Arc<Mutex<RunRegistry>>,
     pub(super) profile_stop: CancellationToken,
     pub(super) profile_error: Mutex<Option<String>>,
+    pub(super) settings_transition: Mutex<()>,
+    pub(super) behavior: RwLock<super::session_behavior::Selection>,
 }
 
 impl Deref for AppServerHandle {

@@ -73,7 +73,7 @@ pub(super) fn apply(
             let component: crate::process_adapters::ProcessComponentConfig =
                 serde_json::from_value(serde_json::json!({
                     "command": command, "args": args, "exports": exports,
-                    "env_allowlist": package.env_allowlist,
+                    "env_allowlist": package.env_allowlist, "icon": package.icon,
                 }))?;
             component.validate_for(&package.id, &format!("components.{}", package.id))?;
             config.components.insert(package.id, component);
@@ -120,6 +120,9 @@ pub(super) fn apply(
                 // Explicit aliases retain args, sandbox, cwd/env, descriptions and
                 // their selected export subset, including per-export controls.
                 component.set_command(command.clone());
+                if let Some(icon) = &package.icon {
+                    component.set_icon(icon.clone());
+                }
             }
         }
     }

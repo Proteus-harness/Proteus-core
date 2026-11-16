@@ -144,7 +144,7 @@ impl AppServerHandle {
                         "auto" => crate::domain::PermissionMode::Auto,
                         _ => return Err(anyhow!("usage: /mode [normal|plan|auto]")),
                     };
-                    self.set_permission_mode(mode).await;
+                    self.set_permission_mode(mode).await?;
                 }
                 serde_json::to_string_pretty(&self.config_summary().await)?
             }

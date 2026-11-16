@@ -14,6 +14,7 @@ impl AppConfig {
         self.validate_module_config_slots()?;
         self.modules.validate_hooks()?;
         self.validate_commands()?;
+        self.validate_behavior_modes()?;
         Ok(())
     }
 

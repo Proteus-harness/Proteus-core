@@ -18,6 +18,8 @@ pub struct ConfigBuilderSnapshot {
     pub models_writable: bool,
     pub model_roles: Vec<ConfigBuilderModelRole>,
     pub model_modules: Vec<ConfigBuilderModule>,
+    pub modes: BTreeMap<String, crate::domain::BehaviorModeDefinition>,
+    pub modes_writable: bool,
     /// Persisted `[permissions] mode` (snake_case) — то, что редактирует
     /// builder. Runtime mode может отличаться после `POST /mode`.
     pub permission_mode: String,
@@ -121,6 +123,7 @@ pub struct ConfigBuilderState {
     pub role_models: BTreeMap<String, Option<String>>,
     /// Configured model export IDs at this revision; registration is not history-managed.
     pub model_connections: Vec<String>,
+    pub modes: BTreeMap<String, crate::domain::BehaviorModeDefinition>,
     pub permission_mode: String,
     pub active_modules: Vec<ConfigBuilderModuleSelection>,
     pub hooks: Vec<String>,

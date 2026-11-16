@@ -303,13 +303,11 @@ pub async fn run_stdio_app_server(
                 send_stdio_response(&output_tx, id, result.map(|_| None)).await;
             }
             StdioRequest::SetPermissionMode { mode, .. } => {
-                server.set_permission_mode(mode).await;
-                send_stdio_response(
-                    &output_tx,
-                    id,
-                    Ok(Some(serde_json::json!({ "mode": mode }))),
-                )
-                .await;
+                let result = server
+                    .set_permission_mode(mode)
+                    .await
+                    .map(|()| Some(serde_json::json!({ "mode": mode })));
+                send_stdio_response(&output_tx, id, result).await;
             }
             StdioRequest::SetModel { model, .. } => {
                 let result = server.set_model_name(model.clone()).await;

@@ -41,7 +41,7 @@ async fn local_config_remains_available_while_external_catalog_is_loading() {
     )
     .await
     .unwrap();
-    server.set_permission_mode(PermissionMode::Plan).await;
+    server.set_permission_mode(PermissionMode::Plan).await.unwrap();
     let (shutdown, _) = broadcast::channel(1);
     let state = HttpAppState::new(server.clone(), shutdown, test_security()).await;
     let local_uri = session_uri("/config/local", &server);

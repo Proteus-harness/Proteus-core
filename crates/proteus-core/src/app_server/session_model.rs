@@ -281,6 +281,7 @@ async fn apply(
         serde_json::to_value(&*server.config.read().await)? == serde_json::to_value(baseline)?,
         "profile changed during model configuration; retry selection"
     );
+    let _transition = server.settings_transition.lock().await;
     let unchanged = selected.clone();
     if server
         .runtime
@@ -300,7 +301,8 @@ async fn apply(
     {
         return Ok(());
     }
-    let (effective, assembly) = prepare(server, baseline, &selected).await?;
+    let behavior = super::session_behavior::effective(server, baseline).await;
+    let (effective, assembly) = prepare(server, &behavior, &selected).await?;
     let snapshot = SessionConfigSnapshot::from_runtime_config(
         &effective,
         assembly.registry(),

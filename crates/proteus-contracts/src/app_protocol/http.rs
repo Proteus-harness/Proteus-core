@@ -114,6 +114,11 @@ pub struct SetConfigBuilderRequest {
     /// Partial direct-role selections; a null value restores parent inheritance.
     #[serde(default)]
     pub role_models: Option<BTreeMap<String, Option<String>>>,
+    /// Complete replacement of the source-owned behavior mode definitions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub modes: Option<BTreeMap<String, crate::domain::BehaviorModeDefinition>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_modes: Option<BTreeMap<String, crate::domain::BehaviorModeDefinition>>,
     /// `None` — не трогать `[permissions] mode`.
     #[serde(default)]
     pub permission_mode: Option<PermissionMode>,
@@ -128,6 +133,9 @@ pub struct ComponentPackageInstall {
     pub id: String,
     /// Absolute executable followed by its arguments; never a shell command.
     pub command: Vec<String>,
+    /// Optional authored logo reference; presentation only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
     /// Explicit environment names shared with this new component only.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub env_allowlist: Vec<String>,
