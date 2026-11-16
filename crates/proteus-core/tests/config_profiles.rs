@@ -3,6 +3,9 @@ use std::path::{Path, PathBuf};
 use proteus_core::core::{AppConfig, ModuleCatalog};
 use proteus_module_protocol::current_process_contract_authority;
 
+#[path = "config_profiles/working.rs"]
+mod working;
+
 fn workspace_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
@@ -46,58 +49,9 @@ fn behavior_without_model_or_labels(config: &AppConfig) -> serde_json::Value {
         .as_object_mut()
         .unwrap()
         .remove("model_defaults");
-    // Go function transport was already selected in the working assembly.
+    // Wire binding follows the selected transport, not the child behavior.
     object["module_config"]["tool"]["codex_patch"]["freeform"] = false.into();
     value
-}
-
-#[tokio::test]
-async fn standalone_agent_moves_as_one_file_and_preserves_root_and_peer_behaviors() {
-    let root = workspace_root();
-    let moved = tempfile::tempdir().unwrap();
-    let path = moved.path().join("agent.toml");
-    std::fs::copy(root.join("configs/agent.toml"), &path).unwrap();
-    let config = AppConfig::load(Some(&path)).await.unwrap();
-    let baseline = AppConfig::load(Some(&root.join("configs/codex.config.toml")))
-        .await
-        .unwrap();
-    assert_eq!(
-        behavior_without_model_or_labels(&config),
-        behavior_without_model_or_labels(&baseline)
-    );
-    assert_eq!(config.profile.name, AppConfig::default().profile.name);
-    assert_eq!(config.providers.len(), 1);
-    assert_eq!(config.providers["cheap"].provider, "opencode");
-    assert_eq!(config.providers["cheap"].model, "deepseek-v4.1-flash");
-    assert_eq!(
-        config.providers["cheap"].reasoning.effort.as_deref(),
-        Some("high")
-    );
-    assert_eq!(config.agent_control.roles.len(), 2);
-    for role in &config.agent_control.roles {
-        let reference = Path::new(&role.config);
-        assert_eq!(proteus_core::core::physical_config_path(reference), path);
-        let child = AppConfig::load(Some(reference)).await.unwrap();
-        let baseline = AppConfig::load(Some(
-            &root.join(format!("configs/codex-{}.config.toml", role.name)),
-        ))
-        .await
-        .unwrap();
-        assert_eq!(
-            behavior_without_model_or_labels(&child),
-            behavior_without_model_or_labels(&baseline),
-            "{} behavior",
-            role.name
-        );
-        assert_eq!(child.providers["cheap"].model, "deepseek-v4.1-flash");
-        assert!(
-            child
-                .instructions
-                .iter()
-                .all(|instruction| instruction.file.is_none() && instruction.text.is_some())
-        );
-    }
-    assert_eq!(std::fs::read_dir(moved.path()).unwrap().count(), 1);
 }
 
 #[tokio::test]
@@ -128,10 +82,12 @@ async fn code_mode_profile_adds_the_optional_tool_to_the_existing_composition() 
 }
 
 #[tokio::test]
-async fn upstream_codex_profile_uses_public_templates_and_freeform_patch() {
-    let config = AppConfig::load(Some(&workspace_root().join("configs/codex.config.toml")))
-        .await
-        .unwrap();
+async fn explicit_subscription_codex_profile_uses_public_templates_and_freeform_patch() {
+    let config = AppConfig::load(Some(
+        &workspace_root().join("configs/codex-subscription.config.toml"),
+    ))
+    .await
+    .unwrap();
     assert_eq!(
         config.tools.enabled,
         [
@@ -156,9 +112,11 @@ async fn upstream_codex_profile_uses_public_templates_and_freeform_patch() {
 #[tokio::test]
 async fn context_search_profile_changes_only_the_context_selection_and_configuration() {
     let root = workspace_root();
-    let base = AppConfig::load(Some(&root.join("configs/config.toml")))
-        .await
-        .unwrap();
+    let base = AppConfig::load(Some(
+        &root.join("configs/extended-subscription.config.toml"),
+    ))
+    .await
+    .unwrap();
     let experiment = AppConfig::load(Some(
         &root.join("configs/context-search-chatgpt.config.toml"),
     ))
@@ -180,6 +138,9 @@ async fn context_search_profile_changes_only_the_context_selection_and_configura
             .as_object_mut()
             .unwrap()
             .remove("context");
+        for role in value["agent_control"]["roles"].as_array_mut().unwrap() {
+            role.as_object_mut().unwrap().remove("config");
+        }
     }
     assert_eq!(base, experiment);
 }
@@ -187,22 +148,24 @@ async fn context_search_profile_changes_only_the_context_selection_and_configura
 #[tokio::test]
 async fn subscription_profiles_keep_root_and_every_peer_on_oauth() {
     let root = workspace_root();
-    for profile in ["config.toml", "codex.config.toml", "restricted.config.toml"] {
+    for profile in [
+        "codex-subscription.config.toml",
+        "extended-subscription.config.toml",
+        "restricted.config.toml",
+    ] {
         let config = AppConfig::load(Some(&root.join("configs").join(profile)))
             .await
             .unwrap();
         let mut configs = vec![config.clone()];
         for role in &config.agent_control.roles {
-            assert!(role.config.starts_with("codex-"));
-            configs.push(
-                AppConfig::load(Some(
-                    &root.join(format!("configs/{}.config.toml", role.config)),
-                ))
-                .await
-                .unwrap(),
-            );
+            let reference = if role.config.starts_with("codex-") {
+                root.join(format!("configs/{}.config.toml", role.config))
+            } else {
+                PathBuf::from(&role.config)
+            };
+            configs.push(AppConfig::load(Some(&reference)).await.unwrap());
         }
-        assert_eq!(configs.len(), 3);
+        assert_eq!(configs.len(), 2);
         for config in configs {
             assert_eq!(config.providers.len(), 1);
             assert_eq!(config.active_provider.as_deref(), Some("chatgpt"));
@@ -225,9 +188,11 @@ async fn subscription_profiles_keep_root_and_every_peer_on_oauth() {
 #[tokio::test]
 async fn restricted_profile_preserves_default_behavior_and_trusted_capabilities() {
     let root = workspace_root();
-    let default = AppConfig::load(Some(&root.join("configs/config.toml")))
-        .await
-        .unwrap();
+    let default = AppConfig::load(Some(
+        &root.join("configs/extended-subscription.config.toml"),
+    ))
+    .await
+    .unwrap();
     let restricted = AppConfig::load(Some(&root.join("configs/restricted.config.toml")))
         .await
         .unwrap();
@@ -274,7 +239,12 @@ async fn restricted_profile_preserves_default_behavior_and_trusted_capabilities(
         serde_json::to_value(&restricted.components["policy-pack"]).unwrap(),
         expected_policy
     );
-    for profile in ["config.toml", "codex.config.toml"] {
+    for profile in [
+        "config.toml",
+        "codex.config.toml",
+        "codex-subscription.config.toml",
+        "extended-subscription.config.toml",
+    ] {
         let trusted = AppConfig::load(Some(&root.join("configs").join(profile)))
             .await
             .unwrap();
@@ -290,6 +260,13 @@ async fn restricted_profile_preserves_default_behavior_and_trusted_capabilities(
     for config in [&mut default, &mut restricted] {
         config.as_object_mut().unwrap().remove("components");
         config["profile"].as_object_mut().unwrap().remove("name");
+        for role in config["agent_control"]["roles"].as_array_mut().unwrap() {
+            role.as_object_mut().unwrap().remove("config");
+            role.as_object_mut().unwrap().remove("description");
+        }
+        for instruction in config["instructions"].as_array_mut().unwrap() {
+            instruction.as_object_mut().unwrap().remove("file");
+        }
     }
     assert_eq!(default, restricted);
 }

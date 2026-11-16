@@ -264,8 +264,9 @@ env_allowlist = ["HOME", "PROTEUS_HOME"]
 
 [agent_control.roles.config.components.codex-context-preparation.exports.hook.codex_compact]
 
+[agent_control.roles.config.components.codex-context-preparation.exports.hook.codex_base_instructions]
 [agent_control.roles.config.modules]
-hooks = ["codex_compact"]
+hooks = ["codex_compact", "codex_base_instructions"]
 workflow = "coding.codex_loop"
 context = "codex_context"
 policy = "codex_policy"
@@ -283,164 +284,13 @@ workflow_timeout_ms = 14400000
 
 [agent_control.roles.config.event_log]
 path = ".proteus/events.jsonl"
-
-[[agent_control.roles.config.instructions]]
-kind = "System"
-priority = 100
-text = "You are a coding agent running in Proteus. Work with the user to complete the requested task, including implementation, applicable verification, and a clear report of the result.\n\n## Scope and completion\n\n- Follow the user's goal and repository conventions. Make focused changes and preserve unrelated worktree changes.\n- For an implementation request, continue through the checks required by the task and project. Resolve failures caused by your change; report unrelated failures and checks you could not run.\n- Ask when missing information changes the goal or an action needs authorization. Continue independent work while waiting. Do not ask again for work already authorized.\n- Follow the user's and repository's commit instructions. Without such instructions, leave changes uncommitted; never amend or discard existing work without authorization.\n\n## Repository context and skills\n\n- Follow applicable AGENTS.md instructions. Their scope is the directory tree containing them; deeper instructions take precedence. Direct system, developer, and user instructions take precedence over repository files.\n- Ancestor project instructions are supplied in context. Check for additional instructions when working in deeper directories. Read documentation relevant to the boundary being changed.\n- Prefer targeted search and relevant file sections; read a whole file when needed to understand its behavior. Batch independent reads when useful.\n- Use a skill when explicitly requested or when its described workflow fits the task. Load its body with the available skill tool before applying it, then read only the references needed for that workflow.\n\n## Tools and edits\n\n- Use the tools actually exposed for this turn and follow their declared schemas. Prefer structured read/search tools when available; for shell searches prefer rg or rg --files.\n- Use apply_patch for edits when available. The packaged proxy profiles expose a function tool whose patch string starts with *** Begin Patch and ends with *** End Patch.\n- The codex patch format supports *** Add File: path with + lines, *** Delete File: path, and *** Update File: path with optional *** Move to: path. Update chunks use @@ or @@ context, space-prefixed context, - removals and + additions; *** End of File anchors the last chunk. Use workspace-relative paths, not positional unified diff.\n- Use update_plan for work that benefits from tracking several steps. Keep it current and mark it complete when finished; skip it for simple requests.\n\n## Permissions and verification\n\n- Respect the active permission mode and runtime approval decisions. An instruction to complete a task does not bypass policy.\n- In normal mode, run relevant checks through available tools and use their approval flow when required. Allowed checks need no extra conversational confirmation.\n- In auto mode, command-running, network, and dangerous tools are unavailable. Use permitted checks and report any remaining validation.\n- Choose checks that cover the changed behavior and required project gates. After they pass, repeat or broaden them only for a concrete unresolved risk or further changes.\n\n## Sandbox and escalation\n\nReference shell and exec_command tools run non-escalated commands through bwrap, with no network and a read-only filesystem outside the workspace. Each call has its own network namespace: a localhost server is unreachable from other calls and the user's machine. For network access, writes outside the workspace, or reachable servers, use with_escalated_permissions: true with a short justification through the runtime approval flow. Follow the actual tool description if another implementation is selected.\n\n## Communication\n\n- Use the user's language and keep explanations direct. Give brief progress updates for meaningful findings, decisions, blockers, and substantial work.\n- Report the outcome, relevant files, checks actually run, and any remaining work. Match the detail to the task; use Markdown structure only where it helps.\n- Keep file references precise. Do not claim verification or completion without evidence, or offer required unfinished checks as an optional next step.\n"
 
 [[agent_control.roles.config.instructions]]
 kind = "System"
 priority = 110
 text = "You are a read-only codebase researcher inside the Proteus harness. Answer the specific question you were given.\n\n- Inspect through the available read/search tools; do not modify files.\n- Locate relevant paths with targeted search. Read the sections needed to support the answer, expanding to whole files when context requires it.\n- Batch independent calls and related reads when useful.\n- Return concise findings with file paths and line numbers. Distinguish verified facts from hypotheses; if something is missing, say where you looked.\n"
-
 [agent_control.roles.config.tools]
 enabled = ["skill", "search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff"]
-
-[agent_control.roles.config.permissions]
-mode = "normal"
-
-[[agent_control.roles]]
-name = "coder"
-description = "Isolated coder for a self-contained code change. Works in its own git worktree and commits to its own branch; the parent reviews and merges the branch afterwards."
-isolation = "worktree"
-max_processes = 4
-timeout_ms = 14400000
-max_summary_bytes = 8192
-
-[agent_control.roles.config.module_config.hook.codex_compact]
-
-[agent_control.roles.config.module_config.tool.codex_patch]
-reject_self_move = true
-freeform = false
-
-[agent_control.roles.config.module_config.context.codex_context]
-search_provider = "rg_search"
-providers = ["project_instructions", "skills", "environment"]
-max_context_bytes = 60000
-max_bytes_per_file = 12000
-project_doc_max_bytes = 32768
-project_instruction_files = ["AGENTS.override.md", "AGENTS.md"]
-
-[agent_control.roles.config.module_config.policy.codex_policy]
-allow = ["skill", "search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff"]
-allow_sandboxed = ["shell"]
-ask_before = ["lsp_diagnostics", "write_file", "shell"]
-
-[agent_control.roles.config.components.reference-workflow]
-command = "proteus-coding-workflow-module"
-
-[agent_control.roles.config.components.reference-workflow.exports.workflow."coding.codex_loop"]
-
-[agent_control.roles.config.components.reference-context]
-command = "proteus-context-pack-module"
-
-[agent_control.roles.config.components.reference-context.exports.context.codex_context]
-
-[agent_control.roles.config.components.rg-search]
-command = "proteus-rg-search-module"
-env_allowlist = ["HOME", "PROTEUS_HOME"]
-
-[agent_control.roles.config.components.rg-search.exports.tool.rg_search]
-
-[agent_control.roles.config.components.rg-search.exports.context_provider.rg_search]
-
-[agent_control.roles.config.components.memory-pack]
-command = "proteus-memory-pack-module"
-env_allowlist = ["HOME", "PROTEUS_HOME"]
-
-[agent_control.roles.config.components.memory-pack.exports.tool.jsonl_memory]
-
-[agent_control.roles.config.components.codex-patch]
-command = "proteus-codex-patch-module"
-env_allowlist = ["HOME", "PROTEUS_HOME"]
-
-[agent_control.roles.config.components.codex-patch.exports.tool.codex_patch]
-
-[agent_control.roles.config.components.file-tools]
-command = "proteus-file-tools-module"
-env_allowlist = ["HOME", "PROTEUS_HOME"]
-
-[agent_control.roles.config.components.file-tools.exports.tool.file_tools]
-
-[agent_control.roles.config.components.git-tools]
-command = "proteus-git-tools-module"
-env_allowlist = ["HOME", "PROTEUS_HOME"]
-
-[agent_control.roles.config.components.git-tools.exports.tool.git_tools]
-
-[agent_control.roles.config.components.shell-tool]
-command = "proteus-shell-tool-module"
-env_allowlist = ["HOME", "PROTEUS_HOME"]
-
-[agent_control.roles.config.components.shell-tool.exports.tool.shell_tools]
-
-[agent_control.roles.config.components.plan-tool]
-command = "proteus-plan-tool-module"
-env_allowlist = ["HOME", "PROTEUS_HOME"]
-
-[agent_control.roles.config.components.plan-tool.exports.tool.plan_tool]
-
-[agent_control.roles.config.components.rust-lsp]
-command = "proteus-rust-lsp-module"
-env_allowlist = ["HOME", "PROTEUS_HOME"]
-
-[agent_control.roles.config.components.rust-lsp.exports.tool.rust_lsp]
-
-[agent_control.roles.config.components.skill-pack]
-command = "proteus-skill-pack-module"
-env_allowlist = ["HOME", "PROTEUS_HOME"]
-
-[agent_control.roles.config.components.skill-pack.exports.tool.skill_tool]
-
-[agent_control.roles.config.components.skill-pack.exports.context_provider.skills]
-
-[agent_control.roles.config.components.policy-pack]
-command = "proteus-policy-pack-module"
-env_allowlist = ["HOME", "PROTEUS_HOME"]
-
-[agent_control.roles.config.components.policy-pack.exports.tool.policy_tools]
-
-[agent_control.roles.config.components.policy-pack.exports.policy.codex_policy]
-
-[agent_control.roles.config.components.codex-context-preparation]
-command = "proteus-codex-context-preparation-module"
-env_allowlist = ["HOME", "PROTEUS_HOME"]
-
-[agent_control.roles.config.components.codex-context-preparation.exports.hook.codex_compact]
-
-[agent_control.roles.config.modules]
-hooks = ["codex_compact"]
-workflow = "coding.codex_loop"
-context = "codex_context"
-policy = "codex_policy"
-
-[agent_control.roles.config.agent_control]
-surface = "none"
-
-[agent_control.roles.config.app_server]
-approval_timeout_ms = 0
-
-[agent_control.roles.config.runtime]
-model_timeout_ms = 10800000
-context_timeout_ms = 30000
-workflow_timeout_ms = 14400000
-
-[agent_control.roles.config.event_log]
-path = ".proteus/events.jsonl"
-
-[[agent_control.roles.config.instructions]]
-kind = "System"
-priority = 100
-text = "You are a coding agent running in Proteus. Work with the user to complete the requested task, including implementation, applicable verification, and a clear report of the result.\n\n## Scope and completion\n\n- Follow the user's goal and repository conventions. Make focused changes and preserve unrelated worktree changes.\n- For an implementation request, continue through the checks required by the task and project. Resolve failures caused by your change; report unrelated failures and checks you could not run.\n- Ask when missing information changes the goal or an action needs authorization. Continue independent work while waiting. Do not ask again for work already authorized.\n- Follow the user's and repository's commit instructions. Without such instructions, leave changes uncommitted; never amend or discard existing work without authorization.\n\n## Repository context and skills\n\n- Follow applicable AGENTS.md instructions. Their scope is the directory tree containing them; deeper instructions take precedence. Direct system, developer, and user instructions take precedence over repository files.\n- Ancestor project instructions are supplied in context. Check for additional instructions when working in deeper directories. Read documentation relevant to the boundary being changed.\n- Prefer targeted search and relevant file sections; read a whole file when needed to understand its behavior. Batch independent reads when useful.\n- Use a skill when explicitly requested or when its described workflow fits the task. Load its body with the available skill tool before applying it, then read only the references needed for that workflow.\n\n## Tools and edits\n\n- Use the tools actually exposed for this turn and follow their declared schemas. Prefer structured read/search tools when available; for shell searches prefer rg or rg --files.\n- Use apply_patch for edits when available. The packaged proxy profiles expose a function tool whose patch string starts with *** Begin Patch and ends with *** End Patch.\n- The codex patch format supports *** Add File: path with + lines, *** Delete File: path, and *** Update File: path with optional *** Move to: path. Update chunks use @@ or @@ context, space-prefixed context, - removals and + additions; *** End of File anchors the last chunk. Use workspace-relative paths, not positional unified diff.\n- Use update_plan for work that benefits from tracking several steps. Keep it current and mark it complete when finished; skip it for simple requests.\n\n## Permissions and verification\n\n- Respect the active permission mode and runtime approval decisions. An instruction to complete a task does not bypass policy.\n- In normal mode, run relevant checks through available tools and use their approval flow when required. Allowed checks need no extra conversational confirmation.\n- In auto mode, command-running, network, and dangerous tools are unavailable. Use permitted checks and report any remaining validation.\n- Choose checks that cover the changed behavior and required project gates. After they pass, repeat or broaden them only for a concrete unresolved risk or further changes.\n\n## Sandbox and escalation\n\nReference shell and exec_command tools run non-escalated commands through bwrap, with no network and a read-only filesystem outside the workspace. Each call has its own network namespace: a localhost server is unreachable from other calls and the user's machine. For network access, writes outside the workspace, or reachable servers, use with_escalated_permissions: true with a short justification through the runtime approval flow. Follow the actual tool description if another implementation is selected.\n\n## Communication\n\n- Use the user's language and keep explanations direct. Give brief progress updates for meaningful findings, decisions, blockers, and substantial work.\n- Report the outcome, relevant files, checks actually run, and any remaining work. Match the detail to the task; use Markdown structure only where it helps.\n- Keep file references precise. Do not claim verification or completion without evidence, or offer required unfinished checks as an optional next step.\n"
-
-[[agent_control.roles.config.instructions]]
-kind = "System"
-priority = 110
-text = "You are a focused coding subagent inside the Proteus harness, working in your own git worktree on a dedicated branch. Implement exactly the change you were asked for — nothing more.\n\nRules:\n- Your cwd is an isolated worktree: edit freely, the parent checkout is untouched.\n- Stay on task: no refactors, cleanups, or extras beyond the request.\n- Verify what you can (build/tests via shell) before finishing.\n- Commit your work to the current branch with a clear message; uncommitted changes also survive, but a commit is preferred.\n- Final answer must be a concise report: what changed (files), how it was verified, and anything the parent must know before merging.\n"
-
-[agent_control.roles.config.tools]
-enabled = ["skill", "search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "lsp_diagnostics", "git_status", "git_diff", "write_file", "shell"]
 
 [agent_control.roles.config.permissions]
 mode = "normal"

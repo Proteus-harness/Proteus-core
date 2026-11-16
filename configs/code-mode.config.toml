@@ -1,4 +1,4 @@
-# Opt-in CodeMode поверх локальной подписочной сборки.
+# Opt-in CodeMode поверх основной Go-сборки с пятью tools.
 # Установите пакет code-mode из Proteus-modules; Core должен поддерживать
 # scheduling вложенных tool callbacks по supports_parallel_tool_calls.
 include = ["config.toml"]
@@ -14,7 +14,7 @@ command = "proteus-code-mode-module"
 [tools]
 # Массив заменяет значение include: сохраняем штатные инструменты и добавляем
 # code_mode. Их definitions остаются доступны модели и для прямых вызовов.
-enabled = ["skill", "search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "lsp_diagnostics", "git_status", "git_diff", "request_user_input", "update_plan", "request_permissions", "apply_patch", "write_file", "shell", "exec_command", "write_stdin", "remember_fact", "code_mode"]
+enabled = ["exec_command", "write_stdin", "apply_patch", "update_plan", "request_user_input", "code_mode"]
 
 # Для отдельно включённого tool_selection.dynamic добавьте code_mode в его
 # always_include. Workflow-only discovery вызывается моделью до скрипта.

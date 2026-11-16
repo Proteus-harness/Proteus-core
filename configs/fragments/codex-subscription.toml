@@ -12,15 +12,6 @@ max_processes = 4
 timeout_ms = 14400000
 max_summary_bytes = 8192
 
-[[agent_control.roles]]
-name = "coder"
-description = "Isolated coder in its own worktree. Uses the ChatGPT subscription profile."
-config = "codex-coder"
-isolation = "worktree"
-max_processes = 4
-timeout_ms = 14400000
-max_summary_bytes = 8192
-
 [module_config.context.codex_context]
 providers = ["project_instructions", "environment", "repo_tree"]
 
