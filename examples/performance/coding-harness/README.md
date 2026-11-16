@@ -81,8 +81,9 @@ Matrix ищет Pi в `~/.local/bin/pi`, OpenCode в
 сохраняются; runner разрешает выбранные root tools в своей внешней OS-песочнице,
 отключает MCP и записывает эти overrides. Опциональный `--disable-subagents`
 отключает роли и collaboration surface только для этого disposable прогона;
-без флага роли сохраняются. Этот флаг пока поддержан только указанным native
-named-model adapter. Метрики с несколькими journals требуют отдельной агрегации.
+без флага роли сохраняются. Native OpenCode с этим флагом получает последний
+`subagent deny` и `experimental.subagent_depth = 0`; effective config проверяется
+до генерации. Метрики с несколькими journals требуют отдельной агрегации.
 Сборка должна быть самодостаточной, без `include`. Provider для этого adapter
 подтверждается конфигурацией model binding и наблюдаемым логическим adapter ID
 в canonical requests, а не отсутствующим provider ID в ответе внешнего API.
@@ -426,3 +427,77 @@ upstream images. Bridge копирует библиотеки только аг�
 Опубликованная серия Claude Code в среднем занимала 84 минуты на попытку:
 20-минутный пилот нельзя напрямую сравнивать с её score. Usage/cost estimate
 каталога также не доказывает денежное списание по подписке Go.
+
+## Полный Aider Polyglot: парный прогон
+
+`polyglot_corpus.py` сохраняет все 225 задач закреплённого Polyglot checkout:
+C++26, Go39, Java47, JavaScript49, Python34, Rust30. Поведение upstream Aider
+изучено на commit `5dc9490bb35f9729ef2c95d00a19ccd30c26339c`;
+SHA-256 исходных benchmark scripts сохраняются в
+`target/performance/polyglot-225/upstream-methodology/provenance.json`.
+
+Агент видит условие, объявленные implementation files и необходимые build
+configs. Тесты, `.meta` и примеры решений остаются вне его namespace. Проверка
+собирает pristine tree и накладывает только разрешённые solution files. После
+первого отказа возвращается диагностический вывод grader; вторая попытка
+продолжает ту же native session. Максимум два агентских turn, при первом PASS
+второй не запускается. Внутри turn доступны собственные tools и smoke tests,
+поэтому это сравнение двух харнесов на задачах Polyglot, а не точная реплика
+одной генерации Aider.
+
+```sh
+suite=examples/performance/coding-harness
+data=target/performance/polyglot-225
+python3 "$suite/polyglot_setup.py"
+python3 "$suite/polyglot_corpus.py" prepare
+python3 "$suite/polyglot_corpus.py" controls --workers 2
+python3 "$suite/polyglot_run.py" init --output "$data/runs/my-run" \
+  --timeout 1200 --budget 20
+python3 "$suite/polyglot_run.py" run --output "$data/runs/my-run" --jobs 4
+python3 "$suite/polyglot_report.py" --runs "$data/runs/my-run" \
+  --output "$data/runs/my-run/report.json"
+```
+
+`setup` закрепляет JDK21, Gradle8.7, JS dependencies, Cargo caches и недостающий
+Boost для двух C++ задач; версии и хеши находятся в `toolchains/receipt.json`.
+Cache/toolchain mounts доступны только для чтения. Writable state и home
+раздельны для каждого task/agent; пользовательские конфиги и секреты в них
+не копируются целиком. В disposable Proteus shell component разрешаются только
+нужные benchmark toolchain env keys, чтобы условия совпадали с OpenCode.
+В отдельном network namespace доступ к HTTPS оставлен только для `opencode.ai`
+и `models.opencode.ai` через `polyglot_network.py`; публичные tests/solutions
+скачать нельзя. Proxy передаёт TLS непрозрачно и сохраняет только счётчики,
+без headers/body/credentials. Ограничение и запрет скачивания tests явно заданы
+одинаковым benchmark prompt prefix для обоих харнесов. Стандартные localhost
+RPC native OpenCode работают внутри namespace.
+Grader не имеет сети и требует наблюдаемого исполнения тестов, а не одного
+exit0. Используются Java unskip, Rust include-ignored и все C++ tests; для JS
+активируются также 23 `xit` проверки `grep`, пропущенные upstream script.
+Эта адаптация сохранена в provenance, два явно optional JS tests остаются skipped.
+
+До платного admission нужны контроли всех задач. У `go--counter` тестов нет:
+он отмечен как неоцениваемый и не вызывает модель. Из **224 проверяемых задач**
+пять refactor starters уже проходят: Go ledger/markdown, Java ledger/tree-building,
+JavaScript ledger. Отчёт дополнительно показывает **219 задач**, на которых
+starter не прошёл. Для шести Rust-эталонов используется официальный
+`Cargo-example.toml`; receipt отмечает отличающийся reference contract.
+Условия и Cargo.toml кандидатских решений сохраняются.
+
+`init` фиксирует source/case/control/prompt hashes, compiler setup, модель и
+effort, config, executable/component hashes и digest JS model runtime.
+Порядок задач перемешан фиксированным seed, порядок харнесов чередуется.
+`run` продолжает отсутствующие задачи и сохраняет неудачные попытки;
+неполный trial требует явного аудита. На задачу выделяется 1200 секунд работы
+агента суммарно на оба turn; grader180 секунд считается отдельно. Лимит ответа
+модели не добавляется. Порог $20 применяется к catalog-equivalent usage:
+новые задачи перестают запускаться при его достижении или при неизвестном
+usage. Уже выполняющиеся задачи завершаются, поэтому это не жёсткий billing cap.
+
+Отчёт сохраняет first-turn/final PASS, независимый grader PASS, model/effort,
+continuity, actions, tokens/cache, стоимость и время. Полнота usage и известная
+нижняя граница расхода различаются; cumulative snapshots не суммируются дважды.
+Сетевые/квотные ошибки остаются в основной серии; дополнительный clean slice
+показывается с собственным знаменателем. Deadline остаётся ошибкой бюджета.
+225 языковых вариантов содержат 100 exercise slugs: 95% интервалы строятся
+парным cluster bootstrap по упражнению, сохраняя его языковые варианты вместе.
+Чужие Aider score/cost относятся к другой модели и протоколу и служат справкой.

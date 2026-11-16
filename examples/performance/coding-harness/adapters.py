@@ -72,9 +72,10 @@ def prepare(args, runtime):
     selected = proteus_native.selected_model(args.base_config) if args.agent == 'proteus' else None
     if selected:
         return proteus_native.prepare(args, runtime, selected, go_auth)
-    if getattr(args, 'disable_subagents', False):
-        raise ValueError('--disable-subagents currently requires a native named-model Proteus assembly')
-    if go_auth:
+    disable_subagents = bool(getattr(args, 'disable_subagents', False))
+    if disable_subagents and args.agent != 'opencode':
+        raise ValueError('--disable-subagents requires native OpenCode or a native named-model Proteus assembly')
+    if go_auth and args.agent != 'opencode':
         (runtime/'model-selection.json').write_text(json.dumps({
             'provider': 'opencode-go', 'model': model, 'reasoning': args.reasoning,
             'catalog': '@earendil-works/pi-ai (locked Pi 1.5.2)',
@@ -196,15 +197,24 @@ def prepare(args, runtime):
     mounts.append((HERE/'open_code_native.py', '/runtime/open_code_native.py'))
     config = home / '.config/opencode/opencode.json'
     config.parent.mkdir(parents=True)
-    config.write_text(json.dumps({'$schema': 'https://opencode.ai/config.json',
-                                 'plugins': [], 'mcp': {'servers': {}},
-                                 **({'model': f'{model}#{args.reasoning}', 'small_model': model,
-                                     'agents': {'title': {'model': f'{model}#{args.reasoning}'}}} if go else {}),
-                                 'permissions': [{'action': '*', 'resource': '*', 'effect': 'allow'}]}))
+    settings = {'$schema': 'https://opencode.ai/config.json',
+                'plugins': [], 'mcp': {'servers': {}},
+                **({'model': f'{model}#{args.reasoning}', 'small_model': model,
+                    'agents': {'title': {'model': f'{model}#{args.reasoning}'}}} if go else {}),
+                'permissions': [{'action': '*', 'resource': '*', 'effect': 'allow'}]}
+    if disable_subagents:
+        settings['permissions'].append({'action': 'subagent', 'resource': '*', 'effect': 'deny'})
+        settings['experimental'] = {'subagent_depth': 0}
+    config.write_text(json.dumps(settings, indent=2) + '\n')
+    (runtime/'profile-overrides.json').write_text(json.dumps({
+        'unattended_policy': True, 'plugins': [], 'mcp_servers': [],
+        'project_config_disabled': True, 'disable_subagents': disable_subagents,
+    }, indent=2) + '\n')
     return ['/usr/bin/python3', '-B', '/runtime/open_code_native.py',
             '--binary', '/runtime/opencode', '--model', f'{model}#{args.reasoning}',
             '--prompt', prompt, '--state', '/state/native',
-            '--auth-export', '/state/opencode-auth-export.json'], mounts
+            '--auth-export', '/state/opencode-auth-export.json',
+            *(['--disable-subagents'] if disable_subagents else [])], mounts
 
 
 def json_lines(path):
@@ -309,6 +319,8 @@ def metrics(agent, output):
             'providers': sorted({message['model']['providerID'] for message in messages}),
             'reasoning_efforts': sorted({message['model']['variant'] for message in messages}),
             'registry': json.loads((output/'runtime/native/registry.json').read_text()),
+            'profile_overrides': (json.loads((output/'runtime/profile-overrides.json').read_text())
+                                  if (output/'runtime/profile-overrides.json').exists() else {}),
             'credentials_remaining': native['credentials_remaining'],
             'settled': bool(rows) and all(row['idle_outcome'] == 'succeeded' for row in rows),
             'errors': [e for e in events if e.get('type') == 'error']}

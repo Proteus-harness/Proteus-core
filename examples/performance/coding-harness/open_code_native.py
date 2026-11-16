@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Run a native OpenCode V2 turn against its own prewarmed private server."""
 import argparse
+from fnmatch import fnmatchcase
 import json
 import os
 from pathlib import Path
@@ -86,7 +87,7 @@ def api_json(binary, environment, url, operation, location=False):
     return json.loads(response.stdout)
 
 
-def save_registry(binary, environment, url, model, state):
+def save_registry(binary, environment, url, model, state, *, disable_subagents=False):
     provider, name = model.split('#', 1)[0].split('/', 1)
     models = api_json(binary, environment, url, 'model.list', location=True)['data']
     selected = next(item for item in models if item['id'] == name and item['providerID'] == provider)
@@ -94,6 +95,8 @@ def save_registry(binary, environment, url, model, state):
     plugin_rows = plugins.get('data', plugins) if isinstance(plugins, dict) else plugins
     config_sources = api_json(binary, environment, url, 'config.get', location=True)
     bindings = {}
+    permissions = []
+    subagent_depth = None
     for source in config_sources:
         info = source.get('info', {})
         if 'model' in info:
@@ -101,16 +104,35 @@ def save_registry(binary, environment, url, model, state):
         title = info.get('agents', {}).get('title', {})
         if 'model' in title:
             bindings['title'] = title['model']
+        permissions.extend(info.get('permissions', []))
+        if 'subagent_depth' in info.get('experimental', {}):
+            subagent_depth = info['experimental']['subagent_depth']
     if provider == 'opencode-go':
         expected = {'providerID': provider, 'model': name, 'variant': model.split('#', 1)[1]}
         if bindings.get('main') != expected or bindings.get('title') != expected:
             raise RuntimeError('Flash main/title model binding is not explicitly verified; refusing generation')
+    external_plugins = [plugin.get('id') for plugin in plugin_rows
+                        if not isinstance(plugin.get('source'), dict)
+                        or plugin['source'].get('type') != 'builtin']
+    if external_plugins:
+        raise RuntimeError('External OpenCode plugins were loaded; refusing generation')
+    if disable_subagents:
+        matching = [rule for rule in permissions if fnmatchcase('subagent', rule.get('action', ''))]
+        if (not matching or matching[-1] != {'action': 'subagent', 'resource': '*', 'effect': 'deny'}
+                or subagent_depth != 0):
+            raise RuntimeError('OpenCode root-only permissions are not explicitly verified; refusing generation')
     proof = {
         'model_bindings': bindings,
         'auxiliary_model_verified': provider == 'opencode-go',
         'model': {key: selected.get(key) for key in ['id', 'modelID', 'providerID', 'name', 'limit', 'compatibility']},
         'variants': [variant['id'] for variant in selected.get('variants', [])],
         'plugins': [{key: plugin.get(key) for key in ['id', 'version', 'source']} for plugin in plugin_rows],
+        'external_plugins': external_plugins,
+        'root_only': {'requested': disable_subagents,
+                      'verified': disable_subagents,
+                      'evidence': 'effective config; native tool snapshot filters last matching subagent deny',
+                      'subagent_depth': subagent_depth,
+                      'permissions': permissions} if disable_subagents else {'requested': False},
     }
     (state/'registry.json').write_text(json.dumps(proof, indent=2) + '\n')
 
@@ -188,7 +210,8 @@ def wait_model(binary, environment, url, model, timeout):
     raise RuntimeError(f'OpenCode private server has no available model {wanted}')
 
 
-def run(binary, model, prompt, state, startup_timeout=60, auth_export=None, session=None):
+def run(binary, model, prompt, state, startup_timeout=60, auth_export=None, session=None,
+        *, disable_subagents=False, registry_only=False):
     state.mkdir(parents=True, exist_ok=True)
     state.chmod(0o700)
     environment = os.environ.copy()
@@ -217,7 +240,9 @@ def run(binary, model, prompt, state, startup_timeout=60, auth_export=None, sess
                 for entry in entries
             ], indent=2))
             wait_model(binary, environment, url, model, startup_timeout)
-            save_registry(binary, environment, url, model, state)
+            save_registry(binary, environment, url, model, state, disable_subagents=disable_subagents)
+            if registry_only:
+                return 0
             return subprocess.run(
                 [str(binary), 'run', '--server', url, '--auto', '--format', 'json',
                  '--model', model, *(['--session', session] if session else []), prompt],
@@ -251,9 +276,12 @@ def main():
     parser.add_argument('--startup-timeout', type=int, default=60)
     parser.add_argument('--auth-export', type=Path)
     parser.add_argument('--session')
+    parser.add_argument('--disable-subagents', action='store_true')
+    parser.add_argument('--registry-only', action='store_true', help='verify native settings without a generation')
     args = parser.parse_args()
     try:
-        return run(args.binary, args.model, args.prompt, args.state, args.startup_timeout, args.auth_export, args.session)
+        return run(args.binary, args.model, args.prompt, args.state, args.startup_timeout, args.auth_export, args.session,
+                   disable_subagents=args.disable_subagents, registry_only=args.registry_only)
     except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as error:
         print(f'OpenCode startup failed: {error}', file=sys.stderr)
         return 1

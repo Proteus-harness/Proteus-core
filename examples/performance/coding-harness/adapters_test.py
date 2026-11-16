@@ -74,6 +74,75 @@ class FlashAuxiliaryGate(unittest.TestCase):
             self.assertTrue(proof['auxiliary_model_verified'])
             self.assertEqual(proof['model_bindings']['main'], proof['model_bindings']['title'])
 
+    def test_root_only_requires_effective_final_deny_and_zero_depth(self):
+        wanted = {'providerID':'opencode-go','model':'deepseek-v4.1-flash','variant':'high'}
+        deny = {'action':'subagent','resource':'*','effect':'deny'}
+        for extra, depth, accepted in [([], 0, True),
+                                       ([{'action':'sub*','resource':'*','effect':'allow'}], 0, False),
+                                       ([], 1, False)]:
+            with self.subTest(extra=extra, depth=depth), tempfile.TemporaryDirectory() as directory:
+                metadata = self.metadata(wanted)
+                info = metadata['config.get'][0]['info']
+                info.update(permissions=[{'action':'*','resource':'*','effect':'allow'},deny,*extra],
+                            experimental={'subagent_depth':depth})
+                with patch.object(open_code_native, 'api_json', side_effect=lambda b,e,u,op,**kw:metadata[op]):
+                    if not accepted:
+                        with self.assertRaisesRegex(RuntimeError, 'root-only.*refusing generation'):
+                            open_code_native.save_registry('binary', {}, 'http://unused',
+                                'opencode-go/deepseek-v4.1-flash#high', Path(directory), disable_subagents=True)
+                    else:
+                        open_code_native.save_registry('binary', {}, 'http://unused',
+                            'opencode-go/deepseek-v4.1-flash#high', Path(directory), disable_subagents=True)
+                        proof = json.loads((Path(directory)/'registry.json').read_text())
+                        self.assertTrue(proof['root_only']['verified'])
+
+    def test_external_or_unknown_plugin_sources_fail_before_generation(self):
+        wanted = {'providerID':'opencode-go','model':'deepseek-v4.1-flash','variant':'high'}
+        for source in [{'type':'npm'}, {'type':'directory'}, 'unknown', None]:
+            with self.subTest(source=source), tempfile.TemporaryDirectory() as directory:
+                metadata = self.metadata(wanted)
+                metadata['plugin.list'] = [{'id':'synthetic-external', 'source':source}]
+                with patch.object(open_code_native, 'api_json', side_effect=lambda b,e,u,op,**kw:metadata[op]):
+                    with self.assertRaisesRegex(RuntimeError, 'External OpenCode plugins'):
+                        open_code_native.save_registry('binary', {}, 'http://unused',
+                            'opencode-go/deepseek-v4.1-flash#high', Path(directory))
+
+
+class NativeOpenCodeAssembly(unittest.TestCase):
+    def test_disposable_config_and_command_disable_delegation_without_external_plugins(self):
+        fixtures = adapters.CORE/'target/performance/coding-harness/adapter-controls'
+        fixtures.mkdir(parents=True, exist_ok=True)
+        for disable in [False, True]:
+            with self.subTest(disable=disable), tempfile.TemporaryDirectory(dir=fixtures) as directory:
+                root = Path(directory)
+                runtime, case = root/'runtime', root/'case'
+                runtime.mkdir(); case.mkdir()
+                (case/'prompt.txt').write_text('synthetic offline control')
+                args = SimpleNamespace(agent='opencode', model='opencode-go/deepseek-v4.1-flash',
+                    reasoning='high', timeout=120, case_dir=case, base_config=Path('unused'),
+                    binary=root/'opencode', disable_subagents=disable)
+                export = [{'id':'selected','integrationID':'opencode-go','active':True,
+                           'value':{'type':'key','key':'synthetic-selected'}}]
+                native = SimpleNamespace(fresh_go_export=lambda:export,
+                                         write_private_json=write_private_json)
+                with patch.object(adapters, 'load_module', return_value=native):
+                    command, _ = adapters.prepare(args, runtime)
+                settings = json.loads((runtime/'home/.config/opencode/opencode.json').read_text())
+                self.assertEqual(settings['plugins'], [])
+                self.assertEqual(settings['mcp'], {'servers':{}})
+                self.assertEqual(settings['model'], 'opencode-go/deepseek-v4.1-flash#high')
+                self.assertEqual(settings['agents']['title']['model'], settings['model'])
+                self.assertEqual('--disable-subagents' in command, disable)
+                if disable:
+                    self.assertEqual(settings['permissions'][-1],
+                                     {'action':'subagent','resource':'*','effect':'deny'})
+                    self.assertEqual(settings['experimental']['subagent_depth'], 0)
+                else:
+                    self.assertNotIn('experimental', settings)
+                self.assertEqual(json.loads((runtime/'profile-overrides.json').read_text())['disable_subagents'], disable)
+                self.assertNotIn('synthetic-selected', (runtime/'profile-overrides.json').read_text())
+                runner.remove_auth(runtime)
+
 
 class NativeProteusAssembly(unittest.TestCase):
     def test_current_named_model_keeps_native_transport_and_profile_slots(self):
