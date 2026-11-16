@@ -395,8 +395,9 @@ Reference exports `tool/direct_patch` и `tool/codex_patch`
 задаёт существующий каталог внутри workspace; относительный путь разрешается
 от workspace, отсутствие параметра выбирает workspace. Обе tool implementations
 отклоняют каталог вне этой границы. Модули
-канонизируют `cwd`, проверяют target path и отклоняют absolute paths,
-parent traversal и
+канонизируют `cwd` и проверяют target path. `codex_patch` принимает относительный
+путь либо абсолютный путь внутри выбранного `workdir`; `direct_patch` сохраняет
+только относительные target paths. Обе реализации отклоняют parent traversal и
 symlink-escape; конечный symlink запрещён для Add/Update/Delete и обеих сторон
 Move, даже если он указывает обратно внутрь workspace. `ToolOrchestrator` не
 делает workspace-санитизации за process tool — это обязанность выбранной
@@ -420,8 +421,10 @@ Reference `codex-patch` выбран в Codex-family profiles. Он приним
 пути как `A`/`M`/`D`. Подробная граница default file-update mode и provenance:
 [codex-patch/UPSTREAM.md](https://github.com/Proteus-harness/Proteus-modules/blob/main/tool/codex-patch/UPSTREAM.md).
 
-В подписочном профиле `codex` model-facing форма `apply_patch` —
-обычный function tool. Явно настроенный freeform custom tool всё равно проходит
+В Go-профиле `codex` model-facing форма `apply_patch` — function tool с `patch`.
+Подписочный `codex-subscription` выбирает native freeform. Базовые инструкции
+отображают форму выбранного ToolSpec; закреплённые upstream templates сохраняются.
+Явно настроенный freeform custom tool всё равно проходит
 через тот же `ToolOrchestrator`, `ApprovalPolicy` и process tool adapter.
 
 `coding.codex_loop` распознаёт поддержанные формы shell-команды `apply_patch`

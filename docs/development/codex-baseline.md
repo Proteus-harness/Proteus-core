@@ -96,8 +96,12 @@ policy, approval, journal, cold history и replay с выбранным `codex` 
 Оба patch exports проверяются с относительным/абсолютным рабочим каталогом
 внутри workspace и отказом для недопустимого каталога.
 
-Этот срез сохраняет локальную workspace path boundary Proteus и function
-surface подписочного профиля. Optional PreserveLineEndings, remote environments,
+Этот срез сохраняет локальную границу выбранного рабочего каталога Proteus:
+относительный путь и абсолютный путь внутри неё обозначают один target;
+абсолютный sibling вне выбранного workdir не допускается. Go-профиль выбирает
+function surface, подписочный Codex — freeform. Model-facing guidance строится
+по фактическому ToolSpec без изменения исходных upstream templates.
+Optional PreserveLineEndings, remote environments,
 applied-delta/diff-progress protocol и upstream output wrappers не заявлены.
 Это source-anchored regression, а не запуск двух полных runtimes.
 

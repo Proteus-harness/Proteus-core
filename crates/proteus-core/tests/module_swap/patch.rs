@@ -61,6 +61,40 @@ async fn patch_tool_workdir_is_invocation_scoped_across_process_modules() {
             std::fs::remove_file(subdir.join("proof.txt")).unwrap();
         }
 
+        if module_id == "codex_patch" {
+            let absolute = subdir.join("absolute.txt");
+            let result = tool
+                .invoke(
+                    &ToolCall::new(new_call_id(), "apply_patch", json!({
+                        "patch": format!("*** Begin Patch\n*** Add File: {}\n+absolute content\n*** End Patch", absolute.display()),
+                        "workdir": "subdir"
+                    })),
+                    context(),
+                )
+                .await
+                .unwrap();
+            assert!(result.ok, "{result:?}");
+            assert_eq!(
+                std::fs::read_to_string(&absolute).unwrap(),
+                "absolute content\n"
+            );
+            let error = tool
+                .invoke(
+                    &ToolCall::new(new_call_id(), "apply_patch", json!({
+                        "patch": format!("*** Begin Patch\n*** Add File: before-failure.txt\n+must not appear\n*** Update File: {}\n@@\n-root sentinel\n+changed\n*** End Patch", workspace.join("proof.txt").display()),
+                        "workdir": "subdir"
+                    })),
+                    context(),
+                )
+                .await
+                .expect_err("absolute sibling must remain outside the selected workdir");
+            assert!(
+                error.to_string().contains("path escapes workspace"),
+                "{error:#}"
+            );
+            assert!(!subdir.join("before-failure.txt").exists());
+        }
+
         let freeform = ToolCall::new(new_call_id(), "apply_patch", json!({
             "input": "*** Begin Patch\n*** Add File: freeform.txt\n+freeform input\n*** End Patch",
             "workdir": "subdir"

@@ -5,8 +5,10 @@ Proteus принимает TOML и JSON; init и Config Builder сохраняю
 должны приводить к ошибке, а не игнорироваться.
 
 Полный рабочий пример: [configs/config.toml](../../configs/config.toml).
-Он включает подписочную сборку `codex`:
-[configs/codex.config.toml](../../configs/codex.config.toml).
+Рабочие профили `codex`, `pi` и `opencode` используют подключение OpenCode Go
+и preset `cheap` (`deepseek-v4.1-flash`, effort `high`). Поведение выбирается
+слотами, а не этим preset. ChatGPT OAuth выбирается отдельно через
+[codex-subscription.config.toml](../../configs/codex-subscription.config.toml).
 Минимальный fake-model профиль:
 [proteus.example.toml](../../examples/configs/proteus.example.toml).
 
@@ -14,7 +16,7 @@ Proteus принимает TOML и JSON; init и Config Builder сохраняю
 
 [configs/agent.toml](../../configs/agent.toml) — один файл рабочей сборки
 с поведением Codex и моделью через OpenCode Go. В нём явно описаны provider,
-слоты, настройки tools/policy/context, process components и обе дочерние роли.
+слоты, настройки tools/policy/context, process components и read-only роль explore.
 `include`, внешних child configs и файлов prompts для этой сборки не требуется:
 тексты инструкций находятся в `instructions.text`. Поле `profile.name` не
 требуется и не выбирает поведение: реализации выбирают `modules` и `components`.
@@ -37,6 +39,14 @@ Proteus принимает TOML и JSON; init и Config Builder сохраняю
 `model = "cheap"` в `agent_control.roles.config` или на самой записи роли.
 Оба способа одновременно задавать нельзя. Полный пример — в `agent.toml`.
 
+Root и inline-роли Codex выбирают `codex_base_instructions` и `codex_compact`;
+поверх базового prompt роль добавляет только свои инструкции. Explore сохраняет
+read-only каталог. Для coder с собственным worktree есть самостоятельный
+`codex-task.config.toml`, использующий уже поддержанный `surface = "task"`.
+Collaboration допускает только parallel-safe роли без worktree: writer не
+объявляется доступным через `spawn_agent`, если этот lifecycle не поддержан.
+Дочерние роли по умолчанию не делегируют дальше (`surface = "none"`).
+
 При загрузке внутренний reference роли указывает на ту же секцию исходного
 файла: `agent.toml#agent=/explore`. Имя роли кодируется как JSON pointer token
 (`~0` для `~`, `~1` для `/`); несколько токенов выбирают вложенные роли. Такие
@@ -47,6 +57,38 @@ references создаёт loader; вручную перечислять их в 
 роли меняет её секцию, сохраняя родителя и соседей. Ошибки вложенных конфигов
 проверяются уже при загрузке родителя. Inline-роли требуют одного исходного
 файла, а не directory mode.
+
+## Поведение Поставляемых Профилей
+
+| Файл | Поведение | Модель по умолчанию |
+|---|---|---|
+| `agent.toml`, `config.toml`, `codex.config.toml` | Codex-shaped workflow, пять основных tools, compaction/base instructions; read-only collaboration | `cheap`, OpenCode Go DeepSeek/high |
+| `codex-task.config.toml` | Та же основа; task-делегирование с отдельным worktree coder | Тот же preset; дети наследуют текущий выбор |
+| `pi.config.toml` | Pi 1.5.2 loop, четыре native tools, prompt builder и compactor | Тот же Go preset |
+| `opencode.config.toml` | OpenCode 2.0.22 tools, prompts, instructions, compaction и continuation | Тот же Go preset |
+| `code-mode.config.toml` | Основная сборка и дополнительный `code_mode` | Тот же Go preset |
+| `codex-subscription.config.toml`, `extended-subscription.config.toml` | Явно выбранные OAuth-сборки с пятью или 19 tools | Собственное ChatGPT-подключение |
+
+Один preset не делает профили одинаковыми. Pi и OpenCode используют свои
+закреплённые upstream реализации; Core сохраняет journal, checkpoints и общую
+границу разрешений. Полная эквивалентность всего upstream session runtime
+этими сборками не заявляется. DCP, внешние plugins, MCP и subagents в Pi/OpenCode
+по умолчанию не подключаются.
+
+Pi загружает SYSTEM/APPEND_SYSTEM через native resource loader с его правилами
+приоритета; загрузка этих инструкций не активирует сторонние пакеты или extensions.
+Для workflow и compactor явно выбран `catalog_provider = "opencode-go"`.
+Поддерживаются native Pi model-info каталоги `opencode-go` и `openai-codex`:
+неизвестная им модель отклоняется, даже если другой model adapter её предлагает.
+Core доставляет steering на model boundary; native Pi переключение между
+отдельными tools и весь follow-up lifecycle требуют дополнительного контракта.
+
+При типизированном context-window overflow OpenCode применяет выбранный native
+compactor и повторяет запрос после подтверждённого Core checkpoint. На один
+model step допускается одно такое восстановление; отказ/отсутствие изменения,
+неподтверждённый checkpoint и cancellation не запускают повтор. Уже принятые
+tool effects сохраняются. Background jobs, remote provider compaction и весь
+partial-assistant/session recovery lifecycle остаются отдельными границами.
 
 ## Именованные Настройки Моделей
 
@@ -93,6 +135,14 @@ Resume/followup продолжают с уже выбранной моделью
 или `effort` вместе с `task_id` отклоняется. Явное изменение конфигурации route
 может инвалидировать сохранённое session-переопределение при reload.
 
+Обычный сохранённый выбор модели и reasoning привязан к профилю и декларации
+его model route, включая настройки и запускающий component. При изменении
+этой привязки reload применяет модель и reasoning нового baseline — так же,
+как холодное открытие отклоняет устаревшую запись выбора. Несвязанные изменения
+профиля сохраняют пользовательский выбор. Scoped-конфигурации дочерних задач
+проверяются по своей отдельной привязке; сессии без config path сохраняют
+прежние правила in-memory reload.
+
 ## Resolution
 
 Без `--config` путь выбирается в таком порядке:
@@ -123,11 +173,28 @@ config file. Includes merge-ятся слева направо, затем те�
 перекрывает результат. Objects merge recursively; arrays и scalar values
 заменяются целиком. Include cycle — ошибка.
 
-Поставляемая подписочная сборка `codex` использует явные fragments:
+При сохранении обычного файла-обёртки с `include` Config Builder сохраняет
+исходную форму унаследованного выбора (`model` или `active_provider`) независимо
+от написания каталога. Несвязанный Save не закрепляет выбор локально;
+переключение переопределяет тот же ключ. Включённые файлы и каталог не меняются.
+Очистка унаследованного выбора и изменение его каталога из обёртки отклоняются
+до записи: редактируйте источник-владелец. Локальный выбор над include без
+выбранной модели, включая JSON `null`, можно очищать. Inline-роли, directory
+overlay и локальные каталоги сохраняют свои правила. Эта проверка не создаёт
+транзакционный snapshot одновременно изменяемых includes.
+
+Основные Go-профили самостоятельны; fragments используются только в явно
+выбранных дополнительных сборках:
 
 ```text
-configs/config.toml                 основная подписочная сборка с расширенными tools
-configs/codex.config.toml           строгая Codex-shaped подписочная сборка
+configs/config.toml                 самостоятельная основная Go-сборка
+configs/agent.toml                  самостоятельный переносимый Go-конфиг
+configs/codex.config.toml           самостоятельная Codex-shaped Go-сборка
+configs/codex-task.config.toml      Go-сборка с изолированным coding task
+configs/pi.config.toml             самостоятельные Pi slots и Go model
+configs/opencode.config.toml       самостоятельные OpenCode slots и Go model
+configs/codex-subscription.config.toml самостоятельный OAuth Codex, 5 tools
+configs/extended-subscription.config.toml самостоятельный OAuth, 19 tools
 configs/restricted.config.toml      рабочая Linux-сборка с частичной изоляцией
 configs/fragments/codex-behavior.toml общий выбор modules/tools и peer routing
 configs/fragments/codex-components.toml единая доверенная process-композиция root и peers
@@ -148,8 +215,10 @@ provider и каждый behavior slot. Массивы не append-ятся. `co
 merge-ится рекурсивно: например, profile может добавить новый exact export, не
 повторяя launch-параметры и остальные exports component-а.
 
-Root `codex` и основной `config.toml` используют подписочные child configs.
-Отдельные API/proxy-профили не поставляются.
+В основных Go и самостоятельных подписочных сборках роль explore описана
+inline и наследует модель родителя. В отдельном `codex-task` так же описан coder.
+Подписочные named child configs остаются самостоятельными примерами; они не
+нужны для переноса одного из основных файлов.
 
 Базовые параметры OAuth model export задаются в `openai-chatgpt.toml`,
 а process-композиция root и peers — в `codex-components.toml`.
@@ -158,20 +227,20 @@ Root `codex` и основной `config.toml` используют подпис
 `codex-peer-runtime.toml` включает общий список components, а параметры
 конкретного peer задаются его собственным фрагментом.
 
-Основная и строгая сборки различаются намеренно. `config.toml` сохраняет
-расширенный набор из 19 tools и context providers с `repo_tree`.
-`codex.config.toml` дополнительно включает `codex-upstream.toml`: пять tools,
-hook `codex_base_instructions` и context providers
-`project_instructions`, `skills`, `environment`. Общие фрагменты не делают
-эти profiles взаимозаменяемыми. `codex-profile.toml` и общий runtime также
-используются `proteus init codex` с его явно выбранным API-подключением.
+Основная Go и строгая подписочная сборки сохраняют пять Codex-shaped tools,
+`codex_base_instructions` и context providers `project_instructions`, `skills`,
+`environment`; transport определяет function/freeform patch. Расширенные
+19 tools и `repo_tree` выбираются отдельно через `extended-subscription`.
+`codex-profile.toml` и общий runtime также используются `proteus init codex`
+с его явно выбранным API-подключением.
 
-Личное подключение Go разделяет ответственности: сборка `codex` задаёт
+Подключение Go разделяет ответственности: сборка `codex` задаёт
 поведение и роли, `fragments/opencode-go.toml` — запуск нативного OpenCode
 model component, export и его настройки. Каталог моделей и точные варианты
 effort предоставляет SDK OpenCode через `model.catalog.v1`; статический TOML
 с записью каждой модели не нужен. Каталог обновляется по запросу с кешем на
-пять минут и не выбирает workflow, context или policy. Личный overlay:
+пять минут и не выбирает workflow, context или policy. В самостоятельных
+Go-профилях это уже описано внутри файла. Для отдельной сборки доступен overlay:
 
 ```toml
 include = ["/путь/к/Proteus/share/configs/fragments/opencode-go.toml"]
