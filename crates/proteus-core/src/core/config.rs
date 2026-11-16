@@ -17,7 +17,11 @@ mod commands;
 mod files;
 mod inputs;
 mod loading;
+mod model_settings;
 mod models;
+pub(crate) use model_settings::ModelSourceEdits;
+#[doc(hidden)]
+pub use model_settings::{ModelSourceMetadata, SourceModelRole};
 mod reference;
 mod validation;
 pub use commands::PromptCommandConfig;
@@ -33,6 +37,10 @@ pub use reference::{
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AppConfig {
+    /// Source ownership and exact model references; never part of serialized config.
+    #[doc(hidden)]
+    #[serde(skip)]
+    pub model_source: ModelSourceMetadata,
     #[serde(default)]
     pub commands: BTreeMap<String, PromptCommandConfig>,
     #[serde(default)]
@@ -71,6 +79,7 @@ impl Default for AppConfig {
     fn default() -> Self {
         let active_provider = "fake".to_owned();
         Self {
+            model_source: ModelSourceMetadata::default(),
             commands: BTreeMap::new(),
             profile: ProfileConfig::default(),
             providers: BTreeMap::from([(
@@ -298,7 +307,7 @@ pub struct InstructionSourceConfig {
     pub priority: u8,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ProviderProfileConfig {
     #[serde(default = "default_model_provider")]

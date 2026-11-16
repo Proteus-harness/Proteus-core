@@ -123,6 +123,7 @@ pub(super) fn builder_plugins(
                 id: component_id.clone(),
                 command: component.command().to_owned(),
                 description: component.description().map(str::to_owned),
+                icon: component.icon().map(str::to_owned),
                 exports,
                 tool_packs,
             }

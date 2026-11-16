@@ -311,3 +311,4 @@ path = ".proteus/events.jsonl"
 
 [profile]
 name = "codex-subscription"
+entrypoint = false

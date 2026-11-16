@@ -136,6 +136,7 @@ pub(super) async fn persist_config_builder_with_components(
         !selection.is_empty(),
         AppConfig::inherited_model_choice_key(path)?,
     )?;
+    super::models::toml_roles(&mut doc, config, baseline.as_ref())?;
     if doc
         .get("permissions")
         .is_none_or(|item| !item.is_table_like())
@@ -314,6 +315,7 @@ async fn persist_json_profile(
         !selection.is_empty(),
         AppConfig::inherited_model_choice_key(path)?,
     )?;
+    super::models::json_roles(root, config, baseline.as_ref())?;
     let omit_model_settings = !selection.is_empty()
         && omitted_model_settings_unchanged(
             config,
@@ -386,8 +388,8 @@ fn model_source_changed(config: &AppConfig, baseline: Option<&AppConfig>) -> Res
         return Ok((true, false));
     };
     Ok((
-        config.active_provider != baseline.active_provider,
-        serde_json::to_value(&config.providers)? != serde_json::to_value(&baseline.providers)?,
+        super::models::source_choice(config) != super::models::source_choice(baseline),
+        config.providers != baseline.providers,
     ))
 }
 
@@ -399,10 +401,11 @@ fn persist_toml_model_source(
     inherited_choice: Option<&str>,
 ) -> Result<()> {
     let (choice_changed, presets_changed) = model_source_changed(config, baseline)?;
+    let choice = super::models::source_choice(config);
     if let Some(key) = inherited_choice {
         validate_inherited_model_edit(config, choice_changed, presets_changed)?;
         if choice_changed {
-            document[key] = toml_edit::value(config.active_provider.as_ref().unwrap().clone());
+            document[key] = toml_edit::value(choice.as_ref().unwrap().clone());
         }
         return Ok(());
     }
@@ -416,28 +419,25 @@ fn persist_toml_model_source(
         document.remove("active_provider");
         document.remove("providers");
         if presets_changed || had_providers {
-            #[derive(serde::Serialize)]
-            struct Models<'a> {
-                models: &'a BTreeMap<String, crate::core::ProviderProfileConfig>,
-            }
-            let serialized = toml::to_string_pretty(&Models {
-                models: &config.providers,
-            })?
-            .parse::<toml_edit::DocumentMut>()?;
-            document["models"] = serialized["models"].clone();
+            super::models::toml_presets(document, "models", config, baseline)?;
         }
         if source_has_choice || choice_changed || !inline {
-            if let Some(name) = &config.active_provider {
+            if let Some(name) = &choice {
                 document["model"] = toml_edit::value(name.clone());
             } else {
                 document.remove("model");
             }
         }
-    } else if source_has_choice || choice_changed || !inline {
-        if let Some(name) = &config.active_provider {
-            document["active_provider"] = toml_edit::value(name.clone());
-        } else {
-            document.remove("active_provider");
+    } else {
+        if presets_changed {
+            super::models::toml_presets(document, "providers", config, baseline)?;
+        }
+        if source_has_choice || choice_changed || !inline {
+            if let Some(name) = &choice {
+                document["active_provider"] = toml_edit::value(name.clone());
+            } else {
+                document.remove("active_provider");
+            }
         }
     }
     Ok(())
@@ -451,13 +451,11 @@ fn persist_json_model_source(
     inherited_choice: Option<&str>,
 ) -> Result<()> {
     let (choice_changed, presets_changed) = model_source_changed(config, baseline)?;
+    let choice = super::models::source_choice(config);
     if let Some(key) = inherited_choice {
         validate_inherited_model_edit(config, choice_changed, presets_changed)?;
         if choice_changed {
-            source.insert(
-                key.into(),
-                Value::String(config.active_provider.as_ref().unwrap().clone()),
-            );
+            source.insert(key.into(), Value::String(choice.as_ref().unwrap().clone()));
         }
         return Ok(());
     }
@@ -468,20 +466,25 @@ fn persist_json_model_source(
         source.remove("active_provider");
         source.remove("providers");
         if presets_changed || had_providers {
-            source.insert("models".into(), serde_json::to_value(&config.providers)?);
+            super::models::json_presets(source, "models", config, baseline)?;
         }
         if source_has_choice || choice_changed || !inline {
-            if let Some(name) = &config.active_provider {
+            if let Some(name) = &choice {
                 source.insert("model".into(), Value::String(name.clone()));
             } else {
                 source.remove("model");
             }
         }
-    } else if source_has_choice || choice_changed || !inline {
-        if let Some(name) = &config.active_provider {
-            source.insert("active_provider".into(), Value::String(name.clone()));
-        } else {
-            source.remove("active_provider");
+    } else {
+        if presets_changed {
+            super::models::json_presets(source, "providers", config, baseline)?;
+        }
+        if source_has_choice || choice_changed || !inline {
+            if let Some(name) = &choice {
+                source.insert("active_provider".into(), Value::String(name.clone()));
+            } else {
+                source.remove("active_provider");
+            }
         }
     }
     Ok(())
@@ -500,7 +503,7 @@ fn validate_inherited_model_edit(
         "edit the included model catalogue at its owning source"
     );
     anyhow::ensure!(
-        !choice_changed || config.active_provider.is_some(),
+        !choice_changed || super::models::source_choice(config).is_some(),
         "cannot remove an inherited model selection from an additive include wrapper"
     );
     Ok(())

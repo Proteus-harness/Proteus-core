@@ -35,11 +35,36 @@ pub(super) fn apply(
             let mut entries = BTreeMap::new();
             for id in ids {
                 validate_identity(id, "component package export id")?;
+                anyhow::ensure!(
+                    id != "*",
+                    "component package export must name a concrete instance, not '*'"
+                );
                 if entries.insert(id.clone(), serde_json::json!({})).is_some() {
                     anyhow::bail!("duplicate component package export {slot}/{id}");
                 }
             }
             exports.insert(slot.clone(), entries);
+        }
+        anyhow::ensure!(
+            package.replace.is_empty() || package.initial_config.is_empty(),
+            "component replacements must preserve existing configuration"
+        );
+        for (slot, settings) in &package.initial_config {
+            for id in settings.keys() {
+                anyhow::ensure!(
+                    exports
+                        .get(slot)
+                        .is_some_and(|entries| entries.contains_key(id)),
+                    "initial configuration must belong to this package export: {slot}/{id}"
+                );
+                anyhow::ensure!(
+                    !config
+                        .module_config
+                        .get(slot)
+                        .is_some_and(|entries| entries.contains_key(id)),
+                    "configuration already exists for export {slot}/{id}"
+                );
+            }
         }
         if package.replace.is_empty() {
             if !touched.insert(package.id.clone()) || config.components.contains_key(&package.id) {
@@ -48,9 +73,17 @@ pub(super) fn apply(
             let component: crate::process_adapters::ProcessComponentConfig =
                 serde_json::from_value(serde_json::json!({
                     "command": command, "args": args, "exports": exports,
+                    "env_allowlist": package.env_allowlist,
                 }))?;
             component.validate_for(&package.id, &format!("components.{}", package.id))?;
             config.components.insert(package.id, component);
+            for (slot, entries) in package.initial_config {
+                config
+                    .module_config
+                    .entry(slot)
+                    .or_default()
+                    .extend(entries);
+            }
         } else {
             for replacement in package.replace {
                 if !touched.insert(replacement.id.clone()) {

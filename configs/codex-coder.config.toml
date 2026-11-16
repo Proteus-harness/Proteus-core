@@ -168,3 +168,4 @@ summary = true
 
 [profile]
 name = "codex-coder-peer"
+entrypoint = false

@@ -166,3 +166,4 @@ summary = true
 
 [profile]
 name = "codex-explore-peer"
+entrypoint = false

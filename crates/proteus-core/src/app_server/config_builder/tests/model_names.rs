@@ -57,7 +57,10 @@ async fn saving_named_model_source_preserves_one_catalogue_and_reloadable_aliase
         persist_config_builder(&path, &loaded).await.unwrap();
         let saved = read(&path).await;
         assert!(saved.get("providers").is_none());
-        assert_eq!(saved["models"]["budget"]["reasoning"]["effort"], "high");
+        assert_eq!(
+            saved["models"]["budget"]["effort"], "high",
+            "retain the authored flat spelling"
+        );
         assert_eq!(
             saved["agent_control"]["roles"],
             initial["agent_control"]["roles"]
@@ -266,5 +269,34 @@ async fn local_model_choice_over_an_unselected_include_can_be_cleared() {
                 }
             }
         }
+    }
+}
+
+#[tokio::test]
+async fn inline_owned_legacy_catalogue_edit_does_not_require_pinning_a_choice() {
+    for extension in ["toml", "json"] {
+        let home = tempfile::tempdir().unwrap();
+        let path = home.path().join(format!("agent.{extension}"));
+        let mut initial = source();
+        let mut providers = initial["models"].clone();
+        for preset in providers.as_object_mut().unwrap().values_mut() {
+            let effort = preset.as_object_mut().unwrap().remove("effort").unwrap();
+            preset["reasoning"] = serde_json::json!({"effort":effort,"summary":true});
+        }
+        initial["agent_control"]["roles"][0]["config"]["providers"] = providers;
+        write(&path, &initial).await;
+        let reference = crate::core::config_reference(&path, "inherit").unwrap();
+        let mut child = AppConfig::load(Some(&reference)).await.unwrap();
+        assert!(child.model_source.catalogue_writable);
+        child.providers.get_mut("budget").unwrap().model = "new-small".into();
+        persist_config_builder(&reference, &child).await.unwrap();
+        let saved = read(&path).await;
+        let config = &saved["agent_control"]["roles"][0]["config"];
+        assert_eq!(config["providers"]["budget"]["model"], "new-small");
+        assert!(config.get("model").is_none());
+        assert!(config.get("active_provider").is_none());
+        let loaded = AppConfig::load(Some(&reference)).await.unwrap();
+        assert_eq!(loaded.providers["budget"].model, "new-small");
+        assert_eq!(saved["models"], initial["models"]);
     }
 }

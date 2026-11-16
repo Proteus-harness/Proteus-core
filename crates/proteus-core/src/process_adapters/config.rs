@@ -42,6 +42,9 @@ pub struct ProcessComponentConfig {
     handshake_timeout_ms: Option<u64>,
     #[serde(default)]
     description: Option<String>,
+    /// Opaque presentation reference; this process host never opens or fetches it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    icon: Option<String>,
     #[serde(default)]
     exports: BTreeMap<String, BTreeMap<String, ProcessExportLaunchConfig>>,
 }
@@ -95,6 +98,39 @@ impl ProcessComponentConfig {
 
     pub fn description(&self) -> Option<&str> {
         self.description.as_deref()
+    }
+
+    pub fn icon(&self) -> Option<&str> {
+        self.icon.as_deref()
+    }
+
+    /// Same serialization as the launch descriptor before presentation metadata;
+    /// icons never invalidate saved/scoped model selections.
+    pub(crate) fn execution_identity(&self) -> impl Serialize + '_ {
+        #[derive(Serialize)]
+        struct Identity<'a> {
+            command: &'a str,
+            args: &'a [String],
+            cwd: &'a Option<PathBuf>,
+            env_allowlist: &'a [String],
+            env: &'a BTreeMap<String, String>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            sandbox: Option<&'a ProcessSandboxConfig>,
+            handshake_timeout_ms: &'a Option<u64>,
+            description: &'a Option<String>,
+            exports: &'a BTreeMap<String, BTreeMap<String, ProcessExportLaunchConfig>>,
+        }
+        Identity {
+            command: &self.command,
+            args: &self.args,
+            cwd: &self.cwd,
+            env_allowlist: &self.env_allowlist,
+            env: &self.env,
+            sandbox: (!self.sandbox.is_trusted()).then_some(&self.sandbox),
+            handshake_timeout_ms: &self.handshake_timeout_ms,
+            description: &self.description,
+            exports: &self.exports,
+        }
     }
 
     pub fn exports(&self) -> impl Iterator<Item = (&str, &str, &ProcessExportLaunchConfig)> {
@@ -347,6 +383,27 @@ mod tests {
             "exports": {"context_provider": {"fixture": {}}}
         }))
         .expect_err("unknown launch fields must fail");
+    }
+
+    #[test]
+    fn component_icon_is_retained_only_as_source_presentation_metadata() {
+        let mut source = serde_json::json!({"command":"worker","exports":{"model":{"fixture":{}}}});
+        let original: ProcessComponentConfig = serde_json::from_value(source.clone()).unwrap();
+        assert_eq!(
+            serde_json::to_vec(&original).unwrap(),
+            serde_json::to_vec(&original.execution_identity()).unwrap()
+        );
+        source["icon"] = serde_json::json!("assets/model.svg");
+        let decorated: ProcessComponentConfig = serde_json::from_value(source).unwrap();
+        assert_eq!(decorated.icon(), Some("assets/model.svg"));
+        assert_eq!(
+            serde_json::to_value(&decorated).unwrap()["icon"],
+            "assets/model.svg"
+        );
+        assert_eq!(
+            serde_json::to_vec(&original.execution_identity()).unwrap(),
+            serde_json::to_vec(&decorated.execution_identity()).unwrap()
+        );
     }
 
     #[test]

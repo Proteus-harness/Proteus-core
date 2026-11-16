@@ -1,4 +1,5 @@
 mod inline_roles;
+mod model_editor;
 mod model_names;
 mod validation;
 

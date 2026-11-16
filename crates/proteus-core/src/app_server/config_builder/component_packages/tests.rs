@@ -7,6 +7,8 @@ fn package(command: &str) -> ComponentPackageInstall {
     ComponentPackageInstall {
         id: "installed-package".into(),
         command: vec![command.into(), "package-argument".into()],
+        env_allowlist: Vec::new(),
+        initial_config: BTreeMap::new(),
         exports: BTreeMap::from([
             ("model".into(), vec!["fake".into()]),
             ("tool".into(), vec!["direct_patch".into()]),
@@ -293,5 +295,128 @@ async fn component_packages_failed_prepare_keeps_runtime_and_profile_unchanged()
     );
     assert_eq!(server.config_builder_snapshot().await.plugins.len(), 1);
     assert!(!home.path().join("config-history").exists());
+    server.shutdown().await;
+}
+
+#[test]
+fn new_components_use_only_explicit_environment_and_reject_wildcard_instances() {
+    let mut config = AppConfig::default();
+    let mut install = package("/installed/worker");
+    install.env_allowlist = vec!["HOME".into(), "MY_PROVIDER_KEY".into()];
+    apply(&mut config, vec![install], Path::new("/")).unwrap();
+    let value = serde_json::to_value(&config.components["installed-package"]).unwrap();
+    assert_eq!(value["env_allowlist"], json!(["HOME", "MY_PROVIDER_KEY"]));
+    let mut wildcard = package("/installed/worker");
+    wildcard.id = "another".into();
+    wildcard.exports.insert("model".into(), vec!["*".into()]);
+    assert!(
+        apply(&mut config, vec![wildcard], Path::new("/"))
+            .unwrap_err()
+            .to_string()
+            .contains("concrete instance")
+    );
+}
+
+#[test]
+fn initial_config_is_additive_owned_and_never_allowed_for_replacements() {
+    let mut config = AppConfig::default();
+    config.module_config.insert(
+        "model".into(),
+        BTreeMap::from([("existing".into(), json!({"keep":true}))]),
+    );
+    let mut install = package("/installed/worker");
+    install.initial_config = BTreeMap::from([(
+        "model".into(),
+        BTreeMap::from([("fake".into(), json!({"implementation":"fake"}))]),
+    )]);
+    apply(&mut config, vec![install.clone()], Path::new("/")).unwrap();
+    assert_eq!(
+        config.module_config["model"]["existing"],
+        json!({"keep":true})
+    );
+    install.id = "another".into();
+    assert!(
+        apply(&mut config.clone(), vec![install.clone()], Path::new("/"))
+            .unwrap_err()
+            .to_string()
+            .contains("configuration already exists")
+    );
+    install
+        .initial_config
+        .get_mut("model")
+        .unwrap()
+        .insert("foreign".into(), json!({}));
+    assert!(
+        apply(
+            &mut AppConfig::default(),
+            vec![install.clone()],
+            Path::new("/")
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("must belong")
+    );
+    install.replace = vec![replacement("custom", "/old/worker")];
+    assert!(
+        apply(&mut AppConfig::default(), vec![install], Path::new("/"))
+            .unwrap_err()
+            .to_string()
+            .contains("preserve existing")
+    );
+}
+
+#[tokio::test]
+async fn independent_registrations_from_stale_windows_preserve_both_connection_settings() {
+    let home = tempfile::tempdir().unwrap();
+    let source = home.path().join("config.json");
+    let initial = crate::test_model::config();
+    std::fs::write(&source, serde_json::to_vec_pretty(&initial).unwrap()).unwrap();
+    let server = AgentAppServer::launch(initial.clone(), home.path().into(), Some(&source))
+        .await
+        .unwrap();
+    let other = AgentAppServer::launch(initial.clone(), home.path().into(), Some(&source))
+        .await
+        .unwrap();
+    let stale = other.config_builder_snapshot().await;
+    let command = crate::test_model::reference_module();
+    for (window, id) in [(&server, "work-a"), (&other, "work-b")] {
+        let install = ComponentPackageInstall {
+            id: format!("connection-{id}"),
+            command: vec![command.to_string_lossy().into_owned()],
+            env_allowlist: Vec::new(),
+            initial_config: BTreeMap::from([(
+                "model".into(),
+                BTreeMap::from([(
+                    id.into(),
+                    json!({"implementation":"fake","stream_delay_ms":2}),
+                )]),
+            )]),
+            exports: BTreeMap::from([("model".into(), vec![id.into()])]),
+            replace: Vec::new(),
+        };
+        window
+            .set_profile_config(SetConfigBuilderRequest {
+                component_packages: vec![install],
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+    }
+    let result = other.config_builder_snapshot().await;
+    assert_eq!(result.model, stale.model);
+    assert_eq!(result.models, stale.models);
+    assert_eq!(
+        result.module_config["model"]["fake"],
+        stale.module_config["model"]["fake"]
+    );
+    for id in ["work-a", "work-b"] {
+        assert_eq!(
+            result.module_config["model"][id],
+            json!({"implementation":"fake","stream_delay_ms":2})
+        );
+    }
+    let disk = AppConfig::load(Some(&source)).await.unwrap();
+    assert_eq!(disk.module_config, result.module_config);
+    other.shutdown().await;
     server.shutdown().await;
 }

@@ -400,3 +400,41 @@ async fn profile_refresh_keeps_scoped_binding_until_its_source_route_is_changed(
     );
     server.shutdown().await;
 }
+
+#[tokio::test]
+async fn builder_model_definitions_remain_saved_when_session_uses_another_route() {
+    let root = tempfile::tempdir().unwrap();
+    let cwd = tempfile::tempdir().unwrap();
+    let baseline = config();
+    let server = launch(baseline.clone(), root.path(), cwd.path()).await;
+    server
+        .apply_model_configuration(ModelRef::new("second", "second-other"), reasoning(), false)
+        .await
+        .unwrap();
+    let snapshot = server.config_builder_snapshot().await;
+    assert_eq!(snapshot.model.as_deref(), Some("main"));
+    assert_eq!(snapshot.models["main"].model, "first-default");
+    assert_eq!(
+        snapshot.models["main"].reasoning,
+        baseline.providers["main"].reasoning
+    );
+    assert_eq!(snapshot.models["cheap"].model, "second-default");
+    assert_eq!(snapshot.module_config, baseline.module_config);
+    assert_eq!(
+        server.runtime.model_ref().await.unwrap(),
+        ModelRef::new("second", "second-other")
+    );
+    server.shutdown().await;
+}
+
+#[test]
+fn component_icon_does_not_invalidate_scoped_model_binding() {
+    let mut config = config();
+    let selected = ModelRef::new("second", "second-other");
+    let before = binding(&config, &selected).unwrap();
+    let component = config.components.get_mut("model-worker").unwrap();
+    let mut source = serde_json::to_value(&*component).unwrap();
+    source["icon"] = json!("assets/model.svg");
+    *component = serde_json::from_value(source).unwrap();
+    assert_eq!(binding(&config, &selected).unwrap(), before);
+}

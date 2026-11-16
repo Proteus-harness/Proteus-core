@@ -73,7 +73,7 @@ async fn route_config_builder_returns_editable_module_slots() {
     }));
     assert!(snapshot.get("tools_enabled").is_some_and(Value::is_array));
     assert!(snapshot.get("tools").is_some_and(Value::is_array));
-    assert!(snapshot.get("providers").is_some_and(Value::is_array));
+    assert!(snapshot.get("models").is_some_and(Value::is_object));
     assert_eq!(
         snapshot.get("permission_mode").and_then(Value::as_str),
         Some("normal")
@@ -257,7 +257,9 @@ async fn route_config_history_keeps_replaced_states_for_rollback() {
         "hooks": restored["hooks"],
         "module_config": restored["module_config"],
         "tools_enabled": restored["tools_enabled"],
-        "active_provider": restored["active_provider"],
+        "model": restored["model"],
+        "models": restored["models"],
+        "role_models": restored["role_models"],
         "permission_mode": restored["permission_mode"],
     }))
     .await;
@@ -318,7 +320,7 @@ model = "fake-smart"
             json!({
                 "modules": {},
                 "tools_enabled": ["apply_patch", "search"],
-                "active_provider": "smart",
+                "model": "smart",
                 "permission_mode": "auto"
             }),
         ),
@@ -342,23 +344,12 @@ model = "fake-smart"
         snapshot.get("tools_enabled"),
         Some(&json!(["apply_patch", "search"]))
     );
-    assert_eq!(
-        snapshot.get("active_provider").and_then(Value::as_str),
-        Some("smart")
-    );
+    assert_eq!(snapshot.get("model").and_then(Value::as_str), Some("smart"));
     assert_eq!(
         snapshot.get("permission_mode").and_then(Value::as_str),
         Some("auto")
     );
-    assert!(
-        snapshot
-            .get("providers")
-            .and_then(Value::as_array)
-            .is_some_and(|providers| providers.iter().any(|provider| {
-                provider.get("id").and_then(Value::as_str) == Some("smart")
-                    && provider.get("active").and_then(Value::as_bool) == Some(true)
-            }))
-    );
+    assert_eq!(snapshot["models"]["smart"]["model"], "fake-smart");
     assert_eq!(server.permission_mode().await, PermissionMode::Auto);
     let model_ref = server.runtime.model_ref().await.unwrap();
     assert_eq!(model_ref.model, "fake-smart");

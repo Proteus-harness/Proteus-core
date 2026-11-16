@@ -46,6 +46,7 @@ fn binding(config: &AppConfig, model: &ModelRef) -> Result<String> {
                 .exports()
                 .any(|(slot, id, _)| slot == "model" && id == model.provider)
         })
+        .map(|(id, component)| (id, component.execution_identity()))
         .collect::<Vec<_>>();
     let bytes = serde_json::to_vec(&(
         &config.active_provider,

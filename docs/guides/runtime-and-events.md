@@ -1079,7 +1079,7 @@ store; stdio остаётся привязанным к одной session пр�
   провайдера о частично недоступных данных, например доступе к бюджетам.
   Это discovery без turn, tools и inference exchange; подробный DTO описан в
   [model contract](../architecture/process-module-architecture.md#model-streaming).
-- `GET /config/builder` - snapshot selectable modules/tools/providers и
+- `GET /config/builder` - snapshot selectable modules/tools, provider connections и именованных моделей и
   текущих значений Config Builder;
 - `GET /config/history` - состояния профиля, заменённые сохранениями
   Config Builder, от новых к старым (`ConfigHistory`); откат — обычный

@@ -11,8 +11,12 @@ pub struct ConfigBuilderSnapshot {
     pub config_path: Option<String>,
     pub target_path: Option<String>,
     pub writable: bool,
-    pub active_provider: Option<String>,
-    pub providers: Vec<ConfigBuilderProvider>,
+    pub model: Option<String>,
+    pub model_writable: bool,
+    pub models: BTreeMap<String, ConfigBuilderModelPreset>,
+    /// Inherited catalogues must be edited at their owning source.
+    pub models_writable: bool,
+    pub model_roles: Vec<ConfigBuilderModelRole>,
     pub model_modules: Vec<ConfigBuilderModule>,
     /// Persisted `[permissions] mode` (snake_case) — то, что редактирует
     /// builder. Runtime mode может отличаться после `POST /mode`.
@@ -29,14 +33,26 @@ pub struct ConfigBuilderSnapshot {
     pub warnings: Vec<ConfigBuilderWarning>,
 }
 
+/// A reusable named model definition, independent of its connection module.
 #[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ConfigBuilderProvider {
-    pub id: String,
+pub struct ConfigBuilderModelPreset {
     pub provider: String,
     pub model: String,
-    pub label: String,
-    pub active: bool,
+    pub stream: bool,
+    pub reasoning: crate::domain::ReasoningConfig,
+    pub reasoning_efforts: Vec<String>,
+}
+
+/// Exact source selection for one direct child role. An omitted selection
+/// inherits the parent's current turn model; complex/external sources are read-only.
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ConfigBuilderModelRole {
+    pub name: String,
+    pub model: Option<String>,
+    pub editable: bool,
+    pub description: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -100,7 +116,11 @@ pub struct ConfigBuilderTool {
 #[serde(deny_unknown_fields)]
 pub struct ConfigBuilderState {
     pub addon_settings: super::addons::AppAddonsUpdate,
-    pub active_provider: Option<String>,
+    pub model: Option<String>,
+    pub models: BTreeMap<String, ConfigBuilderModelPreset>,
+    pub role_models: BTreeMap<String, Option<String>>,
+    /// Configured model export IDs at this revision; registration is not history-managed.
+    pub model_connections: Vec<String>,
     pub permission_mode: String,
     pub active_modules: Vec<ConfigBuilderModuleSelection>,
     pub hooks: Vec<String>,

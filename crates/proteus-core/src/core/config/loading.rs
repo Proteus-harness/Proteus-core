@@ -129,6 +129,30 @@ impl AppConfig {
     }
 
     async fn load_path(path: &Path, inputs: &mut ConfigInputs) -> Result<Self> {
+        Self::load_path_models(path, inputs, None).await
+    }
+
+    /// Validate a model proposal through the same source normalizer as loading,
+    /// without writing a temporary file or publishing runtime state.
+    pub(crate) async fn load_with_model_edits(
+        path: &Path,
+        edits: &super::ModelSourceEdits,
+    ) -> Result<Self> {
+        let resolved = Self::resolve_config_path(Some(path))
+            .await?
+            .context("config path is unavailable")?;
+        let mut inputs = ConfigInputs::default();
+        Self::load_path_models(&resolved, &mut inputs, Some(edits))
+            .await?
+            .with_resolved_instructions(Some(&resolved), &mut inputs)
+            .await
+    }
+
+    async fn load_path_models(
+        path: &Path,
+        inputs: &mut ConfigInputs,
+        edits: Option<&super::ModelSourceEdits>,
+    ) -> Result<Self> {
         let selection = config_selection(path)?;
         let physical = physical_config_path(path);
         let metadata = tokio::fs::metadata(&physical)
@@ -139,6 +163,49 @@ impl AppConfig {
             bail!("inline agent selection requires a single config file");
         }
         let mut value = load_config_path_value(&physical, &mut BTreeSet::new(), inputs)?;
+        let mut local = if metadata.is_file() {
+            let mut local = load_config_value(&physical)?;
+            selected_config_value_mut(&mut local, &selection)
+                .ok()
+                .map(|value| super::model_settings::source_view(value))
+        } else {
+            None
+        };
+        if let Some(edits) = edits {
+            if edits.selected.is_some() {
+                anyhow::ensure!(
+                    super::model_settings::source_choice(&mut value, &selection)?.1,
+                    "model selection is a full source definition; edit it at its owning source"
+                );
+            }
+            let mut probe = value.clone();
+            super::models::normalize_model_sources(&mut probe)?;
+            let probe = selected_config_value_mut(&mut probe, &selection)?;
+            let available = serde_json::from_value(
+                probe
+                    .get("providers")
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!({})),
+            )?;
+            if edits.selected.is_some() {
+                super::model_settings::remove_outer_choice(&mut value, &selection)?;
+            }
+            let source = selected_config_value_mut(&mut value, &selection)?;
+            let ownership = super::ModelSourceMetadata::capture(
+                source,
+                local.as_ref(),
+                &available,
+                metadata.is_file(),
+            );
+            ownership.apply(source, edits)?;
+            if let Some(local) = &mut local {
+                ownership.apply(local, edits)?;
+            }
+        }
+        let (source_choice, choice_writable) =
+            super::model_settings::source_choice(&mut value, &selection)?;
+        let source_models =
+            super::model_settings::source_view(selected_config_value_mut(&mut value, &selection)?);
         // Resolve model names and shared model-only bindings before selecting a
         // child, so a source-local name has the same meaning in every role.
         super::models::normalize_model_sources(&mut value)?;
@@ -151,12 +218,21 @@ impl AppConfig {
             source = config_reference(&source, role)?;
         }
         normalize_inline_configs(&mut value, &source, metadata.is_file(), inputs).await?;
-        let config: Self = serde_json::from_value(value).with_context(|| {
+        let mut config: Self = serde_json::from_value(value).with_context(|| {
             format!(
                 "failed to build config from {source_kind} {}",
                 path.display()
             )
         })?;
+        config.model_source = super::ModelSourceMetadata::capture(
+            &source_models,
+            local.as_ref(),
+            &config.providers,
+            metadata.is_file(),
+        );
+        config.model_source.choice = Some(source_choice);
+        config.model_source.resolved_choice = config.active_provider.clone();
+        config.model_source.choice_writable = choice_writable;
         config.validate_semantics()?;
         Ok(config)
     }

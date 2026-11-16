@@ -528,3 +528,16 @@ async fn concurrent_delete_waits_for_metadata_write_and_never_resurrects_session
     assert!(!directory.exists());
     handle.shutdown().await;
 }
+
+#[test]
+fn component_icon_does_not_invalidate_saved_model_selection_binding() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("config.toml");
+    let mut config = crate::test_model::config();
+    let before = binding(&config, &path).unwrap();
+    let component = config.components.get_mut("test-model").unwrap();
+    let mut source = serde_json::to_value(&*component).unwrap();
+    source["icon"] = serde_json::json!("assets/model.svg");
+    *component = serde_json::from_value(source).unwrap();
+    assert_eq!(binding(&config, &path).unwrap(), before);
+}

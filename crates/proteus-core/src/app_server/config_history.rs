@@ -33,7 +33,9 @@ pub(super) fn config_history_dir(config_path: &Path) -> PathBuf {
         .strip_prefix(&root)
         .map(Path::to_path_buf)
         .unwrap_or_else(|_| physical.file_name().map(PathBuf::from).unwrap_or_default());
-    let directory = root.join("config-history").join(relative);
+    // v2 records named definitions and exact role selections; old settings
+    // revisions remain untouched in their original namespace.
+    let directory = root.join("config-history").join("v2").join(relative);
     let selection = crate::core::config_selection(config_path).unwrap_or_default();
     if selection.is_empty() {
         return directory;

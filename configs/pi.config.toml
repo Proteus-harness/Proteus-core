@@ -25,6 +25,7 @@ ask_before = ["bash", "edit", "write"]
 
 [profile]
 name = "pi"
+title = "Pi"
 
 [modules]
 workflow = "pi_loop"

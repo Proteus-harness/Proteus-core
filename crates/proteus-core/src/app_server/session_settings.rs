@@ -62,17 +62,17 @@ pub(super) fn render(
         vec![
             choice(
                 "normal",
-                "Normal",
+                "С подтверждением",
                 Some("Use the configured approval policy".into()),
             ),
             choice(
                 "auto",
-                "Auto",
+                "Автоматически",
                 Some("Allow actions according to the active policy".into()),
             ),
             choice(
                 "plan",
-                "Plan",
+                "Только чтение",
                 Some("Read and plan without making changes".into()),
             ),
         ],

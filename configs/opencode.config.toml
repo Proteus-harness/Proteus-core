@@ -10,6 +10,7 @@ effort = "high"
 
 [profile]
 name = "opencode"
+title = "OpenCode"
 
 [modules]
 workflow = "opencode_loop"

@@ -437,3 +437,4 @@ mode = "normal"
 
 [profile]
 name = "codex-task"
+entrypoint = false

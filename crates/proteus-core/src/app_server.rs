@@ -54,8 +54,9 @@ mod usage;
 mod user_inputs;
 
 pub use config_builder::{
-    ConfigBuilderModule, ConfigBuilderModuleSelection, ConfigBuilderProvider, ConfigBuilderSlot,
-    ConfigBuilderSnapshot, ConfigBuilderState, ConfigBuilderTool, ConfigBuilderWarning,
+    ConfigBuilderModelPreset, ConfigBuilderModelRole, ConfigBuilderModule,
+    ConfigBuilderModuleSelection, ConfigBuilderSlot, ConfigBuilderSnapshot, ConfigBuilderState,
+    ConfigBuilderTool, ConfigBuilderWarning,
 };
 pub use config_history::{ConfigHistory, ConfigRevision};
 use context_map::{ContextMapInput, build_context_map_snapshot};

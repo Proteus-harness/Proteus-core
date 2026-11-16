@@ -45,14 +45,15 @@ pub use assembly::{
 };
 pub use bound_model::{BoundModel, ModelExecutionBinding};
 pub use bound_tools::{BoundTools, ToolExecutionBinding};
-pub(crate) use config::ConfigInputs;
 pub use config::{
     AgentControlConfig, AgentControlSurface, AgentProfileConfig, AppConfig, AppServerConfig,
-    ConfiguredMcpServerConfig, EventLogConfig, InstructionSourceConfig, ModelConfig, ModulesConfig,
-    PermissionsConfig, ProcessEnvironmentConfig, ProfileConfig, PromptCommandConfig,
-    ProviderProfileConfig, RuntimeConfig, ToolsConfig, config_reference, config_selection,
-    expand_user_path, physical_config_path, selected_config_value_mut,
+    ConfiguredMcpServerConfig, EventLogConfig, InstructionSourceConfig, ModelConfig,
+    ModelSourceMetadata, ModulesConfig, PermissionsConfig, ProcessEnvironmentConfig, ProfileConfig,
+    PromptCommandConfig, ProviderProfileConfig, RuntimeConfig, SourceModelRole, ToolsConfig,
+    config_reference, config_selection, expand_user_path, physical_config_path,
+    selected_config_value_mut,
 };
+pub(crate) use config::{ConfigInputs, ModelSourceEdits};
 pub use config_snapshot::{
     CONFIG_SNAPSHOT_FILE, SessionConfigModules, SessionConfigSnapshot, SessionConfigTool,
     write_config_snapshot,

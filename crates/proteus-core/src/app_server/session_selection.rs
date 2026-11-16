@@ -70,6 +70,7 @@ fn binding(config: &AppConfig, path: &Path) -> Result<Option<String>> {
                 .exports()
                 .any(|(slot, id, _)| slot == "model" && id == model.provider)
         })
+        .map(|(id, component)| (id, component.execution_identity()))
         .collect();
     let bytes = serde_json::to_vec(&(
         resolved_path(path)?,

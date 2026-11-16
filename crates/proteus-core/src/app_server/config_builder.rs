@@ -1,5 +1,6 @@
 mod component_packages;
 mod inline_source;
+mod models;
 mod persistence;
 mod plugins;
 #[cfg(test)]
@@ -35,8 +36,9 @@ use super::{
 };
 
 pub use proteus_contracts::app_protocol::config_builder::{
-    ConfigBuilderModule, ConfigBuilderModuleSelection, ConfigBuilderProvider, ConfigBuilderSlot,
-    ConfigBuilderSnapshot, ConfigBuilderState, ConfigBuilderTool, ConfigBuilderWarning,
+    ConfigBuilderModelPreset, ConfigBuilderModelRole, ConfigBuilderModule,
+    ConfigBuilderModuleSelection, ConfigBuilderSlot, ConfigBuilderSnapshot, ConfigBuilderState,
+    ConfigBuilderTool, ConfigBuilderWarning,
 };
 
 impl AppServerHandle {
@@ -50,11 +52,13 @@ impl AppServerHandle {
             permission_mode: mode,
             extra_warnings: Vec::new(),
         });
+        let baseline = self.config.read().await;
         let mut snapshot = config_builder_snapshot_from_topology(
             &topology,
-            runtime.assembly_plan.config(),
+            &baseline,
             &runtime.registry.process_tool_specs,
         );
+        drop(baseline);
         if let Some(message) = self.profile_error.lock().await.clone() {
             snapshot.warnings.push(ConfigBuilderWarning {
                 severity: "error".into(),
@@ -113,7 +117,10 @@ impl AppServerHandle {
                 hooks,
                 module_config,
                 tools_enabled,
-                active_provider,
+                model: active_provider.map(Some),
+                models: None,
+                expected_models: None,
+                role_models: None,
                 permission_mode,
                 addon_settings: None,
                 component_packages: Vec::new(),
@@ -141,7 +148,10 @@ impl AppServerHandle {
             hooks,
             module_config,
             tools_enabled,
-            active_provider,
+            model,
+            models,
+            expected_models,
+            role_models,
             permission_mode,
             addon_settings,
             component_packages,
@@ -162,6 +172,31 @@ impl AppServerHandle {
                 self.config.read().await.clone()
             };
         let replaced_state = config_builder_state(&next_config);
+        if let Some(expected) = expected_models {
+            anyhow::ensure!(
+                models.is_some(),
+                "expected_models requires a model catalogue replacement"
+            );
+            anyhow::ensure!(
+                expected == replaced_state.models,
+                "model catalogue changed; refresh settings before saving"
+            );
+        }
+        let model_edits = models::proposal(
+            &next_config,
+            model.as_ref(),
+            models.as_ref(),
+            role_models.as_ref(),
+        )?;
+        if let Some(edits) = &model_edits {
+            if matches!(edits.selected, Some(None)) {
+                anyhow::ensure!(
+                    AppConfig::inherited_model_choice_key(config_path)?.is_none(),
+                    "cannot remove an inherited model selection from an additive include wrapper"
+                );
+            }
+            next_config = AppConfig::load_with_model_edits(config_path, edits).await?;
+        }
         let component_ids =
             component_packages::apply(&mut next_config, component_packages, &self.cwd)?;
         if let Some(update) = addon_settings {
@@ -199,9 +234,6 @@ impl AppServerHandle {
         }
         if let Some(tools_enabled) = tools_enabled {
             next_config.tools.enabled = tools_enabled;
-        }
-        if let Some(active_provider) = active_provider {
-            next_config.active_provider = Some(active_provider);
         }
         if let Some(mode) = permission_mode {
             next_config.permissions.mode = mode;
@@ -245,7 +277,22 @@ pub(super) fn config_builder_state(config: &AppConfig) -> ConfigBuilderState {
             addons: config.addons.clone(),
             mcp_servers: config.tools.mcp_servers.clone(),
         },
-        active_provider: config.active_provider.clone(),
+        model: models::source_choice(config),
+        models: models::presets(config),
+        role_models: models::roles(config)
+            .into_iter()
+            .filter(|role| role.editable)
+            .map(|role| (role.name, role.model))
+            .collect(),
+        model_connections: config
+            .components
+            .values()
+            .flat_map(|component| component.exports())
+            .filter(|(slot, _, _)| *slot == "model")
+            .map(|(_, id, _)| id.to_owned())
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect(),
         permission_mode: permission_mode_str(config.permissions.mode),
         active_modules: config
             .modules
@@ -296,8 +343,11 @@ pub(super) fn config_builder_snapshot_from_topology(
         config_path: topology.config_path.clone(),
         writable: target_path.is_some(),
         target_path: target_path.map(|path| path.display().to_string()),
-        active_provider: state.active_provider,
-        providers: config_builder_providers(config),
+        model: state.model,
+        model_writable: models::choice_writable(config),
+        models: state.models,
+        models_writable: config.model_source.catalogue_writable,
+        model_roles: models::roles(config),
         model_modules: modules
             .iter()
             .filter(|module| module.slot == "model")
@@ -369,20 +419,6 @@ fn permission_mode_str(mode: PermissionMode) -> String {
         .ok()
         .and_then(|value| value.as_str().map(str::to_owned))
         .unwrap_or_else(|| "normal".to_owned())
-}
-
-fn config_builder_providers(config: &AppConfig) -> Vec<ConfigBuilderProvider> {
-    config
-        .providers
-        .iter()
-        .map(|(id, profile)| ConfigBuilderProvider {
-            id: id.clone(),
-            provider: profile.provider.clone(),
-            model: profile.model.clone(),
-            label: format!("{}/{}", profile.provider, profile.model),
-            active: config.active_provider.as_ref() == Some(id),
-        })
-        .collect()
 }
 
 pub(super) fn validate_config_builder_modules(

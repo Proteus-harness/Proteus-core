@@ -5,6 +5,7 @@ include = ["config.toml"]
 
 [profile]
 name = "code-mode"
+title = "CodeMode"
 
 [components.code-mode]
 command = "proteus-code-mode-module"
