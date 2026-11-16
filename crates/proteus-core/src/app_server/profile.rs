@@ -20,7 +20,14 @@ impl AppServerHandle {
     {
         let previous = self.config.read().await.clone();
         let scoped = super::session_model::stored(self, &config).await?;
-        let invalidated = matches!(scoped, super::session_model::Stored::Invalidated);
+        let invalidated = match &scoped {
+            super::session_model::Stored::Invalidated => true,
+            super::session_model::Stored::Absent => match self.config_path.as_deref() {
+                Some(path) => super::session_selection::binding_changed(&previous, &config, path)?,
+                None => false,
+            },
+            super::session_model::Stored::Current(_) => false,
+        };
         let scoped_model = match &scoped {
             super::session_model::Stored::Current(selected) => Some(selected.model.clone()),
             _ => None,

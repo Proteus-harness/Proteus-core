@@ -265,6 +265,120 @@ fn profile_provider_and_adapter_route_bind_choices_without_growing_route_files()
     );
 }
 
+#[tokio::test]
+async fn route_reload_and_cold_resume_agree_on_global_model_and_reasoning() {
+    let mut mismatches = Vec::new();
+    for change in ["route", "component"] {
+        let root = tempfile::tempdir().unwrap();
+        let cwd = tempfile::tempdir().unwrap();
+        let path = root.path().join("config.toml");
+        let mut config = crate::test_model::config();
+        config.providers.get_mut("fake").unwrap().reasoning =
+            ReasoningConfig::new(Some("low".into()), true);
+        let server = AgentAppServer::launch(config.clone(), cwd.path().into(), Some(&path))
+            .await
+            .unwrap();
+        server.set_model_name("ui-choice".into()).await.unwrap();
+        server
+            .set_reasoning_effort(Some("high".into()))
+            .await
+            .unwrap();
+        let ui_model = server.runtime.model_ref().await;
+        let ui_reasoning = server.runtime.reasoning().await;
+        let directory = server.session_dir_path().unwrap();
+        let saved = std::fs::read(directory.join(FILE)).unwrap();
+
+        // An unrelated refresh must not discard the user's selection.
+        config.runtime.context_timeout_ms += 1;
+        let assembly = super::super::prepare_assembly(&config, cwd.path(), Some(&path))
+            .await
+            .unwrap();
+        server
+            .publish_profile(config.clone(), assembly, None, || async { Ok(()) })
+            .await
+            .unwrap();
+        assert_eq!(server.runtime.model_ref().await, ui_model);
+        assert_eq!(server.runtime.reasoning().await, ui_reasoning);
+
+        match change {
+            "route" => {
+                config
+                    .module_config
+                    .get_mut("model")
+                    .unwrap()
+                    .get_mut("fake")
+                    .unwrap()["stream_delay_ms"] = 2.into();
+            }
+            "component" => {
+                let component = config.components.get_mut("test-model").unwrap();
+                let mut value = serde_json::to_value(&*component).unwrap();
+                value["handshake_timeout_ms"] = 30_001.into();
+                *component = serde_json::from_value(value).unwrap();
+            }
+            _ => unreachable!(),
+        }
+        let configured = config.selected_model_config().unwrap().unwrap();
+        let assembly = super::super::prepare_assembly(&config, cwd.path(), Some(&path))
+            .await
+            .unwrap();
+        server
+            .publish_profile(config.clone(), assembly, None, || async { Ok(()) })
+            .await
+            .unwrap();
+        let hot_model = server.runtime.model_ref().await;
+        let hot_reasoning = server.runtime.reasoning().await;
+        assert_eq!(std::fs::read(directory.join(FILE)).unwrap(), saved);
+        server.shutdown().await;
+        drop(server);
+
+        let cold =
+            AgentAppServer::launch_resumed(config, cwd.path().into(), Some(&path), directory)
+                .await
+                .unwrap();
+        let cold_model = cold.runtime.model_ref().await;
+        let cold_reasoning = cold.runtime.reasoning().await;
+        assert_eq!(cold_model, Some(configured.model_ref()));
+        assert_eq!(cold_reasoning, configured.reasoning);
+        if hot_model != cold_model || hot_reasoning != cold_reasoning {
+            mismatches.push((change, hot_model, hot_reasoning, cold_model, cold_reasoning));
+        }
+        cold.shutdown().await;
+    }
+    assert!(mismatches.is_empty(), "hot/cold mismatch: {mismatches:?}");
+}
+
+#[tokio::test]
+async fn profile_without_a_persistent_path_keeps_its_live_selection_on_route_reload() {
+    let cwd = tempfile::tempdir().unwrap();
+    let mut config = crate::test_model::config();
+    let server = AgentAppServer::launch(config.clone(), cwd.path().into(), None)
+        .await
+        .unwrap();
+    server.set_model_name("ui-choice".into()).await.unwrap();
+    server
+        .set_reasoning_effort(Some("high".into()))
+        .await
+        .unwrap();
+    let model = server.runtime.model_ref().await;
+    let reasoning = server.runtime.reasoning().await;
+    config
+        .module_config
+        .get_mut("model")
+        .unwrap()
+        .get_mut("fake")
+        .unwrap()["stream_delay_ms"] = 2.into();
+    let assembly = super::super::prepare_assembly(&config, cwd.path(), None)
+        .await
+        .unwrap();
+    server
+        .publish_profile(config, assembly, None, || async { Ok(()) })
+        .await
+        .unwrap();
+    assert_eq!(server.runtime.model_ref().await, model);
+    assert_eq!(server.runtime.reasoning().await, reasoning);
+    server.shutdown().await;
+}
+
 #[test]
 fn oversized_and_invalid_metadata_are_explicit_errors_and_wrong_binding_is_ignored() {
     let root = tempfile::tempdir().unwrap();

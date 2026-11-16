@@ -82,6 +82,12 @@ fn binding(config: &AppConfig, path: &Path) -> Result<Option<String>> {
     Ok(Some(sha256(&bytes)))
 }
 
+/// Hot publication follows the same invalidation as cold preference restore.
+/// Delegated session configurations have a separate binding and policy.
+pub(super) fn binding_changed(previous: &AppConfig, next: &AppConfig, path: &Path) -> Result<bool> {
+    Ok(binding(previous, path)? != binding(next, path)?)
+}
+
 fn last_path(config: &AppConfig, path: &Path) -> Result<PathBuf> {
     // Exactly one value file per profile/provider alias. Route revisions affect
     // the binding stored inside, never create a growing file for each edit.
