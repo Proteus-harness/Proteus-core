@@ -1,6 +1,46 @@
 use super::*;
 
 impl AgentRuntime {
+    /// A bound provider can select another model without rebuilding its worker.
+    /// Stream mode belongs to its construction, so that change uses reassembly.
+    /// Validation, metadata commit and publication share the settings lock.
+    pub(crate) async fn apply_bound_model_configuration<F, Fut>(
+        &self,
+        model: &ModelRef,
+        reasoning: &ReasoningConfig,
+        stream: bool,
+        commit: F,
+    ) -> Result<bool>
+    where
+        F: FnOnce(super::RuntimeSnapshot) -> Fut,
+        Fut: std::future::Future<Output = Result<()>>,
+    {
+        let _guard = self.services.reload_lock.lock().await;
+        let state = self.capture_execution_snapshot().await;
+        if !state
+            .runtime
+            .registry
+            .model_config
+            .as_ref()
+            .is_some_and(|config| config.provider == model.provider && config.stream == stream)
+        {
+            return Ok(false);
+        }
+        let tools = state.runtime.registry.tools_for_model(Some(model))?;
+        commit(state.runtime).await?;
+        let mut state = self.services.execution_state.write().await;
+        state.model_ref = Some(model.clone());
+        state.reasoning = reasoning.clone();
+        state.runtime.registry.tools = tools;
+        state.runtime.registry.model_config = Some(crate::core::ModelConfig {
+            provider: model.provider.clone(),
+            model: model.model.clone(),
+            stream,
+            reasoning: reasoning.clone(),
+        });
+        Ok(true)
+    }
+
     pub(crate) async fn configuration_view(
         &self,
     ) -> (

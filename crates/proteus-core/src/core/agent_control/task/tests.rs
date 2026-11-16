@@ -14,6 +14,29 @@ use crate::contracts::{
 };
 use crate::domain::{ToolSafety, new_execution_id};
 
+#[test]
+fn model_selection_options_are_preserved_and_cannot_change_a_resumed_task() {
+    let task = crate::domain::AgentTask::new("parent", "/example".into());
+    let call = ToolCall::new(
+        "selection",
+        TASK_TOOL,
+        json!({
+            "agent_type":"explore", "prompt":"inspect", "model":"budget-run", "effort":"xhigh"
+        }),
+    );
+    let request = parse_task_call(&call, task.clone()).unwrap();
+    assert_eq!(request.metadata["model"], "budget-run");
+    assert_eq!(request.metadata["effort"], "xhigh");
+    let mut resumed = call.clone();
+    resumed.args["task_id"] = json!("previous-task");
+    assert!(parse_task_call(&resumed, task.clone()).is_err());
+    for invalid in [json!(null), json!(1), json!("  ")] {
+        let mut invalid_call = call.clone();
+        invalid_call.args["model"] = invalid;
+        assert!(parse_task_call(&invalid_call, task.clone()).is_err());
+    }
+}
+
 fn test_tool_attribution() -> ExecutionAttribution {
     ExecutionAttribution::detached(new_execution_id())
 }

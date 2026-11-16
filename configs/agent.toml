@@ -1,17 +1,14 @@
-# Самодостаточная сборка агента: Codex behavior + OpenCode Go model.
-# Этот файл содержит все слоты, process bindings и полные конфиги дочерних ролей.
-# Desktop хранит интерфейс/виджеты отдельно. Ключ читается из OpenCode, здесь его нет.
-# Запуск: proteus --config /path/to/agent.toml --cwd /path/to/project
+# Самодостаточный конфиг агента. Имена models произвольные.
+# model выбирает запись; дочерняя роль без модели наследует текущий выбор родителя.
+# Настройки Desktop и авторизация хранятся отдельно.
 
-active_provider = "opencode-go"
+model = "cheap"
 instructions = []
 
-[providers.opencode-go]
+[models.cheap]
 provider = "opencode"
 stream = true
 model = "deepseek-v4.1-flash"
-
-[providers.opencode-go.reasoning]
 summary = true
 effort = "high"
 
@@ -168,21 +165,6 @@ max_processes = 4
 timeout_ms = 14400000
 max_summary_bytes = 8192
 
-[agent_control.roles.config]
-active_provider = "opencode-go"
-
-[agent_control.roles.config.providers.opencode-go]
-provider = "opencode"
-stream = true
-model = "deepseek-v4.1-flash"
-
-[agent_control.roles.config.providers.opencode-go.reasoning]
-summary = true
-effort = "high"
-
-[agent_control.roles.config.module_config.model.opencode]
-provider = "opencode-go"
-
 [agent_control.roles.config.module_config.hook.codex_compact]
 
 [agent_control.roles.config.module_config.tool.codex_patch]
@@ -282,12 +264,6 @@ env_allowlist = ["HOME", "PROTEUS_HOME"]
 
 [agent_control.roles.config.components.codex-context-preparation.exports.hook.codex_compact]
 
-[agent_control.roles.config.components.opencode-model]
-command = "proteus-opencode-module"
-env_allowlist = ["HOME", "XDG_DATA_HOME", "PATH", "OPENCODE_API_KEY", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy"]
-
-[agent_control.roles.config.components.opencode-model.exports.model.opencode]
-
 [agent_control.roles.config.modules]
 hooks = ["codex_compact"]
 workflow = "coding.codex_loop"
@@ -331,21 +307,6 @@ isolation = "worktree"
 max_processes = 4
 timeout_ms = 14400000
 max_summary_bytes = 8192
-
-[agent_control.roles.config]
-active_provider = "opencode-go"
-
-[agent_control.roles.config.providers.opencode-go]
-provider = "opencode"
-stream = true
-model = "deepseek-v4.1-flash"
-
-[agent_control.roles.config.providers.opencode-go.reasoning]
-summary = true
-effort = "high"
-
-[agent_control.roles.config.module_config.model.opencode]
-provider = "opencode-go"
 
 [agent_control.roles.config.module_config.hook.codex_compact]
 
@@ -447,12 +408,6 @@ command = "proteus-codex-context-preparation-module"
 env_allowlist = ["HOME", "PROTEUS_HOME"]
 
 [agent_control.roles.config.components.codex-context-preparation.exports.hook.codex_compact]
-
-[agent_control.roles.config.components.opencode-model]
-command = "proteus-opencode-module"
-env_allowlist = ["HOME", "XDG_DATA_HOME", "PATH", "OPENCODE_API_KEY", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy"]
-
-[agent_control.roles.config.components.opencode-model.exports.model.opencode]
 
 [agent_control.roles.config.modules]
 hooks = ["codex_compact"]

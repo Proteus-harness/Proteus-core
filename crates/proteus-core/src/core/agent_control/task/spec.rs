@@ -73,6 +73,14 @@ Do the work yourself when it needs your accumulated context, close supervision, 
                 "task_id": {
                     "type": "string",
                     "description": "Resume a previous subagent task with its accumulated context."
+                },
+                "model": {
+                    "type": "string", "minLength": 1,
+                    "description": "Optional configured model alias or model ID for a fresh task. Defaults to the role choice, then the current parent model."
+                },
+                "effort": {
+                    "type": "string", "minLength": 1,
+                    "description": "Optional reasoning effort for the selected model on a fresh task. Resume keeps the existing model and effort."
                 }
             },
             "required": ["prompt", "agent_type"]

@@ -66,6 +66,7 @@ mod tests {
             name: name.to_owned(),
             description: "Explorer".to_owned(),
             config: config.to_owned(),
+            model: None,
             args: Vec::new(),
             parallel_safe: false,
             isolation: None,

@@ -90,6 +90,9 @@ impl AppConfig {
             bail!("inline agent selection requires a single config file");
         }
         let mut value = load_config_path_value(&physical, &mut BTreeSet::new(), inputs)?;
+        // Resolve model names and shared model-only bindings before selecting a
+        // child, so a source-local name has the same meaning in every role.
+        super::models::normalize_model_sources(&mut value)?;
         if !selection.is_empty() {
             value = selected_config_value_mut(&mut value, &selection)?.take();
         }
@@ -260,7 +263,7 @@ fn load_config_dir_value(
         // Builder selections replace these complete managed objects, including
         // removal of optional slots and active_provider. Other fields still merge.
         let object = merged.as_object_mut().expect("config merge is an object");
-        for key in ["modules", "module_config", "active_provider"] {
+        for key in ["modules", "module_config", "active_provider", "model"] {
             object.remove(key);
         }
         merge_config_value(&mut merged, value);

@@ -42,6 +42,42 @@ fn selected_item_mut<'a>(
     Ok(current)
 }
 
+/// A deliberate child model edit is stored in the child config. Remove a
+/// role-level default only for that edit, so the source never has two choices.
+pub(super) fn remove_selected_role_model(
+    document: &mut toml_edit::DocumentMut,
+    selection: &[String],
+) -> Result<()> {
+    let Some((name, parents)) = selection.split_last() else {
+        return Ok(());
+    };
+    let parent = selected_item_mut(document, parents)?;
+    let roles = parent
+        .get_mut("agent_control")
+        .and_then(|control| control.get_mut("roles"))
+        .context("inline agent source must contain agent_control.roles")?;
+    let count = roles
+        .as_array_of_tables()
+        .map(|roles| roles.len())
+        .or_else(|| roles.as_array().map(|roles| roles.len()))
+        .context("agent_control.roles must be an array")?;
+    let index = (0..count)
+        .find(|&index| {
+            roles
+                .get(index)
+                .and_then(|role| role.get("name"))
+                .and_then(toml_edit::Item::as_str)
+                == Some(name.as_str())
+        })
+        .context("inline agent role is unavailable")?;
+    roles
+        .get_mut(index)
+        .and_then(toml_edit::Item::as_table_like_mut)
+        .context("inline agent role must be an object")?
+        .remove("model");
+    Ok(())
+}
+
 pub(super) fn selected_toml_document(
     document: &mut toml_edit::DocumentMut,
     selection: &[String],

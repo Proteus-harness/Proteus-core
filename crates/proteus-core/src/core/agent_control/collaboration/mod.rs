@@ -147,6 +147,10 @@ impl Tool for SpawnAgentTool {
             ));
         }
 
+        let model_options = match super::model_options::parse(call) {
+            Ok(options) => options,
+            Err(error) => return Ok(tool_error(call, "spawn_agent", error)),
+        };
         let reservation = match self.control.reserve(session_id, task_name, agent_type) {
             Ok(reservation) => reservation,
             Err(error) => return Ok(tool_error(call, "spawn_agent", error.to_string())),
@@ -157,13 +161,18 @@ impl Tool for SpawnAgentTool {
             reservation.path.clone(),
             None,
         );
-        let request = AgentControlRequest::new(agent_type, message, parent_task)
+        let mut request = AgentControlRequest::new(agent_type, message, parent_task)
             .with_description(task_name.to_owned())
             .with_metadata(json!({
                 "control_plane_owned": true,
                 "agent_control_target": reservation.path,
                 "source_call_id": call.id,
             }));
+        request
+            .metadata
+            .as_object_mut()
+            .expect("request metadata object")
+            .extend(model_options);
         let handle = match host.spawn_agent(request).await {
             Ok(handle) => handle,
             Err(error) => {

@@ -45,6 +45,7 @@ mod path_utils;
 mod queued_messages;
 mod runs;
 mod session_selection;
+mod session_model;
 mod session_settings;
 pub mod stdio;
 mod transcript;
@@ -596,6 +597,7 @@ impl AgentAppServer {
                 profile_error: Mutex::new(None),
             }),
         };
+        session_model::restore(&handle, selection_is_new).await?;
         handle.command_catalog().await?;
         profile_watch::start(&handle).await;
         if refresh_stale_view {

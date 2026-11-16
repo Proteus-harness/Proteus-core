@@ -191,6 +191,40 @@ impl ChildProcess {
         Ok(self.session().cloned().expect("session checked"))
     }
 
+    /// A transient parent choice must be acknowledged before any task prompt.
+    /// All fresh sessions, including pooled rotations, take this same path.
+    pub(super) async fn set_model_configuration(
+        &mut self,
+        model: &crate::core::ModelConfig,
+    ) -> Result<()> {
+        let request_id = crate::domain::new_call_id();
+        self.send(&StdioRequest::SetModelConfiguration {
+            id: Some(request_id.clone()),
+            model: crate::domain::ModelRef::new(&model.provider, &model.model),
+            reasoning: model.reasoning.clone(),
+            stream: model.stream,
+        })
+        .await?;
+        loop {
+            match self.next_control_output().await? {
+                StdioOutput::Response { id, ok, error, .. }
+                    if id.as_deref() == Some(request_id.as_str()) =>
+                {
+                    anyhow::ensure!(
+                        ok,
+                        "subagent model selection failed: {}",
+                        error.unwrap_or_else(|| "unknown error".into())
+                    );
+                    return Ok(());
+                }
+                StdioOutput::Event { event } if matches!(*event, AppServerEvent::Shutdown) => {
+                    anyhow::bail!("subagent child shut down during model selection")
+                }
+                _ => {}
+            }
+        }
+    }
+
     pub(super) async fn new_session(&mut self) -> Result<AppSubagentSession> {
         let request_id = crate::domain::new_call_id();
         let previous = self.session.take();

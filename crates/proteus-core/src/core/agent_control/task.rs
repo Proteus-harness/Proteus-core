@@ -124,6 +124,13 @@ fn parse_task_call(
         .ok_or_else(|| "task requires string arg 'prompt'".to_owned())?;
     let description = optional_string(args.get("description"), "description")?;
     let task_id = optional_string(args.get("task_id"), "task_id")?;
+    let model_options = super::model_options::parse(call)?;
+    if task_id.is_some() && !model_options.is_empty() {
+        return Err(
+            "model and effort can only be chosen for a fresh task; resume keeps its selection"
+                .into(),
+        );
+    }
 
     let mut request = AgentControlRequest::new(agent_type, prompt, parent_task)
         .with_metadata(json!({ "source_call_id": call.id }));
@@ -133,6 +140,11 @@ fn parse_task_call(
     if let Some(task_id) = task_id {
         request.metadata["task_id"] = json!(task_id);
     }
+    request
+        .metadata
+        .as_object_mut()
+        .expect("request metadata object")
+        .extend(model_options);
     Ok(request)
 }
 

@@ -8,6 +8,7 @@
 mod collaboration;
 mod history;
 mod mailbox;
+mod model_options;
 mod pending;
 mod process;
 mod task;

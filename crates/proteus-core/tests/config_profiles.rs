@@ -36,7 +36,16 @@ fn behavior_without_model_or_labels(config: &AppConfig) -> serde_json::Value {
         let role = role.as_object_mut().unwrap();
         role.remove("config");
         role.remove("description");
+        role.remove("model");
     }
+    object["agent_control"]
+        .as_object_mut()
+        .unwrap()
+        .remove("model_presets");
+    object["agent_control"]
+        .as_object_mut()
+        .unwrap()
+        .remove("model_defaults");
     // Go function transport was already selected in the working assembly.
     object["module_config"]["tool"]["codex_patch"]["freeform"] = false.into();
     value
@@ -58,10 +67,10 @@ async fn standalone_agent_moves_as_one_file_and_preserves_root_and_peer_behavior
     );
     assert_eq!(config.profile.name, AppConfig::default().profile.name);
     assert_eq!(config.providers.len(), 1);
-    assert_eq!(config.providers["opencode-go"].provider, "opencode");
-    assert_eq!(config.providers["opencode-go"].model, "deepseek-v4.1-flash");
+    assert_eq!(config.providers["cheap"].provider, "opencode");
+    assert_eq!(config.providers["cheap"].model, "deepseek-v4.1-flash");
     assert_eq!(
-        config.providers["opencode-go"].reasoning.effort.as_deref(),
+        config.providers["cheap"].reasoning.effort.as_deref(),
         Some("high")
     );
     assert_eq!(config.agent_control.roles.len(), 2);
@@ -80,7 +89,7 @@ async fn standalone_agent_moves_as_one_file_and_preserves_root_and_peer_behavior
             "{} behavior",
             role.name
         );
-        assert_eq!(child.providers["opencode-go"].model, "deepseek-v4.1-flash");
+        assert_eq!(child.providers["cheap"].model, "deepseek-v4.1-flash");
         assert!(
             child
                 .instructions

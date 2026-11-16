@@ -130,6 +130,12 @@ def invoke(context, method, params):
             time.sleep(0.005)
         context.ensure_active()
     terminal = config["terminal"]
+    if config.get("fresh_response_ids") and terminal["kind"] == "response":
+        terminal = json.loads(json.dumps(terminal))
+        for message in terminal["response"]["messages"]:
+            message["id"] = str(uuid.uuid4())
+            for part in message["parts"]:
+                part["part_id"] = str(uuid.uuid4())
     if mode == "bad_count":
         count += 1
     return {"event_count": count, "terminal": terminal}

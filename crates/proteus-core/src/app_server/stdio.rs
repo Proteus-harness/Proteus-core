@@ -332,6 +332,23 @@ pub async fn run_stdio_app_server(
                 )
                 .await;
             }
+            StdioRequest::SetModelConfiguration {
+                model,
+                reasoning,
+                stream,
+                ..
+            } => {
+                let result = if commands.is_empty() {
+                    server
+                        .apply_model_configuration(model, reasoning, stream)
+                        .await
+                } else {
+                    Err(anyhow::anyhow!(
+                        "model configuration requires an idle command stream"
+                    ))
+                };
+                send_stdio_response(&output_tx, id, result.map(|_| None)).await;
+            }
             StdioRequest::SetReasoningEnabled { enabled, .. } => {
                 let result = server.set_reasoning_enabled(enabled).await;
                 send_stdio_response(

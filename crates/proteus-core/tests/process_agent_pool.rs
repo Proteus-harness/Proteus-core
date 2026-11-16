@@ -15,6 +15,8 @@ mod admission;
 mod binding;
 #[path = "process_agent_pool/collaboration.rs"]
 mod collaboration;
+#[path = "process_agent_pool/model_selection.rs"]
+mod model_selection;
 #[path = "process_agent_pool/rotation.rs"]
 mod rotation;
 

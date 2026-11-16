@@ -117,6 +117,32 @@ fn output(result: &ToolResult) -> Value {
 }
 
 #[tokio::test]
+async fn fresh_spawn_passes_model_alias_and_effort_and_rejects_invalid_options_before_reservation()
+{
+    let control = CollaborationControl::default();
+    let host = Arc::new(TestHost::new(new_session_id()));
+    let spawn = SpawnAgentTool::new(vec![role()], 10_000, control);
+    let ctx = context(host.clone());
+    let mut args =
+        json!({"task_name":"model_choice","message":"inspect","agent_type":"explore", "model":17});
+    let rejected = spawn
+        .invoke(&call("spawn_agent", args.clone()), ctx.clone())
+        .await
+        .unwrap();
+    assert!(!rejected.ok);
+    assert!(host.requests.lock().unwrap().is_empty());
+    args["model"] = json!("budget-run");
+    args["effort"] = json!("xhigh");
+    let accepted = spawn.invoke(&call("spawn_agent", args), ctx).await.unwrap();
+    assert!(accepted.ok);
+    let requests = host.requests.lock().unwrap();
+    assert_eq!(requests[0].metadata["model"], "budget-run");
+    assert_eq!(requests[0].metadata["effort"], "xhigh");
+    drop(requests);
+    host.finished.cancel();
+}
+
+#[tokio::test]
 async fn timeout_preserves_completion_and_later_waits_poll_the_next_update() {
     let control = CollaborationControl::default();
     let host = Arc::new(TestHost::new(new_session_id()));

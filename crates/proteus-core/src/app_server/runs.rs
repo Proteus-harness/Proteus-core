@@ -43,6 +43,17 @@ struct StandaloneOperation {
 }
 
 impl RunRegistry {
+    pub(super) fn ensure_idle_for_model_configuration(&self) -> Result<()> {
+        anyhow::ensure!(
+            !self.closed
+                && self.active.is_none()
+                && !self.command_active
+                && self.operations.is_empty(),
+            "model configuration requires an idle session"
+        );
+        Ok(())
+    }
+
     fn check_admission(&self, run_id: &str, allow_queue: bool) -> Result<()> {
         anyhow::ensure!(!self.closed, "session is shutting down");
         anyhow::ensure!(!self.command_active, "session has an active command");

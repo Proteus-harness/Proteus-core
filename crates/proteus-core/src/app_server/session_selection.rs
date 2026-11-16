@@ -235,6 +235,9 @@ impl super::AppServerHandle {
         model: ModelRef,
         reasoning: ReasoningConfig,
     ) -> Result<()> {
+        if super::session_model::persist_if_scoped(self, &config, &model, &reasoning).await? {
+            return Ok(());
+        }
         let (Some(path), Some(store)) = (&self.config_path, self.runtime.session_store()) else {
             return Ok(());
         };
