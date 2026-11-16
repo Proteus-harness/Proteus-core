@@ -129,7 +129,13 @@ pub(super) async fn persist_config_builder_with_components(
     {
         super::inline_source::remove_selected_role_model(outer, &selection)?;
     }
-    persist_toml_model_source(&mut doc, config, baseline.as_ref(), !selection.is_empty())?;
+    persist_toml_model_source(
+        &mut doc,
+        config,
+        baseline.as_ref(),
+        !selection.is_empty(),
+        AppConfig::inherited_model_choice_key(path)?,
+    )?;
     if doc
         .get("permissions")
         .is_none_or(|item| !item.is_table_like())
@@ -301,7 +307,13 @@ async fn persist_json_profile(
     let root = crate::core::selected_config_value_mut(&mut document, &selection)?
         .as_object_mut()
         .context("config JSON root must be an object")?;
-    persist_json_model_source(root, config, baseline.as_ref(), !selection.is_empty())?;
+    persist_json_model_source(
+        root,
+        config,
+        baseline.as_ref(),
+        !selection.is_empty(),
+        AppConfig::inherited_model_choice_key(path)?,
+    )?;
     let omit_model_settings = !selection.is_empty()
         && omitted_model_settings_unchanged(
             config,
@@ -384,8 +396,16 @@ fn persist_toml_model_source(
     config: &AppConfig,
     baseline: Option<&AppConfig>,
     inline: bool,
+    inherited_choice: Option<&str>,
 ) -> Result<()> {
     let (choice_changed, presets_changed) = model_source_changed(config, baseline)?;
+    if let Some(key) = inherited_choice {
+        validate_inherited_model_edit(config, choice_changed, presets_changed)?;
+        if choice_changed {
+            document[key] = toml_edit::value(config.active_provider.as_ref().unwrap().clone());
+        }
+        return Ok(());
+    }
     let named = document.get("models").is_some() || document.get("model").is_some();
     let had_providers = document.get("providers").is_some();
     // Unrelated edits must not turn the loader's inherited bootstrap choice
@@ -428,8 +448,19 @@ fn persist_json_model_source(
     config: &AppConfig,
     baseline: Option<&AppConfig>,
     inline: bool,
+    inherited_choice: Option<&str>,
 ) -> Result<()> {
     let (choice_changed, presets_changed) = model_source_changed(config, baseline)?;
+    if let Some(key) = inherited_choice {
+        validate_inherited_model_edit(config, choice_changed, presets_changed)?;
+        if choice_changed {
+            source.insert(
+                key.into(),
+                Value::String(config.active_provider.as_ref().unwrap().clone()),
+            );
+        }
+        return Ok(());
+    }
     let source_has_choice = source.contains_key("model") || source.contains_key("active_provider");
     let named = source.contains_key("models") || source.contains_key("model");
     let had_providers = source.contains_key("providers");
@@ -453,5 +484,24 @@ fn persist_json_model_source(
             source.remove("active_provider");
         }
     }
+    Ok(())
+}
+
+// An additive wrapper cannot delete an inherited selection or safely replace a
+// catalogue's representation. Reject these edits before any atomic_write rather
+// than publish source which normalizes differently (or cannot be reloaded).
+fn validate_inherited_model_edit(
+    config: &AppConfig,
+    choice_changed: bool,
+    presets_changed: bool,
+) -> Result<()> {
+    anyhow::ensure!(
+        !presets_changed,
+        "edit the included model catalogue at its owning source"
+    );
+    anyhow::ensure!(
+        !choice_changed || config.active_provider.is_some(),
+        "cannot remove an inherited model selection from an additive include wrapper"
+    );
     Ok(())
 }

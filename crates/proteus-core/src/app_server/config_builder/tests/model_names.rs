@@ -157,3 +157,114 @@ async fn directory_overlay_keeps_named_selection_without_freezing_the_shared_cat
         assert_eq!(loaded.active_model_config().unwrap().model, model);
     }
 }
+
+// File includes retain their choice and catalogue spellings independently.
+#[tokio::test]
+async fn file_include_model_edits_remain_reloadable_without_rewriting_base() {
+    for extension in ["toml", "json"] {
+        for choice_key in ["model", "active_provider"] {
+            for catalogue_key in ["models", "providers"] {
+                let home = tempfile::tempdir().unwrap();
+                let base_name = format!("base.{extension}");
+                let base = home.path().join(&base_name);
+                let wrapper = home.path().join(format!("agent.{extension}"));
+                let mut initial = serde_json::json!({
+                    "module_config": {"model": {"fake": {"implementation": "fake"}}}
+                });
+                initial[choice_key] = "main".into();
+                initial[catalogue_key] = serde_json::json!({
+                    "main": {"provider": "fake", "model": "large"},
+                    "budget": {"provider": "fake", "model": "small"}
+                });
+                if catalogue_key == "models" {
+                    initial[catalogue_key]["main"]["effort"] = "high".into();
+                } else {
+                    initial[catalogue_key]["main"]["reasoning"] =
+                        serde_json::json!({"effort": "high"});
+                }
+                write(&base, &initial).await;
+                write(&wrapper, &serde_json::json!({"include": base_name})).await;
+                let original_base = tokio::fs::read(&base).await.unwrap();
+                for (index, expected) in ["main", "budget", "main"].into_iter().enumerate() {
+                    let mut config = AppConfig::load(Some(&wrapper)).await.unwrap();
+                    config.permissions.mode = PermissionMode::Auto;
+                    config.active_provider = Some(expected.into());
+                    persist_config_builder(&wrapper, &config).await.unwrap();
+                    let loaded = AppConfig::load(Some(&wrapper))
+                        .await
+                        .unwrap_or_else(|error| {
+                            panic!("reload {extension}/{choice_key}/{catalogue_key}: {error:#}")
+                        });
+                    assert_eq!(loaded.active_provider.as_deref(), Some(expected));
+                    assert_eq!(tokio::fs::read(&base).await.unwrap(), original_base);
+                    let saved = read(&wrapper).await;
+                    assert_eq!(saved["include"], base_name);
+                    assert!(saved.get("models").is_none() && saved.get("providers").is_none());
+                    if index == 0 {
+                        assert!(saved.get("model").is_none());
+                        assert!(saved.get("active_provider").is_none());
+                    }
+                }
+                let saved_bytes = tokio::fs::read(&wrapper).await.unwrap();
+                let mut config = AppConfig::load(Some(&wrapper)).await.unwrap();
+                config.active_provider = None;
+                assert!(persist_config_builder(&wrapper, &config).await.is_err());
+                assert_eq!(tokio::fs::read(&wrapper).await.unwrap(), saved_bytes);
+                let mut config = AppConfig::load(Some(&wrapper)).await.unwrap();
+                config.providers.get_mut("main").unwrap().model = "changed".into();
+                assert!(persist_config_builder(&wrapper, &config).await.is_err());
+                assert_eq!(tokio::fs::read(&wrapper).await.unwrap(), saved_bytes);
+                assert_eq!(tokio::fs::read(&base).await.unwrap(), original_base);
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn local_model_choice_over_an_unselected_include_can_be_cleared() {
+    for extension in ["toml", "json"] {
+        for choice_key in ["model", "active_provider"] {
+            for catalogue_key in ["models", "providers"] {
+                for included_null in [false, true] {
+                    if included_null && extension == "toml" {
+                        continue;
+                    }
+                    let home = tempfile::tempdir().unwrap();
+                    let base_name = format!("base.{extension}");
+                    let base = home.path().join(&base_name);
+                    let wrapper = home.path().join(format!("agent.{extension}"));
+                    let mut initial = serde_json::json!({
+                        "module_config": {"model": {"fake": {"implementation": "fake"}}}
+                    });
+                    initial[catalogue_key] = serde_json::json!({
+                        "main": {"provider": "fake", "model": "large"},
+                        "budget": {"provider": "fake", "model": "small"}
+                    });
+                    if included_null {
+                        initial[choice_key] = Value::Null;
+                    }
+                    write(&base, &initial).await;
+                    let mut local = serde_json::json!({"include": base_name});
+                    local[choice_key] = "main".into();
+                    write(&wrapper, &local).await;
+                    let original_base = tokio::fs::read(&base).await.unwrap();
+                    for expected in [Some("main"), Some("budget"), None] {
+                        let mut config = AppConfig::load(Some(&wrapper)).await.unwrap();
+                        config.permissions.mode = PermissionMode::Auto;
+                        config.active_provider = expected.map(str::to_owned);
+                        persist_config_builder(&wrapper, &config).await.unwrap();
+                        let loaded = AppConfig::load(Some(&wrapper)).await.unwrap();
+                        assert_eq!(loaded.active_provider.as_deref(), expected);
+                        assert_eq!(tokio::fs::read(&base).await.unwrap(), original_base);
+                        let saved = read(&wrapper).await;
+                        assert!(saved.get("models").is_none() && saved.get("providers").is_none());
+                        if expected.is_none() {
+                            assert!(saved.get("model").is_none());
+                            assert!(saved.get("active_provider").is_none());
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

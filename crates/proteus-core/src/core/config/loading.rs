@@ -54,6 +54,55 @@ impl AppConfig {
             .await
     }
 
+    /// For a plain include wrapper, retain the inherited choice spelling before
+    /// model normalization erases it. Inline sources and managed overlays have
+    /// distinct ownership rules and are deliberately excluded.
+    pub(crate) fn inherited_model_choice_key(path: &Path) -> Result<Option<&'static str>> {
+        if !config_selection(path)?.is_empty() {
+            return Ok(None);
+        }
+        let physical = physical_config_path(path);
+        if !physical.is_file()
+            || physical.file_name().and_then(|name| name.to_str())
+                == Some(super::CONFIG_BUILDER_OVERLAY)
+        {
+            return Ok(None);
+        }
+        let mut local = load_config_value(&physical)?;
+        let includes = take_config_includes(&mut local)?;
+        if includes.is_empty()
+            || ["models", "providers"]
+                .iter()
+                .any(|key| local.get(*key).is_some())
+        {
+            return Ok(None);
+        }
+        let base_dir = physical.parent().unwrap_or_else(|| Path::new("."));
+        let mut value = Value::Object(Map::new());
+        let mut inputs = ConfigInputs::default();
+        for include in includes {
+            let included = load_config_path_value(
+                &resolve_config_include(base_dir, &include),
+                &mut BTreeSet::new(),
+                &mut inputs,
+            )?;
+            merge_config_value(&mut value, included);
+        }
+        // Explicit JSON null has the same unselected semantics as omission.
+        Ok(
+            if value.get("model").is_some_and(|value| !value.is_null()) {
+                Some("model")
+            } else if value
+                .get("active_provider")
+                .is_some_and(|value| !value.is_null())
+            {
+                Some("active_provider")
+            } else {
+                None
+            },
+        )
+    }
+
     pub async fn resolve_config_path(path: Option<&Path>) -> Result<Option<PathBuf>> {
         match path {
             Some(path) => Ok(Some(resolve_explicit_config_path(path).await?)),
