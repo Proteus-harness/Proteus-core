@@ -111,6 +111,21 @@ worker.write_text('// staged native worker fixture\\n')
         trace = [json.loads(line) for line in self.trace.read_text().splitlines()]
         self.assertEqual([row['name'] for row in trace], ['pi', 'opencode'])
 
+    def test_default_config_home_preserves_existing_named_profiles(self):
+        self.env.pop('PROTEUS_CONFIG_HOME')
+        home = self.root / 'home'
+        self.env['HOME'] = str(home)
+        configs = home / '.config/Proteus-harness/configs'
+        configs.mkdir(parents=True)
+        profile = configs / 'codex.config.toml'
+        profile.write_text('# retained user configuration\n')
+        result = self.install()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(profile.read_text(), '# retained user configuration\n')
+        self.assertTrue((configs / 'config.toml').is_file())
+        self.assertTrue((configs / 'fragments/openai-chatgpt.toml').is_file())
+        self.assertFalse((home / '.config/Proteus-agent').exists())
+
     def test_missing_node_prerequisite_fails_before_build_or_staging(self):
         for missing in ('node', 'npm'):
             with self.subTest(missing=missing):

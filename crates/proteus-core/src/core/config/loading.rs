@@ -374,20 +374,26 @@ fn resolve_config_include(base_dir: &Path, include: &Path) -> PathBuf {
 }
 
 fn default_config_path() -> Option<PathBuf> {
-    if let Some(path) = env::var_os("PROTEUS_CONFIG_PATH") {
+    default_config_path_from_env(|key| env::var_os(key))
+}
+
+pub(super) fn default_config_path_from_env(
+    mut get: impl FnMut(&str) -> Option<std::ffi::OsString>,
+) -> Option<PathBuf> {
+    if let Some(path) = get("PROTEUS_CONFIG_PATH") {
         return Some(PathBuf::from(path));
     }
 
-    if let Some(config_home) = env::var_os("PROTEUS_CONFIG_HOME") {
+    if let Some(config_home) = get("PROTEUS_CONFIG_HOME") {
         return Some(PathBuf::from(config_home).join("configs/config.toml"));
     }
 
-    if let Some(home) = env::var_os("HOME") {
-        return Some(PathBuf::from(home).join(".config/Proteus-agent/configs/config.toml"));
+    if let Some(home) = get("HOME") {
+        return Some(PathBuf::from(home).join(".config/Proteus-harness/configs/config.toml"));
     }
 
-    env::var_os("XDG_CONFIG_HOME").map(|xdg_config_home| {
-        PathBuf::from(xdg_config_home).join("Proteus-agent/configs/config.toml")
+    get("XDG_CONFIG_HOME").map(|xdg_config_home| {
+        PathBuf::from(xdg_config_home).join("Proteus-harness/configs/config.toml")
     })
 }
 

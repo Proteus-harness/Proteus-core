@@ -20,7 +20,7 @@ allow = ["skill", "search", "read_file", "read_many_files", "list_dir", "find_fi
 
 [module_config.model.openai_codex]
 implementation = "openai_codex"
-auth_file = "$HOME/.config/Proteus-agent/secrets/chatgpt.json"
+auth_file = "$HOME/.config/Proteus-harness/secrets/chatgpt.json"
 max_input_tokens = 200000
 support_verbosity = true
 default_verbosity = "low"

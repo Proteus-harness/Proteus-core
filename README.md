@@ -235,7 +235,7 @@ PATH="$PWD/target/debug:$PATH" ./target/debug/proteus --config examples/configs/
 
 ```bash
 cargo run --locked --release -p proteus-core --example native_scroll_fixture -- \
-  "$HOME/.config/Proteus-agent" /absolute/workspace 5000
+  "$HOME/.config/Proteus-harness" /absolute/workspace 5000
 ```
 
 Для большого чата укажите `50000`. Запись идёт порциями по 1000 сообщений,

@@ -66,7 +66,7 @@ def config_for(mode, state, workspace, run_root, base, model, reasoning, timeout
 
 
 def command_with_environment(arguments):
-    environment = Path.home() / ".config/Proteus-agent/environment"
+    environment = Path.home() / ".config/Proteus-harness/environment"
     if not environment.is_file():
         return arguments
     # Match the portable launcher's configured environment; never print values.

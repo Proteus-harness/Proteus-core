@@ -156,8 +156,8 @@ Resume/followup продолжают с уже выбранной моделью
 
 1. `PROTEUS_CONFIG_PATH`;
 2. `$PROTEUS_CONFIG_HOME/configs/config.toml`;
-3. `$HOME/.config/Proteus-agent/configs/config.toml`;
-4. XDG config path, если `HOME` недоступен.
+3. `$HOME/.config/Proteus-harness/configs/config.toml`;
+4. `$XDG_CONFIG_HOME/Proteus-harness/configs/config.toml`, если `HOME` недоступен.
 
 `--config codex` означает named config
 `<config-dir>/codex.config.toml`. Явный путь с `/` или extension
@@ -353,7 +353,7 @@ PROTEUS_CONFIG_HOME="$PWD/.local" proteus --config codex
 Копирование выполняется один раз в отсутствующий `.local/configs/`; затем
 редактируются рабочие копии. `PROTEUS_CONFIG_HOME` сохраняет named resolution
 и для child profiles. Для постоянного использования того же каталога из CLI
-и приложения можно направить `~/.config/Proteus-agent/configs` на абсолютный путь
+и приложения можно направить `~/.config/Proteus-harness/configs` на абсолютный путь
 к `.local/configs/`. Прямая ссылка на tracked `configs/` превращает личные
 правки в изменения исходников.
 
@@ -478,9 +478,9 @@ OpenAI/Anthropic shaping лучше брать из tracked configs, а не к�
 ```toml
 [module_config.model.openai]
 implementation = "openai"
-api_key_file = "$HOME/.config/Proteus-agent/secrets/openai.json"
+api_key_file = "$HOME/.config/Proteus-harness/secrets/openai.json"
 api_key_json_key = "openai_api_key"
-base_url_file = "$HOME/.config/Proteus-agent/secrets/openai.json"
+base_url_file = "$HOME/.config/Proteus-harness/secrets/openai.json"
 base_url_json_key = "base_url"
 ```
 
@@ -510,7 +510,7 @@ Device-code login должен быть разрешён в настройках
 без автоматического открытия. Вход ограничен 15 минутами, Ctrl+C отменяет его.
 
 Credentials хранятся только у provider-а в
-`$HOME/.config/Proteus-agent/secrets/chatgpt.json`. `login`, `status` и `logout`
+`$HOME/.config/Proteus-harness/secrets/chatgpt.json`. `login`, `status` и `logout`
 принимают `--auth-file /absolute/path/chatgpt.json`; тот же путь необходимо
 задать в `module_config.model.<id>.auth_file` у всех нужных profiles. Путь к
 файлу можно настроить независимо от каталогов установки. Файлы Codex/OpenCode
@@ -591,7 +591,7 @@ stream = true
 
 [module_config.model.openai_codex]
 implementation = "openai_codex"
-auth_file = "$HOME/.config/Proteus-agent/secrets/chatgpt.json"
+auth_file = "$HOME/.config/Proteus-harness/secrets/chatgpt.json"
 
 [components.reference-model]
 command = "proteus-reference-module"

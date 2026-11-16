@@ -148,8 +148,8 @@ def prepare(args, runtime):
         elif args.base_config.name == 'pi.config.toml':
             copy_openai_auth(args.auth_file or Path.home()/'.pi/agent/auth.json', home/'.pi/agent/auth.json', pi=True)
         else:
-            copy_auth(args.auth_file or Path.home()/'.config/Proteus-agent/secrets/chatgpt.json',
-                      home/'.config/Proteus-agent/secrets/chatgpt.json')
+            copy_auth(args.auth_file or Path.home()/'.config/Proteus-harness/secrets/chatgpt.json',
+                      home/'.config/Proteus-harness/secrets/chatgpt.json')
         return ['/runtime/bin/' + args.binary.name, '--config', '/runtime/configs/eval.json',
                 '--cwd', '/workspace', prompt], mounts
     if args.agent == 'codex':

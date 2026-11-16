@@ -51,7 +51,7 @@ cargo run --bin proteus -- --config codex replay workflow \
 ```
 
 `init [coding|codex|full|safe]` создаёт TOML profile в default config file
-(`~/.config/Proteus-agent/configs/config.toml`) или в путь, переданный через
+(`~/.config/Proteus-harness/configs/config.toml`) или в путь, переданный через
 `--config` (явный `.json` получает JSON). Если `--config <name>` передан как bare name, init пишет строгий
 named config `<name>.config.toml` в default config dir. `coding`, `codex` и
 `full` включают real-provider coding profile с reference process tools после
@@ -276,10 +276,10 @@ append-ит canonical empty replacement в journal. `/remember` запускае
 
 Если runtime знает путь config-а, относительный `event_log.path` считается от
 config store root, то есть рядом с `sessions`. Для default layout
-`~/.config/Proteus-agent/configs/config.toml` путь `.proteus/events.jsonl` превращается в:
+`~/.config/Proteus-harness/configs/config.toml` путь `.proteus/events.jsonl` превращается в:
 
 ```text
-~/.config/Proteus-agent/.proteus/events.jsonl
+~/.config/Proteus-harness/.proteus/events.jsonl
 ```
 
 Если config path неизвестен, fallback остаётся старым: путь считается от
@@ -1351,8 +1351,8 @@ edit, delete, delivery, follow-up и очистку при отмене. `/pendi
 Если runtime знает путь пользовательского конфига, он создаёт session store
 рядом с config home (состав файлов внутри session directory — раздел «Файлы
 Сессии И Durable Snapshots» выше). Для default layout
-`~/.config/Proteus-agent/configs/config.toml` session store живёт в
-`~/.config/Proteus-agent/sessions`. Пустой старт app-server не создаёт session
+`~/.config/Proteus-harness/configs/config.toml` session store живёт в
+`~/.config/Proteus-harness/sessions`. Пустой старт app-server не создаёт session
 directory: она материализуется при первом canonical record (`turn_opened`).
 Поэтому repeated refresh/start UI не засоряет список пустыми sessions.
 
@@ -1387,7 +1387,7 @@ write-state или писать и заново создавать сессию.
 Пример:
 
 ```text
-/home/alice/.config/Proteus-agent/sessions/home|alice|game/1234567890/journal.jsonl
+/home/alice/.config/Proteus-harness/sessions/home|alice|game/1234567890/journal.jsonl
 ```
 
 `encoded-workspace` строится из canonical path рабочего каталога:

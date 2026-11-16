@@ -7,7 +7,7 @@ bin_path="${bin_dir}/proteus"
 proteus_home="${PROTEUS_HOME:-${HOME}/.proteus}"
 releases_dir="${proteus_home}/releases"
 current_release="${proteus_home}/current"
-config_home="${PROTEUS_CONFIG_HOME:-${HOME}/.config/Proteus-agent}"
+config_home="${PROTEUS_CONFIG_HOME:-${HOME}/.config/Proteus-harness}"
 configs_dir="${config_home}/configs"
 build_target="${CARGO_TARGET_DIR:-${project_dir}/target}"
 

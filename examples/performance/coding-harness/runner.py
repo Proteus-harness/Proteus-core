@@ -78,7 +78,7 @@ def execute(command, output, timeout, environment, *, append=False):
 def remove_auth(runtime):
     for auth in [runtime/'home/.codex/auth.json', runtime/'home/.pi/agent/auth.json',
                  runtime/'home/.local/share/opencode/auth.json',
-                 runtime/'home/.config/Proteus-agent/secrets/chatgpt.json']:
+                 runtime/'home/.config/Proteus-harness/secrets/chatgpt.json']:
         auth.unlink(missing_ok=True)
     (runtime/'opencode-auth-export.json').unlink(missing_ok=True)
     database = runtime/'home/.local/share/opencode/opencode.db'
