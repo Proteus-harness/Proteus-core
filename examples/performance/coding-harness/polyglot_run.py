@@ -127,10 +127,10 @@ def initialize(args):
                              'network_allowlist': ['opencode.ai', 'models.opencode.ai'],
                              'soft_budget_usd': args.budget,
                              'cost_basis': 'catalog equivalent; not a Go billing receipt'},
-              'base_config': str(CORE/'configs/agent.toml'),
+              'base_config': str(CORE/'configs/config.toml'),
               'benchmark_instruction_prefix': NETWORK_RULE,
-              'base_config_sha256': corpus.digest(CORE/'configs/agent.toml'),
-              'proteus_runtime': runtime_identity(CORE/'configs/agent.toml', BINARIES['proteus']),
+              'base_config_sha256': corpus.digest(CORE/'configs/config.toml'),
+              'proteus_runtime': runtime_identity(CORE/'configs/config.toml', BINARIES['proteus']),
               'stand_sources': {name: corpus.digest(HERE/name) for name in
                                 ('polyglot_run.py', 'polyglot_corpus.py', 'polyglot_grader.py',
                                  'adapters.py', 'proteus_native.py', 'open_code_native.py',

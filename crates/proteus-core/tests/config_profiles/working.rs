@@ -102,7 +102,7 @@ async fn standalone_working_profiles_share_go_without_replacing_native_behavior_
 async fn collaboration_and_worktree_task_profiles_advertise_only_supported_roles() {
     use proteus_contracts::contracts::{AgentIsolation, ToolRegistry};
     let root = workspace_root();
-    let collaboration = AppConfig::load(Some(&root.join("configs/agent.toml")))
+    let collaboration = AppConfig::load(Some(&root.join("configs/codex.config.toml")))
         .await
         .unwrap();
     let mut tools = ToolRegistry::new();
@@ -151,20 +151,20 @@ async fn collaboration_and_worktree_task_profiles_advertise_only_supported_roles
 }
 
 #[tokio::test]
-async fn standalone_agent_moves_as_one_file_and_preserves_root_and_peer_behaviors() {
+async fn standalone_default_moves_as_one_file_and_preserves_root_and_peer_behaviors() {
     let root = workspace_root();
     let moved = tempfile::tempdir().unwrap();
     let path = moved.path().join("agent.toml");
-    std::fs::copy(root.join("configs/agent.toml"), &path).unwrap();
+    std::fs::copy(root.join("configs/config.toml"), &path).unwrap();
     let config = AppConfig::load(Some(&path)).await.unwrap();
-    let baseline = AppConfig::load(Some(&root.join("configs/codex.config.toml")))
+    let baseline = AppConfig::load(Some(&root.join("configs/config.toml")))
         .await
         .unwrap();
     assert_eq!(
         behavior_without_model_or_labels(&config),
         behavior_without_model_or_labels(&baseline)
     );
-    assert_eq!(config.profile.name, AppConfig::default().profile.name);
+    assert_eq!(config.profile.name, "default");
     assert_eq!(config.providers.len(), 1);
     assert_eq!(config.providers["cheap"].provider, "opencode");
     assert_eq!(config.providers["cheap"].model, "deepseek-v4.1-flash");
@@ -177,14 +177,18 @@ async fn standalone_agent_moves_as_one_file_and_preserves_root_and_peer_behavior
         let reference = Path::new(&role.config);
         assert_eq!(proteus_core::core::physical_config_path(reference), path);
         let child = AppConfig::load(Some(reference)).await.unwrap();
-        let baseline = AppConfig::load(Some(
-            &root.join(format!("configs/codex-{}.config.toml", role.name)),
-        ))
-        .await
-        .unwrap();
+        let source_role = baseline
+            .agent_control
+            .roles
+            .iter()
+            .find(|source_role| source_role.name == role.name)
+            .unwrap();
+        let source_child = AppConfig::load(Some(Path::new(&source_role.config)))
+            .await
+            .unwrap();
         assert_eq!(
             behavior_without_model_or_labels(&child),
-            behavior_without_model_or_labels(&baseline),
+            behavior_without_model_or_labels(&source_child),
             "{} behavior",
             role.name
         );

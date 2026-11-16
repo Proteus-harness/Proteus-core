@@ -24,14 +24,16 @@ SDK не требует зависимости от Core runtime или referenc
 сборка с циклом выполнения задач, близким к Codex. Собственные алгоритмы
 и сочетания модулей — основное назначение Proteus.
 
-Для сборки Codex + OpenCode Go есть [один самодостаточный agent.toml](configs/agent.toml):
+Основная experimental-сборка владельца хранится в [самодостаточном config.toml](configs/config.toml):
 все слоты, подключения процессов, модель, policy и read-only роль explore описаны в нём,
 включая тексты инструкций. Запуск:
-`proteus --config /path/to/agent.toml --cwd /path/to/project`.
+`proteus --config /path/to/config.toml --cwd /path/to/project`.
 Фрагменты и отдельные role configs для этого варианта не нужны;
 [формат и перенос](docs/guides/configuration.md#самодостаточный-конфиг-агента).
 Профили Pi и OpenCode также поставляются одним файлом и используют тот же
 Go preset `cheap`, сохраняя собственные workflow/tools/prompts/compaction.
+`codex`, `pi` и `opencode` — отдельные reference-сборки; изменения default
+не меняют их состав. Сейчас default использует Codex-shaped slots.
 Для coding-делегирования с отдельным worktree выбирайте `codex-task`.
 
 Развитие идёт через существующие слоты и замену их реализаций. Workflow уже

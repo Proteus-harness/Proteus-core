@@ -130,7 +130,7 @@ def run_language(root, language, timeout):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text)
     args = SimpleNamespace(agent='proteus', model=driver.MODEL, reasoning=driver.EFFORT,
-                           binary=driver.BINARIES['proteus'], base_config=driver.CORE/'configs/agent.toml',
+                           binary=driver.BINARIES['proteus'], base_config=driver.CORE/'configs/config.toml',
                            timeout=timeout, disable_subagents=True, auth_file=None, case_dir=case)
     try:
         inner, mounts = adapters.prepare(args, runtime)

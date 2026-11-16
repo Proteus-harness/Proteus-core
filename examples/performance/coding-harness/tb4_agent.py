@@ -107,7 +107,7 @@ class ProteusAgent(BaseInstalledAgent):
     DEFAULT_SETUP_TIMEOUT_SEC = 900.0
 
     def __init__(self, *args, binary=DEFAULT_BINARY,
-                 base_config=CORE / "configs/agent.toml", reasoning="high",
+                 base_config=CORE / "configs/config.toml", reasoning="high",
                  timeout=1200, disable_subagents=True, inspect_only=False, **kwargs):
         # This native catalog/auth path must not be rewritten by LiteLLM or
         # trigger its remote pricing-map fetch during agent construction.

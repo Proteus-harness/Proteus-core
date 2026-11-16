@@ -115,8 +115,11 @@ install_config() {
 }
 
 install_config "config.toml" "configs/config.toml"
-install_config "agent.toml" "configs/agent.toml"
 install_config "codex.config.toml" "configs/codex.config.toml"
+install_config "codex-task.config.toml" "configs/codex-task.config.toml"
+install_config "codex-subscription.config.toml" "configs/codex-subscription.config.toml"
+install_config "extended-subscription.config.toml" "configs/extended-subscription.config.toml"
+install_config "code-mode.config.toml" "configs/code-mode.config.toml"
 install_config "restricted.config.toml" "configs/restricted.config.toml"
 install_config "context-search-chatgpt.config.toml" "configs/context-search-chatgpt.config.toml"
 install_config "codex-explore.config.toml" "configs/codex-explore.config.toml"
@@ -169,7 +172,7 @@ echo "Installed: ${bin_path}"
 echo "Snapshot:  ${release_dir}"
 echo "Modules:   ${current_release}/bin"
 echo "Configs:   ${configs_dir}"
-echo "Next:      ${bin_path} --config codex doctor"
+echo "Next:      ${bin_path} doctor"
 case ":${PATH}:" in
   *:"${bin_dir}":*) ;;
   *) echo "Add this to your shell config if needed: export PATH=\"${bin_dir}:\$PATH\"" ;;

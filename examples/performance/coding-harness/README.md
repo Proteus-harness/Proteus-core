@@ -75,7 +75,7 @@ Matrix ищет Pi в `~/.local/bin/pi`, OpenCode в
 находиться внутри `configs/` Core, самодостаточная native-сборка может быть
 отдельным TOML-файлом.
 
-Текущая монолитная сборка `--base-config configs/agent.toml` определяется по
+Текущая монолитная сборка `--base-config configs/config.toml` определяется по
 выбранному именованному model с `provider = "opencode"` и использует нативный
 `model/opencode`, без подмены на Pi. Слоты, prompts, hooks и schemas tools
 сохраняются; runner разрешает выбранные root tools в своей внешней OS-песочнице,

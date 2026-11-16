@@ -704,7 +704,7 @@ per-command изоляция описана модели явно; это зад
 ## codex_policy
 
 `codex_policy` поставляется тем же `policy-pack` и используется
-подписочным named config `codex` (`configs/codex.config.toml`). Это не отдельный
+основной сборкой, reference `codex` и явными подписочными profiles. Это не отдельный
 security layer: core применяет его через тот же `ApprovalPolicy` slot и тот же
 mode-aware wrapper.
 

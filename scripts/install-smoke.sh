@@ -58,9 +58,12 @@ test -x "${runtime_home}/current/proteus"
 test -x "${runtime_home}/current/bin/proteus-model-pack-module"
 test ! -e "${runtime_home}/current/proteus-reference-module"
 test -f "${config_home}/configs/config.toml"
-test -f "${config_home}/configs/agent.toml"
+test ! -e "${config_home}/configs/agent.toml"
 test -f "${config_home}/configs/codex.config.toml"
 test -f "${config_home}/configs/pi.config.toml"
+for profile in codex-task codex-subscription extended-subscription code-mode opencode; do
+  test -f "${config_home}/configs/${profile}.config.toml"
+done
 test -f "${config_home}/configs/restricted.config.toml"
 test -f "${config_home}/configs/context-search-chatgpt.config.toml"
 test -f "${config_home}/configs/codex-explore.config.toml"
@@ -92,7 +95,7 @@ run_and_capture auth-status "${output_dir}/auth-status.txt" \
   "${bin_dir}/proteus-model-pack-module" auth openai_codex status --auth-file "${smoke_root}/chatgpt.json"
 require_text "вход не выполнен" "${output_dir}/auth-status.txt"
 run_and_capture subscription-doctor "${output_dir}/subscription-doctor.txt" \
-  "${proteus}" --config codex doctor
+  "${proteus}" --config codex-subscription doctor
 require_text "openai_codex" "${output_dir}/subscription-doctor.txt"
 
 # Копируем установленный restricted profile с теми же includes и sandbox grants;

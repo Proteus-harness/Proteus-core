@@ -14,8 +14,10 @@ Proteus принимает TOML и JSON; init и Config Builder сохраняю
 
 ## Самодостаточный Конфиг Агента
 
-[configs/agent.toml](../../configs/agent.toml) — один файл рабочей сборки
-с поведением Codex и моделью через OpenCode Go. В нём явно описаны provider,
+[configs/config.toml](../../configs/config.toml) — один файл основной
+experimental-сборки владельца. Сейчас она использует Codex-shaped slots
+и модель через OpenCode Go; её состав можно менять независимо от reference-профилей.
+В файле явно описаны provider,
 слоты, настройки tools/policy/context, process components и read-only роль explore.
 `include`, внешних child configs и файлов prompts для этой сборки не требуется:
 инструкции ролей находятся в `instructions.text`, а закреплённые базовые шаблоны
@@ -23,7 +25,7 @@ Proteus принимает TOML и JSON; init и Config Builder сохраняю
 требуется и не выбирает поведение: реализации выбирают `modules` и `components`.
 
 ```sh
-/path/to/Proteus/bin/proteus --config /path/to/agent.toml --cwd /path/to/project
+/path/to/Proteus/bin/proteus --config /path/to/config.toml --cwd /path/to/project
 ```
 
 Переносятся готовая поставка и этот файл. Process workers и их SDK принадлежат
@@ -38,7 +40,7 @@ Proteus принимает TOML и JSON; init и Config Builder сохраняю
 выбор через интерфейс. Например, слоты роли задаются в
 `[agent_control.roles.config.modules]`, а её явный выбор модели — строкой
 `model = "cheap"` в `agent_control.roles.config` или на самой записи роли.
-Оба способа одновременно задавать нельзя. Полный пример — в `agent.toml`.
+Оба способа одновременно задавать нельзя. Полный пример — в `config.toml`.
 
 Root и inline-роли Codex выбирают `codex_base_instructions` и `codex_compact`;
 поверх базового prompt роль добавляет только свои инструкции. Explore сохраняет
@@ -49,7 +51,7 @@ Collaboration допускает только parallel-safe роли без work
 Дочерние роли по умолчанию не делегируют дальше (`surface = "none"`).
 
 При загрузке внутренний reference роли указывает на ту же секцию исходного
-файла: `agent.toml#agent=/explore`. Имя роли кодируется как JSON pointer token
+файла: `config.toml#agent=/explore`. Имя роли кодируется как JSON pointer token
 (`~0` для `~`, `~1` для `/`); несколько токенов выбирают вложенные роли. Такие
 references создаёт loader; вручную перечислять их в самодостаточном конфиге
 не нужно. Дочерние процессы читают свою секцию и следят за изменениями исходного
@@ -63,13 +65,16 @@ references создаёт loader; вручную перечислять их в 
 
 | Файл | Поведение | Модель по умолчанию |
 |---|---|---|
-| `agent.toml`, `config.toml`, `codex.config.toml` | Codex-shaped workflow, пять основных tools, compaction/base instructions; read-only collaboration | `cheap`, OpenCode Go DeepSeek/high |
+| `config.toml` | Experimental default владельца; сейчас Codex-shaped slots и read-only collaboration | `cheap`, OpenCode Go DeepSeek/high |
+| `codex.config.toml` | Независимая reference-сборка Codex: пять основных tools, compaction/base instructions; read-only collaboration | Тот же Go preset |
 | `codex-task.config.toml` | Та же основа; task-делегирование с отдельным worktree coder | Тот же preset; дети наследуют текущий выбор |
 | `pi.config.toml` | Pi 1.5.2 loop, четыре native tools, prompt builder и compactor | Тот же Go preset |
 | `opencode.config.toml` | OpenCode 2.0.22 tools, prompts, instructions, compaction и continuation | Тот же Go preset |
 | `code-mode.config.toml` | Основная сборка и дополнительный `code_mode` | Тот же Go preset |
 | `codex-subscription.config.toml`, `extended-subscription.config.toml` | Явно выбранные OAuth-сборки с пятью или 19 tools | Собственное ChatGPT-подключение |
 
+Default и reference-профили — самостоятельные файлы без неявного наследования.
+Совпадающие сейчас настройки не связывают их дальнейшие изменения.
 Один preset не делает профили одинаковыми. Pi и OpenCode используют свои
 закреплённые upstream реализации; Core сохраняет journal, checkpoints и общую
 границу разрешений. Полная эквивалентность всего upstream session runtime
@@ -183,9 +188,8 @@ overlay и локальные каталоги сохраняют свои пр�
 выбранных дополнительных сборках:
 
 ```text
-configs/config.toml                 самостоятельная основная Go-сборка
-configs/agent.toml                  самостоятельный переносимый Go-конфиг
-configs/codex.config.toml           самостоятельная Codex-shaped Go-сборка
+configs/config.toml                самостоятельная experimental Go-сборка владельца
+configs/codex.config.toml           самостоятельная reference-сборка Codex
 configs/codex-task.config.toml      Go-сборка с изолированным coding task
 configs/pi.config.toml             самостоятельные Pi slots и Go model
 configs/opencode.config.toml       самостоятельные OpenCode slots и Go model
@@ -485,7 +489,7 @@ OpenCode или отдельный API proxy не требуются.
 ```bash
 proteus-model-pack-module auth openai_codex login
 proteus-model-pack-module auth openai_codex status
-proteus --config codex
+proteus --config codex-subscription
 ```
 
 Для машины без callback в браузере:
@@ -514,18 +518,20 @@ token автоматически обновляется вместе с access t
 proteus-model-pack-module auth openai_codex logout
 ```
 
-Готовый `codex` использует `gpt-5.6-luna` и собственные
-`codex-explore`/`codex-coder`: peers также обращаются через
-подписку. Модель при запуске задаётся в `providers.chatgpt.model`; доступные
+Явные `codex-subscription` и `extended-subscription` используют
+`gpt-5.6-luna`; их дочерние роли также обращаются через подписку. Модель при
+запуске задаётся в `providers.chatgpt.model`; доступные
 модели и лимиты определяются аккаунтом. Фрагмент `fragments/openai-chatgpt.toml` задаёт explicit
 model export, capabilities и консервативный порог контекста 200000 tokens.
 
-Основной `config.toml` включает `codex.config.toml`, сохраняя его model/provider,
-workflow, preparation hook, peers и остальные параметры. DCP отложен и
+Основной `config.toml` и reference `codex.config.toml` самостоятельны:
+оба сейчас используют OpenCode Go, но их состав настраивается независимо.
+DCP отложен и
 исключён из штатных профилей и поставки. Его исходники сохранены в
 [Proteus-modules/research/dcp](https://github.com/Proteus-harness/Proteus-modules/tree/main/research/dcp).
 
-Экспериментальный `context-search-chatgpt` включает основной `config.toml` и меняет
+Экспериментальный `context-search-chatgpt` включает явный
+`extended-subscription.config.toml` и меняет
 только context selection на `repo_aware`. Запуск:
 
 ```bash
@@ -540,8 +546,8 @@ proteus --config context-search-chatgpt
 chunk и иначе оформляет project instructions. Поиск может добавить шум и
 увеличить первый запрос. Он не видит историю прочитанных файлов и не удаляет
 из контекста уже известные модели фрагменты. Запуск без `--config` возвращает
-основной `config.toml` с `codex_context`; `--config codex` явно выбирает
-ту же подписочную сборку.
+основной experimental `config.toml`; `--config codex` явно выбирает
+самостоятельный reference-профиль Codex через OpenCode Go.
 
 `openai_codex` сам запрашивает `GET /backend-api/codex/models` с ChatGPT OAuth.
 Интерфейс приложения показывает все возвращённые модели, включая entries с отметкой «скрытая»,
@@ -1567,9 +1573,10 @@ max_summary_bytes = 8192
 конфигу другого полного Proteus. Его provider/model, instructions, workflow,
 tools, policy и содержательные ограничения не наследуются от root. Parent role
 содержит только имя/описание, config reference и технические process/lifecycle
-bounds. Поставляемый `codex.config.toml` использует
-`codex-explore` и `codex-coder`; их tool surfaces и policy
-находятся в отдельных child profiles.
+bounds. Поставляемые `config.toml` и `codex.config.toml` описывают read-only
+explorer inline. Named `codex-explore` и `codex-coder` остаются отдельными
+примерами полных peers; их tool surfaces и policy находятся в child profiles.
+`codex-task.config.toml` явно выбирает task facade и inline coder с worktree.
 
 In-process mini-agent, loop-oriented slot и его inline role schema удалены без
 legacy alias, fallback или dual-read. `agent_control` — отдельная top-level

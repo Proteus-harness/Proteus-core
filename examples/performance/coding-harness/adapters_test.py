@@ -157,7 +157,7 @@ class NativeProteusAssembly(unittest.TestCase):
                 (case/'prompt.txt').write_text('synthetic offline control')
                 args = SimpleNamespace(agent='proteus', model='opencode-go/deepseek-v4.1-flash',
                     reasoning='max', timeout=120, case_dir=case,
-                    base_config=adapters.CORE/'configs/agent.toml',
+                    base_config=adapters.CORE/'configs/config.toml',
                     binary=root/'portable/bin/candidate', disable_subagents=disable)
                 export = [{'id': 'selected', 'integrationID': 'opencode-go', 'active': True,
                            'value': {'type':'key', 'key':'synthetic-control-key'}}]
