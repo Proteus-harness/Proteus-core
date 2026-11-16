@@ -7,6 +7,7 @@ import tomllib
 from collections import Counter
 
 from pi_terminal import pi_outcome
+import proteus_native
 
 HERE = Path(__file__).resolve().parent
 CORE = HERE.parents[2]
@@ -68,6 +69,11 @@ def prepare(args, runtime):
         raise ValueError('Native Codex unavailable: OpenCode Go Flash exposes Chat Completions; Responses endpoint rejected probe HTTP 403')
     native = load_module('open_code_native', HERE/'open_code_native.py')
     go_auth = native.fresh_go_export() if go else None
+    selected = proteus_native.selected_model(args.base_config) if args.agent == 'proteus' else None
+    if selected:
+        return proteus_native.prepare(args, runtime, selected, go_auth)
+    if getattr(args, 'disable_subagents', False):
+        raise ValueError('--disable-subagents currently requires a native named-model Proteus assembly')
     if go_auth:
         (runtime/'model-selection.json').write_text(json.dumps({
             'provider': 'opencode-go', 'model': model, 'reasoning': args.reasoning,
@@ -230,6 +236,10 @@ def metrics(agent, output):
                     if provider:
                         providers.add(provider)
         result['providers'] = sorted(providers)
+        bound = proteus_native.bound_provider(output/'runtime', result.get('model_refs', []))
+        if bound:
+            result['providers'] = [bound['provider']]
+            result['provider_evidence'] = bound['provider_evidence']
         if (output/'runtime/model-selection.json').exists():
             result['model_selection'] = json.loads((output/'runtime/model-selection.json').read_text())
         if (output/'runtime/profile-overrides.json').exists():

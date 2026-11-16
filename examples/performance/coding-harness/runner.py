@@ -187,6 +187,8 @@ def main():
     parser.add_argument('--timeout', type=int, default=600)
     parser.add_argument('--pass-env', action='append', default=[], help='explicit environment variable name to pass')
     parser.add_argument('--prepare-only', action='store_true', help='stage and expose command without a model call')
+    parser.add_argument('--disable-subagents', action='store_true',
+                        help='root-only native named-model Proteus benchmark; records assembly override')
     args = parser.parse_args()
     args.case_dir = args.case_dir.expanduser().resolve()
     args.output = args.output.expanduser().resolve()

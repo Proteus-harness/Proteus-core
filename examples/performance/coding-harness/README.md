@@ -71,7 +71,21 @@ Matrix ищет Pi в `~/.local/bin/pi`, OpenCode в
 `--binary`, как и путь/hash в metadata: переименованный candidate не заменяется
 соседним файлом с именем `proteus`. Это правило построения argv, не проверка
 неизменности файла между подготовкой и фактическим запуском.
-Профиль Proteus задаётся `--base-config` внутри `configs/` Core.
+Профиль Proteus задаётся `--base-config`; прежние fragment-профили должны
+находиться внутри `configs/` Core, самодостаточная native-сборка может быть
+отдельным TOML-файлом.
+
+Текущая монолитная сборка `--base-config configs/agent.toml` определяется по
+выбранному именованному model с `provider = "opencode"` и использует нативный
+`model/opencode`, без подмены на Pi. Слоты, prompts, hooks и schemas tools
+сохраняются; runner разрешает выбранные root tools в своей внешней OS-песочнице,
+отключает MCP и записывает эти overrides. Опциональный `--disable-subagents`
+отключает роли и collaboration surface только для этого disposable прогона;
+без флага роли сохраняются. Этот флаг пока поддержан только указанным native
+named-model adapter. Метрики с несколькими journals требуют отдельной агрегации.
+Сборка должна быть самодостаточной, без `include`. Provider для этого adapter
+подтверждается конфигурацией model binding и наблюдаемым логическим adapter ID
+в canonical requests, а не отсутствующим provider ID в ответе внешнего API.
 
 Для Flash требуется действующий ключ Go в native OpenCode. Runner получает
 только активную запись `opencode-go` через native `auth export`, переносит её в
@@ -343,3 +357,72 @@ tool call. Его можно запускать без подключения к
 С ним новая сборка воспроизвела все четыре запроса модели и восемь вызовов
 инструментов. При подстановке нового workflow replay обнаружил изменившийся
 лимит на первом hook `before_context`.
+
+## Сложный публичный набор: Terminal-Bench 4.0
+
+`tb4.py` фиксирует семь задач из upstream tag `v4.0.0`, revision
+`452bf305c6daa62fc59061d22133a7cbc7c1572e`. Это все задачи категории Software,
+запрашивающие до 2 CPU, 4096 MiB RAM, 10240 MiB storage, без GPU и compose.
+Отбор не использует результаты агентов. Получаются `bun-sourcemap-leak`,
+`mvcc-lsm-compaction`, `ontology-kg-querying`, `photonic-waveguide-routing`,
+`react-lead-form`, `session-window-debug`, `wal-recovery-ordering`.
+
+Исполнение и перенос artifacts выполняет **Harbor 0.26.0**, backend Podman.
+Сохраняются исходные Dockerfiles, instruction, tests и отдельный verifier
+каждой задачи. Proteus получает только агентскую среду; checkout, эталонные
+решения и скрытые tests в неё не копируются. `tb4_agent.py` устанавливает
+зависимости агента и переносит готовую portable-сборку с текущим native
+`model/opencode`. Авторизация экспортируется приватно из активной Go-записи,
+не включается в job config и удаляется после запуска. Canonical sessions,
+usage и сведения о выбранной конфигурации остаются в trial `agent/`.
+
+```sh
+data=target/performance/tb4-pilot
+suite=examples/performance/coding-harness
+uv venv --python 3.13.9 target/performance/tb4-harbor-venv
+uv pip install --python target/performance/tb4-harbor-venv/bin/python \
+  harbor==0.26.0 patchelf==0.19.3.0
+# Для установленного Compose V2 frontend нужен rootless Podman socket.
+systemctl --user start podman.socket
+python3 "$suite/tb4.py" freeze
+target/performance/tb4-harbor-venv/bin/python "$suite/tb4.py" run \
+  --arm oracle --name oracle-controls
+target/performance/tb4-harbor-venv/bin/python "$suite/tb4.py" run \
+  --arm nop --name starter-controls
+target/performance/tb4-harbor-venv/bin/python "$suite/tb4.py" run \
+  --arm inspect --name inspect-bun --only bun-sourcemap-leak --concurrency 1
+target/performance/tb4-harbor-venv/bin/python "$suite/tb4.py" run \
+  --arm proteus --name proteus-high
+```
+
+Checkout размещается в `target/performance/upstream/terminal-bench-4`.
+Для экономии места достаточно sparse checkout семи каталогов `tasks/<id>`.
+Перед каждым запуском проверяются revision, чистота checkout и полные SHA-256
+деревьев задач. Frozen manifest нельзя перезаписать другими условиями; имена
+job уникальны, неудачные попытки сохраняются. `oracle` должен дать reward=1,
+`nop` — reward=0 без ошибки инфраструктуры. `inspect` не вызывает модель.
+
+Пилот: точный Go model slug `deepseek-v4.1-flash`, effort `high`, одна попытка,
+1200 секунд на задачу вместо upstream 28800, без дочерних агентов и без
+добавленного лимита ответа. Повторы после инфраструктурных ошибок учитываются
+отдельно; автоматических повторов нет. Штатный публичный network default
+сохраняется. Сравнение с другим харнесом должно использовать этот же manifest,
+grader, доступ к сети, effort, бюджет и запрет делегирования; поддержка native
+OpenCode в новом Harbor bridge пока не реализована.
+
+Portable-бинарники, собранные на Fedora, требуют более новой glibc, чем некоторые
+upstream images. Bridge копирует библиотеки только агента в `/runtime/abi`
+и меняет PT_INTERP/RUNPATH временных ELF-копий через pinned patchelf. Исходная
+поставка и библиотеки task tools не меняются. Хеши исходных/временных файлов,
+библиотек и patcher сохраняются в trial. `inspect` дополнительно запускает
+обычный CLI с EOF: проверяет re-exec app-server без отправки задачи модели.
+
+Это малый срез Software, **не официальный score на всех 66 задачах**.
+[Опубликованные DeepSeek 31,2%](https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash)
+на полном TB4 используют max effort и DeepSeek Harness Minimal. Они показывают
+сложность набора, но относятся к раннему checkpoint. Текущий Go catalog называет
+модель **1017**; для неё нужны отдельные
+[результаты и сведения о расходе](../results/2026-11-16-tb4-reference.md).
+Опубликованная серия Claude Code в среднем занимала 84 минуты на попытку:
+20-минутный пилот нельзя напрямую сравнивать с её score. Usage/cost estimate
+каталога также не доказывает денежное списание по подписке Go.
