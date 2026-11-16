@@ -55,9 +55,13 @@ class PolyglotReports(unittest.TestCase):
         self.assertEqual(proteus['final_rate_observed'], .5)
         self.assertEqual(proteus['tokens']['input_tokens']['total'], 200)
         self.assertEqual(proteus['cost_per_clean_success_usd'], 4)
+        self.assertEqual(proteus['wall_seconds']['mean_seconds_observed'], 5)
+        self.assertEqual(proteus['trial_wall_seconds']['median_seconds_observed'], 8)
         paired = result['paired']['all_completed_pairs']['final']
         self.assertEqual(paired['cases'], 2)
         self.assertEqual(paired['delta']['rate'], -.5)
+        self.assertIsNone(paired['delta']['ci95'])
+        self.assertIsNotNone(paired['delta']['completed_cohort_ci95'])
         self.assertEqual(result['paired']['without_explicit_infrastructure']['final']['cases'], 2)
         self.assertIn('отсутствующие результаты не считаются ошибками модели', report.markdown(result))
         output = self.root/'results.csv'
@@ -138,11 +142,60 @@ class PolyglotReports(unittest.TestCase):
         self.assertEqual((summary['planned'], summary['unrun'], summary['excluded']), (2, 0, 1))
         self.assertEqual(summary['full_benchmark_score'], .5)
         self.assertEqual(result['paired']['all_completed_pairs']['final']['cases'], 2)
+        self.assertIsNotNone(result['paired']['all_completed_pairs']['final']['arms']['proteus']['ci95'])
         self.assertEqual(result['nontrivial']['planned_cases'], 1)
         self.assertEqual(result['nontrivial']['agents']['proteus']['clean_successes'], 0)
         excluded = [row for row in result['rows'] if not row['evaluable']]
         self.assertEqual([row['status'] for row in excluded], ['excluded', 'excluded'])
         self.assertIn('zero tests', report.markdown(result))
+
+    def test_six_all_pass_clusters_do_not_imply_zero_uncertainty_or_complete_benchmark(self):
+        cases = [{'id': f'python--{index}', 'language': 'python', 'exercise': str(index)}
+                 for index in range(7)]
+        self.manifest(cases)
+        for case in cases[:6]:
+            for agent in ('proteus', 'opencode'):
+                self.trial(case, agent)
+        result = report.build_report(self.root, repetitions=200)
+        paired = result['paired']
+        self.assertFalse(paired['full_cohort_complete'])
+        self.assertEqual(paired['interval_scope'], 'completed_pairs_only')
+        data = paired['all_completed_pairs']['final']
+        self.assertEqual(data['exercise_clusters'], 6)
+        for stats in [*data['arms'].values(), data['delta']]:
+            self.assertIsNone(stats['ci95'])
+            self.assertIsNone(stats['completed_cohort_ci95'])
+            self.assertTrue(stats['bootstrap_degenerate'])
+            self.assertFalse(stats['interval_informative'])
+            self.assertIn('Constant bootstrap distribution', stats['interval_unavailable_reason'])
+        self.assertEqual(data['arms']['proteus']['rate'], 1)
+        self.assertEqual(data['delta']['rate'], 0)
+        md = report.markdown(result)
+        self.assertIn('Прогон не завершён', md)
+        self.assertIn('доверительные интервалы полного бенчмарка пока не приводятся', md)
+        self.assertNotIn('95% CI [', md)
+        self.assertNotIn('[100.0%, 100.0%]', md)
+        # Finishing all seven cases does not make an all-pass empirical
+        # bootstrap distribution informative either.
+        for agent in ('proteus', 'opencode'):
+            self.trial(cases[-1], agent)
+        complete = report.build_report(self.root, repetitions=200)
+        self.assertTrue(complete['complete'])
+        self.assertIn('информативный интервал недоступен', report.markdown(complete))
+
+    def test_full_nonconstant_paired_cohort_keeps_cluster_confidence_intervals(self):
+        cases = [{'id': name, 'language': 'python', 'exercise': name} for name in ('a', 'b')]
+        self.manifest(cases)
+        for index, case in enumerate(cases):
+            self.trial(case, 'proteus', passed=index == 0)
+            self.trial(case, 'opencode', passed=index == 1)
+        result = report.build_report(self.root, repetitions=500, seed=7)
+        self.assertTrue(result['paired']['full_cohort_complete'])
+        interval = result['paired']['all_completed_pairs']['final']
+        self.assertEqual(interval['delta']['ci95'], [-1, 1])
+        self.assertFalse(interval['delta']['bootstrap_degenerate'])
+        self.assertTrue(interval['delta']['interval_informative'])
+        self.assertIn('95% CI [', report.markdown(result))
 
     def test_bootstrap_keeps_language_variants_and_both_arms_in_same_cluster(self):
         pairs = []
@@ -160,7 +213,9 @@ class PolyglotReports(unittest.TestCase):
         for pair in pairs:
             pair['opencode']['passed'] = pair['proteus']['passed']
         shared = report.cluster_interval(pairs, ['proteus', 'opencode'], 'passed', 500, 7)
-        self.assertEqual(shared['delta']['ci95'], [0, 0])
+        self.assertIsNone(shared['delta']['ci95'])
+        self.assertEqual(shared['delta']['rate'], 0)
+        self.assertTrue(shared['delta']['bootstrap_degenerate'])
 
 
 if __name__ == '__main__':

@@ -16,6 +16,7 @@ import csv
 import json
 from pathlib import Path
 import random
+from statistics import median
 
 TOKENS = ('input_tokens', 'cached_input_tokens', 'cache_creation_input_tokens',
           'output_tokens', 'reasoning_output_tokens')
@@ -31,6 +32,13 @@ def totals(values):
     return {'total': sum(known) if values and len(known) == len(values) else None,
             'observed_lower_bound': sum(known) if known else None,
             'known_trials': len(known), 'unknown_trials': len(values) - len(known)}
+
+
+def timings(values):
+    known = [value for value in values if number(value)]
+    return {**totals(values),
+            'mean_seconds_observed': sum(known)/len(known) if known else None,
+            'median_seconds_observed': median(known) if known else None}
 
 
 def rate(successes, count):
@@ -126,7 +134,8 @@ def summarize(rows):
                           'known_trials': len(cache_rows), 'unknown_trials': n-len(cache_rows),
                           'covers_all_attempted': bool(n) and len(cache_rows) == n},
             **{key: totals([row[key] for row in attempted]) for key in
-               ('model_requests', 'primary_model_requests', 'all_tool_calls', 'wall_seconds', 'trial_wall_seconds')}}
+               ('model_requests', 'primary_model_requests', 'all_tool_calls')},
+            **{key: timings([row[key] for row in attempted]) for key in ('wall_seconds', 'trial_wall_seconds')}}
 
 
 def percentile(values, fraction):
@@ -135,6 +144,17 @@ def percentile(values, fraction):
     lower = int(position)
     upper = min(lower+1, len(values)-1)
     return values[lower] + (values[upper]-values[lower])*(position-lower)
+
+
+def bootstrap_uncertainty(values):
+    # Empirical bootstrap cannot infer unseen failures from an all-pass sample,
+    # or infer disagreement from identical outcomes. A point-mass distribution
+    # is not evidence of zero uncertainty, even after the full cohort finishes.
+    degenerate = min(values) == max(values)
+    return {'ci95': None if degenerate else [percentile(values, .025), percentile(values, .975)],
+            'bootstrap_degenerate': degenerate, 'interval_informative': not degenerate,
+            **({'interval_unavailable_reason': 'Constant bootstrap distribution; no informative uncertainty interval.'}
+               if degenerate else {})}
 
 
 def cluster_interval(pairs, agents, field, repetitions=10000, seed=SEED):
@@ -155,6 +175,8 @@ def cluster_interval(pairs, agents, field, repetitions=10000, seed=SEED):
                                          for pair in pairs), n), 'ci95': None}}
     if len(sizes) < 2:
         result['interval_unavailable_reason'] = 'At least two completed exercise clusters are required.'
+        for stats in [*result['arms'].values(), result['delta']]:
+            stats.update(bootstrap_degenerate=None, interval_informative=False)
         return result
     rng = random.Random(seed)
     draws = [[] for _ in agents]
@@ -167,8 +189,8 @@ def cluster_interval(pairs, agents, field, repetitions=10000, seed=SEED):
             draws[arm].append(score)
         differences.append(scores[0]-scores[1])
     for agent, values in zip(agents, draws):
-        result['arms'][agent]['ci95'] = [percentile(values, .025), percentile(values, .975)]
-    result['delta']['ci95'] = [percentile(differences, .025), percentile(differences, .975)]
+        result['arms'][agent].update(bootstrap_uncertainty(values))
+    result['delta'].update(bootstrap_uncertainty(differences))
     return result
 
 
@@ -178,9 +200,13 @@ def paired(rows, agents, repetitions, seed):
         if row.get('evaluable', True) and row['status'] == 'recorded':
             by_case[row['case']][row['agent']] = row
     pairs = [by_case[name] for name in sorted(by_case) if all(a in by_case[name] for a in agents)]
+    planned = len({row['case'] for row in rows if row.get('evaluable', True)})
+    full = bool(planned) and len(pairs) == planned
     clean = [pair for pair in pairs if not any(pair[a]['infrastructure_failure'] for a in agents)]
     result = {'method': 'paired percentile bootstrap over exercise slugs; all language variants retained',
               'seed': seed, 'repetitions': repetitions,
+              'planned_pairs': planned, 'completed_pairs': len(pairs), 'full_cohort_complete': full,
+              'interval_scope': 'full_planned_paired_cohort' if full else 'completed_pairs_only',
               'warning': 'Partial cohorts are conditional on recorded cases; intervals are not 225-independent Wilson intervals.',
               'delta_direction': f'{agents[0]} minus {agents[1]}'}
     for name, cohort in [('all_completed_pairs', pairs), ('without_explicit_infrastructure', clean)]:
@@ -192,6 +218,17 @@ def paired(rows, agents, repetitions, seed):
                             agents[0]+'_only' if pair[agents[0]]['passed'] else
                             agents[1]+'_only' if pair[agents[1]]['passed'] else 'both_fail'
                             for pair in cohort))}
+        for field in ('first_pass', 'final'):
+            interval = result[name][field]
+            interval['full_cohort_complete'] = full
+            if not full:
+                interval['interval_unavailable_reason'] = 'Full planned paired cohort is incomplete.'
+                for stats in [*interval['arms'].values(), interval['delta']]:
+                    # Preserve a conditional descriptive interval separately;
+                    # it must never look like the full-benchmark interval.
+                    stats['completed_cohort_ci95'] = stats['ci95']
+                    stats['ci95'] = None
+                    stats['interval_informative'] = False
     return result
 
 
@@ -243,18 +280,19 @@ def markdown(report):
              f"Корпус: {report.get('corpus_cases', report['planned_cases'])} задач; "
              f"оцениваются {report['planned_cases']}, {report['planned_exercise_clusters']} разных упражнений. "
              + ('Все прогоны завершены.' if report['complete'] else 'Прогон не завершён; отсутствующие результаты не считаются ошибками модели.'), '',
-             '| Харнес | Выполнено | С первого раза | Финальный PASS | Доля среди выполненных | Стоимость, $ | $/успех | Cache hit |',
-             '|---|---:|---:|---:|---:|---:|---:|---:|']
+             '| Харнес | Выполнено | С первого раза | Финальный PASS | Доля среди выполненных | Стоимость, $ | $/успех | Cache hit | Среднее с/задачу |',
+             '|---|---:|---:|---:|---:|---:|---:|---:|---:|']
     for agent, data in report['agents'].items():
         lines.append(f"| {agent} | {data['attempted']}/{data['planned']} | {data['first_passes']} | "
                      f"{data['clean_successes']} | {percent(data['final_rate_observed'])} | "
                      f"{amount(data['cost_usd']['total'])} | {amount(data['cost_per_clean_success_usd'])} | "
-                     f"{percent(data['cache_hit']['ratio'])} ({data['cache_hit']['known_trials']}/{data['attempted']}) |")
+                     f"{percent(data['cache_hit']['ratio'])} ({data['cache_hit']['known_trials']}/{data['attempted']}) | "
+                     f"{amount(data['wall_seconds']['mean_seconds_observed'], 1)} |")
     lines += ['', 'PASS требует независимый grader и `pipeline_ok`. Стоимость включает неудачные попытки. '
               'Неизвестные usage не заменяются нулями; JSON содержит наблюдённые нижние границы. '
               'Стоимость является оценкой API-эквивалента, не подтверждённым списанием Go.', '',
               '## Парное сравнение', '',
-              '95% интервалы получены bootstrap по названиям упражнений: языковые варианты одного '
+              '95% интервалы полного прогона оцениваются bootstrap по названиям упражнений: языковые варианты одного '
               'упражнения остаются вместе, оба харнеса используют одну выборку. Это не 225 независимых задач.', '']
     if report.get('excluded_cases'):
         lines += ['Исключения определены upstream-контролями до прогона; они не считаются unrun или FAIL.']
@@ -268,15 +306,26 @@ def markdown(report):
                        ('Без явно отмеченной инфраструктуры', 'without_explicit_infrastructure')]:
         data = report['paired'][key]['final']
         lines.append(f"**{label}:** {data['cases']} пар, {data['exercise_clusters']} кластеров.")
+        show_intervals = report['paired']['full_cohort_complete']
         for agent, stats in data['arms'].items():
             interval = stats['ci95']
-            lines.append(f"- {agent}: {percent(stats['rate'])}; 95% CI "
-                         + (f"[{percent(interval[0])}, {percent(interval[1])}]." if interval else 'недоступен.'))
+            text = f"- {agent}: наблюдаемая доля {percent(stats['rate'])}"
+            if show_intervals:
+                text += (f"; 95% CI [{percent(interval[0])}, {percent(interval[1])}]" if interval
+                         else '; информативный интервал недоступен')
+            lines.append(text+'.')
         interval = data['delta']['ci95']
-        lines.append(f"- Δ ({data['delta']['direction']}): {percent(data['delta']['rate'])}; 95% CI "
-                     + (f"[{percent(interval[0])}, {percent(interval[1])}]." if interval else 'недоступен.'))
+        text = f"- Наблюдаемая Δ ({data['delta']['direction']}): {percent(data['delta']['rate'])}"
+        if show_intervals:
+            text += (f"; 95% CI [{percent(interval[0])}, {percent(interval[1])}]" if interval
+                     else '; информативный интервал недоступен')
+        lines.append(text+'.')
         lines.append('')
-    lines += ['Во время незавершённого прогона интервалы описывают только уже выполненные пары. '
+    if not report['paired']['full_cohort_complete']:
+        lines += ['Прогон не завершён: доверительные интервалы полного бенчмарка пока не приводятся. '
+                  'Наблюдаемые доли относятся только к завершённым парам.', '']
+    lines += ['Постоянное bootstrap-распределение не даёт информативного интервала; '
+              'оно не означает отсутствия неопределённости. '
               'Deadline и ошибки модели остаются в основном знаменателе. '
               'Инфраструктурные исключения показаны дополнительным срезом.', '',
               '## По языкам', '', '| Язык | Харнес | Выполнено | Первый PASS | Финальный PASS |',
