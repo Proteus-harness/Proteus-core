@@ -570,6 +570,7 @@ async fn discovered_mcp_tool_uses_runtime_approval_journal_and_replay_path() {
     assert!(output.text.ends_with(&expected_output), "{}", output.text);
 
     let store = proteus_core::core::SessionStore::open(
+        session_storage_fixture::storage(std::path::Path::new(".")),
         server
             .session_dir_path()
             .expect("runtime session directory"),
@@ -628,3 +629,6 @@ async fn discovered_mcp_tool_uses_runtime_approval_journal_and_replay_path() {
     assert!(replay.comparison.matched, "{:?}", replay.comparison);
     assert!(replay.source_journal_unchanged);
 }
+
+#[path = "support/model.rs"]
+mod session_storage_fixture;

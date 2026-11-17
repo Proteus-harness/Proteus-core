@@ -422,6 +422,7 @@ Rust host и модуль используют один
 
 | Slot | Contract | Module methods | Host callbacks |
 |---|---|---|---|
+| session_storage | v1 | `execute` | — |
 | hook | v8 | `hook.invoke` | `host.model.complete`, `host.model.estimate_input`, `host.tools.execute` (по фазе invocation) |
 | policy | v2 | `evaluate`, `evaluate_visibility` | — |
 | context provider | v4 | `provide`, `catalog` | — |
@@ -572,6 +573,32 @@ child/detached facts и внутренние model calls не становятс
 tools. Запрос без результата остаётся неизвестным исходом, повтор не выполняется.
 `coding.codex_loop` и Python example используют checkpoints; callback доступен
 всем implementations workflow slot с одинаковой authority.
+
+## Session Storage
+
+`session_storage/v1` — `select_one` export с единственным методом `execute`.
+`SessionStorageRequest` и `SessionStorageResponse` задаются в
+`proteus-contracts::contracts::session_storage`. Host callbacks отсутствуют.
+`local_path` и `record_location` в session descriptor служат для отображения и
+диагностики. Доступ к records, metadata, blobs и кешам идёт через service.
+
+Core назначает `operation_id`, timestamp и ожидаемую revision до отправки
+`Commit`. Модуль атомарно сохраняет тот же id как journal `record_id` и
+возвращает durable ACK с фактическим canonical record. `session_seq` считает
+все факты, `history_revision` — изменения conversation history. При утрате ACK
+`CommitStatus` позволяет установить результат той же операции.
+
+Writer lease содержит token и generation. Read-only snapshot фиксирует session,
+revision и hash committed prefix, поэтому пагинация и replay читают одну версию.
+Expired handle требует нового открытия. Незавершённый append восстанавливает
+writer. Read-only чтение сохраняет исходный журнал.
+
+Core удерживает выбранный storage service в течение runtime. Reload с изменённым
+selection, launch descriptor или `module_config.session_storage` отклоняется.
+HTTP server также проверяет эту привязку при открытии новых сессий из изменённого
+профиля. Для смены хранилища запускается новый runtime/server с явным конфигом.
+Бюджет больших кадров задаётся для component через
+[`transport.max_frame_bytes`](../guides/configuration.md#process-components-и-exports).
 
 ## Model Stream В Workflow
 
@@ -1063,8 +1090,9 @@ implementation через typed describe; Core не угадывает его п
 Tracked reference crates — ordinary Rust libraries, линкуемые внутрь процессного модуля.
 
 Все behavior implementations, включая model providers, используют process
-exports. Core сохраняет canonical model service, execution binding и journal;
-provider HTTP/SDK implementations находятся в процессном модуле.
+exports. Core сохраняет canonical model service, execution binding и порядок
+фиксации journal facts. Физическое хранение сессии делегируется выбранному
+`session_storage/v1`; provider HTTP/SDK implementations находятся в model module.
 Для subagents действует другой process contract: полный Proteus соединяется с
 другим полным Proteus через root-owned `AgentControl`, а не становится
 Component Runtime export-ом. Это не скрытый extension mechanism и не основание

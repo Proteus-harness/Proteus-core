@@ -9,7 +9,14 @@ model = "fake-tool-model"
 stream = true
 
 [modules]
+session_storage = "jsonl"
 workflow = "python_agent_loop"
+
+[components.session-storage]
+command = "proteus-session-storage-module"
+transport.max_frame_bytes = 134217728
+
+[components.session-storage.exports.session_storage.jsonl]
 
 [components.python-agent]
 command = "python3"

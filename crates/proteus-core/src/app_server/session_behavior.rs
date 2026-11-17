@@ -1,7 +1,5 @@
 //! Per-chat behavior selection. Only an ID and explicit permission override are durable;
 //! the current profile remains the authority for every overlay definition.
-use std::io::Read;
-
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 
@@ -128,9 +126,7 @@ async fn persist(server: &AppServerHandle, selected: &Selection) -> Result<()> {
     };
     let bytes = selection_bytes(server, selected)?;
     store
-        .with_metadata_transaction(move |directory| {
-            super::session_selection::atomic_write(&directory.join(FILE), &bytes)
-        })
+        .write_metadata(FILE, serde_json::from_slice(&bytes)?)
         .await
 }
 
@@ -149,30 +145,25 @@ where
         return Box::pin(commit()).await;
     };
     let bytes = selection_bytes(server, &Selection::default())?;
-    let previous = store
-        .with_metadata_transaction(move |directory| {
-            let path = directory.join(FILE);
-            let previous = super::session_selection::read_bytes(&path)?;
-            super::session_selection::atomic_write(&path, &bytes)?;
-            Ok(previous)
-        })
-        .await?;
+    let previous = store.read_metadata_document(FILE).await?;
+    let document = store
+        .compare_exchange_metadata(
+            FILE.to_owned(),
+            previous.as_ref().map(|document| document.etag.clone()),
+            Some(serde_json::from_slice(&bytes)?),
+        )
+        .await?
+        .context("behavior selection write did not return a document")?;
     if let Err(error) = Box::pin(commit()).await {
         let rollback = store
-            .with_metadata_transaction(move |directory| {
-                let path = directory.join(FILE);
-                match previous {
-                    Some(bytes) => super::session_selection::atomic_write(&path, &bytes),
-                    None => match std::fs::remove_file(&path) {
-                        Ok(()) => Ok(()),
-                        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-                        Err(error) => Err(error.into()),
-                    },
-                }
-            })
+            .compare_exchange_metadata(
+                FILE.to_owned(),
+                Some(document.etag),
+                previous.map(|document| document.value),
+            )
             .await;
         return match rollback {
-            Ok(()) => Err(error),
+            Ok(_) => Err(error),
             Err(rollback) => Err(error.context(format!(
                 "behavior selection rollback also failed: {rollback:#}"
             ))),
@@ -295,25 +286,10 @@ pub(super) async fn restore(server: &AppServerHandle, fresh: bool) -> Result<()>
     if fresh {
         return Ok(());
     }
-    let Some(directory) = server.session_dir_path() else {
+    let Some(store) = server.runtime.session_store() else {
         return Ok(());
     };
-    let stored = tokio::task::spawn_blocking(move || -> Result<Option<Stored>> {
-        let file = match std::fs::File::open(directory.join(FILE)) {
-            Ok(file) => file,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => return Err(error.into()),
-        };
-        let mut bytes = Vec::new();
-        file.take(MAX_BYTES + 1).read_to_end(&mut bytes)?;
-        ensure!(
-            bytes.len() as u64 <= MAX_BYTES,
-            "behavior selection exceeds its size limit"
-        );
-        Ok(Some(serde_json::from_slice(&bytes)?))
-    })
-    .await
-    .context("behavior selection reader failed")??;
+    let stored: Option<Stored> = super::session_selection::read_session(store, FILE).await?;
     if let Some(stored) = stored {
         let baseline = server.config.read().await.clone();
         if stored.binding == binding(server)? {

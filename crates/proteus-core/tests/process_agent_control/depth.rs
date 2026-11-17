@@ -36,6 +36,7 @@ timeout_ms = 60000
         serde_json::to_string(next).unwrap()
     );
     std::fs::write(path, contents + &test_model::toml_component()).unwrap();
+    test_model::storage_config_file(path);
 }
 
 #[tokio::test]

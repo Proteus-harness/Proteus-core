@@ -9,9 +9,16 @@ model = "fake-tool-model"
 stream = true
 
 [modules]
+session_storage = "jsonl"
 workflow = "coding.single_loop"
 context = "simple"
 policy = "ask_write"
+
+[components.session-storage]
+command = "proteus-session-storage-module"
+transport.max_frame_bytes = 134217728
+
+[components.session-storage.exports.session_storage.jsonl]
 
 [components.reference-workflow]
 command = "proteus-coding-workflow-module"

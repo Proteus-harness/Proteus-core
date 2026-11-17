@@ -39,7 +39,11 @@ async fn conversation_read_addresses_warm_and_cold_sessions_without_resuming_or_
         .send_user_message("live conversation".to_owned())
         .await
         .unwrap();
-    let live_store = SessionStore::open(live_dir.clone()).unwrap();
+    let live_store = SessionStore::open(
+        crate::test_support::storage(std::path::Path::new(".")),
+        live_dir.clone(),
+    )
+    .unwrap();
     let live_journal = std::fs::read(live_store.journal_path()).unwrap();
     let live = read_conversation(&state, &live_dir).await;
     assert_eq!(
@@ -58,7 +62,13 @@ async fn conversation_read_addresses_warm_and_cold_sessions_without_resuming_or_
     );
 
     let cold_id = new_session_id();
-    let cold_store = SessionStore::new(config_dir.path(), server.cwd_path(), cold_id).unwrap();
+    let cold_store = SessionStore::new(
+        crate::test_support::storage(std::path::Path::new(".")),
+        config_dir.path(),
+        server.cwd_path(),
+        cold_id,
+    )
+    .unwrap();
     let thread = new_thread_id();
     cold_store
         .append_history(

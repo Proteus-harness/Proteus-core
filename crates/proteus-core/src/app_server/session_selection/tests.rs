@@ -160,7 +160,10 @@ async fn existing_chat_without_sidecar_uses_profile_baseline_not_global_last() {
     old.runtime
         .session_store()
         .unwrap()
-        .prepare_metadata()
+        .write_metadata(
+            "test-materialized.json",
+            serde_json::json!({"materialized": true}),
+        )
         .await
         .unwrap();
     let old_dir = old.session_dir_path().unwrap();
@@ -186,8 +189,10 @@ async fn failed_global_write_rolls_back_session_and_does_not_publish_runtime() {
     let cwd = tempfile::tempdir().unwrap();
     let handle = launch(root.path(), cwd.path()).await;
     handle.set_model_name("before".into()).await.unwrap();
-    let session = handle.session_dir_path().unwrap().join(FILE);
-    let before = std::fs::read(&session).unwrap();
+    let before: serde_json::Value = read_session(handle.runtime.session_store().unwrap(), FILE)
+        .await
+        .unwrap()
+        .unwrap();
     let last = last_path(
         &crate::test_model::config(),
         &root.path().join("config.toml"),
@@ -197,7 +202,13 @@ async fn failed_global_write_rolls_back_session_and_does_not_publish_runtime() {
     std::fs::create_dir(&last).unwrap();
     assert!(handle.set_model_name("must-fail".into()).await.is_err());
     assert_eq!(handle.runtime.model_ref().await.unwrap().model, "before");
-    assert_eq!(std::fs::read(session).unwrap(), before);
+    assert_eq!(
+        read_session::<serde_json::Value>(handle.runtime.session_store().unwrap(), FILE)
+            .await
+            .unwrap()
+            .unwrap(),
+        before
+    );
     handle.shutdown().await;
 }
 
@@ -286,7 +297,10 @@ async fn route_reload_and_cold_resume_agree_on_global_model_and_reasoning() {
         let ui_model = server.runtime.model_ref().await;
         let ui_reasoning = server.runtime.reasoning().await;
         let directory = server.session_dir_path().unwrap();
-        let saved = std::fs::read(directory.join(FILE)).unwrap();
+        let saved: serde_json::Value = read_session(server.runtime.session_store().unwrap(), FILE)
+            .await
+            .unwrap()
+            .unwrap();
 
         // An unrelated refresh must not discard the user's selection.
         config.runtime.context_timeout_ms += 1;
@@ -327,7 +341,13 @@ async fn route_reload_and_cold_resume_agree_on_global_model_and_reasoning() {
             .unwrap();
         let hot_model = server.runtime.model_ref().await;
         let hot_reasoning = server.runtime.reasoning().await;
-        assert_eq!(std::fs::read(directory.join(FILE)).unwrap(), saved);
+        assert_eq!(
+            read_session::<serde_json::Value>(server.runtime.session_store().unwrap(), FILE)
+                .await
+                .unwrap()
+                .unwrap(),
+            saved
+        );
         server.shutdown().await;
         drop(server);
 
@@ -478,7 +498,10 @@ async fn cancelled_request_keeps_transaction_owned_until_publish_before_next_sel
         handle.runtime.model_ref().await.unwrap().model,
         "latest-choice"
     );
-    let stored: Selection = serde_json::from_slice(&std::fs::read(session).unwrap()).unwrap();
+    let stored: Selection = read_session(handle.runtime.session_store().unwrap(), FILE)
+        .await
+        .unwrap()
+        .unwrap();
     let last = last_path(
         &crate::test_model::config(),
         &root.path().join("config.toml"),

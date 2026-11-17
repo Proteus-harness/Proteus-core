@@ -69,8 +69,13 @@ fn discarded_transaction_cannot_publish_record_ids_parts_or_history() {
 async fn execution_state_benchmark() {
     let root = tempfile::tempdir().unwrap();
     let workspace = tempfile::tempdir().unwrap();
-    let store =
-        crate::core::SessionStore::new(root.path(), workspace.path(), new_session_id()).unwrap();
+    let store = crate::core::SessionStore::new(
+        crate::test_support::storage(std::path::Path::new(".")),
+        root.path(),
+        workspace.path(),
+        new_session_id(),
+    )
+    .unwrap();
     let messages = (0..128)
         .map(|_| CanonicalMessage::text(MessageRole::User, "synthetic ".repeat(4096)))
         .collect::<Vec<_>>();

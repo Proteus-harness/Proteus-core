@@ -28,7 +28,11 @@ async fn shipped_restricted_profile_runs_search_callbacks_and_replays_a_file_tur
     config
         .components
         .retain(|_, component| !component.exports().any(|(slot, _, _)| slot == "model"));
-    config.components.extend(fake.components);
+    config.components.extend(
+        fake.components
+            .into_iter()
+            .filter(|(_, component)| component.exports().any(|(slot, _, _)| slot == "model")),
+    );
     config.providers = fake.providers;
     config.active_provider = fake.active_provider;
     config
@@ -38,7 +42,12 @@ async fn shipped_restricted_profile_runs_search_callbacks_and_replays_a_file_tur
     config.agent_control.roles.clear();
     for component in config.components.values_mut() {
         let mut value = serde_json::to_value(&*component)?;
-        value["command"] = json!(test_model::reference_module());
+        if !component
+            .exports()
+            .any(|(slot, _, _)| slot == "session_storage")
+        {
+            value["command"] = json!(test_model::reference_module());
+        }
         if value.get("sandbox").is_none() {
             // Keep trusted workers away from the owner's credentials/plugins.
             value["env_allowlist"] = json!([]);
@@ -92,7 +101,10 @@ async fn shipped_restricted_profile_runs_search_callbacks_and_replays_a_file_tur
         .await?;
     assert!(output.text.contains("smoke.txt"), "{output:?}");
     assert_eq!(fs::read_to_string(workspace.join("smoke.txt"))?, "smoke\n");
-    let store = SessionStore::open(runtime.session_dir().unwrap().to_owned())?;
+    let store = SessionStore::open(
+        session_storage_fixture::storage(std::path::Path::new(".")),
+        runtime.session_dir().unwrap().to_owned(),
+    )?;
     let projection = store.load_projection()?;
     assert_eq!(projection.history, runtime.history().await.unwrap());
     assert!(projection.records.iter().any(|record| matches!(&record.entry,
@@ -134,3 +146,6 @@ async fn shipped_restricted_profile_runs_search_callbacks_and_replays_a_file_tur
     assert!(replay.source_journal_unchanged);
     Ok(())
 }
+
+#[path = "../support/model.rs"]
+mod session_storage_fixture;

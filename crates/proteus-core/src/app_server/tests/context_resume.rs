@@ -48,15 +48,16 @@ async fn resume_and_probe(
     config_path: &Path,
     old_thread: crate::domain::ThreadId,
 ) -> Vec<ModelContextObservation> {
-    let handle = AgentAppServer::launch_resumed(
+    let handle = AgentAppServer::launch_resumed_with_storage(
         crate::test_model::config(),
         store.workspace_path().unwrap(),
         Some(config_path),
         store.session_dir().to_path_buf(),
+        store.storage_service(),
     )
     .await
     .unwrap();
-    let config = AppConfig::default();
+    let config = crate::test_model::config();
     let mut assembly = PreparedAssembly::from_catalog(
         config.clone(),
         store.workspace_path().unwrap(),
@@ -91,7 +92,13 @@ async fn actual_app_server_resume_restores_root_context_across_threads_and_respe
     let root = tempfile::tempdir().unwrap();
     let workspace = tempfile::tempdir().unwrap();
     let config_path = root.path().join("config.toml");
-    let store = SessionStore::new(root.path(), workspace.path(), new_session_id()).unwrap();
+    let store = SessionStore::new(
+        crate::test_support::storage(std::path::Path::new(".")),
+        root.path(),
+        workspace.path(),
+        new_session_id(),
+    )
+    .unwrap();
     let thread = new_thread_id();
     let turn = new_turn_id();
     let attribution =

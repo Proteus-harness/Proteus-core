@@ -6,9 +6,13 @@ async fn paged_snapshot_full_history_and_revision_checked_pages_agree() {
     let root = tempfile::tempdir().unwrap();
     let cwd = tempfile::tempdir().unwrap();
     let config = root.path().join("config.toml");
-    let store =
-        crate::core::SessionStore::new(root.path(), cwd.path(), crate::domain::new_session_id())
-            .unwrap();
+    let store = crate::core::SessionStore::new(
+        crate::test_support::storage(std::path::Path::new(".")),
+        root.path(),
+        cwd.path(),
+        crate::domain::new_session_id(),
+    )
+    .unwrap();
     let messages: Vec<_> = (0..121)
         .map(|i| {
             crate::model_standard::CanonicalMessage::text(
@@ -21,15 +25,20 @@ async fn paged_snapshot_full_history_and_revision_checked_pages_agree() {
         .append_history(crate::domain::new_thread_id(), None, &messages)
         .await
         .unwrap();
+    let faults = crate::app_server::read_model::faults::CacheFaults::default();
+    let store = faults.store(store);
     let before = std::fs::read(store.journal_path()).unwrap();
-    let server = AgentAppServer::launch_resumed(
+    let server = AgentAppServer::launch_resumed_with_storage(
         crate::test_model::config(),
         cwd.path().into(),
         Some(&config),
         store.session_dir().into(),
+        store.service.clone(),
     )
     .await
     .unwrap();
+    let (shutdown, _) = broadcast::channel(1);
+    let state = HttpAppState::new(server.clone(), shutdown, test_security()).await;
     let mut events = server.subscribe_session();
     let snapshot = loop {
         if let AppServerEvent::SessionSnapshot { snapshot } = events.recv().await.unwrap() {
@@ -49,7 +58,7 @@ async fn paged_snapshot_full_history_and_revision_checked_pages_agree() {
         store.session_dir().display(),
         cursor.revision
     );
-    let page = super::super::sessions::history_page_json(Some(&query))
+    let page = super::super::sessions::history_page_json(&state, Some(&query))
         .await
         .unwrap();
     assert_eq!((page.start, page.messages.len()), (21, 50));
@@ -58,7 +67,13 @@ async fn paged_snapshot_full_history_and_revision_checked_pages_agree() {
     // recovery must not mask the second by repairing its cache beforehand.
     for damage in ["missing", "malformed", "checksum", "unwritable"] {
         for full_read in [true, false] {
-            damage_read_index(&store, damage);
+            faults.set("none");
+            store
+                .project_read_model(|source| {
+                    crate::app_server::journal_transcript_from_source(source, None)
+                })
+                .unwrap();
+            faults.set(damage);
             if full_read {
                 assert_eq!(
                     serde_json::to_value(server.transcript().await.unwrap()).unwrap(),
@@ -66,7 +81,7 @@ async fn paged_snapshot_full_history_and_revision_checked_pages_agree() {
                     "{damage}: active full history"
                 );
             } else {
-                let recovered = super::super::sessions::history_page_json(Some(&query))
+                let recovered = super::super::sessions::history_page_json(&state, Some(&query))
                     .await
                     .unwrap();
                 assert_eq!(recovered.revision, cursor.revision, "{damage}");
@@ -89,13 +104,13 @@ async fn paged_snapshot_full_history_and_revision_checked_pages_agree() {
         store.session_dir().display()
     );
     assert!(
-        super::super::sessions::history_page_json(Some(&query))
+        super::super::sessions::history_page_json(&state, Some(&query))
             .await
             .is_err()
     );
     let query = format!("session_dir={}&before=abc", store.session_dir().display());
     assert!(
-        super::super::sessions::history_page_json(Some(&query))
+        super::super::sessions::history_page_json(&state, Some(&query))
             .await
             .is_err()
     );
@@ -106,7 +121,7 @@ async fn paged_snapshot_full_history_and_revision_checked_pages_agree() {
         store.session_dir().display(),
         cursor.revision
     );
-    let reopened = super::super::sessions::history_page_json(Some(&query))
+    let reopened = super::super::sessions::history_page_json(&state, Some(&query))
         .await
         .unwrap();
     assert_eq!(
@@ -122,9 +137,13 @@ async fn route_history_can_read_requested_cold_session_without_changing_live_reg
     let config_dir = tempfile::tempdir().expect("config dir");
     let config_path = config_dir.path().join("config.toml");
     let saved_session_id = crate::domain::new_session_id();
-    let saved_store =
-        crate::core::SessionStore::new(config_dir.path(), cwd.path(), saved_session_id)
-            .expect("session store");
+    let saved_store = crate::core::SessionStore::new(
+        crate::test_support::storage(std::path::Path::new(".")),
+        config_dir.path(),
+        cwd.path(),
+        saved_session_id,
+    )
+    .expect("session store");
     saved_store
         .append_history(
             crate::domain::new_thread_id(),
@@ -224,9 +243,13 @@ async fn route_context_can_read_requested_cold_session_without_changing_live_reg
     let config_dir = tempfile::tempdir().expect("config dir");
     let config_path = config_dir.path().join("config.toml");
     let saved_session_id = crate::domain::new_session_id();
-    let saved_store =
-        crate::core::SessionStore::new(config_dir.path(), cwd.path(), saved_session_id)
-            .expect("session store");
+    let saved_store = crate::core::SessionStore::new(
+        crate::test_support::storage(std::path::Path::new(".")),
+        config_dir.path(),
+        cwd.path(),
+        saved_session_id,
+    )
+    .expect("session store");
     saved_store
         .append_history(
             crate::domain::new_thread_id(),
@@ -326,38 +349,4 @@ async fn live_history_matches_cold_journal_after_turn_settlement() {
         serde_json::to_value(cold).unwrap()
     );
     assert_eq!(std::fs::read(journal_path).unwrap(), journal);
-}
-
-#[cfg(unix)]
-fn damage_read_index(store: &crate::core::SessionStore, damage: &str) {
-    let path = store.session_dir().join(".read-view.sqlite");
-    if path.is_dir() {
-        std::fs::remove_dir(&path).unwrap();
-    } else if path.exists() {
-        std::fs::remove_file(&path).unwrap();
-    }
-    store
-        .project_read_model(|source| {
-            crate::app_server::journal_transcript_from_source(source, None)
-        })
-        .unwrap();
-    match damage {
-        "missing" => std::fs::remove_file(&path).unwrap(),
-        "malformed" => std::fs::write(&path, b"not a SQLite database").unwrap(),
-        "checksum" => {
-            let db = rusqlite::Connection::open(&path).unwrap();
-            db.execute(
-                "UPDATE records SET payload=x'00' WHERE section='transcript'",
-                [],
-            )
-            .unwrap();
-        }
-        "unwritable" => {
-            // Deterministic even when tests run as root: rename cannot replace
-            // this directory. Canonical reads must not depend on cache writes.
-            std::fs::remove_file(&path).unwrap();
-            std::fs::create_dir(&path).unwrap();
-        }
-        _ => unreachable!(),
-    }
 }

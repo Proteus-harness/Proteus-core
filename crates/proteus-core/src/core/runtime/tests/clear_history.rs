@@ -32,13 +32,56 @@ impl Model for RecordingModel {
     }
 }
 
+struct PausedStorage {
+    inner: crate::core::StorageService,
+    pause: std::sync::Mutex<
+        Option<(
+            tokio::sync::oneshot::Sender<()>,
+            tokio::sync::oneshot::Receiver<bool>,
+        )>,
+    >,
+}
+
+#[async_trait]
+impl crate::contracts::SessionStorage for PausedStorage {
+    async fn execute(
+        &self,
+        request: crate::contracts::SessionStorageRequest,
+    ) -> Result<crate::contracts::SessionStorageResponse> {
+        if let crate::contracts::SessionStorageRequest::Commit { ref commit } = request
+            && let crate::core::JournalEntry::HistoryMutated(mutation) = &commit.entry
+            && mutation.mutation == crate::core::HistoryMutationKind::Replace
+            && mutation.messages.is_empty()
+        {
+            let pause = self.pause.lock().unwrap().take();
+            if let Some((started, release)) = pause {
+                let _ = started.send(());
+                anyhow::ensure!(!release.await?, "injected storage commit failure");
+            }
+        }
+        self.inner.execute(request).await
+    }
+
+    fn execute_blocking(
+        &self,
+        request: crate::contracts::SessionStorageRequest,
+    ) -> Result<crate::contracts::SessionStorageResponse> {
+        self.inner.execute_blocking(request)
+    }
+}
+
 async fn clear_transaction_case(cancel_caller: bool, fail: bool) {
     let root = tempfile::tempdir().unwrap();
     let workspace = tempfile::tempdir().unwrap();
     let config_path = root.path().join("config.toml");
+    let storage = Arc::new(PausedStorage {
+        inner: crate::test_support::storage(workspace.path()),
+        pause: Default::default(),
+    });
     let runtime = Arc::new(
         AgentRuntime::builder(AppConfig::default(), workspace.path().into())
             .with_config_path(Some(&config_path))
+            .with_session_storage(storage.clone())
             .with_module_catalog(test_catalog())
             .build()
             .unwrap(),
@@ -58,7 +101,9 @@ async fn clear_transaction_case(cancel_caller: bool, fail: bool) {
     let context_before = runtime.conversation_snapshot().await.unwrap().model_context;
     assert!(!context_before.is_empty());
     let store = runtime.session.session_store.as_ref().unwrap().clone();
-    let (started, release) = store.pause_next_append().await;
+    let (begin, started) = tokio::sync::oneshot::channel();
+    let (release, wait) = tokio::sync::oneshot::channel();
+    *storage.pause.lock().unwrap() = Some((begin, wait));
     let caller = tokio::spawn({
         let runtime = runtime.clone();
         async move { runtime.clear_history().await }
@@ -98,14 +143,8 @@ async fn clear_transaction_case(cancel_caller: bool, fail: bool) {
     if cancel_caller {
         assert!(caller.await.unwrap_err().is_cancelled());
     } else {
-        assert!(
-            caller
-                .await
-                .unwrap()
-                .unwrap_err()
-                .to_string()
-                .contains("injected partial journal write failure")
-        );
+        let error = caller.await.unwrap().unwrap_err();
+        assert!(format!("{error:#}").contains("injected storage commit failure"));
     }
     // The waiting run observes both representations only after the owner settles.
     let (warm, cold, context) = tokio::time::timeout(Duration::from_secs(5), &mut next)

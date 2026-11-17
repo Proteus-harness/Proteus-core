@@ -7,7 +7,7 @@ mod config_schemas;
 use crate::{
     contracts::{
         AgentControl, AgentWorkflowContext, ApprovalPolicy, ContextBuilder, EventEmitter,
-        ExecutionContext, Model, ToolRegistry, UserInputTransport, Workflow,
+        ExecutionContext, Model, SessionStorage, ToolRegistry, UserInputTransport, Workflow,
     },
     core::{
         AgentControlRuntime, AppConfig, AssemblyPlan, BoundModel, ModeAwarePolicy,
@@ -43,6 +43,7 @@ pub struct RuntimeRegistry {
     pub policy: Arc<dyn ApprovalPolicy>,
     pub agent_control: Option<Arc<dyn AgentControl>>,
     pub workflow: Arc<dyn Workflow>,
+    pub session_storage: Option<Arc<dyn SessionStorage>>,
     pub(crate) context_providers: Vec<(String, Arc<dyn crate::core::RepoAwareContextProvider>)>,
     pub(crate) mcp_servers: Vec<proteus_contracts::app_protocol::addons::AppMcpServerState>,
     pub(crate) plugins: Vec<proteus_contracts::app_protocol::addons::AppAgentPluginState>,
@@ -110,6 +111,14 @@ impl RuntimeRegistry {
     }
 
     pub(crate) fn from_plan(plan: &AssemblyPlan, catalog: ModuleCatalog) -> Result<Self> {
+        Self::from_plan_with_storage(plan, catalog, None)
+    }
+
+    pub(crate) fn from_plan_with_storage(
+        plan: &AssemblyPlan,
+        catalog: ModuleCatalog,
+        storage: Option<super::StorageService>,
+    ) -> Result<Self> {
         plan.ensure_valid()?;
         let config = plan.config();
         let cwd = plan.cwd();
@@ -201,8 +210,16 @@ impl RuntimeRegistry {
             Some(id) => catalog.build_workflow(id, &build_ctx)?,
             None => Arc::new(NoWorkflow),
         };
+        let session_storage = match storage {
+            Some(service) => Some(service),
+            None => plan
+                .module_id(crate::domain::ModuleKind::SessionStorage)
+                .map(|id| catalog.build_session_storage(id, &build_ctx))
+                .transpose()?,
+        };
         Ok(Self {
             config_exports: catalog.config_exports.clone(),
+            session_storage,
             hooks,
             cwd: cwd.to_path_buf(),
             model_config,

@@ -9,10 +9,17 @@ priority = 90
 name = "coding-local"
 
 [modules]
+session_storage = "jsonl"
 hooks = ["codex_compact"]
 workflow = "coding.single_loop"
 context = "repo_aware"
 policy = "ask_write"
+
+[components.session-storage]
+command = "proteus-session-storage-module"
+transport.max_frame_bytes = 134217728
+
+[components.session-storage.exports.session_storage.jsonl]
 
 [components.reference-workflow]
 command = "proteus-coding-workflow-module"

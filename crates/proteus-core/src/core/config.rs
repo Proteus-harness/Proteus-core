@@ -407,6 +407,9 @@ impl Default for ModelConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ModulesConfig {
+    /// Explicit durable session storage. Absence means no persistent session backend.
+    #[serde(default)]
+    pub session_storage: Option<String>,
     /// Explicit execution order of process hook contributions.
     #[serde(default)]
     pub hooks: Vec<String>,
@@ -421,6 +424,7 @@ pub struct ModulesConfig {
 impl Default for ModulesConfig {
     fn default() -> Self {
         Self {
+            session_storage: None,
             hooks: Vec::new(),
             workflow: None,
             context: None,
@@ -452,6 +456,7 @@ impl ModulesConfig {
 
     pub fn get(&self, kind: ModuleKind) -> Option<&str> {
         match kind {
+            ModuleKind::SessionStorage => self.session_storage.as_deref(),
             ModuleKind::Workflow => self.workflow.as_deref(),
             ModuleKind::Context => self.context.as_deref(),
             ModuleKind::Policy => self.policy.as_deref(),
@@ -472,6 +477,7 @@ impl ModulesConfig {
 
     fn set(&mut self, kind: ModuleKind, module_id: String) -> bool {
         match kind {
+            ModuleKind::SessionStorage => self.session_storage = Some(module_id),
             ModuleKind::Workflow => self.workflow = Some(module_id),
             ModuleKind::Context => self.context = Some(module_id),
             ModuleKind::Policy => self.policy = Some(module_id),

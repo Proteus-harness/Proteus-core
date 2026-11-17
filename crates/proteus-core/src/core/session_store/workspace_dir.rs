@@ -71,25 +71,6 @@ pub fn decode_workspace_path(encoded: &str) -> Result<PathBuf> {
     Ok(canonical)
 }
 
-pub(super) fn workspace_path_from_session_dir(session_dir: &Path) -> Result<PathBuf> {
-    let workspace_dir = session_dir.parent().ok_or_else(|| {
-        anyhow!(
-            "session directory has no workspace parent: {}",
-            session_dir.display()
-        )
-    })?;
-    let encoded = workspace_dir
-        .file_name()
-        .and_then(|name| name.to_str())
-        .ok_or_else(|| {
-            anyhow!(
-                "session workspace directory must have a UTF-8 name: {}",
-                workspace_dir.display()
-            )
-        })?;
-    decode_workspace_path(encoded)
-}
-
 fn encode_workspace_component(input: &str) -> String {
     const HEX: &[u8; 16] = b"0123456789ABCDEF";
     let mut out = String::new();

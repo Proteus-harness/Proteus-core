@@ -126,6 +126,7 @@ env_allowlist = ["HOME", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "
 [components.reference-model.exports.model.openai_codex]
 
 [modules]
+session_storage = "jsonl"
 hooks = ["codex_compact", "codex_base_instructions"]
 workflow = "coding.codex_loop"
 context = "codex_context"
@@ -169,3 +170,11 @@ summary = true
 [profile]
 name = "codex-coder-peer"
 entrypoint = false
+
+[components.session-storage]
+command = "proteus-session-storage-module"
+transport.max_frame_bytes = 134217728
+
+[components.session-storage.exports.session_storage.jsonl]
+
+[components.session-storage.exports.session_storage.sqlite]

@@ -128,6 +128,7 @@ env_allowlist = ["HOME", "XDG_DATA_HOME", "PATH", "OPENCODE_API_KEY", "HTTP_PROX
 [components.opencode-model.exports.model.opencode]
 
 [modules]
+session_storage = "jsonl"
 hooks = ["codex_compact", "codex_base_instructions"]
 workflow = "coding.codex_loop"
 context = "codex_context"
@@ -265,7 +266,14 @@ env_allowlist = ["HOME", "PROTEUS_HOME"]
 [agent_control.roles.config.components.codex-context-preparation.exports.hook.codex_compact]
 
 [agent_control.roles.config.components.codex-context-preparation.exports.hook.codex_base_instructions]
+[agent_control.roles.config.components.session-storage]
+command = "proteus-session-storage-module"
+transport.max_frame_bytes = 134217728
+
+[agent_control.roles.config.components.session-storage.exports.session_storage.jsonl]
+
 [agent_control.roles.config.modules]
+session_storage = "jsonl"
 hooks = ["codex_compact", "codex_base_instructions"]
 workflow = "coding.codex_loop"
 context = "codex_context"
@@ -405,7 +413,14 @@ env_allowlist = ["HOME", "PROTEUS_HOME"]
 [agent_control.roles.config.components.codex-context-preparation.exports.hook.codex_compact]
 
 [agent_control.roles.config.components.codex-context-preparation.exports.hook.codex_base_instructions]
+[agent_control.roles.config.components.session-storage]
+command = "proteus-session-storage-module"
+transport.max_frame_bytes = 134217728
+
+[agent_control.roles.config.components.session-storage.exports.session_storage.jsonl]
+
 [agent_control.roles.config.modules]
+session_storage = "jsonl"
 hooks = ["codex_compact", "codex_base_instructions"]
 workflow = "coding.codex_loop"
 context = "codex_context"
@@ -438,3 +453,11 @@ mode = "normal"
 [profile]
 name = "codex-task"
 entrypoint = false
+
+[components.session-storage]
+command = "proteus-session-storage-module"
+transport.max_frame_bytes = 134217728
+
+[components.session-storage.exports.session_storage.jsonl]
+
+[components.session-storage.exports.session_storage.sqlite]

@@ -147,8 +147,13 @@ async fn compacted_journal_with_metadata(metadata: serde_json::Value) -> TestJou
     let thread_id = new_thread_id();
     let turn_id = new_turn_id();
     let execution_id = new_execution_id();
-    let store =
-        SessionStore::new(config_dir.path(), workspace.path(), session_id).expect("session store");
+    let store = SessionStore::new(
+        crate::test_support::storage(workspace.path()),
+        config_dir.path(),
+        workspace.path(),
+        session_id,
+    )
+    .expect("session store");
     let task = AgentTask::new(
         "run compaction replay probe",
         workspace.path().to_path_buf(),
@@ -385,7 +390,7 @@ async fn changed_compaction_replays_the_declared_user_message_replacement() {
 
     let report = replay_workflow(
         journal.store.session_dir(),
-        &AppConfig::default(),
+        &storage_config(),
         &compaction_catalog(CompactionProbeMode::Match),
         WorkflowReplayOptions::default(),
     )
@@ -412,7 +417,7 @@ async fn changed_compaction_replay_preserves_non_object_metadata() {
         let journal = compacted_journal_with_metadata(metadata).await;
         let report = replay_workflow(
             journal.store.session_dir(),
-            &AppConfig::default(),
+            &storage_config(),
             &compaction_catalog(CompactionProbeMode::Match),
             WorkflowReplayOptions::default(),
         )
@@ -429,7 +434,7 @@ async fn changed_compaction_report_divergence_is_not_hidden_by_equal_history() {
 
     let report = replay_workflow(
         journal.store.session_dir(),
-        &AppConfig::default(),
+        &storage_config(),
         &compaction_catalog(CompactionProbeMode::DivergeReport),
         WorkflowReplayOptions::default(),
     )
@@ -451,7 +456,7 @@ async fn replay_uses_runtime_history_validation_for_workflow_output() {
 
     let report = replay_workflow(
         journal.store.session_dir(),
-        &AppConfig::default(),
+        &storage_config(),
         &compaction_catalog(CompactionProbeMode::InvalidHistory),
         WorkflowReplayOptions::default(),
     )

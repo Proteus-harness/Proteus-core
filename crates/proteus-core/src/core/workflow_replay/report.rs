@@ -24,6 +24,8 @@ pub struct WorkflowReplayReport {
     pub model_exchanges: WorkflowReplayCounts,
     pub tool_calls: WorkflowReplayCounts,
     pub comparison: WorkflowReplayComparison,
+    /// The storage service reports the same committed sequence, history revision
+    /// and immutable prefix digest after replay.
     pub source_journal_unchanged: bool,
     pub duration_ms: u64,
 }

@@ -22,6 +22,7 @@ pub(super) struct HttpLaunchContext {
 #[derive(Clone)]
 pub(super) struct HttpAppState {
     pub(super) launch: Arc<HttpLaunchContext>,
+    pub(super) storage: Option<crate::core::StorageService>,
     // Only operations on the same session must wait for terminal settlement.
     // Owners/waiters keep gates alive; the registry keeps only weak references.
     session_lifecycle: Arc<StdMutex<HashMap<PathBuf, Weak<Mutex<()>>>>>,
@@ -33,6 +34,12 @@ pub(super) struct HttpAppState {
 }
 
 impl HttpAppState {
+    pub(super) fn storage_service(&self) -> anyhow::Result<crate::core::StorageService> {
+        self.storage
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("no session storage module is selected"))
+    }
+
     pub(super) async fn new(
         server: AppServerHandle,
         shutdown: broadcast::Sender<()>,
@@ -56,6 +63,7 @@ impl HttpAppState {
         let (activity_events, _) = broadcast::channel(1024);
         let state = Self {
             launch: Arc::new(launch),
+            storage: server.storage.clone(),
             session_lifecycle: Arc::default(),
             session_servers: Arc::new(Mutex::new(session_servers)),
             activity_events,
@@ -103,6 +111,36 @@ impl HttpAppState {
             self.watch_server(server);
             self.emit_session_activity_for_dir(&key).await;
         }
+    }
+
+    /// Resolve caller spelling through live descriptors first. This also works
+    /// before an admitted session has materialized its storage directory.
+    pub(super) async fn resolve_session_dir(&self, path: PathBuf) -> anyhow::Result<PathBuf> {
+        let key = session_key(path.clone());
+        {
+            let servers = self.session_servers.lock().await;
+            for (dir, server) in servers.iter() {
+                if *dir == key
+                    || server
+                        .runtime
+                        .session_store()
+                        .is_some_and(|store| session_key(store.journal_path()) == key)
+                {
+                    return Ok(dir.clone());
+                }
+            }
+        }
+        let Some(storage) = self.storage.clone() else {
+            return Ok(key);
+        };
+        let opened =
+            tokio::task::spawn_blocking(move || crate::core::SessionStore::open(storage, path))
+                .await?;
+        // Missing/deleted paths still need their lifecycle gate before resume
+        // or delete determines the authoritative outcome.
+        Ok(opened
+            .map(|store| session_key(store.session_dir().to_owned()))
+            .unwrap_or(key))
     }
 
     pub(super) async fn remove_session_server(

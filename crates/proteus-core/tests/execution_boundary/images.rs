@@ -19,7 +19,7 @@ fn config(images_supported: bool, capture: &Path) -> AppConfig {
         vec![],
         FinishReason::Stop,
     );
-    serde_json::from_value(json!({
+    let mut config = serde_json::from_value(json!({
         "active_provider":"vision", "providers":{"vision":{"provider":"vision","model":"fixture","stream":true}},
         "modules":{"workflow":"coding.single_loop", "policy":"allow_all"},
         "components":{
@@ -30,7 +30,9 @@ fn config(images_supported: bool, capture: &Path) -> AppConfig {
             "descriptor":ProcessModelDescriptor {adapter_id:"vision-probe".into(), capabilities:ModelCapabilities::basic_text_and_tools().with_streaming(true).with_image_input(images_supported), hosted_tools:vec![]},
             "mode":"image_probe", "capture_path":capture, "terminal":{"kind":"response","response":response}
         }}}
-    })).unwrap()
+    })).unwrap();
+    test_model::storage_config(&mut config);
+    config
 }
 
 fn input(text: &str) -> UserMessageInput {
@@ -103,17 +105,20 @@ async fn image_input_survives_process_workflow_cold_resume_and_replay() {
     assert!(runtime.history().await.unwrap()[0].parts.iter().any(
         |part| matches!(&part.payload, ContentPart::Image { image: restored } if restored == &image)
     ));
-    let turn_id = SessionStore::open(session_dir.clone())
-        .unwrap()
-        .load_records()
-        .unwrap()
-        .iter()
-        .rev()
-        .find_map(|record| match &record.entry {
-            JournalEntry::TurnSettled(_) => record.turn_id,
-            _ => None,
-        })
-        .unwrap();
+    let turn_id = SessionStore::open(
+        session_storage_fixture::storage(std::path::Path::new(".")),
+        session_dir.clone(),
+    )
+    .unwrap()
+    .load_records()
+    .unwrap()
+    .iter()
+    .rev()
+    .find_map(|record| match &record.entry {
+        JournalEntry::TurnSettled(_) => record.turn_id,
+        _ => None,
+    })
+    .unwrap();
     let replay = replay_workflow(
         &session_dir,
         &config,
@@ -153,7 +158,11 @@ async fn text_only_model_rejects_image_before_provider_invocation() {
     assert!(!capture.exists());
     let session_dir = runtime.session_dir().unwrap().to_owned();
     drop(runtime);
-    let cold = SessionStore::open(session_dir).unwrap();
+    let cold = SessionStore::open(
+        session_storage_fixture::storage(std::path::Path::new(".")),
+        session_dir,
+    )
+    .unwrap();
     assert!(cold.load_records().unwrap().iter().any(|record| matches!(&record.entry, JournalEntry::TurnSettled(settlement) if settlement.status == TurnSettlementStatus::Error)));
     assert!(
         cold.load_messages().unwrap()[0]
@@ -224,7 +233,11 @@ async fn codex_compaction_strips_working_images_but_keeps_original_journal_and_s
     assert_eq!(runtime.image_bytes(&image.id).unwrap().0, PNG);
     let session_dir = runtime.session_dir().unwrap().to_path_buf();
     drop(runtime);
-    let cold = SessionStore::open(session_dir.clone()).unwrap();
+    let cold = SessionStore::open(
+        session_storage_fixture::storage(std::path::Path::new(".")),
+        session_dir.clone(),
+    )
+    .unwrap();
     assert_eq!(cold.load_messages().unwrap(), working);
     let records = cold.load_records().unwrap();
     assert!(records.iter().any(|record| matches!(&record.entry,
@@ -270,3 +283,6 @@ async fn codex_compaction_strips_working_images_but_keeps_original_journal_and_s
         .collect::<Vec<_>>();
     assert_eq!(image_counts, [1, 1, 1, 1, 0]);
 }
+
+#[path = "../support/model.rs"]
+mod session_storage_fixture;

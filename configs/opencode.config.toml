@@ -13,6 +13,7 @@ name = "opencode"
 title = "OpenCode"
 
 [modules]
+session_storage = "jsonl"
 workflow = "opencode_loop"
 context = "opencode_context"
 policy = "opencode_policy"
@@ -89,3 +90,11 @@ workflow_timeout_ms = 14400000
 
 [event_log]
 path = ".proteus/events.jsonl"
+
+[components.session-storage]
+command = "proteus-session-storage-module"
+transport.max_frame_bytes = 134217728
+
+[components.session-storage.exports.session_storage.jsonl]
+
+[components.session-storage.exports.session_storage.sqlite]

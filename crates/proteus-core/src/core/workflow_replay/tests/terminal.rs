@@ -20,8 +20,13 @@ pub(super) async fn terminal_journal(
     let turn_id = new_turn_id();
     let execution_id = new_execution_id();
     let attribution = ExecutionAttribution::for_turn(execution_id, session_id, thread_id, turn_id);
-    let store =
-        SessionStore::new(config_dir.path(), workspace.path(), session_id).expect("session store");
+    let store = SessionStore::new(
+        crate::test_support::storage(workspace.path()),
+        config_dir.path(),
+        workspace.path(),
+        session_id,
+    )
+    .expect("session store");
     let task = AgentTask::new("run terminal replay probe", workspace.path().to_path_buf());
     let user = CanonicalMessage::text(MessageRole::User, task.text.clone());
     let spec = probe_tool_spec();
@@ -121,7 +126,7 @@ async fn terminal_workflow_error_replays_as_a_matching_outcome() {
 
     let report = replay_workflow(
         journal.store.session_dir(),
-        &AppConfig::default(),
+        &storage_config(),
         &catalog(false),
         WorkflowReplayOptions::default(),
     )
@@ -162,7 +167,7 @@ async fn canceled_and_timeout_turns_fail_closed_before_incomplete_exchange_selec
 
         let error = replay_workflow(
             journal.store.session_dir(),
-            &AppConfig::default(),
+            &storage_config(),
             &catalog(false),
             WorkflowReplayOptions::default(),
         )

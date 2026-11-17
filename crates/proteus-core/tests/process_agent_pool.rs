@@ -43,8 +43,11 @@ impl proteus_contracts::contracts::EventSink for ReadableBindingEvents {
             ..
         } = &envelope.event
         {
-            let store = proteus_core::core::SessionStore::open(session_dir.clone())
-                .expect("binding must not expose an unmaterialized session");
+            let store = proteus_core::core::SessionStore::open(
+                session_storage_fixture::storage(std::path::Path::new(".")),
+                session_dir.clone(),
+            )
+            .expect("binding must not expose an unmaterialized session");
             assert_eq!(store.session_id(), *session_id);
             store
                 .load_messages()
@@ -72,6 +75,7 @@ fn write_child_config(config_home: &std::path::Path) -> PathBuf {
         )) + &test_model::toml_component(),
     )
     .expect("write child config");
+    test_model::storage_config_file(&config_path);
     config_path
 }
 
@@ -141,6 +145,7 @@ enabled = {enabled_tools}
             + &memory_component,
     )
     .expect("write tool-surface child config");
+    test_model::storage_config_file(&config_path);
     config_path
 }
 
@@ -251,9 +256,12 @@ async fn process_agent_pool_round_trips_turn_resume_and_fresh_task() {
         first.summary
     );
     assert_eq!(first.metadata["resumable"], json!(true));
-    let summaries =
-        proteus_core::core::list_workspace_session_summaries(config_home.path(), workspace.path())
-            .unwrap();
+    let summaries = proteus_core::core::list_workspace_session_summaries(
+        session_storage_fixture::storage(std::path::Path::new(".")),
+        config_home.path(),
+        workspace.path(),
+    )
+    .unwrap();
     assert_eq!(summaries.len(), 1);
     let physical_child = summaries[0].session_id;
     assert_eq!(summaries[0].parent_session_id, Some(ctx.session_id));
@@ -311,9 +319,12 @@ async fn process_agent_pool_round_trips_turn_resume_and_fresh_task() {
         .expect("fresh child turn");
     assert_eq!(fresh.status, AgentLifecycleStatus::Completed);
     assert_ne!(fresh.child_thread_id, Some(child_thread_id));
-    let summaries =
-        proteus_core::core::list_workspace_session_summaries(config_home.path(), workspace.path())
-            .unwrap();
+    let summaries = proteus_core::core::list_workspace_session_summaries(
+        session_storage_fixture::storage(std::path::Path::new(".")),
+        config_home.path(),
+        workspace.path(),
+    )
+    .unwrap();
     assert_eq!(
         summaries.len(),
         2,
@@ -343,9 +354,12 @@ async fn process_agent_pool_round_trips_turn_resume_and_fresh_task() {
         )
         .await
         .unwrap();
-    let summaries =
-        proteus_core::core::list_workspace_session_summaries(config_home.path(), workspace.path())
-            .unwrap();
+    let summaries = proteus_core::core::list_workspace_session_summaries(
+        session_storage_fixture::storage(std::path::Path::new(".")),
+        config_home.path(),
+        workspace.path(),
+    )
+    .unwrap();
     assert_eq!(
         summaries.len(),
         3,
@@ -771,3 +785,6 @@ async fn process_agent_pool_resume_is_bound_to_session_and_cwd() {
         .expect("owner must still resume child after rejected probes");
     assert_eq!(resumed.child_thread_id, Some(task_id));
 }
+
+#[path = "support/model.rs"]
+mod session_storage_fixture;

@@ -15,7 +15,12 @@ use serde_json::json;
 
 async fn read(query: Option<&str>) -> Result<AppSessionAnalysis> {
     let (session_dir, requested) = parse(query)?;
-    read_stored(session_dir, requested).await
+    read_stored(
+        crate::test_support::storage(std::path::Path::new(".")),
+        session_dir,
+        requested,
+    )
+    .await
 }
 
 async fn append(store: &SessionStore, owner: ExecutionAttribution, entry: JournalEntry) {
@@ -36,7 +41,13 @@ async fn append(store: &SessionStore, owner: ExecutionAttribution, entry: Journa
 #[tokio::test]
 async fn cold_analysis_preserves_historical_inputs_failures_and_unknown_effects() {
     let root = tempfile::tempdir().unwrap();
-    let store = SessionStore::new(root.path(), root.path(), new_session_id()).unwrap();
+    let store = SessionStore::new(
+        crate::test_support::storage(std::path::Path::new(".")),
+        root.path(),
+        root.path(),
+        new_session_id(),
+    )
+    .unwrap();
     let first = new_turn_id();
     let owner = ExecutionAttribution::for_turn(
         new_execution_id(),

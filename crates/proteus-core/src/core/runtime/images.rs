@@ -14,12 +14,6 @@ pub(super) struct PreparedImageInput {
     decoded: Vec<(crate::domain::ImageAttachment, Vec<u8>)>,
 }
 
-impl PreparedImageInput {
-    pub(super) fn has_images(&self) -> bool {
-        !self.decoded.is_empty()
-    }
-}
-
 impl ImageStore {
     pub(super) fn new(root: PathBuf) -> Self {
         Self { root }
@@ -92,6 +86,28 @@ impl ImageStore {
         Ok(CanonicalMessage::new(MessageRole::User, parts))
     }
 
+    pub(super) async fn admit_to_session(
+        input: PreparedImageInput,
+        store: &crate::core::SessionStore,
+    ) -> Result<CanonicalMessage> {
+        let mut parts = Vec::new();
+        for (image, bytes) in input.decoded {
+            let (id, path) = store.put_blob(bytes).await?;
+            parts.push(ContentPart::Image {
+                image: ImageRef {
+                    id,
+                    name: image.name,
+                    mime_type: image.mime_type,
+                    path,
+                },
+            });
+        }
+        if !input.text.is_empty() {
+            parts.push(ContentPart::Text { text: input.text });
+        }
+        Ok(CanonicalMessage::new(MessageRole::User, parts))
+    }
+
     pub(super) fn read(&self, id: &str) -> Result<(Vec<u8>, &'static str)> {
         ensure!(
             id.len() == 64 && id.bytes().all(|c| c.is_ascii_hexdigit()),
@@ -106,6 +122,12 @@ impl ImageStore {
 
 impl super::AgentRuntime {
     pub fn image_bytes(&self, id: &str) -> Result<(Vec<u8>, &'static str)> {
+        if let Some(store) = &self.session.session_store {
+            let bytes = store.read_blob_by_hash(id.to_owned(), MAX_IMAGE_BYTES as u64)?;
+            let mime = crate::domain::image_mime_type(&bytes)
+                .ok_or_else(|| anyhow::anyhow!("invalid stored image"))?;
+            return Ok((bytes, mime));
+        }
         self.services.images.read(id)
     }
 

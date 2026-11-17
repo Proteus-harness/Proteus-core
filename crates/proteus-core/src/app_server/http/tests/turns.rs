@@ -222,12 +222,14 @@ async fn send_run_cleanup_survives_dropped_waiter() {
     .expect("approval response");
     assert_eq!(approval_response.status(), StatusCode::OK);
 
-    for _ in 0..20 {
-        if !server.running_run_ids().await.contains(&run_id) {
-            break;
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if matches!(event_rx.recv().await.unwrap(), AppServerEvent::ExecutionUpdated { execution }
+                if execution.active.is_none() && execution.last.as_ref().is_some_and(|run| run.run_id == run_id)) {
+                break;
+            }
         }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
+    }).await.expect("dropped response waiter must not prevent terminal settlement");
     assert!(
         !server.running_run_ids().await.contains(&run_id),
         "send run should unregister itself even when the HTTP waiter is dropped"

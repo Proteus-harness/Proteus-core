@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     contracts::Model,
-    core::{JournalEntry, ModelResponseOutcome, SessionStore, normalize_session_dir_path},
+    core::{JournalEntry, ModelResponseOutcome, SessionStore},
     domain::{ExchangeId, ExecutionId, ModelRef, SessionId, ThreadId, ToolSurface, TurnId},
     model_standard::{
         CanonicalModelRequest, CanonicalModelResponse, ContentPart, ModelStreamEvent, TokenUsage,
@@ -112,12 +112,13 @@ pub struct PromptReplayNames {
 /// delta emission. The returned response is reported only; local tool calls
 /// are never executed here.
 pub async fn replay_prompt(
+    storage: crate::core::StorageService,
     path: impl AsRef<Path>,
     model: Arc<dyn Model>,
     options: PromptReplayOptions,
 ) -> Result<PromptReplayReport> {
-    let session_dir = normalize_session_dir_path(path.as_ref().to_path_buf())?;
-    let store = SessionStore::open(session_dir.clone()).with_context(|| {
+    let session_dir = path.as_ref().to_path_buf();
+    let store = SessionStore::open(storage, session_dir.clone()).with_context(|| {
         format!(
             "failed to open canonical session journal at {}",
             session_dir.display()

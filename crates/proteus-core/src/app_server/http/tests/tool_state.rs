@@ -5,9 +5,13 @@ use crate::model_standard::{CanonicalMessage, ContentPart, MessageRole};
 #[tokio::test]
 async fn latest_tool_state_http_validates_query_and_distinguishes_not_ready_from_absent() {
     let (state, server, root) = test_state().await;
-    let store =
-        crate::core::SessionStore::new(root.path(), root.path(), crate::domain::new_session_id())
-            .unwrap();
+    let store = crate::core::SessionStore::new(
+        crate::test_support::storage(std::path::Path::new(".")),
+        root.path(),
+        root.path(),
+        crate::domain::new_session_id(),
+    )
+    .unwrap();
     store
         .append_history(
             crate::domain::new_thread_id(),

@@ -12,10 +12,19 @@ async fn fixture(
     tempfile::TempDir,
     SessionStore,
     AppTranscriptPage,
+    faults::CacheFaults,
 ) {
     let root = tempfile::tempdir().unwrap();
     let workspace = tempfile::tempdir().unwrap();
-    let store = SessionStore::new(root.path(), workspace.path(), new_session_id()).unwrap();
+    let store = SessionStore::new(
+        crate::test_support::storage(std::path::Path::new(".")),
+        root.path(),
+        workspace.path(),
+        new_session_id(),
+    )
+    .unwrap();
+    let faults = faults::CacheFaults::default();
+    let store = faults.store(store);
     let thread = new_thread_id();
     let messages: Vec<_> = (0..count.max(1))
         .map(|row| CanonicalMessage::text(MessageRole::User, format!("row {row}")))
@@ -28,15 +37,15 @@ async fn fixture(
         .project_read_model(|source| journal_transcript_from_source(source, None))
         .unwrap();
     let page = store.saved_transcript_page(None, None).unwrap();
-    (root, workspace, store, page)
+    (root, workspace, store, page, faults)
 }
 
 #[tokio::test]
 async fn history_recovery_covers_empty_short_and_exact_page_boundaries() {
     for count in [0usize, 1, 49, 50, 51, 100, 121] {
-        let (_root, _workspace, store, old) = fixture(count).await;
+        let (_root, _workspace, store, old, faults) = fixture(count).await;
         let journal = std::fs::read(store.journal_path()).unwrap();
-        std::fs::remove_file(store.session_dir().join(".read-view.sqlite")).unwrap();
+        faults.set("missing");
         let mut page = transcript_page(&store, None, Some(&old.revision)).unwrap();
         assert_eq!(page.revision, old.revision);
         assert_eq!(page.total, count);
@@ -64,7 +73,7 @@ async fn history_recovery_covers_empty_short_and_exact_page_boundaries() {
 
 #[tokio::test]
 async fn history_recovery_never_relabels_new_source_as_a_lost_revision() {
-    let (_root, _workspace, store, old) = fixture(121).await;
+    let (_root, _workspace, store, old, faults) = fixture(121).await;
     store
         .append_history(
             new_thread_id(),
@@ -85,12 +94,11 @@ async fn history_recovery_never_relabels_new_source_as_a_lost_revision() {
             .total,
         121
     );
-    let index = store.session_dir().join(".read-view.sqlite");
-    std::fs::remove_file(&index).unwrap();
+    faults.set("missing");
     assert!(transcript_at_revision(&store, &old.revision).is_err());
     assert!(transcript_page(&store, Some(71), Some(&old.revision)).is_err());
     assert!(
-        !index.exists(),
+        store.fresh_read_model().is_none(),
         "a rejected old revision must not trigger a rebuild"
     );
     let current = transcript_page(&store, None, None).unwrap();
@@ -102,13 +110,12 @@ async fn history_recovery_never_relabels_new_source_as_a_lost_revision() {
 
 #[tokio::test]
 async fn history_recovery_does_not_hide_corrupt_canonical_source() {
-    let (_root, _workspace, store, old) = fixture(51).await;
-    let index = store.session_dir().join(".read-view.sqlite");
-    std::fs::remove_file(&index).unwrap();
+    let (_root, _workspace, store, old, faults) = fixture(51).await;
+    faults.set("missing");
     std::fs::write(store.journal_path(), b"{broken complete record}\n").unwrap();
     let damaged = std::fs::read(store.journal_path()).unwrap();
     assert!(transcript_at_revision(&store, &old.revision).is_err());
     assert!(transcript_page(&store, None, None).is_err());
-    assert!(!index.exists());
+    assert!(store.fresh_read_model().is_none());
     assert_eq!(std::fs::read(store.journal_path()).unwrap(), damaged);
 }

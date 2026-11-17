@@ -4,6 +4,7 @@ use crate::{
     model_standard::ModelCapabilities,
 };
 use serde_json::json;
+use std::path::Path;
 
 fn config() -> AppConfig {
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/process_model.py");
@@ -20,7 +21,7 @@ fn config() -> AppConfig {
             })))}
         })
     };
-    serde_json::from_value(json!({
+    let mut config = serde_json::from_value(json!({
         "active_provider": "main", "providers": {
             "main": {"provider": "first", "model": "first-default", "reasoning": {"effort": "low"}},
             "cheap": {"provider": "second", "model": "second-default", "reasoning": {"effort": "high"}}
@@ -28,7 +29,9 @@ fn config() -> AppConfig {
         "components": {"model-worker": {"command": "python3", "args": ["-B", fixture],
             "exports": {"model": {"first": {}, "second": {}}}}},
         "module_config": {"model": {"first": settings("first", 111), "second": settings("second", 222)}}
-    })).unwrap()
+    })).unwrap();
+    crate::test_support::storage_config(&mut config);
+    config
 }
 
 fn reasoning() -> ReasoningConfig {
@@ -83,7 +86,16 @@ async fn unchanged_exact_selection_keeps_the_live_adapter_and_epoch() {
         .unwrap();
     assert_eq!(server.runtime.configuration_view().await.0.epoch, epoch);
     assert_eq!(std::fs::read_to_string(marker).unwrap(), pids);
-    assert!(server.session_dir_path().unwrap().join(FILE).exists());
+    assert!(
+        server
+            .runtime
+            .session_store()
+            .unwrap()
+            .read_metadata_document(FILE)
+            .await
+            .unwrap()
+            .is_some()
+    );
     server.shutdown().await;
 }
 
@@ -329,7 +341,16 @@ async fn unsupported_model_effort_and_route_leave_the_current_configuration_unch
         assert_eq!(server.runtime.model_ref().await, before);
         assert_eq!(server.runtime.reasoning().await, reasoning_before);
     }
-    assert!(!server.session_dir_path().unwrap().join(FILE).exists());
+    assert!(
+        server
+            .runtime
+            .session_store()
+            .unwrap()
+            .read_metadata_document(FILE)
+            .await
+            .unwrap()
+            .is_none()
+    );
     assert!(last_files(root.path()).is_empty());
     server.close_idle_runs().await.unwrap();
     assert!(

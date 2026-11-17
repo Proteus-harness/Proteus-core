@@ -82,8 +82,9 @@ references создаёт loader; вручную перечислять их в 
 Default и reference-профили — самостоятельные файлы без неявного наследования.
 Совпадающие сейчас настройки не связывают их дальнейшие изменения.
 Один preset не делает профили одинаковыми. Pi и OpenCode используют свои
-закреплённые upstream реализации; Core сохраняет journal, checkpoints и общую
-границу разрешений. Полная эквивалентность всего upstream session runtime
+закреплённые upstream реализации; Core сохраняет порядок journal facts,
+подтверждение checkpoints и общую границу разрешений. Запись сессии выполняет
+выбранный storage module. Полная эквивалентность всего upstream session runtime
 этими сборками не заявляется. DCP, внешние plugins, MCP и subagents в Pi/OpenCode
 по умолчанию не подключаются.
 
@@ -379,6 +380,12 @@ provider = "fake"
 model = "fake-tool-model"
 stream = true
 
+[components.session-storage]
+command = "proteus-session-storage-module"
+transport.max_frame_bytes = 134217728
+
+[components.session-storage.exports.session_storage.jsonl]
+
 [components.reference-model]
 command = "proteus-reference-module"
 
@@ -388,6 +395,7 @@ command = "proteus-reference-module"
 implementation = "fake"
 
 [modules]
+session_storage = "jsonl"
 workflow = "coding.single_loop"
 context = "simple"
 policy = "ask_write"
@@ -702,17 +710,19 @@ Anthropic adapter передаёт это отключение отсутств�
 ### Сохранение Выбора Модели В App-server
 
 Выбор модели, включение рассуждений и effort через app-server сохраняются
-отдельно от общего профиля: `<session_dir>/model-selection.json` восстанавливает
-свой выбор чата, а `<config store>/model-selections/<hash>.json` хранит последний
+отдельно от общего профиля. Metadata key `model-selection.json` выбранного
+storage service восстанавливает выбор чата, а
+`<config store>/model-selections/<hash>.json` хранит последний
 выбор для новых чатов того же канонического пути профиля, имени профиля и
-provider alias. Новый чат фиксирует унаследованный выбор в своём файле;
-последующее изменение в соседнем чате его не заменяет. Старый чат без своего
-файла использует baseline профиля, а не последний выбор другого чата.
+provider alias. Новый чат фиксирует унаследованный выбор в своих metadata;
+последующее изменение в соседнем чате его не заменяет. Старый чат без
+сохранённого выбора использует baseline профиля.
 При отсутствии file-backed профиля или SessionStore эти операции остаются
 только runtime overrides.
 
-Каждый файл ограничен 16 KiB и содержит версию, модель, рассуждения и hash
-привязки; journal, история сообщений и SQLite-проекции для этого не читаются.
+Каждое сохранённое значение ограничено 16 KiB и содержит версию, модель,
+рассуждения и hash привязки. Чтение выбора использует metadata API storage.
+JSONL backend импортирует прежний отдельный файл при первом обращении.
 Привязка учитывает baseline модели/рассуждений и относящиеся к выбранному
 model export настройки component и module config. Их изменение отменяет
 старую привязку; правка несвязанного раздела профиля сама по себе её не меняет.
@@ -755,10 +765,12 @@ child profiles; запуск parent по явному пути не подхва
 
 ## Выбор Behavior Modules
 
-`[modules]` имеет четыре optional selection keys (ordered hooks задаются отдельно):
+`[modules]` выбирает реализации storage и behavior slots. Ordered hooks
+задаются отдельным списком.
 
 ```toml
 [modules]
+session_storage = "jsonl"
 workflow = "coding.single_loop"
 context = "repo_aware"
 policy = "ask_write"
@@ -774,6 +786,45 @@ hooks = ["tool_selection.dynamic", "codex_compact"]
 автоматический выбор какого-либо reference module. Для обычных behavior slots
 специальных ids `none`, `default`, `process`, `text` и `all_visible` нет;
 отсутствующий slot остаётся отсутствующим без compatibility fallback.
+
+## Хранение Сессий
+
+Для сохранения и открытия чатов конфиг явно выбирает storage export. Основные
+поставляемые профили уже подключают JSONL. В собственный конфиг со старой
+поставки добавьте selection и component при обновлении executable.
+
+```toml
+[modules]
+session_storage = "jsonl"
+
+[components.session-storage]
+command = "proteus-session-storage-module"
+transport.max_frame_bytes = 134217728
+
+[components.session-storage.exports.session_storage.jsonl]
+```
+
+Секция `[modules]` объединяется с уже существующей в файле. Worker должен быть
+доступен в `PATH` или указан абсолютным путём. Повышенный frame budget позволяет
+прочитать целиком большие ранее сохранённые records и blobs. Остальные
+components сохраняют собственные бюджеты. Export использует пустой object
+`module_config`.
+
+Для SQLite замените `jsonl` на `sqlite` и в selection, и в имени export.
+JSONL читает существующие `journal.jsonl` schema 21 и `session.json` schema 4.
+SQLite хранит canonical journal в `journal.sqlite` с WAL и `synchronous=FULL`.
+Выбор другого backend требует совместимых с ним сессий или отдельного переноса
+данных. Автоматическая конверсия форматов отсутствует.
+
+Без `modules.session_storage` runtime работает с историей в памяти. Для нового
+persistent SessionStore также нужен file-backed config. Операции открытия
+сохранённой сессии, catalog, doctor и replay используют выбранный service.
+
+Уже созданный runtime удерживает свой storage service. Изменение его selection,
+launch descriptor или module config требует открытия нового runtime. HTTP server
+сохраняет ту же привязку для своего каталога сессий и требует перезапуска после
+её изменения. Настройки модели и tools продолжают применяться через обычный
+reload при прежней storage-привязке.
 
 ## Process Components И Exports
 

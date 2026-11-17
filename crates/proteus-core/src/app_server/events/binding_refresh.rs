@@ -1,7 +1,7 @@
 //! A background child can bind after the parent turn has settled. Refresh its
 //! saved tool link once per burst, without polling or retaining another runtime.
 use super::AppEventPublisher;
-use crate::{app_server::AppServerEvent, core::SessionStore};
+use crate::app_server::AppServerEvent;
 
 #[derive(Default)]
 pub(super) struct State {
@@ -103,12 +103,11 @@ impl AppEventPublisher {
                         return;
                     }
                     refresh.pending = false;
-                    let dir = view.session_dir();
-                    view.history.as_ref().ok().cloned().zip(dir)
+                    let store = view.session_store();
+                    view.history.as_ref().ok().cloned().zip(store)
                 };
-                if let Some((baseline, dir)) = source {
+                if let Some((baseline, store)) = source {
                     let result = tokio::task::spawn_blocking(move || {
-                        let store = SessionStore::open(dir)?;
                         crate::app_server::read_model::project_completed_transcript(&store)
                     })
                     .await;

@@ -240,6 +240,23 @@ impl PreparedAssembly {
         Ok(Self { plan, registry })
     }
 
+    pub(crate) fn from_catalog_with_storage(
+        config: AppConfig,
+        cwd: PathBuf,
+        config_path: Option<&Path>,
+        catalog: Option<ModuleCatalog>,
+        storage: Option<super::StorageService>,
+    ) -> Result<Self> {
+        let catalog = match catalog {
+            Some(catalog) => catalog,
+            None => ModuleCatalog::from_config(&config)?,
+        };
+        let plan = AssemblyPlan::resolve(config, config_path, cwd, &catalog)?;
+        plan.ensure_valid()?;
+        let registry = RuntimeRegistry::from_plan_with_storage(&plan, catalog, storage)?;
+        Ok(Self { plan, registry })
+    }
+
     pub fn plan(&self) -> &AssemblyPlan {
         &self.plan
     }

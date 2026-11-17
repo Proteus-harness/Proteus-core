@@ -13,6 +13,7 @@ file = "prompts/codex-default.md"
 priority = 100
 
 [modules]
+session_storage = "jsonl"
 hooks = ["codex_compact"]
 workflow = "coding.codex_loop"
 context = "codex_context"
@@ -78,3 +79,11 @@ workflow_timeout_ms = 14400000
 
 [event_log]
 path = ".proteus/events.jsonl"
+
+[components.session-storage]
+command = "proteus-session-storage-module"
+transport.max_frame_bytes = 134217728
+
+[components.session-storage.exports.session_storage.jsonl]
+
+[components.session-storage.exports.session_storage.sqlite]

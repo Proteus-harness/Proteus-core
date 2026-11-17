@@ -52,7 +52,10 @@ async fn route_config_builder_returns_editable_module_slots() {
         .iter()
         .filter_map(|slot| slot.get("id").and_then(Value::as_str))
         .collect::<Vec<_>>();
-    assert_eq!(slot_ids, vec!["workflow", "context", "policy",]);
+    assert_eq!(
+        slot_ids,
+        vec!["workflow", "context", "policy", "session_storage"]
+    );
     assert!(
         slots
             .iter()
@@ -303,10 +306,12 @@ model = "fake-smart"
             ),
     )
     .expect("write config");
-    let config = {
+    let mut config = {
         let raw = std::fs::read_to_string(&config_path).expect("read config");
         toml::from_str::<AppConfig>(&raw).expect("parse config")
     };
+    crate::test_support::storage_config(&mut config);
+    std::fs::write(&config_path, toml::to_string_pretty(&config).unwrap()).unwrap();
     let server = AgentAppServer::launch(config, cwd.path().to_path_buf(), Some(&config_path))
         .await
         .expect("app server");
@@ -331,7 +336,10 @@ model = "fake-smart"
     assert_eq!(response.status(), StatusCode::OK);
     let bytes = response_bytes(response).await;
     let snapshot: Value = serde_json::from_slice(&bytes).expect("builder JSON");
-    assert_eq!(snapshot.get("active_modules"), Some(&json!([])));
+    assert_eq!(
+        snapshot.get("active_modules"),
+        Some(&json!([{"slot":"session_storage","id":"jsonl"}]))
+    );
 
     let written = std::fs::read_to_string(&config_path).expect("read config");
     assert!(
@@ -355,7 +363,10 @@ model = "fake-smart"
     assert_eq!(model_ref.model, "fake-smart");
 
     let summary = server.config_summary().await;
-    assert_eq!(summary.get("modules"), Some(&json!([])));
+    assert_eq!(
+        summary.get("modules"),
+        Some(&json!([{"slot":"session_storage","id":"jsonl"}]))
+    );
     assert!(
         summary
             .get("module_epoch")

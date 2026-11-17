@@ -115,10 +115,13 @@ async fn scripts_preserve_policy_nested_ownership_compact_context_and_replay_in_
             "approved script write\n"
         );
         let session = runtime.session_dir().unwrap().to_owned();
-        let projection = SessionStore::open(session.clone())
-            .unwrap()
-            .load_projection()
-            .unwrap();
+        let projection = SessionStore::open(
+            session_storage_fixture::storage(std::path::Path::new(".")),
+            session.clone(),
+        )
+        .unwrap()
+        .load_projection()
+        .unwrap();
         let requested: Vec<_> = projection
             .records
             .iter()
@@ -252,10 +255,13 @@ async fn external_cancel_and_timeout_settle_script_turns_and_allow_the_next_invo
                         tokio::time::sleep(Duration::from_millis(5)).await;
                         continue;
                     }
-                    let projection = SessionStore::open(runtime.session_dir().unwrap().to_owned())
-                        .unwrap()
-                        .load_projection()
-                        .unwrap();
+                    let projection = SessionStore::open(
+                        session_storage_fixture::storage(std::path::Path::new(".")),
+                        runtime.session_dir().unwrap().to_owned(),
+                    )
+                    .unwrap()
+                    .load_projection()
+                    .unwrap();
                     if projection.records.iter().any(|record| {
                         matches!(&record.entry,
                         JournalEntry::ToolCallRecorded(call) if call.call.name == "code_mode"
@@ -290,10 +296,13 @@ async fn external_cancel_and_timeout_settle_script_turns_and_allow_the_next_invo
             .await
             .unwrap();
         assert!(result.ok, "{result:?}");
-        let projection = SessionStore::open(session)
-            .unwrap()
-            .load_projection()
-            .unwrap();
+        let projection = SessionStore::open(
+            session_storage_fixture::storage(std::path::Path::new(".")),
+            session,
+        )
+        .unwrap()
+        .load_projection()
+        .unwrap();
         let settlement = projection
             .records
             .iter()
@@ -314,3 +323,6 @@ async fn external_cancel_and_timeout_settle_script_turns_and_allow_the_next_invo
         assert_eq!(projection.history, runtime.history().await.unwrap());
     }
 }
+
+#[path = "../support/model.rs"]
+mod session_storage_fixture;

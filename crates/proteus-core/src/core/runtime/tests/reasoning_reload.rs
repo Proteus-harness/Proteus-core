@@ -115,6 +115,7 @@ async fn failed_profile_commit_keeps_reasoning_defaults_until_successful_publica
     // Removing the configured model must not retain the first provider's
     // defaults through a second, constructor-owned source of truth.
     let mut model_free = AppConfig::default();
+    crate::test_support::storage_config(&mut model_free);
     model_free.active_provider = None;
     model_free.providers.clear();
     runtime

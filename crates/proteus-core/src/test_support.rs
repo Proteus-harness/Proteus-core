@@ -1,3 +1,5 @@
+#[allow(unused_imports)]
+pub(crate) use crate::test_model::{storage, storage_config};
 use std::sync::Arc;
 
 use anyhow::Result;

@@ -28,6 +28,7 @@ record_path = {}
         serde_json::to_string(&record).unwrap()
     );
     std::fs::write(&config, extra).unwrap();
+    test_model::storage_config_file(&config);
     (config, record)
 }
 

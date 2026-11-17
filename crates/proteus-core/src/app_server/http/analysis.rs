@@ -1,4 +1,4 @@
-//! Historical inspection never resumes a session or executes a module.
+//! Historical inspection reads storage without admitting agent execution.
 use std::{collections::HashMap, path::PathBuf};
 
 use anyhow::{Result, anyhow};
@@ -15,18 +15,19 @@ use crate::core::{
 
 pub(super) async fn read(state: &HttpAppState, query: Option<&str>) -> Result<AppSessionAnalysis> {
     let (session_dir, requested) = parse(query)?;
-    // A live session writes its directory with the first journal entry; until then its journal is empty.
-    if !tokio::fs::try_exists(&session_dir).await?
-        && let Some(server) = state.server_for_session_dir(&session_dir).await
-    {
-        let session_id = server.session_id();
-        return project(
-            session_id,
-            &JournalProjection::build(session_id, Vec::new())?,
-            requested,
-        );
+    let session_dir = state.resolve_session_dir(session_dir).await?;
+    if let Some(server) = state.server_for_session_dir(&session_dir).await {
+        let store = server
+            .runtime
+            .session_store()
+            .cloned()
+            .ok_or_else(|| anyhow!("session has no storage"))?;
+        return tokio::task::spawn_blocking(move || {
+            project(store.session_id(), &store.load_projection()?, requested)
+        })
+        .await?;
     }
-    read_stored(session_dir, requested).await
+    read_stored(state.storage_service()?, session_dir, requested).await
 }
 
 fn parse(query: Option<&str>) -> Result<(PathBuf, Option<TurnId>)> {
@@ -45,11 +46,12 @@ fn parse(query: Option<&str>) -> Result<(PathBuf, Option<TurnId>)> {
 }
 
 async fn read_stored(
+    storage: crate::core::StorageService,
     session_dir: PathBuf,
     requested: Option<TurnId>,
 ) -> Result<AppSessionAnalysis> {
     tokio::task::spawn_blocking(move || {
-        let store = SessionStore::open(session_dir)?;
+        let store = SessionStore::open(storage, session_dir)?;
         let projection = store.load_projection()?;
         project(store.session_id(), &projection, requested)
     })

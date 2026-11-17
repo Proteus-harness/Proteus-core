@@ -349,7 +349,13 @@ mod tests {
         let root_thread_id = new_thread_id();
         let child_thread_id = new_thread_id();
         let turn_id = new_turn_id();
-        let store = SessionStore::new(config_dir.path(), workspace.path(), session_id).unwrap();
+        let store = SessionStore::new(
+            crate::test_support::storage(std::path::Path::new(".")),
+            config_dir.path(),
+            workspace.path(),
+            session_id,
+        )
+        .unwrap();
         store
             .append_execution_journal_entry(
                 ExecutionAttribution::for_turn(execution_id, session_id, root_thread_id, turn_id),
@@ -411,7 +417,13 @@ mod tests {
         let workspace = tempfile::tempdir().unwrap();
         let session_id = new_session_id();
         let execution_id = new_execution_id();
-        let store = SessionStore::new(config_dir.path(), workspace.path(), session_id).unwrap();
+        let store = SessionStore::new(
+            crate::test_support::storage(std::path::Path::new(".")),
+            config_dir.path(),
+            workspace.path(),
+            session_id,
+        )
+        .unwrap();
         let recorder = SessionExecutionRecorder::detached(store.clone(), execution_id);
         let exchange_id = crate::domain::new_exchange_id();
         let request = crate::model_standard::CanonicalModelRequest::new(
@@ -449,8 +461,13 @@ mod tests {
     async fn detached_tool_recorder_persists_without_chat_identity() {
         let config_dir = tempfile::tempdir().unwrap();
         let workspace = tempfile::tempdir().unwrap();
-        let store =
-            SessionStore::new(config_dir.path(), workspace.path(), new_session_id()).unwrap();
+        let store = SessionStore::new(
+            crate::test_support::storage(std::path::Path::new(".")),
+            config_dir.path(),
+            workspace.path(),
+            new_session_id(),
+        )
+        .unwrap();
         let execution_id = new_execution_id();
         let attribution = ExecutionAttribution::detached(execution_id);
         let recorder = SessionToolExecutionRecorder::new(store.clone());

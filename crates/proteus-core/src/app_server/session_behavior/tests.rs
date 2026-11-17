@@ -409,8 +409,14 @@ async fn deleted_selection_metadata_rolls_back_on_source_failure_and_blocks_save
     let root = tempfile::tempdir().unwrap();
     let (path, server) = setup(root.path(), "json").await;
     select(&server, "quiet").await.unwrap();
-    let metadata = server.session_dir_path().unwrap().join(FILE);
-    let before = std::fs::read(&metadata).unwrap();
+    let store = server.runtime.session_store().unwrap();
+    let before = store
+        .read_metadata_document(FILE)
+        .await
+        .unwrap()
+        .unwrap()
+        .value;
+    let metadata = store.session_dir().join(".storage-metadata.json");
     let source = std::fs::read(&path).unwrap();
     let epoch = server.runtime.module_epoch().await;
     let mut config = server.config.read().await.clone();
@@ -425,7 +431,15 @@ async fn deleted_selection_metadata_rolls_back_on_source_failure_and_blocks_save
         .await
         .unwrap_err();
     assert!(error.to_string().contains("synthetic source failure"));
-    assert_eq!(std::fs::read(&metadata).unwrap(), before);
+    assert_eq!(
+        store
+            .read_metadata_document(FILE)
+            .await
+            .unwrap()
+            .unwrap()
+            .value,
+        before
+    );
     assert_eq!(std::fs::read(&path).unwrap(), source);
     assert_eq!(selected(&server).await, "quiet");
     assert_eq!(server.runtime.module_epoch().await, epoch);

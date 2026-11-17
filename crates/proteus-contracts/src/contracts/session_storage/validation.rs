@@ -269,7 +269,8 @@ impl SessionStorageRequest {
             (Self::ReadCommittedTurn { .. }, SessionStorageResponse::CommittedTurn { .. }) => {}
             (Self::ReadExecutionState { .. }, SessionStorageResponse::ExecutionState { .. }) => {}
             (
-                Self::ReadModelContextBeforeTurn { .. },
+                Self::ReadModelContextBeforeTurn { .. }
+                | Self::ReadWriterModelContextBeforeTurn { .. },
                 SessionStorageResponse::ModelContext { .. },
             ) => {}
             (

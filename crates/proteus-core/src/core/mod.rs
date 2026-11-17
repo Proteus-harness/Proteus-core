@@ -56,7 +56,6 @@ pub use config::{
 pub(crate) use config::{ConfigInputs, ModelSourceEdits};
 pub use config_snapshot::{
     CONFIG_SNAPSHOT_FILE, SessionConfigModules, SessionConfigSnapshot, SessionConfigTool,
-    write_config_snapshot,
 };
 pub use eval_report::{EvalReport, read_eval_report};
 pub use event_store::InMemoryEventStore;
@@ -90,11 +89,12 @@ pub(crate) use session_store::read_cache as session_read_cache;
 pub(crate) use session_store::subscribe_catalog_updates;
 pub(crate) use session_store::{
     PreparedSession, SessionReadModel, SessionTranscriptAppend, prepare_latest_workspace_session,
+    session_storage_binding,
 };
 pub use session_store::{
-    SessionStore, canonicalize_session_dir_path, decode_workspace_path, delete_workspace_session,
-    encode_workspace_path, list_session_summaries, list_session_summaries_for_audit,
-    list_workspace_session_summaries, normalize_session_dir_path,
+    SessionStore, StorageService, canonicalize_session_dir_path, configured_session_storage,
+    decode_workspace_path, delete_workspace_session, encode_workspace_path, list_session_summaries,
+    list_session_summaries_for_audit, list_workspace_session_summaries,
 };
 pub use topology::{
     ModelTopology, ModuleSourceTopology, ModuleTopology, SlotTopology, ToolTopology,

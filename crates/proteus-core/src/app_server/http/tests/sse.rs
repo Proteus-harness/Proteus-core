@@ -18,14 +18,20 @@ fn sse_output_wraps_protocol_output_as_json_data() {
 
 #[cfg(unix)]
 #[tokio::test]
-async fn stale_unopened_summary_refresh_notifies_the_http_stream() {
+async fn stored_summary_updates_notify_the_http_stream() {
     use crate::{
         core::{SessionStore, list_workspace_session_summaries},
         domain::{new_session_id, new_thread_id},
         model_standard::{CanonicalMessage, MessageRole},
     };
     let (state, server, root) = test_state().await;
-    let store = SessionStore::new(root.path(), root.path(), new_session_id()).unwrap();
+    let store = SessionStore::new(
+        crate::test_support::storage(std::path::Path::new(".")),
+        root.path(),
+        root.path(),
+        new_session_id(),
+    )
+    .unwrap();
     store
         .append_history(
             new_thread_id(),
@@ -35,7 +41,13 @@ async fn stale_unopened_summary_refresh_notifies_the_http_stream() {
         .await
         .unwrap();
     assert_eq!(
-        list_workspace_session_summaries(root.path(), root.path()).unwrap()[0].message_count,
+        list_workspace_session_summaries(
+            crate::test_support::storage(std::path::Path::new(".")),
+            root.path(),
+            root.path()
+        )
+        .unwrap()[0]
+            .message_count,
         1
     );
     store
@@ -52,8 +64,14 @@ async fn stale_unopened_summary_refresh_notifies_the_http_stream() {
     let mut response = super::super::sse::sse_response(state, server.clone()).await;
     response.body_mut().frame().await.unwrap().unwrap();
     assert_eq!(
-        list_workspace_session_summaries(root.path(), root.path()).unwrap()[0].message_count,
-        1
+        list_workspace_session_summaries(
+            crate::test_support::storage(std::path::Path::new(".")),
+            root.path(),
+            root.path()
+        )
+        .unwrap()[0]
+            .message_count,
+        2
     );
     tokio::time::timeout(Duration::from_secs(5), async {
         loop {
@@ -63,7 +81,7 @@ async fn stale_unopened_summary_refresh_notifies_the_http_stream() {
             let Some(data) = text.lines().find_map(|line| line.strip_prefix("data: ")) else { continue };
             if matches!(serde_json::from_str::<StdioOutput>(data).unwrap(), StdioOutput::Event { event }
                 if matches!(*event, AppServerEvent::SessionCatalogUpdated))
-                && list_workspace_session_summaries(root.path(), root.path()).unwrap()[0].message_count == 2 {
+                && list_workspace_session_summaries(crate::test_support::storage(std::path::Path::new(".")), root.path(), root.path()).unwrap()[0].message_count == 2 {
                 break;
             }
         }

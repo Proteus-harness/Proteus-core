@@ -194,7 +194,17 @@ mod tests {
             .iter()
             .map(|slot| slot.id.as_str())
             .collect::<Vec<_>>();
-        assert_eq!(ids, vec!["workflow", "context", "model", "policy", "hook",]);
+        assert_eq!(
+            ids,
+            vec![
+                "workflow",
+                "context",
+                "model",
+                "policy",
+                "hook",
+                "session_storage"
+            ]
+        );
 
         let category = |id: &str| {
             slots

@@ -46,7 +46,12 @@ async fn main() -> Result<()> {
         "--tool-details requires ROWS >= {TOOL_DETAILS_MIN_ROWS}"
     );
     std::fs::create_dir_all(&cwd)?;
-    let store = SessionStore::new(&root, &cwd, new_session_id())?;
+    let store = SessionStore::new(
+        fixture_storage::service(&cwd)?,
+        &root,
+        &cwd,
+        new_session_id(),
+    )?;
     let title = format!(
         "{} — {} сообщений",
         if tool_details {
@@ -112,7 +117,8 @@ async fn main() -> Result<()> {
     }
 
     // Проверяем именно сохранённую canonical history, а не счётчик генератора.
-    let saved = SessionStore::open(store.session_dir().to_path_buf())?.load_messages()?;
+    let saved = SessionStore::open(store.storage_service(), store.session_dir().to_path_buf())?
+        .load_messages()?;
     ensure!(saved == messages, "saved history differs from fixture");
     println!(
         "{}",
@@ -261,3 +267,6 @@ fn code_message(index: usize, lines: usize) -> String {
     text.push_str("```\n\nКонец синтетического сообщения.");
     text
 }
+
+#[path = "support/session_storage.rs"]
+mod fixture_storage;

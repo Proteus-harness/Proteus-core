@@ -42,10 +42,13 @@ pub(crate) fn journal_transcript_append_from_source(
     };
     let transcript = transcript_from_scan(
         |visit| {
-            source.scan_selected_after(previous, is_display_kind, |mut record| {
-                strip_checkpoint_baseline(&mut record, baseline.len())?;
-                visit(record)
-            })
+            let unchanged =
+                source.scan_selected_after(previous, is_display_kind, |mut record| {
+                    strip_checkpoint_baseline(&mut record, baseline.len())?;
+                    visit(record)
+                })?;
+            anyhow::ensure!(unchanged, "journal prefix changed during append projection");
+            Ok(())
         },
         None,
     )?;

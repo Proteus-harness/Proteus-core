@@ -10,7 +10,7 @@ async fn local_config_remains_available_while_external_catalog_is_loading() {
     let marker = config_dir.path().join("catalog-started");
     let release = config_dir.path().join("catalog-release");
     let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/process_model.py");
-    let config: AppConfig = serde_json::from_value(json!({
+    let mut config: AppConfig = serde_json::from_value(json!({
         "active_provider": "fixture",
         "modes": {"review": {"title":"Review"}},
         "providers": {"fixture": {
@@ -35,6 +35,7 @@ async fn local_config_remains_available_while_external_catalog_is_loading() {
         }}}
     }))
     .unwrap();
+    crate::test_support::storage_config(&mut config);
     let server = AgentAppServer::launch(
         config,
         config_dir.path().to_owned(),

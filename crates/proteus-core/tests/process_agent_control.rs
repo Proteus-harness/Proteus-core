@@ -89,6 +89,7 @@ enabled = []
             + "stream_delay_ms = 40\n",
     )
     .expect("write messaging child config");
+    test_model::storage_config_file(&config_path);
     config_path
 }
 
@@ -182,7 +183,7 @@ for line in sys.stdin:
         "error": None,
     }}), flush=True)
 "#
-        ) + &test_model::toml_component(),
+        ),
     )
     .expect("write terminal-race peer");
     let mut permissions = std::fs::metadata(&script)

@@ -12,7 +12,13 @@ async fn synthetic_pre_echo_boundaries() {
     for count in [100_usize, 1_000, 5_000] {
         let root = tempfile::tempdir().unwrap();
         let workspace = tempfile::tempdir().unwrap();
-        let store = SessionStore::new(root.path(), workspace.path(), new_session_id()).unwrap();
+        let store = SessionStore::new(
+            crate::test_support::storage(std::path::Path::new(".")),
+            root.path(),
+            workspace.path(),
+            new_session_id(),
+        )
+        .unwrap();
         let thread = new_thread_id();
         for start in (0..count).step_by(32) {
             let messages = (start..count.min(start + 32))

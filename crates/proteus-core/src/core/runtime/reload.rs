@@ -46,6 +46,11 @@ impl AgentRuntime {
         }
         let _reload_guard = self.services.reload_lock.lock().await;
         let snapshot = self.capture_execution_snapshot().await;
+        anyhow::ensure!(
+            crate::core::session_storage_binding(snapshot.runtime.assembly_plan.config())?
+                == crate::core::session_storage_binding(assembly.plan().config())?,
+            "changing session storage requires opening a new runtime"
+        );
         let old_epoch = snapshot.runtime.epoch;
         let new_epoch = old_epoch.next();
         let model_ref = if assembly.registry().model_config.is_none() {
@@ -62,6 +67,7 @@ impl AgentRuntime {
                 })
         };
         let mut runtime = RuntimeSnapshot::new(new_epoch, assembly, config_snapshot);
+        runtime.registry.session_storage = self.services.storage.clone();
         runtime.registry.tools = runtime.registry.tools_for_model(model_ref.as_ref())?;
         let tool_names = runtime
             .registry

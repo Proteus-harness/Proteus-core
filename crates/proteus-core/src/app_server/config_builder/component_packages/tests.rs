@@ -261,7 +261,7 @@ async fn component_packages_transaction_updates_aliases_persists_new_exports_and
     );
     assert_eq!(loaded.tools.enabled, initial.tools.enabled);
     assert_eq!(loaded.module_config, initial.module_config);
-    assert_eq!(loaded.components.len(), 2);
+    assert_eq!(loaded.components.len(), initial.components.len() + 1);
     server.shutdown().await;
     let restarted = AgentAppServer::launch(loaded.clone(), home.path().into(), Some(&profiles))
         .await
@@ -309,7 +309,10 @@ async fn component_packages_failed_prepare_keeps_runtime_and_profile_unchanged()
         serde_json::to_value(&*server.config.read().await).unwrap(),
         serde_json::to_value(&initial).unwrap()
     );
-    assert_eq!(server.config_builder_snapshot().await.plugins.len(), 1);
+    assert_eq!(
+        server.config_builder_snapshot().await.plugins.len(),
+        initial.components.len()
+    );
     assert!(!home.path().join("config-history").exists());
     server.shutdown().await;
 }

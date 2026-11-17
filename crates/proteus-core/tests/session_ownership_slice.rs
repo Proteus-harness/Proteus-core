@@ -32,7 +32,13 @@ impl Fixture {
         let config = tempfile::tempdir().expect("config");
         let workspace = tempfile::tempdir().expect("workspace");
         let id = new_session_id();
-        let store = SessionStore::new(config.path(), workspace.path(), id).expect("new");
+        let store = SessionStore::new(
+            session_storage_fixture::storage(std::path::Path::new(".")),
+            config.path(),
+            workspace.path(),
+            id,
+        )
+        .expect("new");
         append(&store, "seed").await.expect("seed");
         let session = store.session_dir().to_path_buf();
         drop(store);
@@ -47,11 +53,21 @@ impl Fixture {
     }
 
     async fn delete(&self) -> anyhow::Result<bool> {
-        delete_workspace_session(&self.config, &self.workspace, self.session.clone()).await
+        delete_workspace_session(
+            session_storage_fixture::storage(std::path::Path::new(".")),
+            &self.config,
+            &self.workspace,
+            self.session.clone(),
+        )
+        .await
     }
 
     fn open(&self) -> SessionStore {
-        SessionStore::open(self.session.clone()).expect("open existing")
+        SessionStore::open(
+            session_storage_fixture::storage(std::path::Path::new(".")),
+            self.session.clone(),
+        )
+        .expect("open existing")
     }
 }
 
@@ -147,7 +163,13 @@ fn ownership_slice_process_helper() {
         .expect("UUID");
     let result = PathBuf::from(std::env::var_os("PROTEUS_OWNERSHIP_RESULT").expect("result"));
     let runtime = tokio::runtime::Runtime::new().expect("runtime");
-    let store = SessionStore::new(&config, &workspace, id).expect("helper store");
+    let store = SessionStore::new(
+        session_storage_fixture::storage(std::path::Path::new(".")),
+        &config,
+        &workspace,
+        id,
+    )
+    .expect("helper store");
     let attempt = runtime.block_on(append(&store, "child"));
     let report = match attempt {
         Ok(()) => serde_json::json!({"ok":true}),
@@ -228,8 +250,13 @@ async fn cold_existing_handle_cannot_recreate_deleted_session() {
 #[tokio::test]
 async fn new_for_existing_slot_cannot_recreate_deleted_session() {
     let fixture = Fixture::persisted().await;
-    let cold = SessionStore::new(&fixture.config, &fixture.workspace, fixture.id)
-        .expect("new on existing identity");
+    let cold = SessionStore::new(
+        session_storage_fixture::storage(std::path::Path::new(".")),
+        &fixture.config,
+        &fixture.workspace,
+        fixture.id,
+    )
+    .expect("new on existing identity");
     assert!(fixture.delete().await.expect("cold delete"));
     let result = append(&cold, "must not resurrect").await;
     assert!(
@@ -243,22 +270,25 @@ async fn new_for_existing_slot_cannot_recreate_deleted_session() {
 }
 
 #[tokio::test]
-async fn failed_new_materialization_consumes_creation_permission() {
+async fn failed_workspace_preflight_does_not_materialize_a_session() {
     let config = tempfile::tempdir().expect("config");
     let workspace = tempfile::tempdir().expect("workspace");
-    let store = SessionStore::new(config.path(), workspace.path(), new_session_id()).expect("new");
-    // Deterministically fail workspace identity decoding after session mkdir.
+    let store = SessionStore::new(
+        session_storage_fixture::storage(std::path::Path::new(".")),
+        config.path(),
+        workspace.path(),
+        new_session_id(),
+    )
+    .expect("new");
     std::fs::remove_dir(workspace.path()).expect("remove fixture workspace");
     assert!(append(&store, "first").await.is_err());
-    assert!(store.session_dir().is_dir(), "fixture must reach mkdir");
-    std::fs::remove_dir(store.session_dir()).expect("remove empty failed fixture");
-    std::fs::create_dir(workspace.path()).expect("restore fixture workspace");
-    let result = append(&store, "retry").await;
-    assert!(
-        result.is_err(),
-        "OWNERSHIP_NEW_CONSUMED: failed first mkdir granted recreation"
-    );
     assert!(!store.session_dir().exists());
+
+    std::fs::create_dir(workspace.path()).expect("restore fixture workspace");
+    append(&store, "retry")
+        .await
+        .expect("retry after preflight");
+    assert!(store.session_dir().is_dir());
 }
 
 #[tokio::test]
@@ -359,7 +389,16 @@ async fn rejected_existing_owner_preserves_legitimate_lease() {
 fn constructing_new_session_remains_lazy() {
     let config = tempfile::tempdir().expect("config");
     let workspace = tempfile::tempdir().expect("workspace");
-    let store = SessionStore::new(config.path(), workspace.path(), new_session_id()).expect("new");
+    let store = SessionStore::new(
+        session_storage_fixture::storage(std::path::Path::new(".")),
+        config.path(),
+        workspace.path(),
+        new_session_id(),
+    )
+    .expect("new");
     assert!(!store.session_dir().exists());
     assert!(!config.path().join("sessions").exists());
 }
+
+#[path = "support/model.rs"]
+mod session_storage_fixture;

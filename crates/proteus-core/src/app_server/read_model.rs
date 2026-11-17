@@ -96,7 +96,7 @@ fn rebuild_transcript(
 ) -> anyhow::Result<(String, Vec<AppTranscriptMessage>)> {
     use crate::core::session_read_cache::SourceFingerprint;
 
-    let source = SourceFingerprint::read(store.session_dir(), 8192)
+    let source = SourceFingerprint::read(store)
         .ok_or_else(|| anyhow::anyhow!("history source cannot be fingerprinted"))?;
     let revision = source
         .revision()
@@ -109,7 +109,7 @@ fn rebuild_transcript(
     // an authority. project_read_model saves the index only on a stable source.
     let model = store.project_read_model(|source| journal_transcript_from_source(source, None))?;
     anyhow::ensure!(
-        SourceFingerprint::read(store.session_dir(), 8192).as_ref() == Some(&source),
+        SourceFingerprint::read(store).as_ref() == Some(&source),
         "history source changed during recovery; refresh the session snapshot"
     );
     // Cache writes are best effort (e.g. disk full). The verified in-memory
@@ -168,14 +168,14 @@ pub(super) fn refresh_in_background(server: &AppServerHandle) {
     };
     tokio::spawn(async move {
         let result: anyhow::Result<()> = async {
-            let Some(dir) = server.runtime.session_dir().map(std::path::Path::to_owned) else {
+            let Some(store) = server.runtime.session_store().cloned() else {
                 return Ok(());
             };
             #[cfg(unix)]
             let source = {
-                let dir = dir.clone();
+                let store = store.clone();
                 tokio::task::spawn_blocking(move || {
-                    crate::core::session_read_cache::SourceFingerprint::read(&dir, 8192)
+                    crate::core::session_read_cache::SourceFingerprint::read(&store)
                 })
                 .await?
             };
@@ -183,7 +183,6 @@ pub(super) fn refresh_in_background(server: &AppServerHandle) {
                 return Ok(());
             };
             let transcript = tokio::task::spawn_blocking(move || {
-                let store = SessionStore::open(dir)?;
                 let model = SessionReadModel::from_validated(&store, read, |source| {
                     journal_transcript_from_source(source, None)
                 })?;
@@ -234,3 +233,6 @@ pub(super) fn latest_tool_state(
         .saved_tool_state(name)
         .ok_or_else(|| ToolStateNotReady.into())
 }
+
+#[cfg(test)]
+pub(crate) mod faults;

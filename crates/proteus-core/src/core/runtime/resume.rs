@@ -43,10 +43,7 @@ impl AgentRuntime {
         let Some(store) = self.session.session_store.clone() else {
             return Ok(None);
         };
-        let read = tokio::task::spawn_blocking(move || {
-            ValidatedJournalRead::open(store.session_dir(), store.session_id())
-        })
-        .await??;
+        let read = tokio::task::spawn_blocking(move || ValidatedJournalRead::open(store)).await??;
         let mut history = self.session.history.lock().await;
         let mut model_context = self.session.model_context.lock().await;
         self.session
@@ -65,10 +62,6 @@ impl AgentRuntime {
             .store(read.history_revision(), std::sync::atomic::Ordering::SeqCst);
         *self.session.history_turn.lock().await = read.last_history_turn();
         *self.session.interrupted_turns.lock().await = read.interrupted_turns();
-        #[cfg(unix)]
-        if let Some(store) = &self.session.session_store {
-            store.set_read_metadata(read.history_revision(), read.usage());
-        }
         // A refreshed display is still not a writer-authorized continuation.
         Ok(Some(read))
     }
@@ -91,10 +84,6 @@ impl AgentRuntime {
             .store(state.history_revision, std::sync::atomic::Ordering::SeqCst);
         *self.session.history_turn.lock().await = state.last_history_turn;
         *self.session.interrupted_turns.lock().await = state.interrupted_turns;
-        #[cfg(unix)]
-        if let Some(store) = &self.session.session_store {
-            store.set_read_metadata(state.history_revision, state.usage);
-        }
         #[cfg(feature = "memory-diagnostics")]
         crate::memory_diagnostics::point(
             "resume.compact_state_moved",

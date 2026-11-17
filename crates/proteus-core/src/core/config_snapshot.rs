@@ -1,10 +1,5 @@
-use std::{
-    path::Path,
-    time::{SystemTime, UNIX_EPOCH},
-};
-
-use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::{
     core::{AppConfig, ModulesConfig, RuntimeRegistry},
@@ -92,15 +87,4 @@ fn unix_timestamp_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis().try_into().unwrap_or(u64::MAX))
         .unwrap_or(0)
-}
-
-pub fn write_config_snapshot(session_dir: &Path, snapshot: &SessionConfigSnapshot) -> Result<()> {
-    std::fs::create_dir_all(session_dir)
-        .with_context(|| format!("failed to create session dir {}", session_dir.display()))?;
-    let path = session_dir.join(CONFIG_SNAPSHOT_FILE);
-    let mut content = serde_json::to_vec_pretty(snapshot)?;
-    content.push(b'\n');
-    std::fs::write(&path, content)
-        .with_context(|| format!("failed to write {}", path.display()))?;
-    Ok(())
 }

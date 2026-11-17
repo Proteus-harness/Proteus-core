@@ -102,7 +102,7 @@ async fn replay_probe(probe: Probe) -> WorkflowReplayReport {
     catalog.register_test_policy(POLICY_ID, Arc::new(ReplayAllowAll));
     replay_workflow(
         journal.store.session_dir(),
-        &AppConfig::default(),
+        &storage_config(),
         &catalog,
         WorkflowReplayOptions::default(),
     )
@@ -182,7 +182,7 @@ async fn incomplete_model_exchange_is_not_a_model_free_turn() {
         .await;
         let error = replay_workflow(
             journal.store.session_dir(),
-            &AppConfig::default(),
+            &storage_config(),
             &catalog(false),
             WorkflowReplayOptions::default(),
         )
@@ -215,7 +215,7 @@ async fn auxiliary_workflow_owned_failure_is_rejected() {
     catalog.register_test_policy(POLICY_ID, Arc::new(ReplayAllowAll));
     let error = replay_workflow(
         journal.store.session_dir(),
-        &AppConfig::default(),
+        &storage_config(),
         &catalog,
         WorkflowReplayOptions::default(),
     )

@@ -355,6 +355,7 @@ async fn lifecycle_uses_the_explicit_source_workspace_and_keeps_deletion_in_the_
     let (shutdown, _) = broadcast::channel(1);
     let state = HttpAppState::new(a.clone(), shutdown, test_security()).await;
     let stored_b = crate::core::SessionStore::new(
+        state.storage_service().unwrap(),
         config_dir.path(),
         workspace_b.path(),
         crate::domain::new_session_id(),
@@ -473,6 +474,7 @@ async fn lifecycle_uses_the_explicit_source_workspace_and_keeps_deletion_in_the_
     // must fail before dropping its live registration or touching its files.
     let outside_store = tempfile::tempdir().unwrap();
     let outside = crate::core::SessionStore::new(
+        crate::test_support::storage(std::path::Path::new(".")),
         outside_store.path(),
         workspace_b.path(),
         crate::domain::new_session_id(),
@@ -533,6 +535,86 @@ async fn lifecycle_uses_the_explicit_source_workspace_and_keeps_deletion_in_the_
         StdioOutput::Response { ok: false, .. }
     ));
     assert_eq!(state.all_servers().await.len(), count);
+    for server in state.all_servers().await {
+        server.shutdown().await;
+    }
+}
+
+#[tokio::test]
+async fn http_rejects_storage_binding_drift_before_new_or_cold_resume() {
+    let (state, server, root) = test_state().await;
+    let baseline = state.launch.config.clone();
+    let config_path = state.launch.config_path.as_ref().unwrap();
+    let initial_count = state.all_servers().await.len();
+    for change in ["selection", "command", "config", "transport", "export"] {
+        let mut changed = serde_json::to_value(&baseline).unwrap();
+        match change {
+            "selection" => changed["modules"]["session_storage"] = Value::Null,
+            "command" => {
+                changed["components"]["test-session-storage"]["command"] =
+                    json!("must-never-launch-storage-drift")
+            }
+            "config" => {
+                changed["module_config"]["session_storage"]["jsonl"] =
+                    json!({"new_backend_setting": true})
+            }
+            "transport" => {
+                changed["components"]["test-session-storage"]["transport"]["max_frame_bytes"] =
+                    json!(64 * 1024 * 1024)
+            }
+            "export" => {
+                changed["components"]["test-session-storage"]["exports"]["session_storage"]["jsonl"]
+                    ["timeout_ms"] = json!(30_001)
+            }
+            _ => unreachable!(),
+        }
+        let changed: AppConfig = serde_json::from_value(changed).unwrap();
+        std::fs::write(config_path, toml::to_string_pretty(&changed).unwrap()).unwrap();
+        for response in [
+            execute_new_session(&state, None, None, None).await,
+            execute_resume(&state, None, root.path().join("cold-session")).await,
+        ] {
+            let StdioOutput::Response {
+                ok: false,
+                error: Some(error),
+                ..
+            } = response
+            else {
+                panic!("{change}: expected a storage binding rejection: {response:?}");
+            };
+            assert!(
+                error.contains("restart the HTTP server"),
+                "{change}: {error}"
+            );
+        }
+        assert_eq!(state.all_servers().await.len(), initial_count, "{change}");
+    }
+    server.shutdown().await;
+}
+
+#[tokio::test]
+async fn http_source_session_must_match_pinned_storage_but_model_settings_may_change() {
+    let (state, server, _root) = test_state().await;
+    server.config.write().await.runtime.context_timeout_ms += 1;
+    let opened = execute_new_session(&state, None, server.session_dir_path(), None).await;
+    assert!(
+        matches!(opened, StdioOutput::Response { ok: true, .. }),
+        "{opened:?}"
+    );
+    server
+        .config
+        .write()
+        .await
+        .module_config
+        .entry("session_storage".into())
+        .or_default()
+        .insert("jsonl".into(), json!({"new_backend_setting": true}));
+    let rejected = execute_new_session(&state, None, server.session_dir_path(), None).await;
+    assert!(
+        matches!(&rejected, StdioOutput::Response { ok: false, error: Some(error), .. }
+        if error.contains("restart the HTTP server")),
+        "{rejected:?}"
+    );
     for server in state.all_servers().await {
         server.shutdown().await;
     }

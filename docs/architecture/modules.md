@@ -15,11 +15,33 @@
 вызов получает только права своего слота.
 
 Внешние модули работают через Component Runtime v2 и протокол wire v3. У
-`workflow` действует контракт v20, у `hook` — v6, у `tool` — v6, у `model` — v13.
+`workflow` действует контракт v21, у `hook` — v8, у `tool` — v7, у `model` — v14.
+Хранение сессий использует отдельный `session_storage/v1`.
 Версии и разрешённые методы остальных слотов перечислены в
 [описании процессной границы](process-module-architecture.md). Один процесс
 может обслуживать несколько одновременных и вложенных вызовов. Загрузки
 модулей через dylib в проекте нет.
+
+## Хранение Сессий
+
+Выбранный `session_storage/v1` хранит canonical journal, blobs, metadata и
+перестраиваемые кеши. Core назначает identity операции и порядок фактов,
+проверяет ответы и продолжает исполнение после durable ACK. Формат файлов,
+транзакции, writer leases и физическое восстановление принадлежат модулю.
+Общие journal DTO находятся в `proteus-contracts`; чистые правила validation,
+redaction и проекций — в `proteus-session-semantics`.
+
+У storage export один метод `execute` с typed operations и пустой набор
+host callbacks. Он обслуживает записи и чтения по fixed-prefix snapshots,
+включая историю до checkpoint и состояние для resume. Workflow и hook
+передают изменения через свои текущие callbacks, а Core фиксирует их через
+выбранный storage service.
+
+Поставляемый `proteus-session-storage-module` предоставляет `jsonl` для
+существующих schema-21 журналов и самостоятельный `sqlite`. Backend выбирается
+явно. При отсутствии `modules.session_storage` persistent SessionStore не
+создаётся. Настройка, перенос старых конфигов и смена формата описаны в
+[configuration.md](../guides/configuration.md#хранение-сессий).
 
 ## Словарь
 
@@ -68,6 +90,7 @@ Wire shape и правила validation — в
 
 | Слот | Правило выбора | Где выбирается | Процессный контракт | Примеры имён |
 |---|---|---|---|---|
+| `session_storage` | `select_one` | `modules.session_storage` | да, `session_storage/v1` | `jsonl`, `sqlite` |
 | `hook` | `ordered_many` | `modules.hooks` (явный порядок) | да, `hook/v8` | `hook.instructions`, `hook.output_budget`, `codex_compact`, `tool_selection.dynamic` |
 | `workflow` | `select_one` | `modules.workflow` | да | `coding.single_loop`, `coding.codex_loop`, `coding.plan_execute_review`, `coding.project_check` |
 | `context` | `select_one` | `modules.context` | да, `context/v3` | `simple`, `repo_aware`, `codex_context` |
@@ -550,7 +573,8 @@ export id,
 `module_config.model.<id>` передаётся реализации без разбора provider schema.
 Reference-модуль требует в нём `implementation`; export id не обязан совпадать
 с implementation, поэтому один provider можно подключить несколько раз.
-Core сохраняет `ModelService`, `BoundModel`, canonical validation и journal.
+Core сохраняет `ModelService`, `BoundModel`, canonical validation и порядок
+journal facts; запись выполняет выбранный `session_storage`.
 Одинаковый contract действует для arbitrary external ids и reference ids;
 встроенной модели, включая `fake`, нет.
 

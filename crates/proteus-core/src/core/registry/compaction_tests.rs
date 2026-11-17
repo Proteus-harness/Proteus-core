@@ -202,6 +202,7 @@ async fn registry_compaction_callbacks_use_configured_hooks_without_a_strong_ref
         policy: Arc::new(DenyAllPolicy),
         agent_control: None,
         workflow: Arc::new(NoWorkflow),
+        session_storage: None,
         context_providers: vec![],
         mcp_servers: vec![],
         plugins: vec![],

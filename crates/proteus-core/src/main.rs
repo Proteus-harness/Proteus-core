@@ -132,7 +132,10 @@ async fn run_cli() -> Result<()> {
         return Ok(());
     }
     if let CliCommand::EvalReport(path) = command {
-        let report = proteus_core::core::read_eval_report(path)?;
+        let config = AppConfig::load(cli.config.as_deref()).await?;
+        let cwd = cli.cwd.clone().unwrap_or(std::env::current_dir()?);
+        let storage = proteus_core::core::configured_session_storage(&config, &cwd)?;
+        let report = proteus_core::core::read_eval_report(storage, path)?;
         println!("{}", render_eval_report(&report));
         return Ok(());
     }

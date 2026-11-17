@@ -18,7 +18,16 @@ pub(crate) struct CoreSlotDescriptor {
     pub selection: CoreSlotSelection,
 }
 
-pub(crate) const CORE_SLOT_DESCRIPTORS: [CoreSlotDescriptor; 5] = [
+pub(crate) const CORE_SLOT_DESCRIPTORS: [CoreSlotDescriptor; 6] = [
+    CoreSlotDescriptor {
+        kind: ModuleKind::SessionStorage,
+        title: "Session storage",
+        responsibility: "Stores committed session facts and reads versioned history snapshots.",
+        category: "persistence",
+        order: 7,
+        required: false,
+        selection: CoreSlotSelection::ModulesConfig,
+    },
     CoreSlotDescriptor {
         kind: ModuleKind::Hook,
         title: "Hooks",

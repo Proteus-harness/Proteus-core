@@ -84,7 +84,13 @@ pub(crate) async fn run_doctor(
     check_external_commands(&mut findings, &config, cwd);
     check_runtime_limits(&mut findings, &config);
     check_filesystem_paths(&mut findings, &config, cwd, effective_config);
-    session_storage::check_session_storage(&mut findings, effective_config, cwd, session_scope);
+    session_storage::check_session_storage(
+        &mut findings,
+        &config,
+        effective_config,
+        cwd,
+        session_scope,
+    );
 
     if plan.is_valid() {
         match super::build_tool_registry_for_listing(&plan, &catalog) {

@@ -155,6 +155,7 @@ async fn check_repeated_callback_effects(concurrent: bool) {
         let effects = cwd.path().join("effects.txt");
         let config_path = cwd.path().join("config.toml");
         let runtime = AgentRuntime::builder(AppConfig::default(), cwd.path().to_owned())
+            .with_session_storage(crate::test_support::storage(std::path::Path::new(".")))
             .with_config_path(persist.then_some(config_path.as_path()))
             .with_module_catalog(test_catalog())
             .build()

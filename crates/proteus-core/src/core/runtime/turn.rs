@@ -490,7 +490,8 @@ impl AgentRuntime {
                     std::slice::from_ref(user_message),
                 )
                 .await?;
-            self.persist_config_snapshot_for_session(config_snapshot);
+            self.persist_config_snapshot_for_session(config_snapshot)
+                .await;
         }
         history.push(user_message.clone());
         self.session

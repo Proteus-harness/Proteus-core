@@ -186,7 +186,11 @@ async fn shared_catalog_prompt_expansion_and_module_commands_keep_policy_cancel_
             assert!(matches!(result, StdioOutput::Response { ok: false, .. }));
         }
     }
-    let store = SessionStore::open(server.session_dir_path().unwrap()).unwrap();
+    let store = SessionStore::open(
+        crate::test_support::storage(std::path::Path::new(".")),
+        server.session_dir_path().unwrap(),
+    )
+    .unwrap();
     assert!(store.load_messages().unwrap().is_empty());
     let journal = store.load_records().unwrap();
     assert!(!journal.iter().any(|r| matches!(

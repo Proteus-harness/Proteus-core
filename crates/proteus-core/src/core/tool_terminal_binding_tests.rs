@@ -218,6 +218,7 @@ fn registry(wait: bool, deny_leaf: bool) -> RuntimeRegistry {
         policy: Arc::new(Policy { deny_leaf }),
         agent_control: None,
         workflow: Arc::new(NoWorkflow),
+        session_storage: None,
         context_providers: vec![],
         mcp_servers: vec![],
         plugins: vec![],

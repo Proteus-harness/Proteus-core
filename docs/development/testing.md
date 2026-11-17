@@ -56,6 +56,7 @@ GitHub Actions запускаются вручную через `workflow_dispat
 | Component sandbox/OS launch | Реальные Rust/Python workers: grants, protected fixture вне grants, network deny, teardown descendants и fail-closed; config → registry/tool в `component_sandbox` |
 | Module implementation | Module target; реальный invocation при изменении process boundary или side effects |
 | Tool/policy | Поведение tool и общий registry/policy/approval path по изменённой ветке |
+| Session storage | Оба backend через один контракт; durable ACK/потеря ACK, lease/restart, fixed-prefix paging, corruption, metadata CAS; Core cold resume и replay |
 | Workflow/runtime | Canonical journal и replay в поддержанной границе; cold history/terminal при изменении recovery |
 | Agent control | Real process peers, адресная доставка/отмена и независимые child configs |
 | HTTP/session | Затронутые handlers; reconnect/cold history/auth/SSE при изменении этих границ |
@@ -318,10 +319,28 @@ facts; совпавший final output не заменяет эти провер
 | Изображения: process workflow, cold resume, capability refusal, replay | `proteus-core --test execution_boundary images::`, provider encoding в `model-pack`, сохранение parts в `codex-context-preparation` |
 | Process peers и их tool surfaces | Core targets `process_agent_control`, `process_agent_pool` |
 
-Storage recovery проверяется отдельно от steady-state append: полный scan
-выполняется при открытии writer, а не при каждом record. Redaction сохраняет
-JSON schemas и удаляет credentials из metadata/arguments. Сокращение проверок
-не является основанием убирать `sync_data`, checkpoint или policy contracts.
+`scripts/test.py` собирает самостоятельный `proteus-session-storage-module`
+для Core fixtures и задаёт `PROTEUS_TEST_SESSION_STORAGE_MODULE`. При прямом
+запуске `cargo test` эта переменная должна указывать на актуальный executable.
+Storage selection в fixture задаётся явно, как в обычном agent config.
+
+В Proteus-modules общий набор `cargo test -p session-storage
+-p proteus-session-storage-module` проверяет JSONL и SQLite, включая
+idempotency, metadata CAS, blobs, deletion fencing и writer ownership.
+Process tests убивают настоящий SDK worker после durable commit до получения
+ACK приложением, затем проверяют восстановление и dedup по исходному id.
+Проверки страниц дописывают journal между чтениями и подтверждают сохранение
+закреплённого prefix при отказе на его повреждение.
+
+При изменении storage boundary дополнительно проверяются нормальный запуск
+Core с выбранным service, продолжение сохранённого чата, холодный HTTP history,
+удаление при живом writer и replay. Replay сравнивает session revision и hash
+canonical prefix до и после чтения. Для обоих backend используются одинаковые
+сценарии и утверждения о фактах исполнения.
+
+Recovery измеряется отдельно от steady-state append. Redaction сохраняет JSON
+schemas и удаляет credentials из metadata/arguments. Durability подтверждается
+реальной записью и восстановлением после завершения worker.
 
 Pinned upstream revision, подтверждённые срезы и ограничения реконструкции
 собраны в [codex-baseline.md](codex-baseline.md) и module `UPSTREAM.md`.
@@ -348,7 +367,7 @@ projection_clone_benchmark -- --ignored --nocapture` измеряет подго
 [session-db benchmark](../../examples/performance/session-db/README.md):
 фиксированные SQLite/Turso, одинаковые schema/data/durability, новые процессы
 и bounded keyset pages. Он не входит в обычный Rust gate и не меняет canonical
-JSONL journal; его результаты не заменяют замеры HTTP и нативного первого кадра.
+выбранный canonical journal; его результаты не заменяют замеры HTTP и нативного первого кадра.
 
 [Multi-agent benchmark](../../examples/performance/multi-agent/README.md)
 сравнивает 1/5/10 настоящих process peers с локальной fake model: PSS, CPU,

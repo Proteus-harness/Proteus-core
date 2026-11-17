@@ -330,6 +330,12 @@ impl ModuleRuntime {
 }
 
 fn terminal_error(error: &anyhow::Error) -> ProcessModuleRpcError {
+    if let Some(failure) =
+        error.downcast_ref::<proteus_contracts::contracts::SessionStorageFailure>()
+    {
+        return ProcessModuleRpcError::new(-32_000, format!("{error:#}"))
+            .with_data(serde_json::json!(failure));
+    }
     let failure = error
         .downcast_ref::<proteus_contracts::process_module::ProcessModuleError>()
         .and_then(|error| error.model_failure.as_ref())

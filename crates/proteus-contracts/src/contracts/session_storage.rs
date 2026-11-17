@@ -25,6 +25,25 @@ pub const SESSION_STORAGE_MAX_METADATA_BYTES: usize = 1024 * 1024;
 pub const SESSION_STORAGE_MAX_CACHE_BYTES: usize = 64 * 1024 * 1024;
 pub const SESSION_STORAGE_MAX_BLOB_BYTES: u64 = 64 * 1024 * 1024;
 
+/// Storage errors that a host can handle without interpreting display text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "session_storage_error", rename_all = "snake_case")]
+pub enum SessionStorageFailure {
+    MissingSession,
+    InvalidWriterLease,
+}
+
+impl std::fmt::Display for SessionStorageFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::MissingSession => "session no longer exists",
+            Self::InvalidWriterLease => "writer lease is expired or unknown",
+        })
+    }
+}
+
+impl std::error::Error for SessionStorageFailure {}
+
 #[cfg(test)]
 mod tests;
 mod validation;
@@ -254,6 +273,12 @@ pub enum SessionStorageRequest {
         snapshot: StorageSnapshot,
         turn_id: TurnId,
     },
+    /// Latest admitted-turn facts under the caller's writer lease. This avoids
+    /// constructing a read snapshot during the serialized execution hot path.
+    ReadWriterModelContextBeforeTurn {
+        lease: StorageWriterLease,
+        turn_id: TurnId,
+    },
     ReadMetadata {
         session: SessionLocator,
         key: String,
@@ -393,6 +418,10 @@ impl SessionStorageRequest {
             value: Some(value), ..
         } = self
         {
+            ensure!(
+                !value.is_null(),
+                "null storage metadata is reserved for deletion"
+            );
             ensure!(
                 serde_json::to_vec(value)?.len() <= SESSION_STORAGE_MAX_METADATA_BYTES,
                 "storage metadata is too large"

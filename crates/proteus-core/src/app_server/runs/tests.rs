@@ -11,6 +11,7 @@ async fn bounded<T>(future: impl std::future::Future<Output = T>) -> T {
 
 fn finalization_config() -> crate::core::AppConfig {
     let mut config = crate::core::AppConfig::default();
+    crate::test_support::storage_config(&mut config);
     config.active_provider = None;
     config.providers.clear();
     config.modules.workflow = Some("finalization_probe".into());

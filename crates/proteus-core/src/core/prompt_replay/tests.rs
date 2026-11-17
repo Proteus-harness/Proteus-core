@@ -79,8 +79,13 @@ impl TestJournal {
     async fn new() -> Self {
         let config_dir = tempfile::tempdir().expect("config dir");
         let workspace = tempfile::tempdir().expect("workspace");
-        let store = SessionStore::new(config_dir.path(), workspace.path(), new_session_id())
-            .expect("session store");
+        let store = SessionStore::new(
+            crate::test_support::storage(workspace.path()),
+            config_dir.path(),
+            workspace.path(),
+            new_session_id(),
+        )
+        .expect("session store");
         let thread_id = new_thread_id();
         let turn_id = new_turn_id();
         let execution_id = new_execution_id();
@@ -184,6 +189,7 @@ async fn single_complete_exchange_is_selected_without_id() {
     let model = RecordingModel::new(text_response("replayed"));
 
     let report = replay_prompt(
+        crate::test_support::storage(std::path::Path::new(".")),
         journal.store.session_dir(),
         Arc::new(model.clone()),
         PromptReplayOptions::default(),
@@ -209,6 +215,7 @@ async fn multiple_exchanges_require_id_and_list_available_ids() {
     let model = RecordingModel::new(text_response("unused"));
 
     let error = replay_prompt(
+        crate::test_support::storage(std::path::Path::new(".")),
         journal.store.session_dir(),
         Arc::new(model.clone()),
         PromptReplayOptions::default(),
@@ -223,6 +230,7 @@ async fn multiple_exchanges_require_id_and_list_available_ids() {
     assert!(model.requests().is_empty());
 
     let report = replay_prompt(
+        crate::test_support::storage(std::path::Path::new(".")),
         journal.store.session_dir(),
         Arc::new(model.clone()),
         PromptReplayOptions {
@@ -245,6 +253,7 @@ async fn unknown_and_incomplete_exchanges_are_rejected() {
     let model = RecordingModel::new(text_response("unused"));
     let unknown = new_exchange_id();
     let error = replay_prompt(
+        crate::test_support::storage(std::path::Path::new(".")),
         complete.store.session_dir(),
         Arc::new(model.clone()),
         PromptReplayOptions {
@@ -264,6 +273,7 @@ async fn unknown_and_incomplete_exchanges_are_rejected() {
         .await;
     for exchange_id in [None, Some(incomplete_id)] {
         let error = replay_prompt(
+            crate::test_support::storage(std::path::Path::new(".")),
             incomplete.store.session_dir(),
             Arc::new(model.clone()),
             PromptReplayOptions {
@@ -302,6 +312,7 @@ async fn exact_saved_request_is_forwarded_and_journal_is_unchanged() {
     let before = std::fs::read(journal.store.journal_path()).expect("journal before");
 
     let report = replay_prompt(
+        crate::test_support::storage(std::path::Path::new(".")),
         journal.store.journal_path(),
         Arc::new(model.clone()),
         PromptReplayOptions::default(),
@@ -360,6 +371,7 @@ async fn replay_reports_local_tool_call_without_executing_it() {
     );
 
     let report = replay_prompt(
+        crate::test_support::storage(std::path::Path::new(".")),
         journal.store.session_dir(),
         Arc::new(RecordingModel::new(replay_response)),
         PromptReplayOptions::default(),
@@ -421,6 +433,7 @@ async fn provider_hosted_tools_require_explicit_opt_in_and_request_stays_exact()
     let model = RecordingModel::new(hosted_response);
 
     let error = replay_prompt(
+        crate::test_support::storage(std::path::Path::new(".")),
         journal.store.session_dir(),
         Arc::new(model.clone()),
         PromptReplayOptions::default(),
@@ -436,6 +449,7 @@ async fn provider_hosted_tools_require_explicit_opt_in_and_request_stays_exact()
     assert!(model.requests().is_empty());
 
     let report = replay_prompt(
+        crate::test_support::storage(std::path::Path::new(".")),
         journal.store.session_dir(),
         Arc::new(model.clone()),
         PromptReplayOptions {

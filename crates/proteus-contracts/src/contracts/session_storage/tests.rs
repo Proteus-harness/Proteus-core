@@ -335,3 +335,35 @@ fn cache_write_receipt_binds_content_without_echoing_the_projection() {
             .is_err()
     );
 }
+
+#[test]
+fn writer_model_context_request_roundtrips_and_accepts_only_model_context_response() {
+    let request = SessionStorageRequest::ReadWriterModelContextBeforeTurn {
+        lease: StorageWriterLease {
+            session: session(),
+            token: Uuid::new_v4(),
+            generation: Uuid::new_v4(),
+        },
+        turn_id: crate::domain::new_turn_id(),
+    };
+    request.validate().unwrap();
+    let encoded = serde_json::to_value(&request).unwrap();
+    assert_eq!(
+        encoded["operation"],
+        "read_writer_model_context_before_turn"
+    );
+    assert_eq!(
+        serde_json::from_value::<SessionStorageRequest>(encoded).unwrap(),
+        request
+    );
+    request
+        .validate_response(&SessionStorageResponse::ModelContext {
+            observations: vec![],
+        })
+        .unwrap();
+    assert!(
+        request
+            .validate_response(&SessionStorageResponse::Done)
+            .is_err()
+    );
+}

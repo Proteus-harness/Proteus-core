@@ -99,16 +99,19 @@ fn requests(
 ) -> Vec<proteus_contracts::model_standard::CanonicalModelRequest> {
     let session: AppSubagentSession =
         serde_json::from_value(result.metadata["subagent_session"].clone()).unwrap();
-    SessionStore::open(session.session_dir)
-        .unwrap()
-        .load_records()
-        .unwrap()
-        .into_iter()
-        .filter_map(|record| match record.entry {
-            JournalEntry::ModelRequestRecorded(request) => Some(request.request),
-            _ => None,
-        })
-        .collect()
+    SessionStore::open(
+        session_storage_fixture::storage(std::path::Path::new(".")),
+        session.session_dir,
+    )
+    .unwrap()
+    .load_records()
+    .unwrap()
+    .into_iter()
+    .filter_map(|record| match record.entry {
+        JournalEntry::ModelRequestRecorded(request) => Some(request.request),
+        _ => None,
+    })
+    .collect()
 }
 
 #[tokio::test]
@@ -243,9 +246,12 @@ async fn declared_role_alias_and_call_override_keep_precedence_and_rebind_real_a
         .unwrap();
     assert!(fixed_again.summary.contains("served by model_a"));
     assert_eq!(requests(&fixed_again)[0].model.model, "fixed-model");
-    let before =
-        proteus_core::core::list_workspace_session_summaries(home.path(), workspace.path())
-            .unwrap();
+    let before = proteus_core::core::list_workspace_session_summaries(
+        session_storage_fixture::storage(std::path::Path::new(".")),
+        home.path(),
+        workspace.path(),
+    )
+    .unwrap();
     let invalid = runner
         .run(
             AgentControlRequest::new("fixed", "must never reach generation", task)
@@ -258,16 +264,23 @@ async fn declared_role_alias_and_call_override_keep_precedence_and_rebind_real_a
         invalid.to_string().contains("model selection failed"),
         "{invalid:#}"
     );
-    let after = proteus_core::core::list_workspace_session_summaries(home.path(), workspace.path())
-        .unwrap();
+    let after = proteus_core::core::list_workspace_session_summaries(
+        session_storage_fixture::storage(std::path::Path::new(".")),
+        home.path(),
+        workspace.path(),
+    )
+    .unwrap();
     for session in after
         .iter()
         .filter(|row| !before.iter().any(|old| old.session_id == row.session_id))
     {
-        let records = SessionStore::open(session.session_dir.clone())
-            .unwrap()
-            .load_records()
-            .unwrap();
+        let records = SessionStore::open(
+            session_storage_fixture::storage(std::path::Path::new(".")),
+            session.session_dir.clone(),
+        )
+        .unwrap()
+        .load_records()
+        .unwrap();
         assert!(
             records
                 .iter()
@@ -276,3 +289,6 @@ async fn declared_role_alias_and_call_override_keep_precedence_and_rebind_real_a
     }
     assert!(!home.path().join("model-selections").exists());
 }
+
+#[path = "../support/model.rs"]
+mod session_storage_fixture;

@@ -24,12 +24,13 @@ pub(super) async fn session_summaries(
 ) -> Result<Vec<AppSessionSummary>> {
     let config_root = state.launch.config_path.as_deref().map(config_store_root);
     let stored_workspace = workspace.clone();
-    let stored_summaries = tokio::task::spawn_blocking(move || match config_root {
-        Some(root) => match stored_workspace.as_deref() {
-            Some(cwd) => list_workspace_session_summaries(&root, cwd),
-            None => list_session_summaries(&root),
+    let storage = state.storage.clone();
+    let stored_summaries = tokio::task::spawn_blocking(move || match (config_root, storage) {
+        (Some(root), Some(storage)) => match stored_workspace.as_deref() {
+            Some(cwd) => list_workspace_session_summaries(storage, &root, cwd),
+            None => list_session_summaries(storage, &root),
         },
-        None => Ok(Vec::new()),
+        _ => Ok(Vec::new()),
     })
     .await??;
     let activity_by_dir = state.activity_by_session_dir().await;
@@ -132,13 +133,16 @@ pub(super) async fn history_json(
     query: Option<&str>,
 ) -> Result<Vec<AppTranscriptMessage>> {
     let session_dir = required_session_query(query)?;
-    let session_dir = canonicalize_session_dir_path(session_dir)?;
+    let session_dir = state
+        .resolve_session_dir(canonicalize_session_dir_path(session_dir)?)
+        .await?;
     if let Some(server) = state.server_for_session_dir(&session_dir).await {
         return server.transcript().await;
     }
 
+    let storage = state.storage_service()?;
     tokio::task::spawn_blocking(move || {
-        let store = SessionStore::open(session_dir)?;
+        let store = SessionStore::open(storage, session_dir)?;
         Ok(crate::app_server::read_model::current_read_model(&store)?.transcript)
     })
     .await
@@ -150,7 +154,9 @@ pub(super) async fn context_map_json(
     query: Option<&str>,
 ) -> Result<AppContextMapSnapshot> {
     let session_dir = required_session_query(query)?;
-    let session_dir = canonicalize_session_dir_path(session_dir)?;
+    let session_dir = state
+        .resolve_session_dir(canonicalize_session_dir_path(session_dir)?)
+        .await?;
     if let Some(server) = state.server_for_session_dir(&session_dir).await {
         let activity = state.activity_for_server(&server).await;
         return server.context_map_snapshot(Some(activity)).await;
@@ -158,8 +164,9 @@ pub(super) async fn context_map_json(
 
     let event_log_config_path = state.launch.config.event_log.path.clone();
     let config_path = state.launch.config_path.clone();
+    let storage = state.storage_service()?;
     tokio::task::spawn_blocking(move || {
-        let store = SessionStore::open(session_dir.clone())?;
+        let store = SessionStore::open(storage, session_dir.clone())?;
         let workspace_path = store.workspace_path()?;
         #[cfg(unix)]
         let summary = store.fresh_context_summary();
@@ -197,13 +204,18 @@ pub(super) async fn conversation_json(
     state: &HttpAppState,
     query: Option<&str>,
 ) -> Result<crate::contracts::ConversationView> {
-    let session_dir = canonicalize_session_dir_path(required_session_query(query)?)?;
+    let session_dir = state
+        .resolve_session_dir(canonicalize_session_dir_path(required_session_query(
+            query,
+        )?)?)
+        .await?;
     if let Some(server) = state.server_for_session_dir(&session_dir).await {
         return server.conversation_view().await;
     }
 
+    let storage = state.storage_service()?;
     tokio::task::spawn_blocking(move || {
-        let store = SessionStore::open(session_dir)?;
+        let store = SessionStore::open(storage, session_dir)?;
         Ok(crate::contracts::ConversationView::new(
             store.session_id(),
             env!("CARGO_PKG_VERSION"),
@@ -219,24 +231,33 @@ pub(super) async fn usage_json(
     query: Option<&str>,
 ) -> Result<Option<crate::domain::SessionUsageSnapshot>> {
     let session_dir = required_session_query(query)?;
-    let session_dir = canonicalize_session_dir_path(session_dir)?;
+    let session_dir = state
+        .resolve_session_dir(canonicalize_session_dir_path(session_dir)?)
+        .await?;
     if let Some(server) = state.server_for_session_dir(&session_dir).await {
         return server.usage_snapshot().await;
     }
-    let store = tokio::task::spawn_blocking(move || SessionStore::open(session_dir))
+    let storage = state.storage_service()?;
+    let store = tokio::task::spawn_blocking(move || SessionStore::open(storage, session_dir))
         .await
         .map_err(|error| anyhow!("cold usage task failed: {error}"))??;
     store.usage_snapshot().await.map(Some)
 }
 
 pub(super) async fn history_page_json(
+    state: &HttpAppState,
     query: Option<&str>,
 ) -> Result<proteus_contracts::app_protocol::AppTranscriptPage> {
-    let dir = canonicalize_session_dir_path(required_session_query(query)?)?;
+    let dir = state
+        .resolve_session_dir(canonicalize_session_dir_path(required_session_query(
+            query,
+        )?)?)
+        .await?;
     let [before, revision] = super::workspace::query_params(query, ["before", "revision"])?;
     let before = before.map(|value| value.parse::<usize>()).transpose()?;
+    let storage = state.storage_service()?;
     tokio::task::spawn_blocking(move || {
-        let store = SessionStore::open(dir)?;
+        let store = SessionStore::open(storage, dir)?;
         #[cfg(unix)]
         {
             crate::app_server::read_model::transcript_page(&store, before, revision.as_deref())
@@ -258,7 +279,9 @@ pub(super) async fn server_for_session(
     if !session_dir.is_absolute() {
         return Err(anyhow!("session_dir must be an absolute path"));
     }
-    let session_dir = canonicalize_session_dir_path(session_dir)?;
+    let session_dir = state
+        .resolve_session_dir(canonicalize_session_dir_path(session_dir)?)
+        .await?;
     state
         .server_for_session_dir(&session_dir)
         .await
@@ -340,17 +363,23 @@ fn hex_value(byte: u8) -> Option<u8> {
 
 /// Compact read never activates a runtime or rebuilds the canonical projection.
 pub(super) async fn tool_state_json(
+    state: &HttpAppState,
     query: Option<&str>,
 ) -> Result<proteus_contracts::app_protocol::AppLatestToolState> {
-    let dir = canonicalize_session_dir_path(required_session_query(query)?)?;
+    let dir = state
+        .resolve_session_dir(canonicalize_session_dir_path(required_session_query(
+            query,
+        )?)?)
+        .await?;
     let [name] = super::workspace::query_params(query, ["name"])?;
     let name = name.ok_or_else(|| anyhow!("name query parameter is required"))?;
     anyhow::ensure!(
         !name.is_empty() && !name.chars().any(char::is_control),
         "name must be nonempty and contain no control characters"
     );
+    let storage = state.storage_service()?;
     tokio::task::spawn_blocking(move || {
-        let store = SessionStore::open(dir)?;
+        let store = SessionStore::open(storage, dir)?;
         #[cfg(unix)]
         {
             crate::app_server::read_model::latest_tool_state(&store, &name)

@@ -97,6 +97,7 @@ async fn completion_review_checkpoint_and_continuation_share_delivered_steering(
             let config_path = root.path().join("config.toml");
             let runtime = Arc::new(
                 AgentRuntime::builder(AppConfig::default(), workspace.path().into())
+                    .with_session_storage(crate::test_support::storage(std::path::Path::new(".")))
                     .with_config_path(persist.then_some(config_path.as_path()))
                     .with_module_catalog(test_catalog())
                     .build()

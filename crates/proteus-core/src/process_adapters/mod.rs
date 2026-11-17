@@ -11,6 +11,7 @@ mod mcp;
 mod model;
 mod policy;
 mod sandbox;
+mod session_storage;
 mod tool;
 mod workflow;
 
@@ -24,6 +25,7 @@ pub(crate) use hook::*;
 pub(crate) use invocation_error::*;
 pub(crate) use model::*;
 pub(crate) use policy::*;
+pub(crate) use session_storage::*;
 pub(crate) use tool::*;
 pub(crate) use workflow::*;
 

@@ -384,7 +384,7 @@ async fn restricted_profile_resolves_six_single_export_read_only_process_specs()
                 .keys()
                 .map(String::as_str)
                 .collect::<Vec<_>>(),
-            ["PATH"]
+            ["PATH", "PROTEUS_MODULE_MAX_FRAME_BYTES"]
         );
         assert_eq!(
             spec.cwd.as_deref(),

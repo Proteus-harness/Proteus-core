@@ -28,6 +28,7 @@ name = "pi"
 title = "Pi"
 
 [modules]
+session_storage = "jsonl"
 workflow = "pi_loop"
 context = "pi_context"
 policy = "codex_policy"
@@ -68,3 +69,11 @@ mode = "normal"
 
 [event_log]
 path = ".proteus/events.jsonl"
+
+[components.session-storage]
+command = "proteus-session-storage-module"
+transport.max_frame_bytes = 134217728
+
+[components.session-storage.exports.session_storage.jsonl]
+
+[components.session-storage.exports.session_storage.sqlite]

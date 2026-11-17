@@ -1,12 +1,13 @@
 use super::*;
 use crate::{
-    contracts::ExecutionAttribution,
     contracts::ToolExecutionRecorder,
-    core::{SessionToolExecutionRecorder, TurnOpened},
+    contracts::{ExecutionAttribution, WorkflowToolResultBinding},
+    core::{JournalEntry, SessionToolExecutionRecorder, TurnOpened},
     domain::{
-        AgentTask, ToolCall, ToolCallResolution, ToolResult, new_execution_id, new_session_id,
-        new_thread_id, new_turn_id,
+        AgentTask, HistoryCompactionReport, ToolCall, ToolCallResolution, ToolResult,
+        new_execution_id, new_session_id, new_thread_id, new_turn_id,
     },
+    model_standard::{CanonicalMessage, ContentPart, MessageRole},
 };
 use serde_json::json;
 
@@ -15,7 +16,13 @@ async fn committed_history_matches_replay_after_checkpoints_and_writer_restart()
     let root = tempfile::tempdir().unwrap();
     let workspace = root.path().join("workspace");
     std::fs::create_dir(&workspace).unwrap();
-    let store = SessionStore::new(root.path(), &workspace, new_session_id()).unwrap();
+    let store = SessionStore::new(
+        crate::test_support::storage(std::path::Path::new(".")),
+        root.path(),
+        &workspace,
+        new_session_id(),
+    )
+    .unwrap();
     let thread = new_thread_id();
     let turn = new_turn_id();
     let attribution =
@@ -79,12 +86,15 @@ async fn committed_history_matches_replay_after_checkpoints_and_writer_restart()
 
     let directory = store.session_dir().to_owned();
     drop(store);
-    let reopened = SessionStore::open(directory).unwrap();
+    let reopened = SessionStore::open(
+        crate::test_support::storage(std::path::Path::new(".")),
+        directory,
+    )
+    .unwrap();
     assert_eq!(
         reopened.committed_history(thread, turn).await.unwrap(),
         (expected, 2)
     );
-    assert_eq!(reopened.writer.lock().await.initial_recovery_scans(), 1);
 }
 
 #[tokio::test]
@@ -92,7 +102,13 @@ async fn checkpoint_captures_only_declared_root_results_in_binding_order() {
     let root = tempfile::tempdir().unwrap();
     let workspace = root.path().join("workspace");
     std::fs::create_dir(&workspace).unwrap();
-    let store = SessionStore::new(root.path(), &workspace, new_session_id()).unwrap();
+    let store = SessionStore::new(
+        crate::test_support::storage(std::path::Path::new(".")),
+        root.path(),
+        &workspace,
+        new_session_id(),
+    )
+    .unwrap();
     let thread = new_thread_id();
     let turn = new_turn_id();
     let attribution =
@@ -204,10 +220,13 @@ async fn checkpoint_captures_only_declared_root_results_in_binding_order() {
         .tool_result_recorded(attribution, &second)
         .await
         .unwrap();
-    let cold = SessionStore::open(store.session_dir().to_owned())
-        .unwrap()
-        .load_projection()
-        .unwrap();
+    let cold = SessionStore::open(
+        crate::test_support::storage(std::path::Path::new(".")),
+        store.session_dir().to_owned(),
+    )
+    .unwrap()
+    .load_projection()
+    .unwrap();
     assert_eq!(cold.history_revision, 3);
     assert_eq!(
         cold.history.last(),
@@ -244,7 +263,11 @@ async fn checkpoint_captures_only_declared_root_results_in_binding_order() {
         .unwrap();
     let mut expected = acknowledged.clone();
     expected.push(cold.history[3].clone());
-    let reloaded = SessionStore::open(store.session_dir().to_owned()).unwrap();
+    let reloaded = SessionStore::open(
+        crate::test_support::storage(std::path::Path::new(".")),
+        store.session_dir().to_owned(),
+    )
+    .unwrap();
     assert_eq!(reloaded.load_messages().unwrap(), expected);
 
     // The same interleaving cannot drop or alter an acknowledged result.

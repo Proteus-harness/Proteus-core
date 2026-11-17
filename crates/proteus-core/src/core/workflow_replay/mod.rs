@@ -41,7 +41,9 @@ pub async fn replay_workflow(
     catalog: &ModuleCatalog,
     options: WorkflowReplayOptions,
 ) -> Result<WorkflowReplayReport> {
-    let fixture = load_fixture(path.as_ref(), options)?;
+    let cwd = std::env::current_dir()?;
+    let storage = crate::core::configured_session_storage(config, &cwd)?;
+    let fixture = load_fixture(storage, path.as_ref(), options)?;
     let workflow_id = fixture
         .snapshot
         .modules
@@ -54,12 +56,6 @@ pub async fn replay_workflow(
         .policy
         .clone()
         .context("recorded turn has no policy module")?;
-    let journal_before = std::fs::read(&fixture.journal_path).with_context(|| {
-        format!(
-            "failed to read source journal {} before workflow replay",
-            fixture.journal_path.display()
-        )
-    })?;
     let started = Instant::now();
 
     let mut specs = fixture
@@ -343,13 +339,10 @@ pub async fn replay_workflow(
         .await;
     checkpoint_recorder.finish();
     let summary = state.summary();
-    let journal_after = std::fs::read(&fixture.journal_path).with_context(|| {
-        format!(
-            "failed to read source journal {} after workflow replay",
-            fixture.journal_path.display()
-        )
-    })?;
-    let source_journal_unchanged = journal_before == journal_after;
+    let source_after = fixture.source_store.journal_snapshot()?;
+    let source_journal_unchanged = fixture.source_snapshot.session == source_after.session
+        && fixture.source_snapshot.revision == source_after.revision
+        && fixture.source_snapshot.content_sha256 == source_after.content_sha256;
 
     let recorded_outcome = WorkflowReplayOutcome {
         status: fixture.settlement.status,

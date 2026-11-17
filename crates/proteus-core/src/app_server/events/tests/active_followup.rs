@@ -79,6 +79,7 @@ async fn launch(
 ) -> (AppServerHandle, Arc<FollowupWorkflow>) {
     let workflow = Arc::new(FollowupWorkflow::default());
     let mut config = AppConfig::default();
+    crate::test_support::storage_config(&mut config);
     config.active_provider = None;
     config.providers.clear();
     crate::test_support::select_test_modules(&mut config, "coding.single_loop");
@@ -224,7 +225,11 @@ async fn active_followup_reopen_preserves_completed_prefix_cursor_and_partial_on
                 .as_ref()
                 .expect("stored prefix must retain its cursor");
             assert_eq!(cursor.before, 0);
-            let store = SessionStore::open(server.session_dir_path().unwrap()).unwrap();
+            let store = SessionStore::open(
+                crate::test_support::storage(std::path::Path::new(".")),
+                server.session_dir_path().unwrap(),
+            )
+            .unwrap();
             let page = crate::app_server::read_model::transcript_page(
                 &store,
                 None,
@@ -264,7 +269,9 @@ async fn active_followup_reopen_preserves_completed_prefix_cursor_and_partial_on
         assert!(after.execution.active.is_none());
         assert_eq!(after.execution.last.unwrap().status, AppRunStatus::Success);
         if let Some(dir) = server.session_dir_path() {
-            let store = SessionStore::open(dir).unwrap();
+            let store =
+                SessionStore::open(crate::test_support::storage(std::path::Path::new(".")), dir)
+                    .unwrap();
             let cold = store
                 .project_read_model(|source| {
                     crate::app_server::journal_transcript_from_source(source, None)

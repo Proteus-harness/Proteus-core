@@ -61,11 +61,21 @@ mod tests {
         std::os::unix::fs::symlink(&real, &alias).expect("alias");
         let workspace = tempfile::tempdir().expect("workspace");
         let session_id = new_session_id();
-        let via_alias =
-            SessionStore::new(&alias, workspace.path(), session_id).expect("alias store");
-        let via_real = SessionStore::new(&real, workspace.path(), session_id).expect("real store");
+        let via_alias = SessionStore::new(
+            crate::test_support::storage(std::path::Path::new(".")),
+            &alias,
+            workspace.path(),
+            session_id,
+        )
+        .expect("alias store");
+        let via_real = SessionStore::new(
+            crate::test_support::storage(std::path::Path::new(".")),
+            &real,
+            workspace.path(),
+            session_id,
+        )
+        .expect("real store");
         assert_eq!(via_alias.session_dir(), via_real.session_dir());
-        assert!(std::sync::Arc::ptr_eq(&via_alias.writer, &via_real.writer));
         assert!(
             !real.join("sessions").exists(),
             "identity lookup must remain read only"
@@ -81,8 +91,11 @@ mod tests {
             )
             .await
             .expect("append");
-        let reopened = SessionStore::open(lexical.clone()).expect("reopen alias");
-        assert!(std::sync::Arc::ptr_eq(&via_alias.writer, &reopened.writer));
+        let reopened = SessionStore::open(
+            crate::test_support::storage(std::path::Path::new(".")),
+            lexical.clone(),
+        )
+        .expect("reopen alias");
         assert_eq!(
             before,
             crate::core::canonicalize_session_dir_path(lexical).expect("key after")
@@ -99,8 +112,13 @@ mod tests {
             .expect("relative")
             .to_path_buf();
         let workspace = tempfile::tempdir().expect("workspace");
-        let store =
-            SessionStore::new(&relative, workspace.path(), new_session_id()).expect("store");
+        let store = SessionStore::new(
+            crate::test_support::storage(std::path::Path::new(".")),
+            &relative,
+            workspace.path(),
+            new_session_id(),
+        )
+        .expect("store");
         assert!(store.session_dir().is_absolute());
         assert!(!store.session_dir().exists());
         assert_eq!(

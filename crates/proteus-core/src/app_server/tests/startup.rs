@@ -4,7 +4,13 @@ use std::collections::BTreeMap;
 use super::*;
 
 async fn saved_startup_store(root: &Path, workspace: &Path, text: &str) -> SessionStore {
-    let store = SessionStore::new(root, workspace, new_session_id()).unwrap();
+    let store = SessionStore::new(
+        crate::test_support::storage(std::path::Path::new(".")),
+        root,
+        workspace,
+        new_session_id(),
+    )
+    .unwrap();
     store
         .append_history(
             new_thread_id(),
@@ -23,11 +29,12 @@ async fn stale_saved_transcript_refreshes_through_the_session_stream_without_a_t
     let workspace = tempfile::tempdir().unwrap();
     let config = root.path().join("config.toml");
     let store = saved_startup_store(root.path(), workspace.path(), "old display").await;
-    let first = AgentAppServer::launch_resumed(
+    let first = AgentAppServer::launch_resumed_with_storage(
         crate::test_model::config(),
         workspace.path().into(),
         Some(&config),
         store.session_dir().into(),
+        store.storage_service(),
     )
     .await
     .unwrap();
@@ -41,11 +48,12 @@ async fn stale_saved_transcript_refreshes_through_the_session_stream_without_a_t
         .await
         .unwrap();
     let before = std::fs::read(store.journal_path()).unwrap();
-    let reopened = AgentAppServer::launch_resumed(
+    let reopened = AgentAppServer::launch_resumed_with_storage(
         crate::test_model::config(),
         workspace.path().into(),
         Some(&config),
         store.session_dir().into(),
+        store.storage_service(),
     )
     .await
     .unwrap();
@@ -70,7 +78,7 @@ async fn stale_saved_transcript_refreshes_through_the_session_stream_without_a_t
     );
     assert_eq!(std::fs::read(store.journal_path()).unwrap(), before);
     let (_, _, deferred, stale) =
-        crate::core::PreparedSession::from_dir(store.session_dir().into())
+        crate::core::PreparedSession::from_dir(store.storage_service(), store.session_dir().into())
             .unwrap()
             .into_display_view(|_| panic!("background refresh should persist the current view"))
             .unwrap();
@@ -85,17 +93,18 @@ async fn clear_persists_empty_view_but_external_append_makes_it_a_resume_candida
     let workspace = tempfile::tempdir().unwrap();
     let config = root.path().join("config.toml");
     let store = saved_startup_store(root.path(), workspace.path(), "before clear").await;
-    let handle = AgentAppServer::launch_resumed(
+    let handle = AgentAppServer::launch_resumed_with_storage(
         crate::test_model::config(),
         workspace.path().into(),
         Some(&config),
         store.session_dir().into(),
+        store.storage_service(),
     )
     .await
     .unwrap();
     handle.clear_history().await.unwrap();
     let (_, view, deferred, stale) =
-        crate::core::PreparedSession::from_dir(store.session_dir().into())
+        crate::core::PreparedSession::from_dir(store.storage_service(), store.session_dir().into())
             .unwrap()
             .into_display_view(|_| panic!("clear must persist the empty view"))
             .unwrap();
@@ -103,9 +112,13 @@ async fn clear_persists_empty_view_but_external_append_makes_it_a_resume_candida
     assert_eq!(view.summary.message_count, 0);
     assert!(view.transcript.is_empty());
     assert!(
-        crate::core::prepare_latest_workspace_session(root.path(), workspace.path())
-            .unwrap()
-            .is_none()
+        crate::core::prepare_latest_workspace_session(
+            crate::test_support::storage(std::path::Path::new(".")),
+            root.path(),
+            workspace.path()
+        )
+        .unwrap()
+        .is_none()
     );
     handle.shutdown().await;
     store
@@ -119,18 +132,23 @@ async fn clear_persists_empty_view_but_external_append_makes_it_a_resume_candida
         )
         .await
         .unwrap();
-    let prepared = crate::core::prepare_latest_workspace_session(root.path(), workspace.path())
-        .unwrap()
-        .unwrap();
+    let prepared = crate::core::prepare_latest_workspace_session(
+        crate::test_support::storage(std::path::Path::new(".")),
+        root.path(),
+        workspace.path(),
+    )
+    .unwrap()
+    .unwrap();
     assert_eq!(prepared.session_dir(), store.session_dir());
     let (_, old, deferred, stale) = prepared
         .into_display_view(|_| panic!("stale view must not block startup"))
         .unwrap();
     assert!(deferred && stale && old.transcript.is_empty());
-    let reopened = AgentAppServer::launch_or_resume_latest(
+    let reopened = AgentAppServer::launch_or_resume_latest_with_storage(
         crate::test_model::config(),
         workspace.path().into(),
         Some(&config),
+        Some(store.storage_service()),
     )
     .await
     .unwrap();
@@ -179,8 +197,13 @@ async fn launch_or_resume_latest_uses_last_non_empty_workspace_session() {
     let config_dir = tempfile::tempdir().expect("config dir");
     let config_path = config_dir.path().join("config.toml");
     let saved_session_id = new_session_id();
-    let saved_store =
-        SessionStore::new(config_dir.path(), cwd.path(), saved_session_id).expect("session store");
+    let saved_store = SessionStore::new(
+        crate::test_support::storage(std::path::Path::new(".")),
+        config_dir.path(),
+        cwd.path(),
+        saved_session_id,
+    )
+    .expect("session store");
     saved_store
         .append_history(
             crate::domain::new_thread_id(),
@@ -193,8 +216,13 @@ async fn launch_or_resume_latest_uses_last_non_empty_workspace_session() {
         .await
         .expect("append saved messages");
 
-    let empty_store = SessionStore::new(config_dir.path(), cwd.path(), new_session_id())
-        .expect("empty session store");
+    let empty_store = SessionStore::new(
+        crate::test_support::storage(std::path::Path::new(".")),
+        config_dir.path(),
+        cwd.path(),
+        new_session_id(),
+    )
+    .expect("empty session store");
     let empty_thread = crate::domain::new_thread_id();
     empty_store
         .append_history(
@@ -222,10 +250,11 @@ async fn launch_or_resume_latest_uses_last_non_empty_workspace_session() {
         .unwrap();
     let preserved = saved_bytes(incompatible.session_dir());
 
-    let handle = AgentAppServer::launch_or_resume_latest(
+    let handle = AgentAppServer::launch_or_resume_latest_with_storage(
         crate::test_model::config(),
         cwd.path().to_path_buf(),
         Some(&config_path),
+        Some(saved_store.storage_service()),
     )
     .await
     .expect("app server");
@@ -273,13 +302,20 @@ async fn launch_or_resume_latest_starts_fresh_when_all_persisted_sessions_are_un
     std::fs::create_dir(&uuid_dir).unwrap();
     std::fs::write(uuid_dir.join("messages.jsonl"), b"old uuid history\n").unwrap();
     let before = saved_bytes(&root.path().join("sessions"));
-    assert!(SessionStore::open(old_metadata.session_dir().to_path_buf()).is_err());
     assert!(
-        AgentAppServer::launch_resumed(
+        SessionStore::open(
+            old_metadata.storage_service(),
+            old_metadata.session_dir().to_path_buf(),
+        )
+        .is_err()
+    );
+    assert!(
+        AgentAppServer::launch_resumed_with_storage(
             crate::test_model::config(),
             cwd.path().to_path_buf(),
             Some(&config_path),
-            old_metadata.session_dir().to_path_buf()
+            old_metadata.session_dir().to_path_buf(),
+            old_metadata.storage_service(),
         )
         .await
         .is_err()

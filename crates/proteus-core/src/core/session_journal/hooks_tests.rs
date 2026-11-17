@@ -1,6 +1,9 @@
 use super::*;
 use crate::{
-    contracts::{ExecutionAttribution, HookInput, HookResponse, HookStep, HookStepOutcome},
+    contracts::{
+        ExecutionAttribution, HookEvent, HookInput, HookResponse, HookStep, HookStepOutcome,
+        HookTrace, apply_hook_response,
+    },
     core::{JournalEntry, SessionStore},
     domain::{ToolCall, ToolSafety, ToolSpec, new_execution_id, new_session_id},
 };
@@ -46,7 +49,13 @@ async fn strict_secret_schema_survives_hook_journal_while_values_are_redacted() 
     ] {
         let config = tempfile::tempdir().unwrap();
         let workspace = tempfile::tempdir().unwrap();
-        let store = SessionStore::new(config.path(), workspace.path(), new_session_id()).unwrap();
+        let store = SessionStore::new(
+            crate::test_support::storage(std::path::Path::new(".")),
+            config.path(),
+            workspace.path(),
+            new_session_id(),
+        )
+        .unwrap();
         let schema = json!({"type":"object", "properties":{"password":property, "other":{"type":"integer"}}, "required":["password","other"], "additionalProperties":false});
         let trace = trace(schema.clone(), json!({"password":secret, "other":42}));
         let HookEvent::BeforeTool { call, .. } = &trace.input.event else {
@@ -110,7 +119,13 @@ async fn strict_secret_schema_survives_hook_journal_while_values_are_redacted() 
 async fn raw_trace_rejects_invalid_unrelated_field_even_with_secret_redaction_marker() {
     let config = tempfile::tempdir().unwrap();
     let workspace = tempfile::tempdir().unwrap();
-    let store = SessionStore::new(config.path(), workspace.path(), new_session_id()).unwrap();
+    let store = SessionStore::new(
+        crate::test_support::storage(std::path::Path::new(".")),
+        config.path(),
+        workspace.path(),
+        new_session_id(),
+    )
+    .unwrap();
     let schema = json!({"type":"object", "properties":{"password":{"type":"string"}, "other":{"type":"integer"}}, "required":["other"]});
     let mut trace = trace(schema, json!({"password":"[REDACTED]", "other":42}));
     let invalid = json!({"password":"[REDACTED]", "other":"invalid"});
@@ -167,7 +182,7 @@ fn spec_metadata_marker_does_not_disable_persisted_argument_validation() {
         turn_id: None,
         entry: JournalEntry::HookInvoked(trace.clone()),
     };
-    assert!(validate_trace(&record, &trace).is_err());
+    assert!(JournalProjection::build(record.session_id, vec![record]).is_err());
 }
 
 #[tokio::test]
@@ -175,7 +190,13 @@ async fn selection_journal_requires_full_candidate_seed_even_without_hook_handle
     use crate::contracts::{ToolSelectionInput, ToolSelectionOutput, ToolSelectionRequest};
     let config = tempfile::tempdir().unwrap();
     let workspace = tempfile::tempdir().unwrap();
-    let store = SessionStore::new(config.path(), workspace.path(), new_session_id()).unwrap();
+    let store = SessionStore::new(
+        crate::test_support::storage(std::path::Path::new(".")),
+        config.path(),
+        workspace.path(),
+        new_session_id(),
+    )
+    .unwrap();
     let spec = ToolSpec::new(
         "unused",
         "never called",

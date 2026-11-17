@@ -7,7 +7,7 @@ import subprocess
 import sys
 import time
 
-from build_module import build, build_packages
+from build_module import build, build_packages, resolve
 from sources import ROOT
 
 
@@ -57,6 +57,16 @@ def main(args):
             env["PROTEUS_TEST_MODULE_BINARIES"] = json.dumps(binaries)
             directories = list(dict.fromkeys(str(Path(path).parent) for path in binaries.values()))
             env["PATH"] = os.pathsep.join([*directories, env.get("PATH", "")])
+        if not env.get("PROTEUS_TEST_SESSION_STORAGE_MODULE"):
+            if "PROTEUS_TEST_MODULE_BINARIES" in env:
+                storage = json.loads(env["PROTEUS_TEST_MODULE_BINARIES"])["session-storage"]
+            else:
+                source = resolve("modules")
+                storage = json.loads(subprocess.check_output(
+                    [sys.executable, str(source / "package.py"), "--profile", "dev", "--package", "session-storage", "--print-artifacts"],
+                    cwd=source, env=env, text=True,
+                ))["session-storage"]
+            env["PROTEUS_TEST_SESSION_STORAGE_MODULE"] = str(Path(storage).resolve())
         if env.get("PROTEUS_TEST_REFERENCE_MODULE"):
             path = Path(env["PROTEUS_TEST_REFERENCE_MODULE"]).resolve()
             if not path.is_file():
