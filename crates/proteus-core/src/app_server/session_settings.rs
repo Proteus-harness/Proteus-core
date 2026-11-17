@@ -124,6 +124,22 @@ pub(super) fn render(
     settings
 }
 
+/// Compose every session setting from an already resolved model selection.
+/// HTTP's local projection must not start a second catalog discovery.
+pub(super) async fn compose(
+    server: &super::AppServerHandle,
+    mode: PermissionMode,
+    active: &Option<ModelRef>,
+    reasoning: &ReasoningConfig,
+    summary: &SelectionSummary,
+) -> Vec<SessionSetting> {
+    let mut settings = render(mode, active, reasoning, summary);
+    if let Some(behavior) = super::session_behavior::setting(server).await {
+        settings.insert(0, behavior);
+    }
+    settings
+}
+
 impl super::AppServerHandle {
     pub async fn session_settings(&self) -> Vec<SessionSetting> {
         let ModelSelection {
@@ -131,11 +147,14 @@ impl super::AppServerHandle {
             reasoning,
             summary,
         } = self.model_selection().await;
-        let mut settings = render(self.permission_mode().await, &active, &reasoning, &summary);
-        if let Some(behavior) = super::session_behavior::setting(self).await {
-            settings.insert(0, behavior);
-        }
-        settings
+        compose(
+            self,
+            self.permission_mode().await,
+            &active,
+            &reasoning,
+            &summary,
+        )
+        .await
     }
 
     pub async fn set_session_setting(&self, update: SessionSettingUpdate) -> Result<()> {
