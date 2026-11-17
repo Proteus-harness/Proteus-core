@@ -8,6 +8,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 pub const OPERATION_HOST_COMPLETE_MODEL_METHOD: &str = "host.model.complete";
+pub const HOOK_HOST_ESTIMATE_MODEL_INPUT_METHOD: &str = "host.model.estimate_input";
 pub const OPERATION_HOST_EXECUTE_TOOL_METHOD: &str = "host.tools.execute";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -30,6 +31,13 @@ pub struct OperationExecuteToolRequest {
 
 #[async_trait]
 pub trait HookHost: Send + Sync {
+    async fn estimate_model_input(
+        &self,
+        _request: super::ModelInputEstimateRequest,
+    ) -> Result<Option<super::ModelInputEstimate>> {
+        Ok(None)
+    }
+
     fn is_cancelled(&self) -> bool {
         false
     }

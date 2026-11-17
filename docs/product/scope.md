@@ -18,7 +18,7 @@
   [границы и использование](../guides/images.md).
 - Standalone process Workflow без conversation и модели; typed top-level
   операция `execute_tool` без открытия Turn; `/remember` вызывает memory tool.
-- Opt-in typed `hook/v7` contributions: явная ordered chain, model instructions/
+- Opt-in typed `hook/v8` contributions: явная ordered chain, model instructions/
   messages, отбор tools, подготовка working history, pre-tool block/args, post-tool output
   и bounded completion review. Hooks/tools получают execution-bound model/tool
   callbacks; выбранный preparation hook заменяет отдельный compactor slot.

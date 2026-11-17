@@ -527,7 +527,7 @@ composition(contract) = select_one | ordered_many
 ```
 
 `workflow`, `model`, `context`, `policy` используют `select_one`.
-`tool`, `context_provider` и цепочка обработчиков `hook/v7` используют `ordered_many`.
+`tool`, `context_provider` и цепочка обработчиков `hook/v8` используют `ordered_many`.
 `modules.hooks` задаёт порядок обработчиков. Core определяет точки их вызова
 и проверяет результаты; обработчики используют тот же протокол процессных модулей.
 

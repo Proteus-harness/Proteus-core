@@ -144,8 +144,42 @@ pub(super) fn rewrite_result_call_ids(
 }
 
 fn normalize_request(request: &mut CanonicalModelRequest, call_ids: &HashMap<CallId, CallId>) {
+    normalize_estimate_metadata(&mut request.metadata, &request.messages);
     normalize_messages(&mut request.messages, call_ids);
     rewrite_value_strings(&mut request.metadata, call_ids);
+}
+
+pub(super) fn estimate_metadata_equal(
+    actual: &serde_json::Value,
+    actual_messages: &[CanonicalMessage],
+    expected: &serde_json::Value,
+    expected_messages: &[CanonicalMessage],
+) -> bool {
+    let mut actual = actual.clone();
+    let mut expected = expected.clone();
+    normalize_estimate_metadata(&mut actual, actual_messages);
+    normalize_estimate_metadata(&mut expected, expected_messages);
+    actual == expected
+}
+
+fn normalize_estimate_metadata(metadata: &mut serde_json::Value, messages: &[CanonicalMessage]) {
+    if let Some(mut estimate) = crate::model_standard::ModelInputEstimate::from_metadata(metadata) {
+        // Advisory identities are derived from canonical position only for replay.
+        // Never rewrite provider-owned opaque payloads.
+        let ids: HashMap<_, _> = messages
+            .iter()
+            .flat_map(|message| &message.parts)
+            .enumerate()
+            .map(|(index, part)| (part.part_id, uuid::Uuid::from_u128(index as u128 + 1)))
+            .collect();
+        for part in &mut estimate.parts {
+            if let Some(id) = ids.get(&part.part_id) {
+                part.part_id = *id;
+            }
+        }
+        estimate.parts.sort_by_key(|part| part.part_id);
+        estimate.write_metadata(metadata);
+    }
 }
 
 fn normalize_messages(messages: &mut [CanonicalMessage], call_ids: &HashMap<CallId, CallId>) {
@@ -228,4 +262,39 @@ fn rewrite_value_strings(value: &mut serde_json::Value, replacements: &HashMap<C
         }
         _ => {}
     }
+}
+
+#[cfg(test)]
+#[test]
+fn replay_normalizes_advisory_part_ids_without_changing_opaque_data() {
+    use crate::model_standard::{MessageRole, ModelInputEstimate, ModelPartTokenEstimate};
+    fn request(tokens: u32) -> CanonicalModelRequest {
+        let message = CanonicalMessage::new(
+            MessageRole::Assistant,
+            vec![ContentPart::Opaque {
+                format: "fixture/checkpoint".into(),
+                data: serde_json::json!({"part_id":"provider-owned-unchanged"}),
+            }],
+        );
+        let estimate = ModelInputEstimate {
+            parts: vec![ModelPartTokenEstimate {
+                part_id: message.parts[0].part_id,
+                tokens,
+            }],
+        };
+        let mut request = CanonicalModelRequest::new(
+            crate::domain::ModelRef::new("fixture", "model"),
+            vec![message],
+        );
+        estimate.write_metadata(&mut request.metadata);
+        request
+    }
+    let a = request(13);
+    let b = request(13);
+    assert!(requests_equal(&a, &b, &HashMap::new()));
+    assert!(!requests_equal(&a, &request(14), &HashMap::new()));
+    let original = a.messages[0].parts[0].payload.clone();
+    let mut normalized = a;
+    normalize_request(&mut normalized, &HashMap::new());
+    assert_eq!(normalized.messages[0].parts[0].payload, original);
 }

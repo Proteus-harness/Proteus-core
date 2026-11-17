@@ -24,6 +24,8 @@ mod compaction;
 mod deadline;
 #[path = "bound_model_tests/failure_progress.rs"]
 mod failure_progress;
+#[path = "bound_model_tests/input_estimate.rs"]
+mod input_estimate;
 #[path = "bound_model_tests/tool_authority.rs"]
 mod tool_authority;
 

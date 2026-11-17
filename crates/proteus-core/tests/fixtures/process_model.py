@@ -54,6 +54,17 @@ def invoke(context, method, params):
                 context.ensure_active()
                 time.sleep(0.005)
         return config.get("catalog")
+    if method == "estimate_input":
+        if config.get("expected_estimate_input") != params:
+            raise ProtocolError("estimate input changed")
+        if config.get("estimate_wait"):
+            marker = Path(config["estimate_marker"])
+            marker.write_text("started")
+            context.on_cancel(lambda: marker.write_text("canceled"))
+            while not context.is_cancelled():
+                time.sleep(0.005)
+            context.ensure_active()
+        return config.get("input_estimate")
     if method == "quota":
         if params is not None:
             raise ProtocolError("quota expects null")

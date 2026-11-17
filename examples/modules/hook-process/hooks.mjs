@@ -77,6 +77,7 @@ export function createHooks(settings = {}) {
         cwd: input.cwd, attribution: frozenCopy(input.attribution),
         config: api.config, signal,
         completeModel: (request) => callback("host.model.complete", { request }),
+        estimateModelInput: (request) => callback("host.model.estimate_input", request),
         executeTool: (call) => callback("host.tools.execute", { call }),
         conversation: frozenCopy(input.conversation),
       });

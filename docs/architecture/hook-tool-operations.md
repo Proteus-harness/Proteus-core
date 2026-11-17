@@ -1,6 +1,6 @@
 # Операции Hooks И Tools
 
-Действующая граница: `hook/v7`, `tool/v7`, `workflow/v21`, journal schema v21.
+Действующая граница: `hook/v8`, `tool/v7`, `workflow/v21`, journal schema v21.
 
 Запрос модели явно задаёт `CanonicalModelRequest.operation`: обычный `Complete`
 или нативный `Compact`. Отсутствие operation означает обычный Complete;
@@ -127,6 +127,29 @@ metadata. Opaque metadata не меняет типизированные пол�
 пользователя. Текущий ввод остаётся защищённым suffix и возвращается неизменным
 в полный replacement перед checkpoint. Свежий request context строится после
 принятия подготовки.
+
+## Локальная оценка opaque input
+
+`hook/v8` добавляет `host.model.estimate_input` с `ModelInputEstimateRequest`:
+выбранная `model` и уникальные canonical `Opaque` parts. Только selected bound
+model может оценить свой материал; Core не знает provider format или формулу.
+`model/v14` объявляет метод `estimate_input` опциональным feature
+`model.input_estimate.v1`. Не поддерживается — `null`, а не нулевая оценка.
+Ответ `ModelInputEstimate` содержит subset уникальных `part_id` и `u32 tokens`;
+ноль допустим. Чужие/повторные ids и не-Opaque запросы отклоняются.
+
+Это локальная advisory операция с owner, отменой и timeout текущего invocation.
+Она не запускает BeforeModel, inference, ModelRequest или TokenUsage exchange.
+У ToolHost и WorkflowHost этого callback нет. Replay использует уже записанный
+hook proposal; дополнительного journal record или повторного sizing нет.
+
+`ModelInputEstimate` читает/пишет typed map `{parts:[{part_id,tokens}]}` под ключом
+`model/input_token_estimates` в metadata hook output и workflow request.
+Применяются только matching Opaque ids; payload и message metadata неизменны.
+`ContextTokenEstimateSource` сохраняет `estimated`/`observed` под
+`context/token_estimate_source`. Helpers сохраняют другие metadata keys и не
+заменяют произвольное scalar metadata. Wire DTO не получает обязательных полей,
+старые записи остаются читаемыми.
 
 ## Принятие Истории
 

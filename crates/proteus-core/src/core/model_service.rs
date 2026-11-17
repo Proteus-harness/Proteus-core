@@ -68,6 +68,22 @@ impl Model for ModelService {
         self.adapter.quota().await
     }
 
+    fn supports_input_estimate(&self) -> bool {
+        self.adapter.supports_input_estimate()
+    }
+
+    async fn estimate_input(
+        &self,
+        request: crate::contracts::ModelInputEstimateRequest,
+    ) -> Result<Option<crate::contracts::ModelInputEstimate>> {
+        request.validate().map_err(anyhow::Error::msg)?;
+        let result = self.adapter.estimate_input(request.clone()).await?;
+        if let Some(estimate) = &result {
+            estimate.validate(&request).map_err(anyhow::Error::msg)?;
+        }
+        Ok(result)
+    }
+
     async fn stream(&self, request: CanonicalModelRequest) -> Result<ModelEventStream> {
         let request = self.prepare_request(request)?;
         let validation_request = request.clone();

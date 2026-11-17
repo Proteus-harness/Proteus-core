@@ -274,7 +274,12 @@ fn events_equal(actual: &HookEvent, expected: &HookEvent, ids: &HashMap<CallId, 
                 && ao.trigger_tokens == bo.trigger_tokens
                 && ao.summary_source == bo.summary_source
                 && ao.skipped_reason == bo.skipped_reason
-                && ao.metadata == bo.metadata
+                && super::super::normalize::estimate_metadata_equal(
+                    &ao.metadata,
+                    &ao.messages,
+                    &bo.metadata,
+                    &bo.messages,
+                )
                 && ao.user_message_replacements == bo.user_message_replacements
                 && at == bt
         }
@@ -404,6 +409,16 @@ fn rewrite_preparation_identities(
                 }
             }
         }
+    }
+    if let Some(mut estimate) =
+        crate::model_standard::ModelInputEstimate::from_metadata(&output.metadata)
+    {
+        for estimate in &mut estimate.parts {
+            if let Some(current) = parts.get(&estimate.part_id) {
+                estimate.part_id = current.part_id;
+            }
+        }
+        estimate.write_metadata(&mut output.metadata);
     }
     for replacement in &mut output.user_message_replacements {
         if let Some(current) = messages.get(&replacement.source_message_id) {

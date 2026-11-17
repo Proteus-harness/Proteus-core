@@ -32,6 +32,18 @@ pub trait Model: Send + Sync {
         Ok(None)
     }
 
+    /// Optional local sizing; never runs inference or reads provider credentials.
+    fn supports_input_estimate(&self) -> bool {
+        false
+    }
+
+    async fn estimate_input(
+        &self,
+        _request: super::ModelInputEstimateRequest,
+    ) -> Result<Option<super::ModelInputEstimate>> {
+        Ok(None)
+    }
+
     /// Configured provider-hosted tool instances for this model. The default
     /// keeps providers without hosted execution unchanged.
     fn provider_hosted_tools(&self, _model: &ModelRef) -> anyhow::Result<Vec<ToolSpec>> {

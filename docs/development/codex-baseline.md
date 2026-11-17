@@ -18,7 +18,7 @@ Codex определяются в [roadmap.md](../product/roadmap.md).
 - `coding.codex_loop` берёт последнее непустое assistant message
   как terminal output.
 
-Действующие версии: `workflow/v21`, `hook/v7`, journal schema v21 и config snapshot v8.
+Действующие версии: `workflow/v21`, `hook/v8`, journal schema v21 и config snapshot v8.
 
 Upstream anchors среза: `codex-rs/protocol/src/models.rs`,
 `codex-rs/codex-api/src/sse/responses.rs`,

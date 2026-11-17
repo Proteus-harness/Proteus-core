@@ -74,6 +74,29 @@ impl InvocationOperations {
 }
 #[async_trait]
 impl HookHost for InvocationOperations {
+    async fn estimate_model_input(
+        &self,
+        request: crate::contracts::ModelInputEstimateRequest,
+    ) -> Result<Option<crate::contracts::ModelInputEstimate>> {
+        ensure!(
+            self.model_allowed,
+            "model callback is unavailable in lifecycle notifications"
+        );
+        request.validate().map_err(anyhow::Error::msg)?;
+        let model = self
+            .operations
+            .as_ref()
+            .and_then(|ops| ops.model.as_ref())
+            .ok_or_else(|| anyhow!("no model is configured for this execution"))?;
+        with_operation_scope(
+            self.owner.clone(),
+            self.lineage.clone(),
+            self.cancellation.clone(),
+            model.estimate_input(request),
+        )
+        .await
+    }
+
     async fn complete_model(
         &self,
         request: CanonicalModelRequest,

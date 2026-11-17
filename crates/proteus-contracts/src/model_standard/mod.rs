@@ -3,6 +3,7 @@ pub mod canonical_response;
 pub mod capabilities;
 pub mod content_part;
 pub mod failure;
+pub mod input_estimates;
 pub mod shaper;
 pub mod stream;
 
@@ -11,5 +12,6 @@ pub use canonical_response::*;
 pub use capabilities::*;
 pub use content_part::*;
 pub use failure::*;
+pub use input_estimates::*;
 pub use shaper::*;
 pub use stream::*;

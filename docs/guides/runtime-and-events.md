@@ -382,7 +382,7 @@ history сохраняют раздельные commentary/final items. Клие
 
 ## Хуки Выполнения
 
-Opt-in `modules.hooks` задаёт упорядоченную цепочку process exports `hook/v7`.
+Opt-in `modules.hooks` задаёт упорядоченную цепочку process exports `hook/v8`.
 Core вызывает её в восьми точках: `turn_started`, `before_tool_selection`,
 `before_context`, `before_model`,
 `before_tool`, `after_tool`, `before_stop`, `turn_settled`. Это общая execution boundary: model/tool hooks

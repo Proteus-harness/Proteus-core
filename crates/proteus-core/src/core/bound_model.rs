@@ -339,6 +339,25 @@ impl Model for BoundModel {
         self.service.provider_hosted_tools(model)
     }
 
+    fn supports_input_estimate(&self) -> bool {
+        self.service.supports_input_estimate()
+    }
+
+    async fn estimate_input(
+        &self,
+        request: crate::contracts::ModelInputEstimateRequest,
+    ) -> Result<Option<crate::contracts::ModelInputEstimate>> {
+        request.validate().map_err(anyhow::Error::msg)?;
+        let cancellation =
+            crate::core::model_call_scope::operation_cancellation(&self.binding.scope.cancellation);
+        tokio::select! {
+            biased;
+            _ = cancellation.cancelled() => Err(model_cancelled()),
+            _ = wait_for_deadline(self.deadline()), if self.model_timeout_ms != 0 => Err(model_timeout(self.model_timeout_ms)),
+            result = self.service.estimate_input(request) => result,
+        }
+    }
+
     async fn stream(&self, request: CanonicalModelRequest) -> Result<ModelEventStream> {
         let deadline = self.deadline();
         let auxiliary = current_model_call_origin() == crate::contracts::ModelCallOrigin::Auxiliary;

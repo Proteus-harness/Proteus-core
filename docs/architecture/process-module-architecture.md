@@ -422,13 +422,13 @@ Rust host и модуль используют один
 
 | Slot | Contract | Module methods | Host callbacks |
 |---|---|---|---|
-| hook | v6 | `hook.invoke` | `host.model.complete`, `host.tools.execute` (по фазе invocation) |
+| hook | v8 | `hook.invoke` | `host.model.complete`, `host.model.estimate_input`, `host.tools.execute` (по фазе invocation) |
 | policy | v2 | `evaluate`, `evaluate_visibility` | — |
 | context provider | v4 | `provide`, `catalog` | — |
-| tool | v6 | `list`, `invoke` | `host.model.complete`, `host.tools.execute`, `host.conversation.read`, `host.conversation.snapshot` |
+| tool | v7 | `list`, `invoke`, optional `terminal` | `host.model.complete`, `host.tools.execute`, `host.conversation.read`, `host.conversation.snapshot` |
 | context | v3 | `build` | `host.context.provide` |
-| model | v13 | `describe`, `catalog`, `quota`, `stream` | `host.model.emit` (acknowledged canonical events) |
-| workflow | v20 | `run` | runtime status, context, model, context preparation, history checkpoint, tool visibility/selection/execution, events |
+| model | v14 | `describe`, `stream`, optional `catalog`, `quota`, `estimate_input` | `host.model.emit` (acknowledged canonical events) |
+| workflow | v21 | `run` | runtime status, context, model, context preparation, history checkpoint, tool visibility/selection/execution, events |
 
 Canonical source:
 `crates/proteus-module-protocol/src/authority.rs`. Изменение таблицы требует
@@ -857,7 +857,7 @@ Python examples доказывают независимость wire от Rust:
 - `examples/modules/agent-worker/agent.py`.
 
 JS/TS [`hook-process`](../../examples/modules/hook-process/README.md) использует
-тот же wire v3 с несколькими `hook/v7` exports, concurrent invocations и
+тот же wire v3 с несколькими `hook/v8` exports, concurrent invocations и
 адресной отменой через `AbortSignal`. SDK и porting helpers находятся внутри
 внешнего component; в Core нет language- или origin-specific пути исполнения.
 
@@ -883,7 +883,9 @@ Host предлагает `host_features` отдельно каждому export
 feature допустимо, неизвестное или повторное подтверждение — ошибка handshake.
 Функция не добавляет callbacks: authority по-прежнему задаёт slot и invocation.
 В `model/v14` `describe` и `stream` составляют обязательное ядро;
-`model.catalog.v1` и `model.quota.v1` разрешают соответствующие optional вызовы.
+`model.catalog.v1`, `model.quota.v1` и `model.input_estimate.v1` разрешают
+соответствующие optional вызовы. `estimate_input` — локальная оценка
+provider-owned Opaque parts, без inference или model/usage journal exchange.
 Без подтверждения host не вызывает метод и возвращает отсутствие данных.
 Связь method→feature задаётся общей таблицей slot contracts. Broker проверяет
 acknowledgement именно текущего generation/export при admission, после lazy
@@ -912,7 +914,7 @@ routing или authority. Другие неизвестные поля по-пр
 `ModelCapabilities.supports_compaction`; unsupported операция отклоняется host
 до model invocation. Это та же операция через существующие bound model callbacks
 workflow, hook и tool, а не отдельный HTTP path или привилегия конкретного export.
-Поэтому согласованный cut включает `workflow/v21`, `hook/v7` и `tool/v7`.
+Поэтому согласованный cut включает `workflow/v21`, `hook/v8` и `tool/v7`.
 В `BeforeContext.model_capabilities` host сообщает описание выбранной модели;
 отсутствие descriptor означает неизвестную capability, а не разрешение Compact.
 
@@ -1021,7 +1023,7 @@ event; это причина, а не команда Core повторить з�
 без завершения, сохраняя остальные
 ошибки данных и deadline отдельными. Codex workflow принимает решение о повторе
 с подтверждённой историей; preparation hook сохраняет свою политику повторов.
-Действуют `model/v14`, `workflow/v21`, `hook/v7`, `tool/v7` и journal schema v21,
+Действуют `model/v14`, `workflow/v21`, `hook/v8`, `tool/v7` и journal schema v21,
 без readers старых форм.
 Передача `ToolCall` в существующем `CanonicalMessage` не меняет wire/storage DTO.
 
@@ -1092,7 +1094,7 @@ invocation authority и проверяемого lifecycle — без второ
 
 ## Typed Hook Chain
 
-`hook/v7` имеет `composition=ordered_many`; host выбирает exact exports
+`hook/v8` имеет `composition=ordered_many`; host выбирает exact exports
 по `modules.hooks` в порядке config snapshot. Wire input содержит typed event,
 execution attribution и cwd; cancellation token остаётся host-only.
 Input также содержит обязательный nullable `conversation`: для
@@ -1117,7 +1119,7 @@ execution state в единственном shared mutable поле. Reload ме
 
 ### Completion Review И Workflow Continuation
 
-`hook/v7` включает `tool_arguments { args }` к before-tool и
+`hook/v8` включает `tool_arguments { args }` к before-tool и
 `continue_turn { reason }` к `before_stop`. Tool identity неизменна, изменённые
 args валидируются после каждого export до policy/approval; journal хранит
 исходный Requested и effective call в успешном trace/approval/resolution.

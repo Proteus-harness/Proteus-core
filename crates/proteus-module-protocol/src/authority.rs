@@ -19,9 +19,10 @@ use proteus_contracts::contracts::{
 
 const NO_HOST_METHODS: &[&str] = &[];
 const NO_PROTOCOL_FEATURES: &[&str] = &[];
-const OPERATION_HOST_METHODS: &[&str] = &[
+const HOOK_HOST_METHODS: &[&str] = &[
     OPERATION_HOST_COMPLETE_MODEL_METHOD,
     OPERATION_HOST_EXECUTE_TOOL_METHOD,
+    proteus_contracts::contracts::HOOK_HOST_ESTIMATE_MODEL_INPUT_METHOD,
 ];
 const POLICY_METHODS: &[&str] = &[
     PROCESS_POLICY_EVALUATE_METHOD,
@@ -97,8 +98,13 @@ pub const PROCESS_CONTRACT_AUTHORITIES: &[ProcessContractAuthority] = &[
             PROCESS_MODEL_CATALOG_METHOD,
             PROCESS_MODEL_QUOTA_METHOD,
             PROCESS_MODEL_STREAM_METHOD,
+            proteus_contracts::contracts::PROCESS_MODEL_ESTIMATE_METHOD,
         ],
         module_method_features: &[
+            (
+                proteus_contracts::contracts::PROCESS_MODEL_ESTIMATE_METHOD,
+                proteus_contracts::contracts::MODEL_INPUT_ESTIMATE_FEATURE,
+            ),
             (
                 PROCESS_MODEL_CATALOG_METHOD,
                 proteus_contracts::contracts::MODEL_CATALOG_FEATURE,
@@ -112,6 +118,7 @@ pub const PROCESS_CONTRACT_AUTHORITIES: &[ProcessContractAuthority] = &[
         host_features: &[
             proteus_contracts::contracts::MODEL_CATALOG_FEATURE,
             proteus_contracts::contracts::MODEL_QUOTA_FEATURE,
+            proteus_contracts::contracts::MODEL_INPUT_ESTIMATE_FEATURE,
         ],
         required_features: NO_PROTOCOL_FEATURES,
     },
@@ -121,7 +128,7 @@ pub const PROCESS_CONTRACT_AUTHORITIES: &[ProcessContractAuthority] = &[
         composition: ProcessModuleComposition::OrderedMany,
         module_methods: &[PROCESS_HOOK_INVOKE_METHOD],
         module_method_features: &[],
-        host_methods: OPERATION_HOST_METHODS,
+        host_methods: HOOK_HOST_METHODS,
         host_features: NO_PROTOCOL_FEATURES,
         required_features: NO_PROTOCOL_FEATURES,
     },
@@ -273,9 +280,29 @@ mod tests {
         let authority = process_contract_authority("hook", PROCESS_HOOK_CONTRACT_VERSION).unwrap();
         assert_eq!(authority.composition, ProcessModuleComposition::OrderedMany);
         assert_eq!(authority.module_methods, [PROCESS_HOOK_INVOKE_METHOD]);
-        assert_eq!(authority.host_methods, OPERATION_HOST_METHODS);
+        assert_eq!(authority.host_methods, HOOK_HOST_METHODS);
         assert!(authority.host_features.is_empty());
         assert!(process_contract_authority("hook", "v5").is_none());
+    }
+
+    #[test]
+    fn local_input_estimation_is_optional_for_models_and_hook_only_for_callbacks() {
+        let method = proteus_contracts::contracts::HOOK_HOST_ESTIMATE_MODEL_INPUT_METHOD;
+        for authority in PROCESS_CONTRACT_AUTHORITIES {
+            assert_eq!(
+                authority.allows_host_method(method),
+                authority.slot == "hook"
+            );
+        }
+        let model = current_process_contract_authority("model").unwrap();
+        assert_eq!(
+            model.feature_for_module_method(
+                proteus_contracts::contracts::PROCESS_MODEL_ESTIMATE_METHOD
+            ),
+            Some(proteus_contracts::contracts::MODEL_INPUT_ESTIMATE_FEATURE)
+        );
+        assert!(model.required_features.is_empty());
+        assert_eq!(model.contract_version, "v14");
     }
 
     #[test]
@@ -310,7 +337,7 @@ mod tests {
             ("context_provider", "v3", "v4"),
             ("model", "v13", "v14"),
             ("workflow", "v20", "v21"),
-            ("hook", "v6", "v7"),
+            ("hook", "v7", "v8"),
             ("tool", "v6", "v7"),
             ("policy", "v1", "v2"),
         ] {

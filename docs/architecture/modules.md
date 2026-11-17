@@ -68,7 +68,7 @@ Wire shape и правила validation — в
 
 | Слот | Правило выбора | Где выбирается | Процессный контракт | Примеры имён |
 |---|---|---|---|---|
-| `hook` | `ordered_many` | `modules.hooks` (явный порядок) | да, `hook/v7` | `hook.instructions`, `hook.output_budget`, `codex_compact`, `tool_selection.dynamic` |
+| `hook` | `ordered_many` | `modules.hooks` (явный порядок) | да, `hook/v8` | `hook.instructions`, `hook.output_budget`, `codex_compact`, `tool_selection.dynamic` |
 | `workflow` | `select_one` | `modules.workflow` | да | `coding.single_loop`, `coding.codex_loop`, `coding.plan_execute_review`, `coding.project_check` |
 | `context` | `select_one` | `modules.context` | да, `context/v3` | `simple`, `repo_aware`, `codex_context` |
 | `policy` | `select_one` | `modules.policy` | да | `allow_all`, `ask_write`, `codex_policy`, `opencode_policy` |
@@ -209,7 +209,7 @@ Core запускает модуль и отправляет ему первое
 
 ### Hooks
 
-`hook/v7` — typed contributions на host-owned точках `turn_started`,
+`hook/v8` — typed contributions на host-owned точках `turn_started`,
 `before_tool_selection`, `before_context`, `before_model`, `before_tool`,
 `after_tool`, `before_stop`, `turn_settled`. `modules.hooks` задаёт порядок;
 пустой список отключает contributions. Actionable phases получают общие
@@ -241,7 +241,7 @@ UI-событие публикуется после принятия. Ошибк
 Внешний [`hook-process`](../../examples/modules/hook-process/README.md)
 предоставляет JS/TS SDK и явные обёртки для переноса отдельных Pi/OpenCode
 handlers и PreToolUse/Stop commands Codex/Claude. Он экспортирует обычный
-`hook/v7` с тем же contract и общими model/tool callbacks. Upstream lifecycle
+`hook/v8` с тем же contract и общими model/tool callbacks. Upstream lifecycle
 или неподдержанные actions не эмулируются; различия описаны рядом с примерами.
 
 DCP отложен в
@@ -524,7 +524,8 @@ composition. Discovery и загрузка навыка принадлежат i
 
 ### Model
 
-`model.catalog.v1` и `model.quota.v1` согласуются per-export через handshake;
+`model.catalog.v1`, `model.quota.v1` и `model.input_estimate.v1` согласуются
+per-export через handshake;
 без подтверждения Core не вызывает optional метод. Feature не расширяет
 callback authority. Живой `catalog` возвращает provider-neutral список моделей и допустимых effort
 для каждой модели. Отсутствие discovery (`null`) отличается от пустого каталога

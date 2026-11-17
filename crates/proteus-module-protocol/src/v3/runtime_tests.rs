@@ -448,7 +448,11 @@ fn optional_admission_uses_current_generation_and_exact_export_not_a_previous_ma
 
     // Mirrors a stale successful feature probe followed by lazy restart. G2
     // acknowledges no optional method for this export, but its sibling does.
-    for method in [PROCESS_MODEL_QUOTA_METHOD, PROCESS_MODEL_CATALOG_METHOD] {
+    for method in [
+        PROCESS_MODEL_QUOTA_METHOD,
+        PROCESS_MODEL_CATALOG_METHOD,
+        proteus_contracts::contracts::PROCESS_MODEL_ESTIMATE_METHOD,
+    ] {
         let next_id = state.next_host_sequence;
         let (request, ack, terminal) = feature_request(&state, 0, method, None);
         state.accept_start(request);

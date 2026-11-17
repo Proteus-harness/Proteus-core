@@ -31,6 +31,26 @@ impl AsyncHostRequestDispatcher for OperationHost {
                         &method,
                     )
                 }
+                crate::contracts::HOOK_HOST_ESTIMATE_MODEL_INPUT_METHOD => {
+                    let input: crate::contracts::ModelInputEstimateRequest =
+                        decode(request.params, &method)?;
+                    input
+                        .validate()
+                        .map_err(|error| ProcessModuleRpcError::new(-32602, error))?;
+                    let result = match host {
+                        Self::Hook(host) => host.estimate_model_input(input).await,
+                        Self::Tool(_) => {
+                            return Err(ProcessModuleRpcError::new(
+                                -32601,
+                                "input estimation is hook-only",
+                            ));
+                        }
+                    };
+                    encode(
+                        result.map_err(|error| callback_error(&method, &error))?,
+                        &method,
+                    )
+                }
                 OPERATION_HOST_EXECUTE_TOOL_METHOD => {
                     let input: OperationExecuteToolRequest = decode(request.params, &method)?;
                     let result = match host {

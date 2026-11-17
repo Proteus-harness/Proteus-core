@@ -530,3 +530,49 @@ async fn recorded_nested_auxiliary_and_tool_hooks_are_injected_without_calls() {
     assert_eq!(summary.tool_calls, 1);
     assert!(summary.issues.is_empty(), "{:?}", summary.issues);
 }
+
+#[test]
+fn replay_rebinds_retained_opaque_estimate_ids_with_the_hook_proposal() {
+    use crate::{
+        contracts::{ContextPreparationInput, ContextPreparationOutput},
+        model_standard::{
+            CanonicalMessage, ContentPart, MessageRole, ModelInputEstimate, ModelPartTokenEstimate,
+        },
+    };
+    let old = CanonicalMessage::new(
+        MessageRole::Assistant,
+        vec![ContentPart::Opaque {
+            format: "fixture/checkpoint".into(),
+            data: serde_json::json!({"id":"provider-owned"}),
+        }],
+    );
+    let actual = CanonicalMessage::new(MessageRole::Assistant, vec![old.parts[0].payload.clone()]);
+    let event = |message: CanonicalMessage| HookEvent::BeforeContext {
+        input: ContextPreparationInput::new(vec![message.clone()], None),
+        output: ContextPreparationOutput::unchanged(vec![message]),
+        target: None,
+        model_capabilities: None,
+    };
+    let expected = event(old.clone());
+    let current = event(actual.clone());
+    let mut output = ContextPreparationOutput::unchanged(vec![old.clone()]);
+    ModelInputEstimate {
+        parts: vec![ModelPartTokenEstimate {
+            part_id: old.parts[0].part_id,
+            tokens: 13,
+        }],
+    }
+    .write_metadata(&mut output.metadata);
+    let mut response = HookResponse::ContextPreparation { output };
+    rewrite_preparation_identities(&mut response, &expected, &current).unwrap();
+    let HookResponse::ContextPreparation { output } = response else {
+        panic!()
+    };
+    assert_eq!(
+        ModelInputEstimate::from_metadata(&output.metadata)
+            .unwrap()
+            .tokens_for(&actual.parts[0]),
+        Some(13)
+    );
+    assert_eq!(output.messages[0], actual);
+}

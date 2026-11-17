@@ -228,7 +228,7 @@ error, pending и cold read после interruption. Process wire/authority не
 | Reference exports, descriptors, tools и callbacks | [`proteus-reference-module --test conformance`](https://github.com/Proteus-harness/Proteus-modules/blob/main/components/process-module/tests/conformance.rs) |
 | Ordered hooks, actual effect и следующий живой turn после interruption, replay Success/Error | [`proteus-core --test hook_runtime`](../../crates/proteus-core/tests/hook_runtime.rs) |
 | JS/TS hook SDK, перенос handlers, multiplexing и targeted cancel | `node --test examples/modules/hook-process/tests/*.test.mjs`; настоящие slot/journal/replay — `hook_runtime::js_ports` и `hook_runtime::review` |
-| Model process, catalog/quota и cancellation | `proteus-core --test model_process`, `proteus-reference-module --test model_exports` |
+| Model process, catalog/quota/local input estimates и cancellation | `proteus-core --test model_process`, `proteus-reference-module --test model_exports` |
 | Skills/MCP/Agent Plugins management и автоподхват профиля | `proteus-core --lib app_server::http::tests::addons`, `app_server::profile_watch`, `core::agent_plugins`; загрузка и фильтрация — `skill-pack` |
 | Execution attribution и операции без chat identity | `proteus-core --test execution_boundary`, `core::runtime::tests::execution`, `core::bound_model`, `core::bound_tools` |
 | Один process с callback-связанными exports и journal/replay | `proteus-reference-module --test topology_journal` |
@@ -444,7 +444,7 @@ Workflow replay сверяет полный selection input и outcome, вклю
 без следующего model request и schemas скрытых tools. Standalone selection
 проверяет отсутствие модели/conversation и общий policy/cancellation path.
 
-Для `hook/v7` проверяются strict DTO/response validation, одинаковая authority
+Для `hook/v8` проверяются strict DTO/response validation, одинаковая authority
 с общими model/tool callbacks по actionable phase, config order и отсутствие duplicate/unknown selection.
 Boundary chain покрывает A→B/B→A, pre-effect failure, actual tool outcome
 при post-effect failure, targeted cancellation и component restart. Config

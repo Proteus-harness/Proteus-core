@@ -27,6 +27,22 @@ impl Model for Provider {
     fn capabilities(&self, _: &ModelRef) -> Result<ModelCapabilities> {
         Ok(ModelCapabilities::empty().with_compaction(true))
     }
+    async fn estimate_input(
+        &self,
+        request: crate::contracts::ModelInputEstimateRequest,
+    ) -> Result<Option<crate::contracts::ModelInputEstimate>> {
+        assert_eq!(request.model, ModelRef::new("fixture", "native"));
+        assert!(matches!(
+            crate::core::model_call_scope::current_operation_owner(),
+            OperationOwner::Hook { .. }
+        ));
+        Ok(Some(crate::contracts::ModelInputEstimate {
+            parts: vec![crate::contracts::ModelPartTokenEstimate {
+                part_id: request.parts[0].part_id,
+                tokens: 13,
+            }],
+        }))
+    }
     async fn stream(&self, request: CanonicalModelRequest) -> Result<ModelEventStream> {
         let operation = request.operation;
         self.0.lock().unwrap().push(request);
@@ -62,6 +78,22 @@ impl HookHandler for NestedPreparation {
         {
             assert!(model_capabilities.unwrap().supports_compaction);
             let template = input.request.unwrap();
+            let parts = CanonicalMessage::new(
+                MessageRole::Assistant,
+                vec![ContentPart::Opaque {
+                    format: "fixture/checkpoint".into(),
+                    data: serde_json::json!({"encrypted":"unchanged"}),
+                }],
+            )
+            .parts;
+            let estimate = host
+                .estimate_model_input(crate::contracts::ModelInputEstimateRequest {
+                    model: template.model.clone(),
+                    parts,
+                })
+                .await?
+                .unwrap();
+            assert_eq!(estimate.parts[0].tokens, 13);
             for operation in [ModelOperation::Compact, ModelOperation::Complete] {
                 host.complete_model(template.clone().with_operation(operation))
                     .await?;

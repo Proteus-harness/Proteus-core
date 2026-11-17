@@ -179,6 +179,21 @@ impl ContextBuilderModuleHost for ContextHostBridge {
 pub struct HookHostBridge(pub HostBridge);
 
 impl HookModuleHost for HookHostBridge {
+    fn estimate_model_input_json(
+        &self,
+        request_json: String,
+    ) -> Result<String, ProcessModuleError> {
+        let request = parse_value(request_json).map_err(ProcessModuleError::new)?;
+        let value = self
+            .0
+            .call(
+                proteus_contracts::contracts::HOOK_HOST_ESTIMATE_MODEL_INPUT_METHOD,
+                request,
+            )
+            .map_err(model_callback_error)?;
+        serde_json::to_string(&value).map_err(|error| ProcessModuleError::new(error.to_string()))
+    }
+
     fn execute_tool_json(&self, call_json: String) -> Result<String, ProcessModuleError> {
         model_aware_call(
             &self.0,
