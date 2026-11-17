@@ -1497,6 +1497,7 @@ dependencies = [
  "futures-core",
  "futures-util",
  "jsonschema",
+ "ring",
  "rustix",
  "serde",
  "serde_json",
@@ -1559,6 +1560,7 @@ dependencies = [
  "anyhow",
  "proteus-contracts",
  "proteus-module-protocol",
+ "proteus-process-host",
  "serde",
  "serde_json",
 ]

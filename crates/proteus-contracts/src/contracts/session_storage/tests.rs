@@ -300,3 +300,38 @@ fn record_page_byte_budget_is_bounded_without_rejecting_one_large_record() {
             .is_err()
     );
 }
+
+#[test]
+fn cache_write_receipt_binds_content_without_echoing_the_projection() {
+    let source = snapshot();
+    let value = serde_json::json!({"z":2,"a":[1,true]});
+    let etag = storage_value_etag(&value).unwrap();
+    assert_eq!(
+        etag,
+        "cab2365c93b4de12e8e2b0ec8b7a41a801a294b46c571adfdf87eed1d2342b2a"
+    );
+    let request = SessionStorageRequest::WriteCache {
+        session: source.session.clone(),
+        key: "header".into(),
+        source,
+        value,
+    };
+    request
+        .validate_response(&SessionStorageResponse::CacheWritten { etag: Some(etag) })
+        .unwrap();
+    request
+        .validate_response(&SessionStorageResponse::CacheWritten { etag: None })
+        .unwrap();
+    assert!(
+        request
+            .validate_response(&SessionStorageResponse::CacheWritten {
+                etag: Some("wrong-value".into())
+            })
+            .is_err()
+    );
+    assert!(
+        request
+            .validate_response(&SessionStorageResponse::Metadata { document: None })
+            .is_err()
+    );
+}

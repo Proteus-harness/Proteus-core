@@ -28,6 +28,8 @@ pub const SESSION_STORAGE_MAX_BLOB_BYTES: u64 = 64 * 1024 * 1024;
 #[cfg(test)]
 mod tests;
 mod validation;
+mod value_hash;
+pub use value_hash::storage_value_etag;
 
 /// The key is interpreted only by the selected storage implementation.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -52,6 +54,10 @@ pub struct StorageSessionDescriptor {
     pub workspace_path: PathBuf,
     /// Advisory location for display/export; it does not authorize direct reads.
     pub local_path: Option<PathBuf>,
+    /// Optional physical record locator for diagnostics/export. Clients still
+    /// read records through the selected storage service.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub record_location: Option<PathBuf>,
     pub created_at_ms: i64,
     pub updated_at_ms: i64,
 }
@@ -236,6 +242,9 @@ pub enum SessionStorageRequest {
     Resume {
         lease: StorageWriterLease,
     },
+    ReadExecutionState {
+        lease: StorageWriterLease,
+    },
     ReadCommittedTurn {
         lease: StorageWriterLease,
         thread_id: ThreadId,
@@ -257,7 +266,7 @@ pub enum SessionStorageRequest {
         source: Option<StorageSnapshot>,
     },
     /// Store only while the source is still current and the same session exists.
-    /// A stale/deleted source returns Metadata { document: None }.
+    /// A stale/deleted source returns CacheWritten { etag: None }.
     WriteCache {
         session: SessionLocator,
         key: String,
@@ -280,6 +289,11 @@ pub enum SessionStorageRequest {
     ReadBlob {
         session: SessionLocator,
         blob: StorageBlobRef,
+    },
+    ReadBlobByHash {
+        session: SessionLocator,
+        sha256: String,
+        max_bytes: u64,
     },
     Delete {
         lease: StorageWriterLease,
@@ -324,6 +338,10 @@ pub enum SessionStorageResponse {
     Resumed {
         state: StorageResumeState,
     },
+    ExecutionState {
+        revision: StorageRevision,
+        interrupted_turns: Vec<WorkflowHistoryInterruption>,
+    },
     CommittedTurn {
         state: StorageCommittedTurn,
     },
@@ -333,8 +351,13 @@ pub enum SessionStorageResponse {
     Metadata {
         document: Option<StorageMetadataDocument>,
     },
+    CacheWritten {
+        etag: Option<String>,
+    },
     Blob {
         blob: StorageBlobRef,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        local_path: Option<PathBuf>,
     },
     BlobData {
         blob: StorageBlobRef,

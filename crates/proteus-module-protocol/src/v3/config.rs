@@ -21,6 +21,7 @@ pub struct ComponentBrokerOptions {
     pub data_writer_capacity: usize,
     pub control_writer_capacity: usize,
     pub max_outbound_frame_bytes: usize,
+    pub max_inbound_frame_bytes: usize,
     pub data_writer_byte_capacity: usize,
     pub control_writer_byte_capacity: usize,
     pub root_command_capacity: usize,
@@ -47,6 +48,7 @@ impl Default for ComponentBrokerOptions {
             data_writer_capacity: DEFAULT_MAX_QUEUED_WRITES,
             control_writer_capacity: DEFAULT_MAX_QUEUED_CONTROL_WRITES,
             max_outbound_frame_bytes: DEFAULT_MAX_FRAME_BYTES,
+            max_inbound_frame_bytes: DEFAULT_MAX_FRAME_BYTES,
             data_writer_byte_capacity: DEFAULT_MAX_QUEUED_WRITE_BYTES,
             control_writer_byte_capacity: DEFAULT_MAX_QUEUED_CONTROL_WRITE_BYTES,
             root_command_capacity: 64,
@@ -81,6 +83,7 @@ impl ComponentBrokerOptions {
             ("data_writer_capacity", self.data_writer_capacity),
             ("control_writer_capacity", self.control_writer_capacity),
             ("max_outbound_frame_bytes", self.max_outbound_frame_bytes),
+            ("max_inbound_frame_bytes", self.max_inbound_frame_bytes),
             ("data_writer_byte_capacity", self.data_writer_byte_capacity),
             (
                 "control_writer_byte_capacity",

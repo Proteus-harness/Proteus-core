@@ -90,6 +90,16 @@ impl ProcessContractAuthority {
 /// conformance evidence.
 pub const PROCESS_CONTRACT_AUTHORITIES: &[ProcessContractAuthority] = &[
     ProcessContractAuthority {
+        slot: "session_storage",
+        contract_version: proteus_contracts::contracts::PROCESS_SESSION_STORAGE_CONTRACT_VERSION,
+        composition: ProcessModuleComposition::SelectOne,
+        module_methods: &[proteus_contracts::contracts::PROCESS_SESSION_STORAGE_EXECUTE_METHOD],
+        module_method_features: &[],
+        host_methods: NO_HOST_METHODS,
+        host_features: NO_PROTOCOL_FEATURES,
+        required_features: NO_PROTOCOL_FEATURES,
+    },
+    ProcessContractAuthority {
         slot: "model",
         contract_version: PROCESS_MODEL_CONTRACT_VERSION,
         composition: ProcessModuleComposition::SelectOne,
@@ -253,6 +263,25 @@ mod tests {
                 authority.slot,
                 authority.contract_version
             );
+        }
+    }
+
+    #[test]
+    fn session_storage_is_selected_and_cannot_call_execution_services() {
+        let authority = current_process_contract_authority("session_storage").unwrap();
+        assert_eq!(authority.contract_version, "v1");
+        assert_eq!(authority.composition, ProcessModuleComposition::SelectOne);
+        assert_eq!(authority.module_methods, ["execute"]);
+        assert!(authority.host_methods.is_empty());
+        assert!(authority.host_features.is_empty());
+        assert!(authority.required_features.is_empty());
+        for method in [
+            OPERATION_HOST_COMPLETE_MODEL_METHOD,
+            OPERATION_HOST_EXECUTE_TOOL_METHOD,
+            TOOL_HOST_READ_CONVERSATION_METHOD,
+            WORKFLOW_HOST_EMIT_EVENT_METHOD,
+        ] {
+            assert!(!authority.allows_host_method(method));
         }
     }
 

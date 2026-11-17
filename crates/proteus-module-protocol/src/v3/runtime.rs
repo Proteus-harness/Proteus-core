@@ -165,7 +165,7 @@ impl LoopState {
         }
         let mut transport = match ProcessTransport::spawn_with_wake(
             &self.spec,
-            NewlineJsonFraming::default(),
+            NewlineJsonFraming::new(self.options.max_inbound_frame_bytes),
             self.options.transport_limits(),
             self.wake.clone(),
         ) {

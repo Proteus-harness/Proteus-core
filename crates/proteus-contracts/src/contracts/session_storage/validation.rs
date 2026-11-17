@@ -55,6 +55,18 @@ pub(super) fn validate_additional_request(request: &SessionStorageRequest) -> Re
             );
             serde_json::to_writer(ByteCounter::new(SESSION_STORAGE_MAX_CACHE_BYTES), value)?;
         }
+        SessionStorageRequest::ReadBlobByHash {
+            sha256, max_bytes, ..
+        } => {
+            ensure!(
+                *max_bytes <= SESSION_STORAGE_MAX_BLOB_BYTES,
+                "storage blob read budget is too large"
+            );
+            ensure!(
+                sha256.len() == 64 && sha256.bytes().all(|byte| byte.is_ascii_hexdigit()),
+                "invalid storage blob digest"
+            );
+        }
         _ => {}
     }
     Ok(())
@@ -255,6 +267,7 @@ impl SessionStorageRequest {
                 );
             }
             (Self::ReadCommittedTurn { .. }, SessionStorageResponse::CommittedTurn { .. }) => {}
+            (Self::ReadExecutionState { .. }, SessionStorageResponse::ExecutionState { .. }) => {}
             (
                 Self::ReadModelContextBeforeTurn { .. },
                 SessionStorageResponse::ModelContext { .. },
@@ -281,17 +294,8 @@ impl SessionStorageRequest {
                     );
                 }
             }
-            (
-                Self::ReadCache { .. } | Self::WriteCache { .. },
-                SessionStorageResponse::Metadata { document },
-            ) => {
+            (Self::ReadCache { .. }, SessionStorageResponse::Metadata { document }) => {
                 if let Some(document) = document {
-                    if let Self::WriteCache { value, .. } = self {
-                        ensure!(
-                            document.value == *value,
-                            "storage cache ACK changed the stored projection"
-                        );
-                    }
                     ensure!(!document.etag.is_empty(), "storage cache has no revision");
                     serde_json::to_writer(
                         ByteCounter::new(SESSION_STORAGE_MAX_CACHE_BYTES),
@@ -299,8 +303,31 @@ impl SessionStorageRequest {
                     )?;
                 }
             }
-            (Self::PutBlob { expected, .. }, SessionStorageResponse::Blob { blob }) => {
+            (Self::WriteCache { value, .. }, SessionStorageResponse::CacheWritten { etag }) => {
+                if let Some(etag) = etag {
+                    ensure!(
+                        *etag == storage_value_etag(value)?,
+                        "storage cache ACK differs from the requested projection"
+                    );
+                }
+            }
+            (Self::PutBlob { expected, .. }, SessionStorageResponse::Blob { blob, .. }) => {
                 ensure!(blob == expected, "storage returned another blob")
+            }
+            (
+                Self::ReadBlobByHash {
+                    sha256, max_bytes, ..
+                },
+                SessionStorageResponse::BlobData { blob, data_base64 },
+            ) => {
+                ensure!(
+                    blob.sha256 == *sha256 && blob.bytes <= *max_bytes,
+                    "storage blob escaped its requested digest or byte budget"
+                );
+                ensure!(
+                    data_base64.len() as u64 <= max_bytes.div_ceil(3) * 4,
+                    "storage blob encoding escaped its byte budget"
+                );
             }
             (
                 Self::ReadBlob { blob: expected, .. },

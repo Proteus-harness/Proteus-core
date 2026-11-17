@@ -869,6 +869,7 @@ timeout_ms = 60000
 | `env_allowlist` | parent env names, разрешённые child process |
 | `env` | scoped literal env; перекрывает allowlist |
 | `handshake_timeout_ms` | единый initialize timeout: подготовка, запись и ответ |
+| `transport.max_frame_bytes` | максимальный размер кадра только этого component; по умолчанию 8 MiB, допустимо 1–128 MiB |
 | `description` | fallback observability text для exports |
 | `exports.<slot>.<module_id>` | непустая exact export map, обязательно |
 | `sandbox` | strict launch policy; без поля используется `mode = "trusted"` |
@@ -884,6 +885,29 @@ Environment процесса очищается. Process host сохраняет
 затем применяет allowlist и literal env. Один component запускается один раз
 на canonical workspace; все его exports делят child lifecycle и restart.
 Launch config не принимает вложенный module `config`.
+
+Для component, которому нужны большие записи, бюджет задаётся явно:
+
+```toml
+[components.session-storage.transport]
+max_frame_bytes = 134217728
+```
+
+Настройка действует на весь process component, включая все его exports.
+Остальные components сохраняют предел 8 MiB. Host согласованно меняет входной
+и выходной размер кадра; конечные совокупные бюджеты receive и очереди data
+увеличиваются до `max(обычный бюджет, 2 × max_frame_bytes)`. Это пределы,
+а не заранее выделенная память. Отдельные бюджеты control и notifications
+сохраняются. Размер кадра входит в identity запуска; иконка по-прежнему не
+меняет эту identity.
+
+До `initialize` host передаёт согласованный предел в служебной переменной
+`PROTEUS_MODULE_MAX_FRAME_BYTES`. Её нельзя задавать через `components.*.env`:
+источник настройки — `transport.max_frame_bytes`. Rust SDK читает её в `run`,
+ограничивает чтение stdin и проверяет размер ответа до записи stdout. При
+встраивании SDK `serve` использует обычный предел; `serve_with_transport`
+принимает явный бюджет. Worker на другом SDK/языке должен самостоятельно
+применять переданный предел; настройка host не увеличивает его внутренний лимит.
 
 Module-owned config:
 

@@ -8,7 +8,10 @@ use std::{
 use anyhow::{Context, Result, bail};
 use proteus_module_protocol::{
     ProcessComponentBinding, ProcessExportBinding,
-    v3::{ComponentBroker, ComponentBrokerOptions},
+    v3::{
+        COMPONENT_MAX_FRAME_BYTES_ENV, ComponentBroker, ComponentBrokerOptions,
+        ComponentTransportConfig,
+    },
 };
 use proteus_process_host::ProcessSpec;
 use serde::{Deserialize, Serialize};
@@ -40,6 +43,8 @@ pub struct ProcessComponentConfig {
     sandbox: ProcessSandboxConfig,
     #[serde(default)]
     handshake_timeout_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    transport: Option<ComponentTransportConfig>,
     #[serde(default)]
     description: Option<String>,
     /// Opaque presentation reference; this process host never opens or fetches it.
@@ -68,6 +73,7 @@ impl ProcessExportLaunchConfig {
 
 impl ProcessComponentConfig {
     pub fn process_spec(&self, workspace: &Path) -> Result<ProcessSpec> {
+        self.validate_transport("component.transport")?;
         let workspace = std::fs::canonicalize(workspace).with_context(|| {
             format!(
                 "failed to resolve component workspace {}",
@@ -78,6 +84,13 @@ impl ProcessComponentConfig {
             .args(self.args.clone())
             .env_allowlist(self.env_allowlist.clone())
             .envs(self.env.clone())
+            .env(
+                COMPONENT_MAX_FRAME_BYTES_ENV,
+                self.transport
+                    .unwrap_or_default()
+                    .max_frame_bytes
+                    .to_string(),
+            )
             .cwd(resolve_process_cwd(self.cwd.as_deref(), &workspace)?);
         self.validate_sandbox("component.sandbox")?;
         if let Some(sandbox) = resolve_sandbox(&self.sandbox, &workspace)? {
@@ -121,6 +134,8 @@ impl ProcessComponentConfig {
             #[serde(skip_serializing_if = "Option::is_none")]
             sandbox: Option<&'a ProcessSandboxConfig>,
             handshake_timeout_ms: &'a Option<u64>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            transport: &'a Option<ComponentTransportConfig>,
             description: &'a Option<String>,
             exports: &'a BTreeMap<String, BTreeMap<String, ProcessExportLaunchConfig>>,
         }
@@ -132,6 +147,7 @@ impl ProcessComponentConfig {
             env: &self.env,
             sandbox: (!self.sandbox.is_trusted()).then_some(&self.sandbox),
             handshake_timeout_ms: &self.handshake_timeout_ms,
+            transport: &self.transport,
             description: &self.description,
             exports: &self.exports,
         }
@@ -175,6 +191,19 @@ impl ProcessComponentConfig {
             }
         }
         self.validate_sandbox(&format!("{path}.sandbox"))?;
+        self.validate_transport(&format!("{path}.transport"))?;
+        Ok(())
+    }
+
+    fn validate_transport(&self, path: &str) -> Result<()> {
+        if self.env.contains_key(COMPONENT_MAX_FRAME_BYTES_ENV) {
+            bail!(
+                "{path}: {COMPONENT_MAX_FRAME_BYTES_ENV} is host-owned; configure transport.max_frame_bytes instead"
+            );
+        }
+        if let Some(transport) = self.transport {
+            transport.validate().with_context(|| path.to_owned())?;
+        }
         Ok(())
     }
 
@@ -282,10 +311,13 @@ impl ProcessComponentLauncher {
         let broker = Arc::new(ComponentBroker::connect(
             self.config.process_spec(&workspace)?,
             self.binding.clone(),
-            ComponentBrokerOptions {
-                handshake_timeout: self.config.handshake_timeout(),
-                ..ComponentBrokerOptions::default()
-            },
+            self.config
+                .transport
+                .unwrap_or_default()
+                .apply(ComponentBrokerOptions {
+                    handshake_timeout: self.config.handshake_timeout(),
+                    ..ComponentBrokerOptions::default()
+                })?,
         )?);
         brokers.insert(workspace, Arc::clone(&broker));
         Ok(broker)
@@ -428,5 +460,48 @@ mod tests {
         .expect("shape");
         zero.validate_for("fixture", "components.fixture")
             .expect_err("zero export timeout must fail");
+    }
+
+    #[test]
+    fn component_transport_budget_is_explicit_host_owned_and_execution_identity() {
+        let source = serde_json::json!({"command":"worker", "exports":{"model":{"fixture":{}}}});
+        let ordinary: ProcessComponentConfig = serde_json::from_value(source.clone()).unwrap();
+        let mut raised = source.clone();
+        raised["transport"] = serde_json::json!({"max_frame_bytes":134217728});
+        let raised: ProcessComponentConfig = serde_json::from_value(raised).unwrap();
+        raised
+            .validate_for("fixture", "components.fixture")
+            .unwrap();
+        let workspace = std::env::current_dir().unwrap();
+        assert_eq!(
+            ordinary.process_spec(&workspace).unwrap().env[COMPONENT_MAX_FRAME_BYTES_ENV],
+            "8388608"
+        );
+        assert_eq!(
+            raised.process_spec(&workspace).unwrap().env[COMPONENT_MAX_FRAME_BYTES_ENV],
+            "134217728"
+        );
+        assert_ne!(
+            serde_json::to_value(ordinary.execution_identity()).unwrap(),
+            serde_json::to_value(raised.execution_identity()).unwrap()
+        );
+        for value in [0, 134217729] {
+            let mut invalid = source.clone();
+            invalid["transport"] = serde_json::json!({"max_frame_bytes":value});
+            let invalid: ProcessComponentConfig = serde_json::from_value(invalid).unwrap();
+            assert!(
+                invalid
+                    .validate_for("fixture", "components.fixture")
+                    .is_err()
+            );
+        }
+        let mut conflict = source;
+        conflict["env"] = serde_json::json!({"PROTEUS_MODULE_MAX_FRAME_BYTES":"134217728"});
+        let conflict: ProcessComponentConfig = serde_json::from_value(conflict).unwrap();
+        assert!(
+            conflict
+                .validate_for("fixture", "components.fixture")
+                .is_err()
+        );
     }
 }
