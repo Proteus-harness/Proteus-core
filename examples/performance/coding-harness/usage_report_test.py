@@ -2,6 +2,8 @@
 import json
 from pathlib import Path
 import tempfile
+import shutil
+from unittest.mock import patch
 import unittest
 
 import long_report
@@ -128,6 +130,143 @@ class UsageReportChecks(unittest.TestCase):
                  'provider_usage': {'input_tokens': 12}})
             self.assertTrue(canonical['usage_complete'])
             self.assertEqual(canonical['tokens']['input_tokens'], 12)
+
+    def test_short_identity_uses_actual_configuration_not_directory_alias(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            first, result = self.trial(root, 'case', tokens={'input_tokens': 10})
+            alias = root/'alias_case_1_pi'
+            shutil.copytree(first, alias)
+            with self.assertRaisesRegex(ValueError, 'duplicate run'):
+                report.read_rows([root], [])
+            numeric_alias = root/'fixture_case_01_pi'
+            alias.rename(numeric_alias)
+            with self.assertRaisesRegex(ValueError, 'duplicate run'):
+                report.read_rows([root], [])
+            numeric_alias.rename(alias)
+            result['reasoning'] = 'low'
+            (alias/'result.json').write_text(json.dumps(result))
+            self.assertEqual(len(report.summarize(report.read_rows([root], []))), 2)
+            result['reasoning'] = 'high'
+            result['model'] = 'other-real-model'
+            (alias/'result.json').write_text(json.dumps(result))
+            self.assertEqual(len(report.summarize(report.read_rows([root], []))), 2)
+
+    def test_repeat_only_short_summary_has_unknown_primary_median(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.trial(root, 'case', 2, tokens={'input_tokens': 10})
+            summary = report.summarize(report.read_rows([root], []))[0]
+            self.assertEqual(summary['primary_attempts'], 0)
+            self.assertEqual(summary['repeat_attempts'], 1)
+            self.assertIsNone(summary['median_wall_seconds'])
+            self.assertIsNone(summary['input'])
+
+    def test_long_plan_rejects_duplicates_before_reading(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for cases, arms, repeats in [(['x', 'x'], ['pi'], []),
+                                          (['x'], ['pi', 'pi'], []),
+                                          (['x'], ['pi'], ['x', 'x'])]:
+                with self.subTest(cases=cases, arms=arms, repeats=repeats), \
+                     patch.object(long_report, 'read_trial', side_effect=AssertionError('must not read')):
+                    with self.assertRaisesRegex(ValueError, 'duplicate'):
+                        long_report.build(root, [], cases, arms, root/'absent', repeats)
+
+    def test_long_selected_axes_and_fixed_study_configuration(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path, result = self.trial(root, 'custom', tokens={'input_tokens': 10})
+            selected = root/'flash_custom_1_pi'
+            path.rename(selected)
+            result['model'] = 'opencode-go/deepseek-v4.1-flash'
+            (selected/'result.json').write_text(json.dumps(result))
+            with patch.object(long_report, 'DATA', root/'empty-history'):
+                document = long_report.build(root, [], ['custom'], ['pi'], root/'absent', [])
+                self.assertTrue(document['complete'])
+                self.assertEqual(document['cases'], ['custom'])
+                self.assertEqual(document['arms'], ['pi'])
+                output = root/'report.md'
+                long_report.write_markdown(document, output)
+                self.assertIn('| Задача | Pi |', output.read_text())
+                self.assertIn('| custom | PASS', output.read_text())
+                self.assertNotIn('| db-wal-recovery |', output.read_text())
+                shutil.copytree(selected, root/'flash_custom_2_pi')
+                repeated = long_report.build(root, [], ['custom'], ['pi'], root/'absent', ['custom'])
+                long_report.write_markdown(repeated, output)
+                self.assertIn('| Задача | Агент | Полный PASS сначала / повтор |', output.read_text())
+                self.assertIn('| custom | pi | True / True |', output.read_text())
+                self.assertNotIn('повтор go-review', output.read_text())
+                for field, value in [('model', 'wrong-model'), ('reasoning', 'low')]:
+                    changed = {**result, field: value}
+                    (selected/'result.json').write_text(json.dumps(changed))
+                    with self.assertRaisesRegex(ValueError, 'model or effort'):
+                        long_report.build(root, [], ['custom'], ['pi'], root/'absent', [])
+                (selected/'result.json').unlink()
+                pending = long_report.build(root, [], ['custom'], ['pi'], root/'absent', [])
+                self.assertFalse(pending['complete'])
+
+    def test_long_diagnostics_share_study_but_historical_baseline_is_separate(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            runs = root/'runs'
+            runs.mkdir()
+            path, result = self.trial(runs, 'custom', tokens={'input_tokens': 10})
+            result['model'] = 'opencode-go/deepseek-v4.1-flash'
+            (path/'result.json').write_text(json.dumps(result))
+            path.rename(runs/'flash_custom_1_pi')
+            baseline = root/'baseline.json'
+            baseline.write_text(json.dumps({'rows': [{'attempt': 1, 'arm': 'pi',
+                'model': 'historical-other-model', 'effort': 'low'}]}))
+            for kind in ('cap', 'retry'):
+                folder = root/kind
+                folder.mkdir()
+                trial = folder/'flash_custom_1_pi'
+                shutil.copytree(runs/'flash_custom_1_pi', trial)
+                if kind == 'retry':
+                    (folder/'selection.json').write_text(json.dumps({'rows': [['flash', 'custom', 1, 'pi']]}))
+                options = {'control_root' if kind == 'cap' else 'retry_root': folder}
+                with patch.object(long_report, 'DATA', root/'empty-history'):
+                    accepted = long_report.build(runs, [], ['custom'], ['pi'], baseline, [], **options)
+                    self.assertTrue(accepted['complete'])
+                    if kind == 'retry':
+                        output = root/'retry.md'
+                        long_report.write_markdown(accepted, output)
+                        self.assertIn('Число выбранных клеток для свежего повтора: 1.', output.read_text())
+                        self.assertNotIn('заранее выбранных пяти клеток', output.read_text())
+                    for field, value in [('model', 'other'), ('reasoning', 'low')]:
+                        (trial/'result.json').write_text(json.dumps({**result, field: value}))
+                        with self.assertRaisesRegex(ValueError, 'model or effort'):
+                            long_report.build(runs, [], ['custom'], ['pi'], baseline, [], **options)
+
+    def test_long_diagnostic_identity_is_unique_within_each_cohort(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            runs = root/'runs'
+            runs.mkdir()
+            path, result = self.trial(runs, 'custom', tokens={'input_tokens': 10})
+            result['model'] = 'opencode-go/deepseek-v4.1-flash'
+            (path/'result.json').write_text(json.dumps(result))
+            path.rename(runs/'flash_custom_1_pi')
+            cap, retry = root/'cap', root/'retry'
+            cap.mkdir()
+            retry.mkdir()
+            for folder in (cap, retry):
+                shutil.copytree(runs/'flash_custom_1_pi', folder/'flash_custom_1_pi')
+            selection = retry/'selection.json'
+            selected = [['flash', 'custom', 1, 'pi']]
+            selection.write_text(json.dumps({'rows': selected}))
+            with patch.object(long_report, 'DATA', root/'empty-history'):
+                def build():
+                    return long_report.build(runs, [], ['custom'], ['pi'], root/'absent', [], cap, retry)
+                self.assertTrue(build()['complete'])  # Same identity across cohorts is intentional.
+                selection.write_text(json.dumps({'rows': selected * 2}))
+                with self.assertRaisesRegex(ValueError, 'duplicate trial in retry cohort'):
+                    build()
+                selection.write_text(json.dumps({'rows': selected}))
+                shutil.copytree(cap/'flash_custom_1_pi', cap/'flash_custom_01_pi')
+                with self.assertRaisesRegex(ValueError, 'duplicate trial in cap cohort'):
+                    build()
 
     def test_pair_identity_guard_still_rejects_different_inputs(self):
         with tempfile.TemporaryDirectory() as directory:

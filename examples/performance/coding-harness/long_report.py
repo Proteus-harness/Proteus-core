@@ -348,6 +348,11 @@ def paired_rows(rows, cases):
 
 
 def build(run_root, case_roots, cases, arms, baseline, repeat_cases, control_root=None, retry_root=None):
+    for name, values in (('cases', cases), ('arms', arms), ('repeat_cases', repeat_cases)):
+        if len(values) != len(set(values)):
+            raise ValueError(f'duplicate {name} in report plan')
+    if any(case not in cases for case in repeat_cases):
+        raise ValueError('repeat_cases must name selected cases')
     planned = [(case, 1) for case in cases]
     planned.extend((case, 2) for case in repeat_cases)
     rows = [read_trial(run_root/f'flash_{case}_{attempt}_{arm}', case, arm, attempt)
@@ -403,11 +408,23 @@ def build(run_root, case_roots, cases, arms, baseline, repeat_cases, control_roo
     if retry_selection:
         for _, case, attempt, arm in retry_selection['rows']:
             socket_retries.append(read_trial(retry_root/f'flash_{case}_{attempt}_{arm}', case, arm, attempt))
+    for cohort, trials in (('planned', rows), ('cap', cap_controls), ('retry', socket_retries)):
+        seen = set()
+        for row in trials:
+            identity = row['case'], row['arm'], int(row['attempt'])
+            if identity in seen:
+                raise ValueError(f'duplicate trial in {cohort} cohort: {identity}')
+            seen.add(identity)
+            if 'model' in row and (
+                row['model'] != 'opencode-go/deepseek-v4.1-flash' or row['effort'] != 'high'
+            ):
+                raise ValueError('Trial model or effort differs from the DeepSeek Flash/high study')
     eligible = {(case, arm, attempt) for _, case, attempt, arm in retry_selection['rows']} if retry_selection else set()
     clustered = [row for row in rows if (row['case'], row['arm'], row['attempt']) in eligible
                  and 'UND_ERR_SOCKET' in row.get('failure_taxonomy', {}).get('error_codes', [])]
     cluster_times = [stamp for row in clustered for stamp in row.get('audit', {}).get('model_failure_timestamps_ms', [])]
     return {'format': 1, 'model': 'opencode-go/deepseek-v4.1-flash', 'effort': 'high',
+            'cases': list(cases), 'arms': list(arms),
             'run_root': relative(run_root), 'planned_agent_deadline_seconds': 1200, 'socket_retries': socket_retries, 'socket_retry_selection': retry_selection,
             'socket_failure_observation': {'primary_rows': len(clustered), 'timestamps_ms': cluster_times,
                 'native_opencode_transport_timestamps_ms': [stamp for row in rows for stamp in row.get('native_transport_failure_timestamps_ms', [])],
@@ -425,6 +442,7 @@ def build(run_root, case_roots, cases, arms, baseline, repeat_cases, control_roo
 def write_markdown(report, output):
     n = lambda value: '—' if value is None else f'{value:,}'.replace(',', ' ')
     rows = report['rows']
+    arm_labels = dict(zip(ARMS, ('Pi', 'Proteus Pi', 'OpenCode', 'Proteus OpenCode', 'Proteus Codex')))
     done = [row for row in rows if row['state'] == 'graded']
     lines = ['# Более длинные задачи на DeepSeek Flash', '',
              f"Проверено {len(done)} из {report['expected_trials']} запланированных запусков. "
@@ -460,11 +478,11 @@ def write_markdown(report, output):
     lines += ['', 'Знак ≥ обозначает сумму только зарегистрированного usage при отсутствующем полном total. '
               'Пропущенные token fields остаются неизвестными. JSON хранит число полных наблюдений и сумму '
               'доступных значений, чтобы незавершённый или частично записанный запуск сохранялся в учёте.', '',
-              '| Задача | Pi | Proteus Pi | OpenCode | Proteus OpenCode | Proteus Codex |',
-              '|---|---|---|---|---|---|']
-    for case in CASES:
+              '| Задача | ' + ' | '.join(arm_labels.get(arm, arm) for arm in report['arms']) + ' |',
+              '|---|' + '---|' * len(report['arms'])]
+    for case in report['cases']:
         cells = []
-        for arm in ARMS:
+        for arm in report['arms']:
             row = next((row for row in rows if row['case'] == case and row['arm'] == arm and row['attempt'] == 1), None)
             if not row or row['state'] != 'graded':
                 cells.append('ожидается')
@@ -476,18 +494,18 @@ def write_markdown(report, output):
         lines.append('| ' + ' | '.join([case, *cells]) + ' |')
     repeated = [row for row in rows if row['attempt'] > 1]
     if repeated:
-        lines += ['', 'Свежий повтор go-review использует те же три пользовательских запроса в новой сессии.', '',
-                  '| Агент | Полный PASS сначала / повтор | Тулы сначала / повтор | Input сначала / повтор | Continuity повтора |',
-                  '|---|---|---:|---:|---|']
+        lines += ['', 'Контрольные повторы используют те же задания в новых сессиях.', '',
+                  '| Задача | Агент | Полный PASS сначала / повтор | Тулы сначала / повтор | Input сначала / повтор | Continuity повтора |',
+                  '|---|---|---|---:|---:|---|']
         for repeat in repeated:
             first = next(row for row in rows if row['case'] == repeat['case'] and row['arm'] == repeat['arm'] and row['attempt'] == 1)
             if repeat['state'] == 'graded':
-                lines.append(f"| {repeat['arm']} | {first.get('pass')} / {repeat['pass']} | "
+                lines.append(f"| {repeat['case']} | {repeat['arm']} | {first.get('pass')} / {repeat['pass']} | "
                              f"{n(first.get('actions'))} / {n(repeat['actions'])} | "
                              f"{n(first.get('tokens', {}).get('input_tokens'))} / {n(repeat['tokens'].get('input_tokens'))} | "
                              f"{repeat.get('continuity_verified')} |")
             else:
-                lines.append(f"| {repeat['arm']} | {first.get('pass')} / ожидается | — | — | — |")
+                lines.append(f"| {repeat['case']} | {repeat['arm']} | {first.get('pass')} / ожидается | — | — | — |")
     failed = [row for row in done if not row['pass']]
     if failed:
         lines += ['', '| Задача и попытка | Агент | Причина | Не пройденные требования |',
@@ -515,7 +533,7 @@ def write_markdown(report, output):
         cluster = report['socket_failure_observation']
         lines += ['', f"В первичной серии {cluster['primary_rows']} ошибок UND_ERR_SOCKET зарегистрированы в интервале "
                   f"{n(cluster['span_seconds'])} с. Близость времени — наблюдение, конкретный источник обрыва не установлен. "
-                  'Для заранее выбранных пяти клеток выполнен один свежий повтор с тем же заданием и бюджетом.', '',
+                  f"Число выбранных клеток для свежего повтора: {len(report['socket_retries'])}.", '',
                   '| Задача | Агент | Полный PASS повтора | Grader PASS | Тулы | Запросы | Секунды |',
                   '|---|---|---|---|---:|---:|---:|']
         for row in report['socket_retries']:
