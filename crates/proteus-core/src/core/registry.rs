@@ -19,6 +19,9 @@ use crate::{
 };
 
 #[cfg(test)]
+#[path = "registry/compaction_tests.rs"]
+mod compaction_tests;
+#[cfg(test)]
 #[path = "tool_terminal_binding_tests.rs"]
 mod tool_terminal_tests;
 
@@ -294,7 +297,10 @@ impl RuntimeRegistry {
                 )
                 .with_tool_authority(tools.clone())
                 .with_hooks(
-                    Arc::new(crate::contracts::NoExecutionHooks),
+                    // Compact needs the configured transforms even from a hook
+                    // callback. Keep this back-reference weak: the chain owns
+                    // the auxiliary model through its operation facade.
+                    weak_hooks.clone(),
                     attribution,
                     self.cwd.clone(),
                 ),
