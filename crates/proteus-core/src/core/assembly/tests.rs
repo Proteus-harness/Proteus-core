@@ -168,6 +168,7 @@ fn hooks_preserve_config_order_and_only_include_selected_exports() {
             [
                 crate::contracts::OPERATION_HOST_COMPLETE_MODEL_METHOD,
                 crate::contracts::OPERATION_HOST_EXECUTE_TOOL_METHOD,
+                crate::contracts::HOOK_HOST_ESTIMATE_MODEL_INPUT_METHOD,
             ]
         );
         assert_eq!(
