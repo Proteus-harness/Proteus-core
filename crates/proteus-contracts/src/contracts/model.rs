@@ -33,10 +33,7 @@ pub trait Model: Send + Sync {
     }
 
     /// Optional local sizing; never runs inference or reads provider credentials.
-    fn supports_input_estimate(&self) -> bool {
-        false
-    }
-
+    /// `None` means this model cannot estimate the supplied material.
     async fn estimate_input(
         &self,
         _request: super::ModelInputEstimateRequest,

@@ -68,10 +68,6 @@ impl Model for ModelService {
         self.adapter.quota().await
     }
 
-    fn supports_input_estimate(&self) -> bool {
-        self.adapter.supports_input_estimate()
-    }
-
     async fn estimate_input(
         &self,
         request: crate::contracts::ModelInputEstimateRequest,

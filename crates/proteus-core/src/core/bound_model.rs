@@ -339,10 +339,6 @@ impl Model for BoundModel {
         self.service.provider_hosted_tools(model)
     }
 
-    fn supports_input_estimate(&self) -> bool {
-        self.service.supports_input_estimate()
-    }
-
     async fn estimate_input(
         &self,
         request: crate::contracts::ModelInputEstimateRequest,
