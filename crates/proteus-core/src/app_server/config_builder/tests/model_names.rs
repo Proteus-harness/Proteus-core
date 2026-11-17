@@ -300,3 +300,83 @@ async fn inline_owned_legacy_catalogue_edit_does_not_require_pinning_a_choice() 
         assert_eq!(saved["models"], initial["models"]);
     }
 }
+
+#[tokio::test]
+async fn unrelated_inline_save_preserves_partial_local_model_settings() {
+    let mut failures = Vec::new();
+    for extension in ["toml", "json"] {
+        let home = tempfile::tempdir().unwrap();
+        let path = home.path().join(format!("agent.{extension}"));
+        let mut initial = source();
+        initial["models"]["other"] = serde_json::json!({"provider": "other", "model": "second"});
+        initial["module_config"]["model"]["other"] = serde_json::json!({"marker": "parent-before"});
+        initial["agent_control"]["roles"][0]["config"]["module_config"] =
+            serde_json::json!({"model": {"fake": {"implementation": "child-local"}}});
+        write(&path, &initial).await;
+        if extension == "toml" {
+            let authored = tokio::fs::read_to_string(&path).await.unwrap().replace(
+                "implementation = \"child-local\"",
+                "# Authored child-only transport override\nimplementation = \"child-local\"",
+            );
+            tokio::fs::write(&path, authored).await.unwrap();
+        }
+        let reference = crate::core::config_reference(&path, "inherit").unwrap();
+        let mut child = AppConfig::load(Some(&reference)).await.unwrap();
+        assert_eq!(
+            child.module_config["model"]["other"]["marker"],
+            "parent-before"
+        );
+        child.tools.enabled = vec!["read_file".into(), "list_dir".into()];
+        persist_config_builder(&reference, &child).await.unwrap();
+        let mut saved = read(&path).await;
+        let local = &saved["agent_control"]["roles"][0]["config"]["module_config"]["model"];
+        assert_eq!(local["fake"]["implementation"], "child-local");
+        if local.get("other").is_some() {
+            failures.push(format!("{extension} captured inherited settings: {local}"));
+        }
+        if extension == "toml"
+            && !tokio::fs::read_to_string(&path)
+                .await
+                .unwrap()
+                .contains("# Authored child-only transport override")
+        {
+            failures.push("toml removed the authored local comment".into());
+        }
+        saved["module_config"]["model"]["other"]["marker"] = "parent-after".into();
+        write(&path, &saved).await;
+        let mut reloaded = AppConfig::load(Some(&reference)).await.unwrap();
+        if reloaded.module_config["model"]["other"]["marker"] != "parent-after" {
+            failures.push(format!(
+                "{extension} blocked parent update: {}",
+                reloaded.module_config["model"]["other"]
+            ));
+        }
+        assert_eq!(
+            reloaded.module_config["model"]["fake"]["implementation"],
+            "child-local"
+        );
+        assert_eq!(reloaded.tools.enabled, ["read_file", "list_dir"]);
+
+        // An actual transport edit still creates the requested child override.
+        reloaded
+            .module_config
+            .get_mut("model")
+            .unwrap()
+            .get_mut("other")
+            .unwrap()["marker"] = "child-edited".into();
+        persist_config_builder(&reference, &reloaded).await.unwrap();
+        let mut saved = read(&path).await;
+        assert_eq!(
+            saved["agent_control"]["roles"][0]["config"]["module_config"]["model"]["other"]["marker"],
+            "child-edited"
+        );
+        saved["module_config"]["model"]["other"]["marker"] = "parent-later".into();
+        write(&path, &saved).await;
+        let reloaded = AppConfig::load(Some(&reference)).await.unwrap();
+        assert_eq!(
+            reloaded.module_config["model"]["other"]["marker"],
+            "child-edited"
+        );
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}

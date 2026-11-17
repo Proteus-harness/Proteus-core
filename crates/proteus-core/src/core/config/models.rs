@@ -181,14 +181,7 @@ fn normalize(source: &mut Value, parent: Option<&ModelScope>) -> Result<ModelSco
         let choice = role.remove("model");
         let role_explicit = choice.as_ref().is_some_and(|value| !value.is_null());
         let role_choice = match choice {
-            Some(Value::String(name)) => Some((
-                name.clone(),
-                scope
-                    .presets
-                    .get(&name)
-                    .with_context(|| format!("unknown model alias {name:?}"))?
-                    .to_model_config()?,
-            )),
+            Some(Value::String(name)) => Some(name),
             Some(Value::Null) | None => None,
             Some(value) => {
                 let model: ModelConfig =
@@ -203,7 +196,7 @@ fn normalize(source: &mut Value, parent: Option<&ModelScope>) -> Result<ModelSco
                 !(role_explicit && child_explicit),
                 "agent role must choose model either on the role or in its config"
             );
-            if let Some((name, _)) = &role_choice {
+            if let Some(name) = &role_choice {
                 child
                     .as_object_mut()
                     .unwrap()
@@ -216,7 +209,12 @@ fn normalize(source: &mut Value, parent: Option<&ModelScope>) -> Result<ModelSco
                     serde_json::to_value(child_scope.selected_model()?)?,
                 );
             }
-        } else if let Some((_, model)) = role_choice {
+        } else if let Some(name) = role_choice {
+            let model = scope
+                .presets
+                .get(&name)
+                .with_context(|| format!("unknown model alias {name:?}"))?
+                .to_model_config()?;
             role.insert("model".into(), serde_json::to_value(model)?);
         }
     }

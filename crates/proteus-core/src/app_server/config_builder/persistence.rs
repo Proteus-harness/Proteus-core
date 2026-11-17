@@ -168,21 +168,22 @@ pub(super) async fn persist_config_builder_with_components(
     }
     doc["agent_control"]["surface"] = toml_edit::value(config.agent_control.surface.as_str());
 
-    let omit_model_settings = !selection.is_empty()
-        && omitted_model_settings_unchanged(
-            config,
-            baseline.as_ref(),
-            doc.get("module_config")
-                .and_then(|item| item.get("model"))
-                .is_some(),
-        );
+    let preserve_model_settings =
+        !selection.is_empty() && model_settings_unchanged(config, baseline.as_ref());
     let mut module_config_doc = module_config_toml_document(&config.module_config)?;
-    if omit_model_settings {
+    if preserve_model_settings {
         if let Some(table) = module_config_doc
             .get_mut("module_config")
             .and_then(toml_edit::Item::as_table_like_mut)
         {
-            table.remove("model");
+            match doc.get("module_config").and_then(|item| item.get("model")) {
+                Some(local) => {
+                    table.insert("model", local.clone());
+                }
+                None => {
+                    table.remove("model");
+                }
+            }
         }
     }
     if let Some(item) = module_config_doc.as_table().get("module_config") {
@@ -318,20 +319,28 @@ async fn persist_json_profile(
     )?;
     super::models::json_roles(root, config, baseline.as_ref())?;
     super::behaviors::json(root, config, baseline.as_ref())?;
-    let omit_model_settings = !selection.is_empty()
-        && omitted_model_settings_unchanged(
-            config,
-            baseline.as_ref(),
+    let preserve_model_settings =
+        !selection.is_empty() && model_settings_unchanged(config, baseline.as_ref());
+    let local_model_settings = preserve_model_settings
+        .then(|| {
             root.get("module_config")
                 .and_then(|item| item.get("model"))
-                .is_some(),
-        );
+                .cloned()
+        })
+        .flatten();
     for key in ["modules", "module_config", "addons"] {
         root.insert(key.into(), next[key].clone());
     }
-    if omit_model_settings {
+    if preserve_model_settings {
         if let Some(settings) = root.get_mut("module_config").and_then(Value::as_object_mut) {
-            settings.remove("model");
+            match local_model_settings {
+                Some(local) => {
+                    settings.insert("model".into(), local);
+                }
+                None => {
+                    settings.remove("model");
+                }
+            }
         }
     }
     for (section, keys) in [
@@ -374,15 +383,12 @@ async fn source_baseline(path: &Path) -> Result<Option<AppConfig>> {
     AppConfig::load(Some(path)).await.map(Some)
 }
 
-fn omitted_model_settings_unchanged(
-    config: &AppConfig,
-    baseline: Option<&AppConfig>,
-    source_has_model_settings: bool,
-) -> bool {
-    !source_has_model_settings
-        && baseline.is_some_and(|baseline| {
-            config.module_config.get("model") == baseline.module_config.get("model")
-        })
+// Effective settings include parent-owned entries. An unrelated inline save
+// retains exactly the child's authored table, including its absence.
+fn model_settings_unchanged(config: &AppConfig, baseline: Option<&AppConfig>) -> bool {
+    baseline.is_some_and(|baseline| {
+        config.module_config.get("model") == baseline.module_config.get("model")
+    })
 }
 
 fn model_source_changed(config: &AppConfig, baseline: Option<&AppConfig>) -> Result<(bool, bool)> {
