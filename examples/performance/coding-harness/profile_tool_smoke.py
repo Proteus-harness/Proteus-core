@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Zero-paid installed-profile proof, not an inference benchmark or parity score.
 
-Run real Codex/Pi/OpenCode workflows and tools with a deterministic model/v13
+Run real Codex/Pi/OpenCode workflows and tools with a deterministic model/v14
 export. Credentials are removed before launch and the outer namespace has no
 network. All file effects are confined to a fresh synthetic workspace.
 """
@@ -154,7 +154,7 @@ def run_profile(root, prefix, profile, timeout):
                    'binary_sha256': runner.digest(args.binary), 'source_config_sha256': runner.digest(base),
                    'effective_config_sha256': runner.digest(config), 'slots': data['modules'],
                    'model': data['models'][data['model']],
-                   'overrides': {'model_export': 'deterministic model/v13 fixture',
+                   'overrides': {'model_export': 'deterministic model/v14 fixture',
                                  'root_only': True, 'probe_policy': policy_override,
                                  'runtime_timeout_seconds': timeout, 'event_log': '/state/events.jsonl'},
                    'network': 'outer bubblewrap --unshare-net; staged credentials removed before execution',

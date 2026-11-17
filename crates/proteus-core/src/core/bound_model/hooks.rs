@@ -1,6 +1,6 @@
 use super::BoundModel;
 use crate::core::model_call_scope::current_model_call_origin;
-use crate::model_standard::CanonicalModelRequest;
+use crate::model_standard::{CanonicalModelRequest, ModelOperation};
 use anyhow::Result;
 
 impl BoundModel {
@@ -13,7 +13,12 @@ impl BoundModel {
         }
         let mut request = self.service.prepare_request(request)?;
         self.binding.bind_request(&mut request)?;
-        if current_model_call_origin() == crate::contracts::ModelCallOrigin::Auxiliary {
+        // Native compaction needs the same configured instruction transforms as
+        // a direct request. Ordinary auxiliary generations still bypass hooks,
+        // so model calls made by BeforeModel hooks do not recursively re-enter.
+        if current_model_call_origin() == crate::contracts::ModelCallOrigin::Auxiliary
+            && request.operation != ModelOperation::Compact
+        {
             return Ok(request);
         }
         let conversation = if self.hooks.is_active() {

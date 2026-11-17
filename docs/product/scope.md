@@ -18,7 +18,7 @@
   [границы и использование](../guides/images.md).
 - Standalone process Workflow без conversation и модели; typed top-level
   операция `execute_tool` без открытия Turn; `/remember` вызывает memory tool.
-- Opt-in typed `hook/v6` contributions: явная ordered chain, model instructions/
+- Opt-in typed `hook/v7` contributions: явная ordered chain, model instructions/
   messages, отбор tools, подготовка working history, pre-tool block/args, post-tool output
   и bounded completion review. Hooks/tools получают execution-bound model/tool
   callbacks; выбранный preparation hook заменяет отдельный compactor slot.
@@ -46,7 +46,7 @@
   [Контракт и границы](https://github.com/Proteus-harness/Proteus-desktop/blob/main/README.md#расширения-без-пересборки).
 - OpenAI, OpenAI-compatible, ChatGPT subscription OAuth (`openai_codex`),
   Anthropic и fake implementations в reference
-  `model-pack`; Core использует общий `model/v13` process adapter.
+  `model-pack`; Core использует общий `model/v14` process adapter.
 - Doctor, inspect/topology, eval report и атомарная локальная установка.
 - Управление доступностью skills и MCP через `/addons`, локальная загрузка
   Agent Plugins 1.0 (skills и stdio MCP), общий сервис расширений `agent.addons`.

@@ -5,6 +5,21 @@ use crate::{
     model_standard::{CanonicalMessage, CanonicalModelRequest, ContentPart},
 };
 
+#[cfg(test)]
+#[test]
+fn replay_compares_model_operation_as_a_request_fact() {
+    let request =
+        CanonicalModelRequest::new(crate::domain::ModelRef::new("fixture", "model"), vec![]);
+    let compact = request
+        .clone()
+        .with_operation(crate::model_standard::ModelOperation::Compact);
+    assert!(!requests_equal(&request, &compact, &HashMap::new()));
+    assert_eq!(
+        request_difference(&request, &compact, &HashMap::new()),
+        "differing fields: operation"
+    );
+}
+
 pub(super) fn requests_equal(
     actual: &CanonicalModelRequest,
     expected: &CanonicalModelRequest,
@@ -94,6 +109,7 @@ pub(super) fn request_difference(
         return "canonical request differs".to_owned();
     };
     let differing = [
+        "operation",
         "model",
         "instructions",
         "messages",

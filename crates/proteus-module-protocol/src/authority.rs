@@ -308,10 +308,10 @@ mod tests {
         for (slot, previous, current) in [
             ("context", "v2", "v3"),
             ("context_provider", "v3", "v4"),
-            ("model", "v12", "v13"),
-            ("workflow", "v19", "v20"),
-            ("hook", "v5", "v6"),
-            ("tool", "v5", "v6"),
+            ("model", "v13", "v14"),
+            ("workflow", "v20", "v21"),
+            ("hook", "v6", "v7"),
+            ("tool", "v6", "v7"),
             ("policy", "v1", "v2"),
         ] {
             assert!(process_contract_authority(slot, previous).is_none());

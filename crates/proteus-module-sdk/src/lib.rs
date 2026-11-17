@@ -1,6 +1,6 @@
 //! Experimental Rust SDK for out-of-process Proteus modules.
 //!
-//! This release implements component wire v3. [`tool::ToolExport`] adapts tool/v6;
+//! This release implements component wire v3. [`tool::ToolExport`] adapts tool/v7;
 //! the general [`Export`] surface keeps other slot implementations outside Core.
 //! SDK versions are independent from wire/slot versions. Pin an exact release or
 //! Git revision: alpha API compatibility is not promised across releases.

@@ -444,7 +444,7 @@ Workflow replay сверяет полный selection input и outcome, вклю
 без следующего model request и schemas скрытых tools. Standalone selection
 проверяет отсутствие модели/conversation и общий policy/cancellation path.
 
-Для `hook/v6` проверяются strict DTO/response validation, одинаковая authority
+Для `hook/v7` проверяются strict DTO/response validation, одинаковая authority
 с общими model/tool callbacks по actionable phase, config order и отсутствие duplicate/unknown selection.
 Boundary chain покрывает A→B/B→A, pre-effect failure, actual tool outcome
 при post-effect failure, targeted cancellation и component restart. Config

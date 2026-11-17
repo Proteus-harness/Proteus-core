@@ -28,6 +28,122 @@ fn state(hooks: Vec<HookTrace>, tools: Vec<RecordedToolInvocation>) -> Arc<Repla
     ))
 }
 
+#[test]
+fn replay_preserves_opaque_in_hook_responses_while_rebinding_real_call_references() {
+    use crate::{
+        contracts::ContextPreparationOutput,
+        model_standard::{CanonicalMessage, ContentPart, MessageRole},
+    };
+    let old = "recorded-call";
+    let new = "actual-call";
+    let opaque = ContentPart::Opaque {
+        format: old.into(),
+        data: serde_json::json!({"encrypted_content":old,"id":old,"nested":[old,{"call_id":old}]}),
+    };
+    let call = ToolCall::new(
+        old,
+        "fixture",
+        serde_json::json!({"reference":old,"Opaque":{"id":old}}),
+    );
+    let message = CanonicalMessage::new(
+        MessageRole::Assistant,
+        vec![opaque.clone(), ContentPart::ToolCall { call }],
+    );
+    let result = CanonicalMessage::new(
+        MessageRole::Tool,
+        vec![ContentPart::ToolResult {
+            result: crate::domain::ToolResult::ok(old.into(), old),
+        }],
+    )
+    .with_tool_call_id(old.into());
+    let messages = vec![message, result];
+    let ids = HashMap::from([(old.into(), new.into())]);
+    for response in [
+        HookResponse::ModelContext {
+            messages: messages.clone(),
+            instructions: vec![],
+        },
+        HookResponse::ContextPreparation {
+            output: ContextPreparationOutput::changed(messages, None),
+        },
+    ] {
+        let rewritten = rewrite_response(&response, &ids).unwrap();
+        let messages = match rewritten {
+            HookResponse::ModelContext { messages, .. } => messages,
+            HookResponse::ContextPreparation { output } => output.messages,
+            _ => panic!("canonical response"),
+        };
+        assert_eq!(messages[0].parts[0].payload, opaque);
+        let ContentPart::ToolCall { call } = &messages[0].parts[1].payload else {
+            panic!()
+        };
+        assert_eq!(call.id, new);
+        assert_eq!(
+            call.args,
+            serde_json::json!({"reference":new,"Opaque":{"id":new}})
+        );
+        let ContentPart::ToolResult { result } = &messages[1].parts[0].payload else {
+            panic!()
+        };
+        assert_eq!(result.call_id, new);
+        assert_eq!(result.output, new);
+        assert_eq!(messages[1].tool_call_id.as_deref(), Some(new));
+    }
+}
+
+#[tokio::test]
+async fn preparation_replay_uses_the_recorded_host_model_capability_without_describing_a_provider()
+{
+    use crate::{
+        contracts::{ContextPreparationInput, ContextPreparationOutput},
+        domain::ModelRef,
+        model_standard::{CanonicalModelRequest, ModelCapabilities},
+    };
+    let request = CanonicalModelRequest::new(ModelRef::new("fixture", "native"), vec![]);
+    let preparation = ContextPreparationInput::new(vec![], Some(request));
+    let event = HookEvent::BeforeContext {
+        input: preparation.clone(),
+        model_capabilities: Some(ModelCapabilities::empty().with_compaction(true)),
+        output: ContextPreparationOutput::unchanged(vec![]),
+        target: None,
+    };
+    let state = state(
+        vec![HookTrace {
+            owner: crate::contracts::OperationOwner::Workflow,
+            input: input(event.clone()),
+            steps: vec![HookStep {
+                invocation_id: uuid::Uuid::new_v4(),
+                module_id: "fixture".into(),
+                outcome: HookStepOutcome::Accepted {
+                    response: HookResponse::Continue,
+                },
+            }],
+            output: Some(event.clone()),
+        }],
+        vec![],
+    );
+    assert!(state.capabilities().supports_compaction);
+    let result = state
+        .prepare(preparation, vec!["fixture".into()])
+        .await
+        .unwrap();
+    assert!(!result.output.changed);
+    assert!(state.lock().hooks[0].1);
+    let mut changed = event.clone();
+    let HookEvent::BeforeContext {
+        model_capabilities, ..
+    } = &mut changed
+    else {
+        panic!()
+    };
+    *model_capabilities = Some(ModelCapabilities::empty());
+    assert!(!events_equal(&changed, &event, &HashMap::new()));
+    assert!(
+        diagnostics::preparation_difference(&changed, &event, &HashMap::new())
+            .contains("model_capabilities")
+    );
+}
+
 #[tokio::test]
 async fn recorded_hook_replay_preserves_strict_schema_after_sensitive_arguments_redaction() {
     let call = ToolCall::new(
@@ -318,6 +434,7 @@ async fn recorded_nested_auxiliary_and_tool_hooks_are_injected_without_calls() {
         "source material",
     );
     let prepared = input(HookEvent::BeforeContext {
+        model_capabilities: None,
         input: ContextPreparationInput::new(vec![source.clone()], None),
         output: ContextPreparationOutput::unchanged(vec![source.clone()]),
         target: None,

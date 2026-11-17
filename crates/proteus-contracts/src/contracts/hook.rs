@@ -2,14 +2,16 @@
 use super::{ExecutionAttribution, ModelCallOrigin};
 use crate::{
     domain::{AgentOutput, AgentTask, ToolCall, ToolResult, ToolSpec, validate_tool_call_args},
-    model_standard::{CanonicalMessage, CanonicalModelRequest, InstructionBlock},
+    model_standard::{
+        CanonicalMessage, CanonicalModelRequest, InstructionBlock, ModelCapabilities,
+    },
 };
 use anyhow::{Result, bail};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, sync::Arc};
 
-pub const PROCESS_HOOK_CONTRACT_VERSION: &str = "v6";
+pub const PROCESS_HOOK_CONTRACT_VERSION: &str = "v7";
 pub const PROCESS_HOOK_INVOKE_METHOD: &str = "hook.invoke";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -35,6 +37,9 @@ pub enum HookEvent {
     },
     BeforeContext {
         input: super::ContextPreparationInput,
+        /// Host-owned description of the selected request model; absent for model-free work.
+        #[serde(default)]
+        model_capabilities: Option<ModelCapabilities>,
         output: super::ContextPreparationOutput,
         #[serde(deserialize_with = "Option::deserialize")]
         target: Option<super::ContextPreparationTarget>,

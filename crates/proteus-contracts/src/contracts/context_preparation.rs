@@ -267,6 +267,21 @@ mod tests {
     }
 
     #[test]
+    fn absent_host_model_descriptor_means_unknown_capability() {
+        let input = input();
+        let event = HookEvent::BeforeContext {
+            output: ContextPreparationOutput::unchanged(input.messages.clone()),
+            input,
+            model_capabilities: None,
+            target: None,
+        };
+        let mut value = serde_json::to_value(&event).unwrap();
+        assert!(value["model_capabilities"].is_null());
+        value.as_object_mut().unwrap().remove("model_capabilities");
+        assert_eq!(serde_json::from_value::<HookEvent>(value).unwrap(), event);
+    }
+
+    #[test]
     fn request_template_retains_model_controls_without_owning_material() {
         let mut input = input();
         let mut request = CanonicalModelRequest::new(ModelRef::new("fake", "model"), vec![]);
@@ -289,6 +304,7 @@ mod tests {
             revision: 7,
         });
         let event = HookEvent::BeforeContext {
+            model_capabilities: None,
             input: input.clone(),
             output: output.clone(),
             target: target.clone(),
@@ -312,6 +328,7 @@ mod tests {
             text: "rewritten by second hook".into(),
         };
         let intermediate = HookEvent::BeforeContext {
+            model_capabilities: None,
             input: input.clone(),
             output: previous,
             target: target.clone(),
@@ -355,6 +372,7 @@ mod tests {
                 replacement_message_id: first.id,
             });
         let original = HookEvent::BeforeContext {
+            model_capabilities: None,
             input: input.clone(),
             output: ContextPreparationOutput::unchanged(input.messages.clone()),
             target: None,

@@ -8,11 +8,13 @@ pub(super) fn preparation_difference(
     let (
         HookEvent::BeforeContext {
             input: a,
+            model_capabilities: ac,
             output: ao,
             target: at,
         },
         HookEvent::BeforeContext {
             input: b,
+            model_capabilities: bc,
             output: bo,
             target: bt,
         },
@@ -21,6 +23,9 @@ pub(super) fn preparation_difference(
         return "event kind differs".into();
     };
     let mut fields = Vec::new();
+    if ac != bc {
+        fields.push("model_capabilities".into());
+    }
     if a.reason != b.reason {
         fields.push(format!(
             "input.reason actual={:?} recorded={:?}",

@@ -50,10 +50,14 @@ pub(super) fn validate(
                             "tool hook owner differs from its bound call"
                         )
                     }
-                    HookEvent::BeforeModel { origin, .. } => ensure!(
-                        *origin == ModelCallOrigin::Direct
-                            && trace.owner == OperationOwner::Workflow,
-                        "auxiliary generation must not repeat BeforeModel hooks"
+                    HookEvent::BeforeModel { origin, request } => ensure!(
+                        (*origin == ModelCallOrigin::Direct
+                            && trace.owner == OperationOwner::Workflow)
+                            || (*origin == ModelCallOrigin::Auxiliary
+                                && request.operation
+                                    == crate::model_standard::ModelOperation::Compact
+                                && trace.owner != OperationOwner::Workflow),
+                        "ordinary auxiliary generation must not repeat BeforeModel hooks"
                     ),
                     _ => ensure!(
                         trace.owner == OperationOwner::Workflow,
@@ -249,9 +253,46 @@ mod tests {
     }
     fn event() -> HookEvent {
         HookEvent::BeforeContext {
+            model_capabilities: None,
             input: crate::contracts::ContextPreparationInput::new(vec![], None),
             output: crate::contracts::ContextPreparationOutput::unchanged(vec![]),
             target: None,
+        }
+    }
+
+    #[test]
+    fn auxiliary_compaction_before_model_has_a_valid_nested_owner_but_complete_does_not() {
+        use crate::model_standard::ModelOperation;
+        for operation in [ModelOperation::Complete, ModelOperation::Compact] {
+            let outer = Uuid::new_v4();
+            let inner = Uuid::new_v4();
+            let exchange = Uuid::new_v4();
+            let owner = OperationOwner::Hook {
+                invocation_id: outer,
+            };
+            let mut request = model(exchange, owner.clone());
+            let JournalEntry::ModelRequestRecorded(record) = &mut request else {
+                panic!()
+            };
+            record.request.operation = operation;
+            let result = verify(vec![
+                hook(
+                    inner,
+                    owner,
+                    HookEvent::BeforeModel {
+                        origin: ModelCallOrigin::Auxiliary,
+                        request: record.request.clone(),
+                    },
+                ),
+                request,
+                terminal(exchange),
+                hook(outer, OperationOwner::Workflow, event()),
+            ]);
+            assert_eq!(
+                result.is_ok(),
+                operation == ModelOperation::Compact,
+                "{result:?}"
+            );
         }
     }
 

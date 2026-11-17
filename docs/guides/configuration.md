@@ -1251,7 +1251,7 @@ disabled_mcp_servers = ["team.tools:database"]
 Core не читает `SKILL.md`: любой `context_provider/v4` может предоставить
 typed skill catalog, либо вернуть `null`, если не поддерживает эту возможность.
 Одинаковые host-owned `SkillRuntimeSettings` передаются context provider и
-`tool/v6`; в reference skill-pack один фильтр используется для списка и загрузки.
+`tool/v7`; в reference skill-pack один фильтр используется для списка и загрузки.
 `name` ограничен 64 ASCII-символами без `--`, `description` — 1024 символами;
 дополнительные поля Agent Skills не предоставляют новых прав tools.
 
@@ -1342,7 +1342,7 @@ AgentControl facades определяются выбранной моделью 
 
 ### Собственный Process Tool
 
-Собственные tools предоставляются через component export `tool/v6`.
+Собственные tools предоставляются через component export `tool/v7`.
 Описание tool, входная схема, safety, parallel permission и исполнение
 принадлежат модулю; Core не разбирает его алгоритм или собственные настройки.
 Работающий пример, который запускает `rg`, —
@@ -1678,7 +1678,7 @@ Pi/OpenCode tool handlers (включая изменение args), JSON-stdin P
 `updatedInput` и Stop scripts Codex/Claude Code. Completion review сохраняет
 root turn, имеет общий workflow deadline и лимит 8 продолжений.
 Неподдержанные upstream действия отклоняются явно; это адаптер переноса,
-не загрузчик чужих plugins. Модуль использует тот же `hook/v6`, без отдельной
+не загрузчик чужих plugins. Модуль использует тот же `hook/v7`, без отдельной
 registration или authority surface в Core.
 
 ### DCP — Отложенный Эксперимент
@@ -1704,7 +1704,7 @@ prompt = "Review $ARGUMENTS carefully"
 строки, не shell expansion. Команда не запускает tools сама и не выдаёт новых прав.
 Имена проверяются; пустой prompt или результат expansion, дубли с host/module
 командами, зарезервированные `exit`/`quit` и неизвестные поля дают ошибку.
-Module-команды объявляются реализацией tool через `tool/v6`,
+Module-команды объявляются реализацией tool через `tool/v7`,
 а не этим блоком; отключение tool убирает его команду из каталога.
 
 Полный список текущей сборки — `/help`; [семантика и API](runtime-and-events.md#slash-команды).

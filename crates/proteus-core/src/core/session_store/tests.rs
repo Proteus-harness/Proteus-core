@@ -13,6 +13,7 @@ use crate::{
 use super::*;
 
 mod cold_writer;
+mod native_checkpoint;
 
 fn test_store(config_dir: &Path, workspace: &Path) -> SessionStore {
     SessionStore::new(config_dir, workspace, new_session_id()).expect("session store")

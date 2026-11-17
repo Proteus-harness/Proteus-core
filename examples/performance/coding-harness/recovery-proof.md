@@ -27,7 +27,7 @@ python3 -B examples/performance/coding-harness/recovery_probe.py \
   --output target/performance/coding-harness/recovery-exhausted
 ```
 
-Режимы `terminal` и `exhausted` используют синтетический model/v13. Первый
+Режимы `terminal` и `exhausted` используют синтетический model/v14. Первый
 возвращает терминальную ошибку, второй проверяет конечность бюджета повторов.
 Оба сохраняют ранее выполненный эффект, а финальный статус задачи остаётся
 ошибкой. Путь к другой готовой поставке задаётся `--portable`.

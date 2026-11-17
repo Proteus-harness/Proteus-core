@@ -19,7 +19,7 @@ def main():
     module = args.module.resolve(strict=True)
     conformance = args.conformance.resolve(strict=True)
     export = {
-        "slot": "tool", "module_id": "example.echo", "contract_version": "v6",
+        "slot": "tool", "module_id": "example.echo", "contract_version": "v7",
         "module_config": {"prefix": "hello: "},
     }
 
@@ -61,7 +61,7 @@ def main():
         assert result["output"] == "hello: world", result
         invocation["call"]["args"] = {"text": 42}
         probe("invoke", invocation, succeeds=False)
-    print("Rust tool: strict wire v3/tool v6 handshake, list, invocation and schema error passed")
+    print("Rust tool: strict wire v3/tool v7 handshake, list, invocation and schema error passed")
 
 
 if __name__ == "__main__":

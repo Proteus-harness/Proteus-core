@@ -68,20 +68,20 @@ Wire shape и правила validation — в
 
 | Слот | Правило выбора | Где выбирается | Процессный контракт | Примеры имён |
 |---|---|---|---|---|
-| `hook` | `ordered_many` | `modules.hooks` (явный порядок) | да, `hook/v6` | `hook.instructions`, `hook.output_budget`, `codex_compact`, `tool_selection.dynamic` |
+| `hook` | `ordered_many` | `modules.hooks` (явный порядок) | да, `hook/v7` | `hook.instructions`, `hook.output_budget`, `codex_compact`, `tool_selection.dynamic` |
 | `workflow` | `select_one` | `modules.workflow` | да | `coding.single_loop`, `coding.codex_loop`, `coding.plan_execute_review`, `coding.project_check` |
 | `context` | `select_one` | `modules.context` | да, `context/v3` | `simple`, `repo_aware`, `codex_context` |
 | `policy` | `select_one` | `modules.policy` | да | `allow_all`, `ask_write`, `codex_policy`, `opencode_policy` |
-| `tool` | `ordered_many` | предоставленные реализации + `tools.enabled` | да, `tool/v6` | `reference.tools` и узкие варианты |
+| `tool` | `ordered_many` | предоставленные реализации + `tools.enabled` | да, `tool/v7` | `reference.tools` и узкие варианты |
 | `context_provider` | `ordered_many` | предоставленные реализации + настройки контекста | да, `context_provider/v4` | `skills`, `rg_search`, `jsonl_memory`, `sqlite_memory` |
-| `model` | `select_one` | активный профиль модели | да, `model/v13` | `fake`, `openai`, `openai_compatible`, `openai_codex`, `anthropic` |
+| `model` | `select_one` | активный профиль модели | да, `model/v14` | `fake`, `openai`, `openai_compatible`, `openai_codex`, `anthropic` |
 
 `select_one` означает одну выбранную реализацию, `ordered_many` — несколько
 реализаций с заданным порядком. Все перечисленные слоты, включая `model`,
 используют процессный контракт. Управление другими агентами в таблицу не
 входит: им владеет Core, это не выбираемый слот.
 
-Пользовательские slash-команды модуля — contributions существующего `tool/v6`,
+Пользовательские slash-команды модуля — contributions существующего `tool/v7`,
 не новый slot. `list` возвращает tool definitions с явным `model_visible` и
 nullable `user_command`; `tools.enabled` выбирает и эту поверхность.
 User-only tools не видны модели, но вызываются пользователем через ту же registry,
@@ -89,7 +89,7 @@ policy/approval/safety/cancellation. Команда не получает author
 или workflow export. [DTO и callbacks](process-module-architecture.md#authority-table),
 [каталог и исполнение](../guides/runtime-and-events.md#slash-команды).
 
-Собственные tools подключаются одним путём: explicit component `tool/v6`
+Собственные tools подключаются одним путём: explicit component `tool/v7`
 export и выбор имён в `tools.enabled`. Отдельного configured script executor
 или автозагрузки tool manifests нет. MCP остаётся внешним протоколом с
 server-level enable/discovery и тем же общим registry/policy/approval path;
@@ -106,7 +106,7 @@ Builder отдельно показывает обнаруженные выкл�
 
 Для внешнего Rust executable доступен experimental
 [`proteus-module-sdk`](../guides/rust-module-sdk.md). Он обслуживает текущий
-wire v3, предоставляет typed tool/v6 adapter и invocation-scoped host bridges.
+wire v3, предоставляет typed tool/v7 adapter и invocation-scoped host bridges.
 [Самостоятельный starter](../../examples/modules/rust-tool/README.md) собирается
 без исходников Proteus-modules. Слоты, authority и конфигурация подключения
 остаются теми же; это worker library, а не второй путь исполнения.
@@ -209,7 +209,7 @@ Core запускает модуль и отправляет ему первое
 
 ### Hooks
 
-`hook/v6` — typed contributions на host-owned точках `turn_started`,
+`hook/v7` — typed contributions на host-owned точках `turn_started`,
 `before_tool_selection`, `before_context`, `before_model`, `before_tool`,
 `after_tool`, `before_stop`, `turn_settled`. `modules.hooks` задаёт порядок;
 пустой список отключает contributions. Actionable phases получают общие
@@ -241,7 +241,7 @@ UI-событие публикуется после принятия. Ошибк
 Внешний [`hook-process`](../../examples/modules/hook-process/README.md)
 предоставляет JS/TS SDK и явные обёртки для переноса отдельных Pi/OpenCode
 handlers и PreToolUse/Stop commands Codex/Claude. Он экспортирует обычный
-`hook/v6` с тем же contract и общими model/tool callbacks. Upstream lifecycle
+`hook/v7` с тем же contract и общими model/tool callbacks. Upstream lifecycle
 или неподдержанные actions не эмулируются; различия описаны рядом с примерами.
 
 DCP отложен в
@@ -282,7 +282,7 @@ Plan-фаза ограничивает и выбранные tools, и compariso
 `runtime.permission_mode`; Core не знает их инструкций. Подробности и команды —
 в [runtime-and-events.md](../guides/runtime-and-events.md).
 
-`workflow/v20` возвращает success с `WorkflowOutput` либо error с
+`workflow/v21` возвращает success с `WorkflowOutput` либо error с
 `WorkflowFailure`. Ошибка может явно вернуть выполненную часть истории через
 `WorkflowHistoryUpdate`; Core проверяет её и сохраняет до terminal `Error`.
 `coding.codex_loop` использует этот путь после сбоя model call, включая
@@ -335,7 +335,7 @@ Checkpoint связывает исходный call в history с явно об�
 исполнение без преобразования. Подмена module не требует имени Codex в host.
 
 `coding.project_check` — reference code-heavy controller на том же
-`workflow/v20`. Он детерминированно вызывает `git_status`, определяет project по
+`workflow/v21`. Он детерминированно вызывает `git_status`, определяет project по
 root marker, запускает фиксированную test command и, если модель настроена, обращается к ней только
 один раз для объяснения failed test. Success path не вызывает model, context
 или context preparation. Это architecture probe, не default workflow и не special
@@ -456,7 +456,7 @@ host-owned `ExecutionAttribution`: обязательный `ExecutionId` и opt
 
 Для узкого профиля тот же модуль принимает selectors `file_tools`,
 `git_tools`, `shell_tools`, `plan_tool`, `skill_tool`, `rust_lsp` и
-`policy_tools`. Они используют тот же `tool/v6` contract; selector не
+`policy_tools`. Они используют тот же `tool/v7` contract; selector не
 меняет authority.
 
 `tool/code_mode` из отдельного пакета `code-mode` исполняет JavaScript и
@@ -537,7 +537,7 @@ Core не обращается к provider HTTP и не знает имён мо
 кредиты ChatGPT в этот DTO внутри своего адаптера; API-key implementations
 и fake возвращают `null`. Имена exports и происхождение модуля не меняют contract.
 
-Общий `model/v13` contract: `describe` возвращает неизменяемые adapter id,
+Общий `model/v14` contract: `describe` возвращает неизменяемые adapter id,
 capabilities и hosted tools; `stream` принимает canonical request и флаг
 provider streaming. Дельты доставляются через acknowledged `host.model.emit`,
 полный response/error — отдельным terminal result. Порядок, backpressure и
@@ -688,7 +688,7 @@ hook и tool в JSON и восстанавливает `ModelFailure` из да�
 
 | Шаг | Где смотреть | Ответственность |
 |---|---|---|
-| Контракт слота | [tool.rs](../../crates/proteus-contracts/src/contracts/tool.rs) и [process_slots.rs](../../crates/proteus-contracts/src/contracts/process_slots.rs) | Общий `tool/v6` принимает `ToolCall` и возвращает `ToolResult`; canonical `SearchQuery` принадлежит [domain/search.rs](../../crates/proteus-contracts/src/domain/search.rs), не отдельному slot. |
+| Контракт слота | [tool.rs](../../crates/proteus-contracts/src/contracts/tool.rs) и [process_slots.rs](../../crates/proteus-contracts/src/contracts/process_slots.rs) | Общий `tool/v7` принимает `ToolCall` и возвращает `ToolResult`; canonical `SearchQuery` принадлежит [domain/search.rs](../../crates/proteus-contracts/src/domain/search.rs), не отдельному slot. |
 | Подключение выбранного export | [components.rs](../../crates/proteus-core/src/core/module_catalog/components.rs) и [tool.rs](../../crates/proteus-core/src/process_adapters/tool.rs) | Catalog регистрирует process tool provider; `list` обнаруживает `search`, `tools.enabled` включает его. Generic adapter вызывает `invoke`. |
 | Вызов компонента | [client.rs](../../crates/proteus-core/src/process_adapters/client.rs) и [broker.rs](../../crates/proteus-module-protocol/src/v3/broker.rs) | `ProcessExportClient` передаёт typed запрос и ссылку на export в `ComponentBroker`; broker управляет вызовом и общим process lifecycle компонента. |
 | Выбор export внутри модуля | [dispatch.rs](https://github.com/Proteus-harness/Proteus-modules/blob/main/components/process-module/src/dispatch.rs) и [exports.rs](https://github.com/Proteus-harness/Proteus-modules/blob/main/components/process-module/src/exports.rs) | Процессный модуль находит export по `slot/module_id`, проверяет метод и выбирает tool по `call.name`; результат упаковывается в `ProcessToolInvokeResponse`. |

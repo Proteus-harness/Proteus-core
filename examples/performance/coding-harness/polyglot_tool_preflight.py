@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """No-inference compiler/cache proof through the real Codex tool workflow.
 
-Only the model component is replaced by a deterministic model/v13 fixture.
+Only the model component is replaced by a deterministic model/v14 fixture.
 Two separately sandboxed exec_command calls write/read a persistent cache
 marker and run an offline compiler/dependency smoke test. No credentials remain
 at execution time; the outer namespace has no network. This is tool environment
@@ -173,7 +173,7 @@ def run_language(root, language, timeout):
                 and settled[0]['output']['text'] == 'TOOL_PREFLIGHT_COMPLETE')
         receipt = {'language': language, 'passed': okay, **status, 'paid_model_requests': 0,
                    'network': 'outer bubblewrap --unshare-net; staged credentials removed before execution',
-                   'slots': original_slots, 'model_override': 'deterministic model/v13 fixture only',
+                   'slots': original_slots, 'model_override': 'deterministic model/v14 fixture only',
                    'tool_calls': len(calls), 'tool_results': len(results), 'settlements': settled,
                    'cache_survives_separate_exec_commands': okay, 'tmpfs_isolated_per_tool': okay,
                    'tool_result_evidence': results}

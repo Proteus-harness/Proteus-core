@@ -43,7 +43,7 @@ Core -> Contract -> Module Implementation
 Core не должен знать детали конкретного поиска, памяти, модели, tools, policy или patch algorithm. Новая функциональность должна проходить через существующий slot или через явно добавленный contract.
 
 Отдельные слоты `search`, `memory` и `patch` удалены. Явный поиск,
-чтение/запись памяти и применение patch реализуются через `tool/v6`;
+чтение/запись памяти и применение patch реализуются через `tool/v7`;
 автоматическое чтение поиска/памяти — через `context_provider/v4`.
 `rg_search`, `jsonl_memory`, `sqlite_memory`, `direct_patch` и `codex_patch` —
 имена implementations этих общих контрактов, а не отдельные слоты.
@@ -88,7 +88,7 @@ Transport и cardinality не смешиваются. Host-defined process contr
 composition(contract) = select_one | ordered_many
 ```
 
-Behavior slots используют `select_one`, кроме typed `hook/v6` chain с
+Behavior slots используют `select_one`, кроме typed `hook/v7` chain с
 явным порядком `modules.hooks`. `ordered_many` допустим только для
 typed chain surface с одинаковой authority всех участников, явным порядком,
 повторной validation и отдельным slot-governance evidence. Module не может
@@ -256,7 +256,7 @@ schema-driven `app_protocol::settings`. Новые id настроек и metada
 6. Добавить protocol и runtime swap evidence, затем обновить
    `docs/architecture/modules.md` и `docs/guides/configuration.md`.
 
-Model provider implementations проходят общий `model/v13` process contract.
+Model provider implementations проходят общий `model/v14` process contract.
 Core владеет canonical shaping/validation, execution binding и journal, но не HTTP provider adapters. `AgentControl` — отдельный root-owned service для полных Proteus
 peers, а не behavior slot или основание возвращать общий native loader.
 Marketplace, package manager и hot reload не входят в текущий process runtime.

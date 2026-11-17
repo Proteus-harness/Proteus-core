@@ -27,6 +27,7 @@ use super::{
 };
 
 mod adapters;
+mod canonical_rewrite;
 #[cfg(test)]
 mod context_tests;
 mod hooks;
@@ -103,7 +104,21 @@ impl ReplayState {
                     _ => None,
                 })
             })
-            .unwrap_or_else(ModelCapabilities::empty);
+            .unwrap_or_else(ModelCapabilities::empty)
+            .with_compaction(
+                exchanges.iter().any(|exchange| {
+                    exchange.request.operation == crate::model_standard::ModelOperation::Compact
+                }) || hooks.iter().any(|trace| match &trace.input.event {
+                    crate::contracts::HookEvent::BeforeContext {
+                        model_capabilities: Some(capabilities),
+                        ..
+                    } => capabilities.supports_compaction,
+                    crate::contracts::HookEvent::BeforeModel { request, .. } => {
+                        request.operation == crate::model_standard::ModelOperation::Compact
+                    }
+                    _ => false,
+                }),
+            );
         Self {
             inner: Mutex::new(ReplayStateInner {
                 contexts: contexts

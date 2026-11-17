@@ -2,7 +2,7 @@ use anyhow::{Result, bail};
 
 use crate::{
     domain::{CacheHints, ReasoningConfig, ResponseFormat, ToolChoice, ToolSafety, ToolSurface},
-    model_standard::{CanonicalModelRequest, ModelCapabilities},
+    model_standard::{CanonicalModelRequest, ModelCapabilities, ModelOperation},
 };
 
 #[derive(Debug, Default, Clone)]
@@ -14,6 +14,12 @@ impl RequestShaper {
         mut request: CanonicalModelRequest,
         capabilities: &ModelCapabilities,
     ) -> Result<CanonicalModelRequest> {
+        if request.operation == ModelOperation::Compact && !capabilities.supports_compaction {
+            bail!(
+                "model '{}' does not support native compaction",
+                request.model.model
+            );
+        }
         if request
             .messages
             .iter()
@@ -123,6 +129,24 @@ mod tests {
         },
         model_standard::{CanonicalMessage, MessageRole},
     };
+
+    #[test]
+    fn native_compaction_requires_an_explicit_model_capability() {
+        let request = CanonicalModelRequest::new(ModelRef::new("provider", "native"), vec![])
+            .with_operation(ModelOperation::Compact);
+        let error = RequestShaper
+            .shape(request.clone(), &ModelCapabilities::empty())
+            .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("does not support native compaction")
+        );
+        let shaped = RequestShaper
+            .shape(request, &ModelCapabilities::empty().with_compaction(true))
+            .unwrap();
+        assert_eq!(shaped.operation, ModelOperation::Compact);
+    }
 
     #[test]
     fn output_limit_uses_explicit_request_and_model_capability() {

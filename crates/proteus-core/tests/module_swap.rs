@@ -324,6 +324,7 @@ async fn prepare(
 ) -> anyhow::Result<ContextPreparationOutput> {
     let input = preparation_input();
     let event = HookEvent::BeforeContext {
+        model_capabilities: None,
         output: ContextPreparationOutput::unchanged(input.messages.clone()),
         input,
         target: None,

@@ -33,7 +33,7 @@ executable + config-ом без Rust adapter под конкретный `module
 ```bash
 cargo run -p proteus-module-protocol --features conformance-cli --bin proteus-component-conformance -- \
   --component-id python-agent \
-  --export '{"slot":"workflow","module_id":"python_agent_loop","contract_version":"v20","module_config":{}}' \
+  --export '{"slot":"workflow","module_id":"python_agent_loop","contract_version":"v21","module_config":{}}' \
   -- python3 -B examples/modules/agent-worker/agent.py
 ```
 
@@ -84,7 +84,7 @@ Checkpoint явно передаёт `preparation_target: null`, посколь�
 terminal и затем исполняет tools. Выбор раннего исполнения принадлежит workflow;
 Core предоставляет Python и Rust одну streaming boundary.
 
-Разрешённые callbacks определяются только парой `workflow/v20`:
+Разрешённые callbacks определяются только парой `workflow/v21`:
 
 - `host.runtime.status`;
 - `host.context.build`;

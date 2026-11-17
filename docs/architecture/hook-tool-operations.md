@@ -1,6 +1,24 @@
 # Операции Hooks И Tools
 
-Действующая граница: `hook/v6`, `tool/v6`, `workflow/v20`, journal schema v21.
+Действующая граница: `hook/v7`, `tool/v7`, `workflow/v21`, journal schema v21.
+
+Запрос модели явно задаёт `CanonicalModelRequest.operation`: обычный `Complete`
+или нативный `Compact`. Отсутствие operation означает обычный Complete;
+поддержка Compact всегда требует `ModelCapabilities.supports_compaction`.
+Host проверяет capability до provider I/O и передаёт выбранное описание модели
+в `BeforeContext.model_capabilities`; model-free подготовка получает `None`.
+Workflow не может подменить этот host-owned descriptor.
+
+Compact из hook использует тот же bound model callback, auxiliary attribution,
+учёт usage и cancellation. UI stream Compact подавляется по typed operation,
+независимо от формы metadata. В отличие от обычной auxiliary генерации, он
+проходит настроенные `BeforeModel` transforms; вложенный auxiliary Complete
+не запускает их повторно. Формат checkpoint принадлежит provider adapter:
+Core сохраняет ordered `Opaque` без интерпретации и отображения. Подготовка
+лишь предлагает replacement; durable history меняет workflow checkpoint после
+успеха. Replay использует записанный descriptor и сравнивает operation, не
+обращаясь к provider.
+
 Отдельные slots `compactor` и `tool_exposure`, их selections, exports и
 adapters удалены.
 Алгоритм подготовки выбирается обычным hook export в `modules.hooks`.
@@ -24,8 +42,8 @@ cancellation и бюджет родителя. Authority не зависит о�
 совмещения exports в одном process. Callback задачи восстанавливают parent scope.
 
 Model callback — auxiliary вызов с обычным shaping, validation, journal и usage.
-Он не потребляет root steering, не публикует основной ответ и не повторяет
-BeforeModel chain. Результат возвращается вызывающему модулю без автоматической
+Он не потребляет root steering и не публикует основной ответ; обычный Complete
+не повторяет BeforeModel chain. Результат возвращается вызывающему модулю без автоматической
 записи в conversation. Provider failure не подменяется специальным fallback.
 
 Tool callback проходит BoundTools, registry, policy, approval, safety и полную

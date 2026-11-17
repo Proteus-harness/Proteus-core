@@ -18,7 +18,7 @@ Codex определяются в [roadmap.md](../product/roadmap.md).
 - `coding.codex_loop` берёт последнее непустое assistant message
   как terminal output.
 
-Действующие версии: `workflow/v20`, `hook/v6`, journal schema v21 и config snapshot v8.
+Действующие версии: `workflow/v21`, `hook/v7`, journal schema v21 и config snapshot v8.
 
 Upstream anchors среза: `codex-rs/protocol/src/models.rs`,
 `codex-rs/codex-api/src/sse/responses.rs`,
@@ -65,7 +65,7 @@ requests, прямое исполнение ранее скрытого tool, jo
 ### Применение Патчей
 
 Codex-family profiles используют reference export `tool/codex_patch` через общий
-`tool/v6`. Parser, default `NormalizeToLf` replacement algorithm, verification
+`tool/v7`. Parser, default `NormalizeToLf` replacement algorithm, verification
 и порядок записи адаптированы из `codex-rs/apply-patch/src/` pinned commit;
 [provenance и ограничения](https://github.com/Proteus-harness/Proteus-modules/blob/main/tool/codex-patch/UPSTREAM.md)
 перечисляют точные upstream files.
@@ -263,7 +263,7 @@ parser, все формы команд и event lifecycle этим срезом 
 
 ### Продолжение После Модельной Ошибки
 
-`coding.codex_loop` возвращает выполненные шаги через общий `workflow/v20`
+`coding.codex_loop` возвращает выполненные шаги через общий `workflow/v21`
 failure envelope. Core сохраняет их до `TurnSettled(Error)`: следующий turn
 получает завершённые assistant items и tool results с исходными call ids.
 
@@ -278,7 +278,7 @@ model items и tool calls, `core/src/session/turn.rs` — завершённые
 и в [Proteus](https://github.com/Proteus-harness/Proteus-modules/blob/main/workflow/coding-workflow/src/codex_sampling.rs).
 Codex при этом обновляет context accounting: [preflight следующего turn](https://github.com/openai/codex/blob/67cc3c318dc8b5532db6ade4182b1dc6f3870889/codex-rs/core/src/session/turn.rs#L1032-L1061)
 проверяет сохранённую оценку. Proteus передаёт факты предыдущих запросов через
-`runtime.model_context` общего `workflow/v20`. [Расчёт в модуле](https://github.com/Proteus-harness/Proteus-modules/blob/main/workflow/coding-workflow/src/model_context.rs)
+`runtime.model_context` общего `workflow/v21`. [Расчёт в модуле](https://github.com/Proteus-harness/Proteus-modules/blob/main/workflow/coding-workflow/src/model_context.rs)
 повторяет `fill_to_context_window`: при известном raw window usable равен 95%,
 новая last-оценка — `max(usable - cumulative, 0)`, cumulative становится usable.
 Повторное переполнение того же окна может дать нулевую last-оценку: это не
@@ -400,9 +400,17 @@ background timeout сверх текущих bounds, upstream pruning 64 process
 remote execution этим срезом не реализованы. Проверки не подтверждают
 сохранение живых terminal handles при перезапуске component.
 
-### Local Compaction И Project Instructions
+### Компактация И Project Instructions
 
-Для обычного OpenAI-compatible provider перенесён local путь `core/src/compact.rs`
+`codex_compact` выбирает нативную ветку по host-owned
+`BeforeContext.model_capabilities.supports_compaction`. Она использует typed
+`ModelOperation::Compact` через общий callback выбранной модели; provider
+adapter владеет протоколом и непрозрачным checkpoint. Такой auxiliary запрос
+проходит настроенные BeforeModel transforms и сохраняет общие owner, usage,
+cancellation и workflow checkpoint semantics. Ошибка поддерживаемого native
+пути не означает разрешение молча перейти на текстовый summary.
+
+Для provider без capability перенесён local путь `core/src/compact.rs`
 того же baseline: точные prompt/prefix, текущие instructions/reasoning/cache,
 summary без tools и output cap, порог 90% известного raw window и сохранение
 последних пользовательских сообщений в пределах 20 000 approximate tokens.
@@ -485,7 +493,7 @@ cargo test -p proteus-reference-module --test conformance
 stream retry, полного compaction lifecycle, filesystem/network permissions,
 deferred tool discovery и AgentControl semantics.
 
-Item identity и typed phase проходят через `model/v13`, live events и app
+Item identity и typed phase проходят через `model/v14`, live events и app
 transcript. Responses fixture отдаёт added/delta/done/completed, включая
 позднюю фазу и multipart текст; regression сверяет live ids/text/offsets
 с journal и cold app transcript. Проверка интерфейса проверяет соседние items

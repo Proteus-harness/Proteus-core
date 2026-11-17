@@ -10,6 +10,65 @@ use crate::{
 use serde_json::json;
 
 #[tokio::test]
+async fn replay_preserves_opaque_in_checkpoint_ack_while_rebinding_actual_calls() {
+    let old = "recorded-call";
+    let new = "actual-call";
+    let user = CanonicalMessage::text(MessageRole::User, "continue");
+    let opaque = CanonicalMessage::new(
+        MessageRole::Assistant,
+        vec![ContentPart::Opaque {
+            format: old.into(),
+            data: json!({"encrypted_content":old,"id":old,"nested":[old]}),
+        }],
+    );
+    let original = ToolCall::new(old, "fixture", json!({"reference":old,"Opaque":{"id":old}}));
+    let actual = ToolCall::new(new, "fixture", json!({"reference":new,"Opaque":{"id":new}}));
+    let message =
+        |call| CanonicalMessage::new(MessageRole::Assistant, vec![ContentPart::ToolCall { call }]);
+    let original_message = message(original.clone());
+    let state = std::sync::Arc::new(ReplayState::new(
+        vec![],
+        vec![],
+        vec![],
+        vec![],
+        vec![],
+        &ReasoningConfig::default(),
+        user.id,
+    ));
+    let history = vec![user, opaque.clone()];
+    let mut expected_messages = history.clone();
+    expected_messages.push(original_message);
+    let recorder = ReplayCheckpointRecorder::new(
+        state.clone(),
+        history,
+        vec![RecordedCheckpoint {
+            previous_revision: 0,
+            revision: 1,
+            ack_messages: expected_messages.clone(),
+            messages: expected_messages,
+            bindings: vec![],
+            calls: vec![original],
+            position: (0, 0, 0),
+        }],
+    );
+    let ack = recorder
+        .checkpoint(WorkflowHistoryCheckpoint {
+            preparation_target: None,
+            history: WorkflowHistoryUpdate::new(vec![message(actual.clone())]),
+            tool_results: vec![WorkflowToolResultBinding::new(actual.clone())],
+        })
+        .await
+        .unwrap();
+    assert_eq!(ack.messages[1], opaque);
+    let ContentPart::ToolCall { call } = &ack.messages[2].parts[0].payload else {
+        panic!()
+    };
+    assert_eq!(call, &actual);
+    recorder.finish();
+    assert!(state.lock().issues.is_empty());
+}
+
+#[tokio::test]
 async fn checkpoint_compares_execution_before_any_tool_is_requested() {
     for changed in [false, true] {
         let original = ToolCall::new("source-id", "original-tool", json!({"source": 1}));

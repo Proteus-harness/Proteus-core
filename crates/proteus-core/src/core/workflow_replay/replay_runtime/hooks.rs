@@ -2,6 +2,7 @@
 use super::super::normalize::{
     calls_equal, messages_equal, outputs_equal, requests_equal, results_equal,
 };
+use super::canonical_rewrite::rewrite_response;
 use super::{ReplayState, mismatch};
 use crate::{
     contracts::{ExecutionHooks, HookEvent, HookInput, HookResponse, HookStepOutcome},
@@ -244,16 +245,19 @@ fn events_equal(actual: &HookEvent, expected: &HookEvent, ids: &HashMap<CallId, 
         (
             HookEvent::BeforeContext {
                 input: a,
+                model_capabilities: ac,
                 output: ao,
                 target: at,
             },
             HookEvent::BeforeContext {
                 input: b,
+                model_capabilities: bc,
                 output: bo,
                 target: bt,
             },
         ) => {
-            a.reason == b.reason
+            ac == bc
+                && a.reason == b.reason
                 && a.token_estimate == b.token_estimate
                 && a.window_tokens == b.window_tokens
                 && messages_equal(&a.messages, &b.messages, ids)
@@ -412,34 +416,6 @@ fn rewrite_preparation_identities(
     Ok(())
 }
 
-fn rewrite_response(
-    response: &HookResponse,
-    ids: &HashMap<CallId, CallId>,
-) -> Result<HookResponse> {
-    let mut value = serde_json::to_value(response)?;
-    rewrite_strings(&mut value, ids);
-    Ok(serde_json::from_value(value)?)
-}
-pub(super) fn rewrite_strings(value: &mut serde_json::Value, ids: &HashMap<CallId, CallId>) {
-    match value {
-        serde_json::Value::String(text) => {
-            if let Some(actual) = ids.get(text) {
-                *text = actual.clone();
-            }
-        }
-        serde_json::Value::Array(values) => {
-            for value in values {
-                rewrite_strings(value, ids);
-            }
-        }
-        serde_json::Value::Object(values) => {
-            for value in values.values_mut() {
-                rewrite_strings(value, ids);
-            }
-        }
-        _ => {}
-    }
-}
 fn boundary_name(event: &HookEvent) -> &'static str {
     match event {
         HookEvent::TurnStarted { .. } => "turn_started",

@@ -236,6 +236,7 @@ async fn compacted_journal_with_metadata(metadata: serde_json::Value) -> TestJou
         attribution,
         &task,
         HookEvent::BeforeContext {
+            model_capabilities: None,
             input: compaction_input.clone(),
             output: ContextPreparationOutput::unchanged(vec![user.clone()]),
             target: Some(crate::contracts::ContextPreparationTarget {

@@ -18,6 +18,8 @@ use crate::{
     },
 };
 
+#[path = "bound_model_tests/compaction.rs"]
+mod compaction;
 #[path = "bound_model_tests/deadline.rs"]
 mod deadline;
 #[path = "bound_model_tests/failure_progress.rs"]
