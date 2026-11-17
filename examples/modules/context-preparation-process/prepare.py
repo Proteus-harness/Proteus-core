@@ -235,7 +235,7 @@ def invoke(context: InvocationContext, method: str, params: Any) -> dict[str, An
         raise ProtocolError("hook event must be an object")
     if event.get("event") != "before_context":
         return {"result": {"action": "continue"}}
-    event = require_object(event, {"event", "input", "output", "target"}, "BeforeContext")
+    event = require_object(event, {"event", "input", "output", "target", "model_capabilities"}, "BeforeContext")
     prior = event["output"]
     if not isinstance(prior, dict) or not isinstance(prior.get("messages"), list):
         raise ProtocolError("BeforeContext output must be a preparation candidate")
