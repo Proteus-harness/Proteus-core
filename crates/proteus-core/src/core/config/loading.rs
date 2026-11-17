@@ -12,6 +12,8 @@ use super::{
     selected_config_value_mut,
 };
 
+mod connection_removal;
+
 impl AppConfig {
     pub async fn load(path: Option<&Path>) -> Result<Self> {
         Self::load_observed(path, &mut ConfigInputs::default()).await
@@ -432,7 +434,15 @@ fn load_config_file_value(
     stack: &mut BTreeSet<PathBuf>,
     inputs: &mut ConfigInputs,
 ) -> Result<Value> {
-    let mut value = load_config_value(path)?;
+    merge_config_file_value(path, load_config_value(path)?, stack, inputs)
+}
+
+fn merge_config_file_value(
+    path: &Path,
+    mut value: Value,
+    stack: &mut BTreeSet<PathBuf>,
+    inputs: &mut ConfigInputs,
+) -> Result<Value> {
     let includes = take_config_includes(&mut value)?;
     if includes.is_empty() {
         return Ok(value);

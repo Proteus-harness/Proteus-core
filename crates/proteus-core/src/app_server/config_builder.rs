@@ -1,6 +1,7 @@
 mod behaviors;
 mod component_packages;
 mod inline_source;
+mod model_connections;
 mod models;
 mod persistence;
 mod plugins;
@@ -127,6 +128,7 @@ impl AppServerHandle {
                 permission_mode,
                 addon_settings: None,
                 component_packages: Vec::new(),
+                remove_model_connections: Vec::new(),
             },
         )
         .await
@@ -160,6 +162,7 @@ impl AppServerHandle {
             permission_mode,
             addon_settings,
             component_packages,
+            remove_model_connections,
         } = request;
         let config_path = self
             .config_path
@@ -209,7 +212,7 @@ impl AppServerHandle {
                 AppConfig::load_with_settings_edits(config_path, model_edits.as_ref(), mode_edits)
                     .await?;
         }
-        let component_ids =
+        let mut component_ids =
             component_packages::apply(&mut next_config, component_packages, &self.cwd)?;
         if let Some(update) = addon_settings {
             if update
@@ -250,6 +253,11 @@ impl AppServerHandle {
         if let Some(mode) = permission_mode {
             next_config.permissions.mode = mode;
         }
+        component_ids.extend(model_connections::remove(
+            &mut next_config,
+            config_path,
+            &remove_model_connections,
+        )?);
         next_config.validate_semantics()?;
         let target = config_builder_target_path(Some(config_path))
             .context("config target is not available")?;

@@ -161,6 +161,15 @@ impl ProcessComponentConfig {
         })
     }
 
+    pub(crate) fn remove_export(&mut self, slot: &str, id: &str) {
+        if let Some(exports) = self.exports.get_mut(slot) {
+            exports.remove(id);
+            if exports.is_empty() {
+                self.exports.remove(slot);
+            }
+        }
+    }
+
     pub fn validate_for(&self, component_id: &str, path: &str) -> Result<()> {
         if component_id.trim().is_empty() {
             bail!("{path} component id must not be empty");

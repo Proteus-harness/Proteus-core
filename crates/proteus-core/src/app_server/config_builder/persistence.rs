@@ -233,7 +233,7 @@ pub(super) async fn persist_config_builder_with_components(
         let components = toml::to_string_pretty(&ComponentsToml {
             components: component_ids
                 .iter()
-                .map(|id| (id, &config.components[id]))
+                .filter_map(|id| config.components.get(id).map(|component| (id, component)))
                 .collect(),
         })
         .context("components cannot be represented as TOML")?
@@ -242,7 +242,18 @@ pub(super) async fn persist_config_builder_with_components(
             doc["components"] = toml_edit::table();
         }
         for id in component_ids {
-            doc["components"][id] = components["components"][id].clone();
+            match components
+                .get("components")
+                .and_then(|components| components.get(id))
+            {
+                Some(component) => doc["components"][id] = component.clone(),
+                None => {
+                    doc["components"]
+                        .as_table_like_mut()
+                        .context("config components must be a table")?
+                        .remove(id);
+                }
+            }
         }
     }
     if let Some(mut source) = outer {
@@ -364,7 +375,14 @@ async fn persist_json_profile(
             .as_object_mut()
             .context("config JSON components must be an object")?;
         for id in component_ids {
-            components.insert(id.clone(), next["components"][id].clone());
+            match next["components"].get(id) {
+                Some(component) => {
+                    components.insert(id.clone(), component.clone());
+                }
+                None => {
+                    components.remove(id);
+                }
+            }
         }
     }
     atomic_write(&physical, &serde_json::to_vec_pretty(&document)?).await

@@ -125,6 +125,9 @@ pub struct SetConfigBuilderRequest {
     /// Register installed process packages without selecting their exports.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub component_packages: Vec<ComponentPackageInstall>,
+    /// Remove source-owned model connections after checking their named-model users.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub remove_model_connections: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, Deserialize)]
