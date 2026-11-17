@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/proteus-contracts",
+    "crates/proteus-session-semantics",
     "crates/proteus-core",
     "crates/proteus-module-protocol",
     "crates/proteus-module-sdk",

@@ -1526,6 +1526,7 @@ dependencies = [
  "proteus-contracts",
  "proteus-module-protocol",
  "proteus-process-host",
+ "proteus-session-semantics",
  "ring",
  "rmcp",
  "rusqlite",
@@ -1569,6 +1570,19 @@ dependencies = [
  "anyhow",
  "libc",
  "serde_json",
+]
+
+[[package]]
+name = "proteus-session-semantics"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "anyhow",
+ "im",
+ "proteus-contracts",
+ "ring",
+ "serde",
+ "serde_json",
+ "uuid",
 ]
 
 [[package]]

@@ -22,6 +22,7 @@ pub enum ModuleKind {
     Policy,
     Workflow,
     Hook,
+    SessionStorage,
 }
 
 impl ModuleManifest {
@@ -76,6 +77,7 @@ pub mod slot {
     pub const TOOL: SlotId = Cow::Borrowed(ModuleKind::Tool.as_str());
     pub const POLICY: SlotId = Cow::Borrowed(ModuleKind::Policy.as_str());
     pub const HOOK: SlotId = Cow::Borrowed(ModuleKind::Hook.as_str());
+    pub const SESSION_STORAGE: SlotId = Cow::Borrowed(ModuleKind::SessionStorage.as_str());
     pub const WORKFLOW: SlotId = Cow::Borrowed(ModuleKind::Workflow.as_str());
 }
 
@@ -86,13 +88,14 @@ pub mod slot {
 /// namespace. `Tool` обозначает concrete tool registrations, а не выбираемый
 /// behavior slot с ключом `modules.tool`.
 impl ModuleKind {
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::Model,
         Self::Context,
         Self::Tool,
         Self::Policy,
         Self::Workflow,
         Self::Hook,
+        Self::SessionStorage,
     ];
 
     pub const fn as_str(self) -> &'static str {
@@ -103,6 +106,7 @@ impl ModuleKind {
             Self::Policy => "policy",
             Self::Workflow => "workflow",
             Self::Hook => "hook",
+            Self::SessionStorage => "session_storage",
         }
     }
 
