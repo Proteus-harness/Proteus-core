@@ -134,11 +134,8 @@ fn normalize(source: &mut Value, parent: Option<&ModelScope>) -> Result<ModelSco
     {
         scope.selected = object["active_provider"].as_str().map(str::to_owned);
     }
+    let selected = scope.selected_model()?;
     if let Some(name) = &scope.selected {
-        ensure!(
-            scope.presets.contains_key(name),
-            "unknown model alias {name:?}"
-        );
         object.insert("active_provider".into(), Value::String(name.clone()));
     }
     if !scope.presets.is_empty() {
@@ -152,7 +149,6 @@ fn normalize(source: &mut Value, parent: Option<&ModelScope>) -> Result<ModelSco
         }
     }
     capture_bindings(object, &mut scope);
-    let selected = scope.selected_model()?;
     let Some(control) = object
         .get_mut("agent_control")
         .and_then(Value::as_object_mut)

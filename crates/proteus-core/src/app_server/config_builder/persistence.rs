@@ -122,7 +122,8 @@ pub(super) async fn persist_config_builder_with_components(
     }
 
     let baseline = source_baseline(path).await?;
-    if model_source_changed(config, baseline.as_ref())?.0
+    let model_changes = model_source_changed(config, baseline.as_ref());
+    if model_changes.0
         && doc.get("model").is_none()
         && doc.get("active_provider").is_none()
         && let Some(outer) = &mut outer
@@ -133,6 +134,7 @@ pub(super) async fn persist_config_builder_with_components(
         &mut doc,
         config,
         baseline.as_ref(),
+        model_changes,
         !selection.is_empty(),
         AppConfig::inherited_model_choice_key(path)?,
     )?;
@@ -298,7 +300,8 @@ async fn persist_json_profile(
         Err(error) => return Err(error.into()),
     };
     let baseline = source_baseline(path).await?;
-    if model_source_changed(config, baseline.as_ref())?.0 && !selection.is_empty() {
+    let model_changes = model_source_changed(config, baseline.as_ref());
+    if model_changes.0 && !selection.is_empty() {
         let child = crate::core::selected_config_value_mut(&mut document, &selection)?;
         if child.get("model").is_none() && child.get("active_provider").is_none() {
             let (name, parents) = selection.split_last().unwrap();
@@ -325,6 +328,7 @@ async fn persist_json_profile(
         root,
         config,
         baseline.as_ref(),
+        model_changes,
         !selection.is_empty(),
         AppConfig::inherited_model_choice_key(path)?,
     )?;
@@ -409,24 +413,24 @@ fn model_settings_unchanged(config: &AppConfig, baseline: Option<&AppConfig>) ->
     })
 }
 
-fn model_source_changed(config: &AppConfig, baseline: Option<&AppConfig>) -> Result<(bool, bool)> {
+fn model_source_changed(config: &AppConfig, baseline: Option<&AppConfig>) -> (bool, bool) {
     let Some(baseline) = baseline else {
-        return Ok((true, false));
+        return (true, false);
     };
-    Ok((
+    (
         super::models::source_choice(config) != super::models::source_choice(baseline),
         config.providers != baseline.providers,
-    ))
+    )
 }
 
 fn persist_toml_model_source(
     document: &mut toml_edit::DocumentMut,
     config: &AppConfig,
     baseline: Option<&AppConfig>,
+    (choice_changed, presets_changed): (bool, bool),
     inline: bool,
     inherited_choice: Option<&str>,
 ) -> Result<()> {
-    let (choice_changed, presets_changed) = model_source_changed(config, baseline)?;
     let choice = super::models::source_choice(config);
     if let Some(key) = inherited_choice {
         validate_inherited_model_edit(config, choice_changed, presets_changed)?;
@@ -473,10 +477,10 @@ fn persist_json_model_source(
     source: &mut serde_json::Map<String, Value>,
     config: &AppConfig,
     baseline: Option<&AppConfig>,
+    (choice_changed, presets_changed): (bool, bool),
     inline: bool,
     inherited_choice: Option<&str>,
 ) -> Result<()> {
-    let (choice_changed, presets_changed) = model_source_changed(config, baseline)?;
     let choice = super::models::source_choice(config);
     if let Some(key) = inherited_choice {
         validate_inherited_model_edit(config, choice_changed, presets_changed)?;
