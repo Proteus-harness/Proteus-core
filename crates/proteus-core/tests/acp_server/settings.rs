@@ -135,8 +135,8 @@ async fn selectors_use_external_catalog_and_apply_to_journaled_request() {
         "_default"
     );
     change(&mut client, 10, &session, "reasoning_effort", "effort:none").await;
-    let options = change(&mut client, 11, &session, "mode", "plan").await;
-    assert_eq!(option(&options, "mode")["currentValue"], "plan");
+    let options = change(&mut client, 11, &session, "mode", "full_access").await;
+    assert_eq!(option(&options, "mode")["currentValue"], "full_access");
     client
         .request(
             12,
@@ -206,7 +206,7 @@ async fn selectors_reject_changes_while_prompt_awaits_permission() {
         .request(
             4,
             "session/set_config_option",
-            json!({"sessionId":session,"configId":"mode","value":"auto"}),
+            json!({"sessionId":session,"configId":"mode","value":"full_access"}),
         )
         .await;
     assert_eq!(client.response(4).await.0["error"]["code"], -32602);

@@ -1,6 +1,6 @@
 # Операции Hooks И Tools
 
-Действующая граница: `hook/v8`, `tool/v7`, `workflow/v21`, journal schema v21.
+Действующая граница: `hook/v8`, `tool/v7`, `workflow/v22`, journal schema v21.
 
 Запрос модели явно задаёт `CanonicalModelRequest.operation`: обычный `Complete`
 или нативный `Compact`. Отсутствие operation означает обычный Complete;

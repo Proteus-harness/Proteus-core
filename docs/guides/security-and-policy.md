@@ -178,8 +178,16 @@ Wildcard CORS применяется только к публичному `/heal
 `permissions.mode` задаёт режим доступа:
 
 - `plan` показывает и исполняет только `ReadOnly` tools;
-- `normal` использует `ApprovalPolicy` и `ApprovalTransport`;
-- `auto` разрешает `ReadOnly` и `WritesFiles` без approval, но запрещает `RunsCommands`, `Network` и `Dangerous`.
+- `normal` использует правила выбранной `ApprovalPolicy` и `ApprovalTransport`;
+- `full_access` автоматически разрешает вызовы любых `ToolSafety`, если policy не вернула `Deny`;
+- `auto` — прежний отдельный режим для сохранённых конфигураций и клиентов: разрешает `ReadOnly` и `WritesFiles` без approval, но запрещает `RunsCommands`, `Network` и `Dangerous`.
+
+Основная experimental-сборка `configs/config.toml` в `normal` запрашивает
+подтверждение записи и shell. Codex, Pi и OpenCode reference profiles
+сохраняют свои правила. UI предлагает `plan`, `normal`, `full_access`;
+`auto` отображается только как текущее legacy значение и никогда не повышается
+до полного доступа. Режим не выдаёт sandbox grants и не изменяет OS launch
+ограничения components, stdio MCP или shell.
 
 Codex-профиль по умолчанию использует `normal`. Его prompt предлагает выполнять
 применимые проверки в рамках задачи; отдельное разговорное подтверждение
@@ -196,12 +204,12 @@ visibility/execution одному `ApprovalPolicy`; agent adapter эту decisio
 обходит. Композиция
 deny-monotonic: явный `Deny` выбранной policy (или structural deny при её
 отсутствии), а также deny-правило `codex_policy`/`opencode_policy` остаётся
-`Deny` в любом режиме. `plan` и
-`auto` могут снять только `Ask` для разрешённого режимом safety class; их
+`Deny` в любом режиме, включая `full_access`. `plan`, `auto` и `full_access`
+могут снять только `Ask` для разрешённого режимом safety class; их
 собственные запреты по `ToolSafety` по-прежнему являются верхней границей.
 
 CLI может переопределить config через `--plan`, `--auto` или
-`--permission-mode plan|normal|auto`. Внешние UI-клиенты могут переключать
+`--permission-mode plan|normal|full_access|auto`. Внешние UI-клиенты могут переключать
 режим для следующих turns через `StdioRequest::SetPermissionMode`.
 Переключение не меняет config-файл и не перезапускает app-server. В client-side
 plan flow UI может просить модель вернуть staged read-only plan, а после ответа
@@ -501,7 +509,7 @@ attribute файла совпадает с configured executable `clean` или 
 ```
 
 Важно: решение `ask_write` без ослабления применяется в
-`permissions.mode = "normal"`. В `plan`/`auto` его `Deny` сохраняется, а `Ask`
+`permissions.mode = "normal"`. В `plan`/`auto`/`full_access` его `Deny` сохраняется, а `Ask`
 может быть снят только для разрешённого режимом safety class. CLI single-run и
 line REPL имеют интерактивный `ApprovalTransport`. Если итоговая policy
 возвращает `Ask`, `ToolOrchestrator` пишет `ApprovalRequested`, ждёт ответ

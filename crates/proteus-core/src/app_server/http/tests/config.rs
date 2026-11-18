@@ -83,7 +83,7 @@ async fn route_config_builder_returns_editable_module_slots() {
     );
     assert_eq!(
         snapshot.get("permission_modes"),
-        Some(&json!(["plan", "normal", "auto"]))
+        Some(&json!(["plan", "normal", "full_access"]))
     );
 
     let typed: proteus_contracts::app_protocol::config_builder::ConfigBuilderSnapshot =

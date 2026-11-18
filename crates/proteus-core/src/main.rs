@@ -90,6 +90,8 @@ struct Cli {
 enum CliPermissionMode {
     Plan,
     Normal,
+    #[value(name = "full_access")]
+    FullAccess,
     Auto,
 }
 
@@ -99,6 +101,7 @@ impl From<CliPermissionMode> for PermissionMode {
             CliPermissionMode::Plan => Self::Plan,
             CliPermissionMode::Normal => Self::Normal,
             CliPermissionMode::Auto => Self::Auto,
+            CliPermissionMode::FullAccess => Self::FullAccess,
         }
     }
 }

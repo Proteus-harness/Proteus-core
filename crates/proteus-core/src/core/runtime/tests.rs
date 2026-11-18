@@ -501,7 +501,9 @@ async fn runtime_writes_config_snapshot_when_session_is_persisted() {
         .set_reasoning_effort(Some("high".to_owned()))
         .await
         .unwrap();
-    runtime.set_permission_mode(PermissionMode::Plan).await;
+    runtime
+        .set_permission_mode(PermissionMode::FullAccess)
+        .await;
     runtime.run("after reload".to_owned()).await.unwrap();
 
     let records = runtime
@@ -525,7 +527,10 @@ async fn runtime_writes_config_snapshot_when_session_is_persisted() {
     assert_eq!(turn_snapshot.profile_name, "reloaded-profile");
     assert_eq!(turn_snapshot.model.unwrap().model, "runtime-model-override");
     assert_eq!(turn_snapshot.reasoning.effort.as_deref(), Some("high"));
-    assert_eq!(turn_snapshot.permission_mode_default, PermissionMode::Plan);
+    assert_eq!(
+        turn_snapshot.permission_mode_default,
+        PermissionMode::FullAccess
+    );
 }
 
 #[tokio::test]

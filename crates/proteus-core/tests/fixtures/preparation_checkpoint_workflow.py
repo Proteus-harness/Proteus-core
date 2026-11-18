@@ -1,4 +1,4 @@
-"""Exercise accepted preparation revision and lost-ack guards through workflow/v21."""
+"""Exercise accepted preparation revision and lost-ack guards through workflow/v22."""
 import json
 import sys
 import uuid
@@ -10,8 +10,8 @@ from component_runtime import HostError, ProtocolError, run_component
 def initialize(params):
     exports = []
     for export in params["exports"]:
-        if (export["slot"], export["contract_version"], export["composition"]) != ("workflow", "v21", "select_one"):
-            raise ProtocolError("expected workflow/v21")
+        if (export["slot"], export["contract_version"], export["composition"]) != ("workflow", "v22", "select_one"):
+            raise ProtocolError("expected workflow/v22")
         exports.append({**{key: export[key] for key in ("slot", "module_id", "contract_version", "composition")}, "module_features": [], "config_schema": None})
     return {"protocol_version": "v3", "component_id": params["component_id"], "exports": exports}
 

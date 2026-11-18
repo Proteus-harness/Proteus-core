@@ -371,7 +371,7 @@ mod tests {
             ("context", "v2", "v3"),
             ("context_provider", "v3", "v4"),
             ("model", "v13", "v14"),
-            ("workflow", "v20", "v21"),
+            ("workflow", "v21", "v22"),
             ("hook", "v7", "v8"),
             ("tool", "v6", "v7"),
             ("policy", "v1", "v2"),

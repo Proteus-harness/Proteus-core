@@ -175,7 +175,7 @@ async fn model_and_behavior_overrides_compose_in_both_orders_and_survive_resume(
         .unwrap();
     assert!(server.runtime.tool_entries().await.is_empty());
     server
-        .set_permission_mode(PermissionMode::Auto)
+        .set_permission_mode(PermissionMode::FullAccess)
         .await
         .unwrap();
     let session = server.session_dir_path().unwrap();
@@ -191,7 +191,7 @@ async fn model_and_behavior_overrides_compose_in_both_orders_and_survive_resume(
     .unwrap();
     assert_eq!(selected(&resumed).await, "quiet");
     assert_eq!(resumed.runtime.model_ref().await.unwrap().model, "fast");
-    assert_eq!(resumed.permission_mode().await, PermissionMode::Auto);
+    assert_eq!(resumed.permission_mode().await, PermissionMode::FullAccess);
     assert!(resumed.runtime.tool_entries().await.is_empty());
     let fresh = launch(&path, root.path()).await;
     assert_eq!(selected(&fresh).await, DEFAULT);
@@ -501,4 +501,29 @@ async fn deletion_while_closed_is_durable_before_a_definition_is_restored() {
     assert_eq!(selected(&resumed).await, DEFAULT);
     assert!(!resumed.runtime.tool_entries().await.is_empty());
     resumed.shutdown().await;
+}
+
+#[tokio::test]
+async fn legacy_client_can_set_auto_without_it_becoming_a_default_choice() {
+    let root = tempfile::tempdir().unwrap();
+    let server = AgentAppServer::launch(config(), root.path().into(), None)
+        .await
+        .unwrap();
+    server
+        .set_session_setting(SessionSettingUpdate {
+            id: "mode".into(),
+            value: json!("auto"),
+        })
+        .await
+        .unwrap();
+    assert_eq!(server.permission_mode().await, PermissionMode::Auto);
+    server
+        .set_session_setting(SessionSettingUpdate {
+            id: "mode".into(),
+            value: json!("full_access"),
+        })
+        .await
+        .unwrap();
+    assert_eq!(server.permission_mode().await, PermissionMode::FullAccess);
+    server.shutdown().await;
 }

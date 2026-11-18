@@ -1528,7 +1528,7 @@ continuations не выполняются; иной вид результата 
 
 ```toml
 [permissions]
-mode = "normal" # plan | normal | auto
+mode = "normal" # plan | normal | full_access
 
 [module_config.policy.ask_write]
 allow = ["search", "read_file", "grep"]
@@ -1536,7 +1536,19 @@ ask_before = ["apply_patch", "write_file", "shell"]
 ```
 
 `ModeAwarePolicy` применяется в core поверх выбранной process policy.
-Модуль не может обойти `ToolSafety` или approval transport.
+Модуль не может обойти `ToolSafety` или approval transport. `plan` допускает
+только `ReadOnly`; `normal` применяет правила выбранного профиля; `full_access`
+снимает `Ask` для всех safety classes, сохраняя явные `Deny` и отдельные
+ограничения sandbox. В основной experimental-сборке `configs/config.toml`
+`normal` запрашивает подтверждение записи и shell; точные reference profiles
+Codex, Pi и OpenCode задают собственные правила.
+
+Сохранённый `auto` остаётся прежним отдельным режимом: разрешены чтение и
+запись, команды, сеть и опасные инструменты запрещены. Он не переводится в
+`full_access` и принимается действующими config/API/CLI клиентами, но не
+предлагается для нового выбора. Session settings показывают его лишь как
+текущее legacy значение. Config Builder публикует `plan`, `normal`,
+`full_access`; сохранение других настроек не меняет прежний `auto`.
 
 Смена mode текущей сессии — временный override: она не меняет default профиля
 и не переносится в файл при сохранении других настроек, в том числе первом

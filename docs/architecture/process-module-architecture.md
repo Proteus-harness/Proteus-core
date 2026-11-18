@@ -427,7 +427,7 @@ Rust host и модуль используют один
 | tool | v7 | `list`, `invoke`, optional `terminal` | `host.model.complete`, `host.tools.execute`, `host.conversation.read`, `host.conversation.snapshot` |
 | context | v3 | `build` | `host.context.provide` |
 | model | v14 | `describe`, `stream`, optional `catalog`, `quota`, `estimate_input` | `host.model.emit` (acknowledged canonical events) |
-| workflow | v21 | `run` | runtime status, context, model, context preparation, history checkpoint, tool visibility/selection/execution, events |
+| workflow | v22 | `run` | runtime status, context, model, context preparation, history checkpoint, tool visibility/selection/execution, events |
 
 Canonical source:
 `crates/proteus-module-protocol/src/authority.rs`. Изменение таблицы требует
@@ -475,7 +475,12 @@ constructor задаёт `false`, модуль обязан передать п�
 версии этих contracts и ToolSpec без поля не принимаются. Wire остаётся v3;
 параллельность вызовов не меняет composition slot-а и его host authority.
 
-`workflow/v21` использует обязательный `runtime.execution_id`, явные nullable
+`workflow/v22` принимает `runtime.permission_mode = "full_access"` как отдельное
+авторазрешение вызовов с сохранением явных policy denials и независимых sandbox
+ограничений. Прежний `auto` не меняет смысл. Модули с типизированным runtime
+должны использовать этот контракт; старый `workflow/v21` отклоняется на handshake.
+
+`workflow/v22` использует обязательный `runtime.execution_id`, явные nullable
 `runtime.conversation` и `runtime.model_ref`. Conversation содержит полный
 набор session/thread/turn ids; частичная attribution не принимается. Standalone
 invocation передаёт `conversation: null` и может передать пустую history.
@@ -488,7 +493,7 @@ invocation modes используют один registry/policy/approval/safety p
 Ненастроенная модель отсутствует и в wire reference, и в ExecutionContext;
 `host.model.complete/stream` возвращает явную ошибку, без fake adapter.
 
-`workflow/v21` передаёт в `runtime` непрозрачный `intent: string | null` и
+`workflow/v22` передаёт в `runtime` непрозрачный `intent: string | null` и
 эффективный `permission_mode` запуска. Семантику имени определяет выбранный
 workflow; неподдерживаемое намерение должно давать явную ошибку, а не обычный
 запуск с проигнорированными параметрами. Поле не расширяет authority: host
@@ -517,7 +522,7 @@ Core восстанавливает их из journal либо памяти; в�
 `coding.codex_loop` представляет их request-only маркером `<turn_aborted>`
 из выбранного upstream; marker не становится новым принятым вводом пользователя.
 
-`workflow/v21` возвращает strict terminal envelope: `status = "success"` с
+`workflow/v22` возвращает strict terminal envelope: `status = "success"` с
 `result: WorkflowOutput` либо `status = "error"` с `failure: WorkflowFailure`.
 Ошибка алгоритма может содержать `history: WorkflowHistoryUpdate` — завершённые
 `new_messages`, optional `history_replacement` и `compactions`; `model_failure`
@@ -600,7 +605,7 @@ HTTP server также проверяет эту привязку при отк�
 
 ## Model Stream В Workflow
 
-`workflow/v21` предоставляет всем exports два callbacks:
+`workflow/v22` предоставляет всем exports два callbacks:
 
 - `host.model.stream.start(WorkflowCompleteModelRequest) -> { stream_id }`;
 - `host.model.stream.next({ stream_id }) -> WorkflowModelStreamItem` с
@@ -939,7 +944,7 @@ routing или authority. Другие неизвестные поля по-пр
 `ModelCapabilities.supports_compaction`; unsupported операция отклоняется host
 до model invocation. Это та же операция через существующие bound model callbacks
 workflow, hook и tool, а не отдельный HTTP path или привилегия конкретного export.
-Поэтому согласованный cut включает `workflow/v21`, `hook/v8` и `tool/v7`.
+Поэтому согласованный cut включает `workflow/v22`, `hook/v8` и `tool/v7`.
 В `BeforeContext.model_capabilities` host сообщает описание выбранной модели;
 отсутствие descriptor означает неизвестную capability, а не разрешение Compact.
 
@@ -1048,7 +1053,7 @@ event; это причина, а не команда Core повторить з�
 без завершения, сохраняя остальные
 ошибки данных и deadline отдельными. Codex workflow принимает решение о повторе
 с подтверждённой историей; preparation hook сохраняет свою политику повторов.
-Действуют `model/v14`, `workflow/v21`, `hook/v8`, `tool/v7` и journal schema v21,
+Действуют `model/v14`, `workflow/v22`, `hook/v8`, `tool/v7` и journal schema v21,
 без readers старых форм.
 Передача `ToolCall` в существующем `CanonicalMessage` не меняет wire/storage DTO.
 
@@ -1158,7 +1163,7 @@ Root вызывает `before_stop { task, history, output, attempt, continuatio
 остаётся best-effort и не возобновляет execution. Replay исполняет тот же root
 review loop с записанными responses, без запуска hook executables.
 
-`workflow/v21` требует nullable `runtime.continuation`. Значение содержит
+`workflow/v22` требует nullable `runtime.continuation`. Значение содержит
 `attempt`, `reason`, `current_user_message_id`, `history: WorkflowHistoryUpdate`.
 При continuation input history включает прошлый кандидат и может заканчиваться
 assistant/tool; текущий user определяется явным anchor. Output/checkpoints/

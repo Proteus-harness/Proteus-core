@@ -56,9 +56,9 @@ project_instruction_files = ["AGENTS.override.md", "AGENTS.md"]
 providers = ["project_instructions", "skills", "environment"]
 
 [module_config.policy.codex_policy]
-allow = ["skill", "search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff", "request_user_input", "update_plan", "apply_patch", "write_file", "write_stdin"]
-allow_sandboxed = ["shell", "exec_command"]
-ask_before = ["lsp_diagnostics", "shell", "exec_command", "request_permissions", "remember_fact"]
+allow = ["skill", "search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff", "request_user_input", "update_plan"]
+allow_sandboxed = []
+ask_before = ["apply_patch", "write_file", "write_stdin", "lsp_diagnostics", "shell", "exec_command", "request_permissions", "remember_fact"]
 
 [components.reference-workflow]
 command = "proteus-coding-workflow-module"

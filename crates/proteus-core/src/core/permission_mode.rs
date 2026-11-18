@@ -47,6 +47,7 @@ impl ModeAwarePolicy {
                     }
                 }
             },
+            PermissionMode::FullAccess => PolicyDecision::Allow,
             PermissionMode::Normal => inner_decision,
         }
     }
@@ -243,5 +244,54 @@ mod tests {
                 PolicyDecision::Deny { .. }
             ));
         }
+    }
+    #[test]
+    fn full_access_approves_all_safety_classes_without_overriding_denials_or_unknown_tools() {
+        for safety in [
+            ToolSafety::ReadOnly,
+            ToolSafety::WritesFiles,
+            ToolSafety::RunsCommands,
+            ToolSafety::Network,
+            ToolSafety::Dangerous,
+        ] {
+            for decision in [
+                PolicyDecision::Allow,
+                PolicyDecision::Ask {
+                    reason: "confirm".into(),
+                },
+                PolicyDecision::Deny {
+                    reason: "hard deny".into(),
+                },
+            ] {
+                let expected = if matches!(&decision, PolicyDecision::Deny { .. }) {
+                    decision.clone()
+                } else {
+                    PolicyDecision::Allow
+                };
+                let policy = ModeAwarePolicy::new(
+                    PermissionMode::FullAccess,
+                    Arc::new(FixedPolicy(decision)),
+                );
+                assert_eq!(
+                    policy.evaluate(&call("tool"), &ctx("tool", safety.clone())),
+                    expected
+                );
+                assert_eq!(
+                    policy.evaluate_visibility(&visibility_ctx("tool", safety.clone())),
+                    expected
+                );
+            }
+        }
+        let policy = ModeAwarePolicy::new(
+            PermissionMode::FullAccess,
+            Arc::new(FixedPolicy(PolicyDecision::Allow)),
+        );
+        assert!(matches!(
+            policy.evaluate(
+                &call("missing"),
+                &PolicyContext::new(PathBuf::from("/workspace"), None)
+            ),
+            PolicyDecision::Deny { .. }
+        ));
     }
 }

@@ -33,6 +33,7 @@ async fn concurrent_saves_publish_the_same_profile_as_disk() {
         .await
         .unwrap();
     let snapshot = server.config_builder_snapshot().await;
+    assert_eq!(snapshot.permission_modes, ["plan", "normal", "full_access"]);
     let schema = snapshot.model_modules[0]
         .config_schema
         .as_ref()
@@ -51,6 +52,7 @@ async fn concurrent_saves_publish_the_same_profile_as_disk() {
     for mode in [
         PermissionMode::Plan,
         PermissionMode::Auto,
+        PermissionMode::FullAccess,
         PermissionMode::Normal,
         PermissionMode::Plan,
     ] {

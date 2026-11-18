@@ -15,7 +15,7 @@
 вызов получает только права своего слота.
 
 Внешние модули работают через Component Runtime v2 и протокол wire v3. У
-`workflow` действует контракт v21, у `hook` — v8, у `tool` — v7, у `model` — v14.
+`workflow` действует контракт v22, у `hook` — v8, у `tool` — v7, у `model` — v14.
 Хранение сессий использует отдельный `session_storage/v1`.
 Версии и разрешённые методы остальных слотов перечислены в
 [описании процессной границы](process-module-architecture.md). Один процесс
@@ -305,7 +305,7 @@ Plan-фаза ограничивает и выбранные tools, и compariso
 `runtime.permission_mode`; Core не знает их инструкций. Подробности и команды —
 в [runtime-and-events.md](../guides/runtime-and-events.md).
 
-`workflow/v21` возвращает success с `WorkflowOutput` либо error с
+`workflow/v22` возвращает success с `WorkflowOutput` либо error с
 `WorkflowFailure`. Ошибка может явно вернуть выполненную часть истории через
 `WorkflowHistoryUpdate`; Core проверяет её и сохраняет до terminal `Error`.
 `coding.codex_loop` использует этот путь после сбоя model call, включая
@@ -358,7 +358,7 @@ Checkpoint связывает исходный call в history с явно об�
 исполнение без преобразования. Подмена module не требует имени Codex в host.
 
 `coding.project_check` — reference code-heavy controller на том же
-`workflow/v21`. Он детерминированно вызывает `git_status`, определяет project по
+`workflow/v22`. Он детерминированно вызывает `git_status`, определяет project по
 root marker, запускает фиксированную test command и, если модель настроена, обращается к ней только
 один раз для объяснения failed test. Success path не вызывает model, context
 или context preparation. Это architecture probe, не default workflow и не special

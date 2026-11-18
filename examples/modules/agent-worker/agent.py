@@ -30,7 +30,7 @@ from checkpoint import accept_checkpoint  # noqa: E402
 
 SLOT = "workflow"
 MODULE_ID = "python_agent_loop"
-CONTRACT_VERSION = "v21"
+CONTRACT_VERSION = "v22"
 
 EXPORT_INITIALIZE_FIELDS = {
     "slot",

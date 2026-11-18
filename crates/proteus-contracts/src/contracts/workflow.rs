@@ -24,7 +24,7 @@ use crate::{
     model_standard::{CanonicalMessage, CanonicalModelRequest, InstructionBlock},
 };
 
-pub const PROCESS_WORKFLOW_CONTRACT_VERSION: &str = "v21";
+pub const PROCESS_WORKFLOW_CONTRACT_VERSION: &str = "v22";
 pub const PROCESS_WORKFLOW_METHOD: &str = "run";
 
 pub const WORKFLOW_HOST_RUNTIME_STATUS_METHOD: &str = "host.runtime.status";

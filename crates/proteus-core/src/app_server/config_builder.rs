@@ -385,9 +385,9 @@ pub(super) fn config_builder_snapshot_from_topology(
             })
             .collect(),
         permission_mode: state.permission_mode,
-        permission_modes: PERMISSION_MODES
+        permission_modes: PermissionMode::SELECTABLE
             .iter()
-            .map(|&mode| mode.to_owned())
+            .map(|mode| mode.as_str().to_owned())
             .collect(),
         active_modules: state.active_modules,
         hooks: state.hooks,
@@ -445,15 +445,9 @@ fn is_config_builder_module_slot(slot: &str) -> bool {
         .is_some_and(|descriptor| descriptor.selection == CoreSlotSelection::ModulesConfig)
 }
 
-const PERMISSION_MODES: [&str; 3] = ["plan", "normal", "auto"];
-
-/// Snake_case-имя PermissionMode через serde: остаётся в согласии с wire
-/// форматом `POST /mode` и `[permissions] mode` без ручного match.
+/// Каноническое имя для `POST /mode` и `[permissions] mode`.
 fn permission_mode_str(mode: PermissionMode) -> String {
-    serde_json::to_value(mode)
-        .ok()
-        .and_then(|value| value.as_str().map(str::to_owned))
-        .unwrap_or_else(|| "normal".to_owned())
+    mode.as_str().to_owned()
 }
 
 pub(super) fn validate_config_builder_modules(

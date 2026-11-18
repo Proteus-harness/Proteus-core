@@ -314,7 +314,7 @@ Core mechanisms
 checkpoints и chat events требуют разговорного контекста; подготовка частного
 материала через hooks допускает отсутствие conversation и модели.
 
-Вход и результат текущего `workflow/v21` остаются agent-shaped: обязательны
+Вход и результат текущего `workflow/v22` остаются agent-shaped: обязательны
 `AgentTask`, аргумент history `Vec<CanonicalMessage>` и terminal `AgentOutput`.
 Отдельный вызов через `RuntimeRegistry::workflow_execution_context`
 использует нижние capabilities/process substrate, но публичный
@@ -347,7 +347,7 @@ approval и ошибку инструмента; исходные tools и model
 
 `AppConfig` без `active_provider` собирается без model export. Ошибка тестов
 возвращается с выводом команды; при настроенной модели controller добавляет
-объяснение. `workflow/v21` использует общий `execution_id`, optional
+объяснение. `workflow/v22` использует общий `execution_id`, optional
 `conversation { session_id, thread_id, turn_id }` и optional `model_ref`.
 Самостоятельный workflow может передать пустую history. `AgentTask` и
 `AgentOutput` остаются общими task/result DTO этого slot.

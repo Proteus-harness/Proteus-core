@@ -7,6 +7,20 @@ fn args(values: &[&str]) -> Vec<String> {
 }
 
 #[test]
+fn permission_mode_cli_accepts_full_access_and_preserves_legacy_auto() {
+    for (value, expected) in [
+        ("full_access", PermissionMode::FullAccess),
+        ("auto", PermissionMode::Auto),
+    ] {
+        let cli = Cli::try_parse_from(["proteus", "--permission-mode", value]).unwrap();
+        assert_eq!(
+            resolve_permission_mode(&cli, PermissionMode::Normal).unwrap(),
+            expected
+        );
+    }
+}
+
+#[test]
 fn cli_identity_matches_the_installed_release_binary() {
     let command = <Cli as clap::CommandFactory>::command();
     assert_eq!(command.get_name(), "proteus");

@@ -357,7 +357,7 @@ recorded/replay outcome и usage, text equality, local/hosted/citation counts и
 
 ### Workflow Replay v0
 
-Replay сохраняет записанный `ExecutionId`: он доступен workflow/v21 и может
+Replay сохраняет записанный `ExecutionId`: он доступен workflow/v22 и может
 участвовать в deterministic ids и terminal metadata.
 
 `proteus --config <profile> replay workflow

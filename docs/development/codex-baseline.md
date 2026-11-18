@@ -18,7 +18,7 @@ Codex определяются в [roadmap.md](../product/roadmap.md).
 - `coding.codex_loop` берёт последнее непустое assistant message
   как terminal output.
 
-Действующие версии: `workflow/v21`, `hook/v8`, journal schema v21 и config snapshot v8.
+Действующие версии: `workflow/v22`, `hook/v8`, journal schema v21 и config snapshot v8.
 
 Upstream anchors среза: `codex-rs/protocol/src/models.rs`,
 `codex-rs/codex-api/src/sse/responses.rs`,
@@ -263,7 +263,7 @@ parser, все формы команд и event lifecycle этим срезом 
 
 ### Продолжение После Модельной Ошибки
 
-`coding.codex_loop` возвращает выполненные шаги через общий `workflow/v21`
+`coding.codex_loop` возвращает выполненные шаги через общий `workflow/v22`
 failure envelope. Core сохраняет их до `TurnSettled(Error)`: следующий turn
 получает завершённые assistant items и tool results с исходными call ids.
 
@@ -278,7 +278,7 @@ model items и tool calls, `core/src/session/turn.rs` — завершённые
 и в [Proteus](https://github.com/Proteus-harness/Proteus-modules/blob/main/workflow/coding-workflow/src/codex_sampling.rs).
 Codex при этом обновляет context accounting: [preflight следующего turn](https://github.com/openai/codex/blob/67cc3c318dc8b5532db6ade4182b1dc6f3870889/codex-rs/core/src/session/turn.rs#L1032-L1061)
 проверяет сохранённую оценку. Proteus передаёт факты предыдущих запросов через
-`runtime.model_context` общего `workflow/v21`. [Расчёт в модуле](https://github.com/Proteus-harness/Proteus-modules/blob/main/workflow/coding-workflow/src/model_context.rs)
+`runtime.model_context` общего `workflow/v22`. [Расчёт в модуле](https://github.com/Proteus-harness/Proteus-modules/blob/main/workflow/coding-workflow/src/model_context.rs)
 повторяет `fill_to_context_window`: при известном raw window usable равен 95%,
 новая last-оценка — `max(usable - cumulative, 0)`, cumulative становится usable.
 Повторное переполнение того же окна может дать нулевую last-оценку: это не

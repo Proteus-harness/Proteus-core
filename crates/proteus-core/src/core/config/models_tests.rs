@@ -33,7 +33,13 @@ async fn load(value: &Value) -> (tempfile::TempDir, std::path::PathBuf, AppConfi
 
 #[tokio::test]
 async fn names_are_declared_once_and_resolve_in_root_and_inline_roles_without_rights_inheritance() {
-    let (_directory, path, root) = load(&source()).await;
+    let mut value = source();
+    value["permissions"]["mode"] = json!("full_access");
+    let (_directory, path, root) = load(&value).await;
+    assert_eq!(
+        root.permissions.mode,
+        crate::domain::PermissionMode::FullAccess
+    );
     let model = root.active_model_config().unwrap();
     assert_eq!(model.model, "large");
     assert_eq!(model.reasoning.effort.as_deref(), Some("xhigh"));

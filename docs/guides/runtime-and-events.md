@@ -147,7 +147,7 @@ model settings настраиваются в Proteus до запуска, отд
 | `session/update` | Текст и reasoning, начало/результат tool calls; completed message дополняет streamed prefix, не дублирует его |
 | `session/request_permission` | `allow_once` / `reject_once` через действующий ApprovalTransport; отменённый/неверный ответ не разрешает исполнение |
 | `session/cancel` | Отмена текущего run; после settlement и последних updates исходный prompt получает `stopReason: cancelled` |
-| `session/set_mode` | `normal`, `plan`, `auto` — permission modes Proteus; смена во время активного prompt отклоняется |
+| `session/set_mode` | `plan`, `normal`, `full_access` — permission modes Proteus (`auto` принимается как прежний режим); смена во время активного prompt отклоняется |
 | `session/set_config_option` | Селекторы `model`, `reasoning_effort`, `mode`; полный обновлённый список возвращается в response и `config_option_update` |
 | `session/update: plan` | Успешный tool result с metadata `plan: [{step, status}]` отображается как план; статусы `pending`, `in_progress`, `completed`, пустой список очищает план |
 | EOF/ошибка transport | Все sessions отменяют активные runs и дожидаются записи terminal state |
@@ -215,7 +215,7 @@ CLI REPL и приложение используют общий каталог 
 /usage
 /remember [preference|fact] <content>
 /model [MODEL]
-/mode [normal|plan|auto]
+/mode [normal|plan|full_access]
 ```
 
 Это host-owned служебные команды: они используют существующие backend операции,
@@ -1711,7 +1711,7 @@ compactions должна завершаться сохранённым conversat
 resume используют сокращённое представление. Runtime атомарно заменяет историю
 этим snapshot-ом и затем дописывает `new_messages`.
 
-`workflow/v21` также позволяет вернуть `WorkflowFailure` с накопленным history
+`workflow/v22` также позволяет вернуть `WorkflowFailure` с накопленным history
 update. Core проверяет и сохраняет его до settlement со статусом `Error`.
 `coding.codex_loop` использует этот путь: если tool завершился, а следующий
 model call упал, новый turn получает прежний call/result и после перезапуска
