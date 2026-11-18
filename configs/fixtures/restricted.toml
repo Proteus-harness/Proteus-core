@@ -1,0 +1,18 @@
+# Тестовая Linux-сборка с частичной изоляцией process components.
+# Остальные capabilities, model и peers сохраняют доверенный запуск.
+include = [
+  "../fragments/openai-chatgpt.toml",
+  "../fragments/codex-behavior.toml",
+  "../fragments/codex-profile.toml",
+  "../fragments/restricted-components.toml",
+  "../fragments/codex-subscription.toml",
+]
+
+[profile]
+name = "restricted"
+
+# Instructions разрешаются относительно конечного config file.
+[[instructions]]
+kind = "System"
+file = "../prompts/codex-default.md"
+priority = 100

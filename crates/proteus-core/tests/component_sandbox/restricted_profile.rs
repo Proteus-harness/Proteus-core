@@ -4,7 +4,7 @@ use proteus_core::core::{
     WorkflowReplayOptions, replay_workflow,
 };
 
-/// Exercise the shipped composition with real restricted workers. Only the
+/// Exercise the packaged fixture with real restricted workers. Only the
 /// model, executable locations and personal state are fixtures.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn shipped_restricted_profile_runs_search_callbacks_and_replays_a_file_turn() -> Result<()> {
@@ -23,7 +23,7 @@ async fn shipped_restricted_profile_runs_search_callbacks_and_replays_a_file_tur
         "read_file PROFILE_SEARCH_SENTINEL\n",
     )?;
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let mut config = AppConfig::load(Some(&root.join("configs/restricted.config.toml"))).await?;
+    let mut config = AppConfig::load(Some(&root.join("configs/fixtures/restricted.toml"))).await?;
     let fake = test_model::config();
     config
         .components

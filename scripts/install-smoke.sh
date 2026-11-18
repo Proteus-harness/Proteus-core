@@ -65,11 +65,13 @@ test -f "${config_home}/configs/config.toml"
 test ! -e "${config_home}/configs/agent.toml"
 test -f "${config_home}/configs/codex.config.toml"
 test -f "${config_home}/configs/pi.config.toml"
-for profile in codex-task codex-subscription extended-subscription code-mode opencode; do
+for profile in codex-task codex-subscription opencode; do
   test -f "${config_home}/configs/${profile}.config.toml"
 done
-test -f "${config_home}/configs/restricted.config.toml"
-test -f "${config_home}/configs/context-search-chatgpt.config.toml"
+test -f "${config_home}/configs/fixtures/restricted.toml"
+for profile in extended-subscription code-mode restricted context-search-chatgpt; do
+  test ! -e "${config_home}/configs/${profile}.config.toml"
+done
 test -f "${config_home}/configs/codex-explore.config.toml"
 test -f "${config_home}/configs/codex-coder.config.toml"
 test -f "${config_home}/configs/fragments/openai-chatgpt.toml"
@@ -104,9 +106,9 @@ require_text "openai_codex" "${output_dir}/subscription-doctor.txt"
 
 # Копируем установленный restricted profile с теми же includes и sandbox grants;
 # модель — synthetic fake.
-restricted_config="${config_home}/configs/smoke-restricted.toml"
+restricted_config="${config_home}/configs/fixtures/smoke-restricted.toml"
 printf '%s\n' 'active_provider = "fake"' >"${restricted_config}"
-cat "${config_home}/configs/restricted.config.toml" >>"${restricted_config}"
+cat "${config_home}/configs/fixtures/restricted.toml" >>"${restricted_config}"
 cat >>"${restricted_config}" <<'EOF'
 
 [providers.fake]

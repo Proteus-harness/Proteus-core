@@ -55,30 +55,24 @@ fn behavior_without_model_or_labels(config: &AppConfig) -> serde_json::Value {
 }
 
 #[tokio::test]
-async fn code_mode_profile_adds_the_optional_tool_to_the_existing_composition() {
-    let root = workspace_root();
-    let base = AppConfig::load(Some(&root.join("configs/config.toml")))
+async fn default_profile_enables_code_mode_through_the_tool_catalog() {
+    let config = AppConfig::load(Some(&workspace_root().join("configs/config.toml")))
         .await
         .unwrap();
-    let experiment = AppConfig::load(Some(&root.join("configs/code-mode.config.toml")))
-        .await
-        .unwrap();
-    let mut expected = base.tools.enabled.clone();
-    expected.push("code_mode".into());
-    expected.sort();
-    let mut actual = experiment.tools.enabled.clone();
-    actual.sort();
-    assert_eq!(actual, expected);
-    for key in ["modules", "providers", "instructions", "module_config"] {
-        assert_eq!(
-            serde_json::to_value(&experiment).unwrap()[key],
-            serde_json::to_value(&base).unwrap()[key],
-            "unrelated configuration changed: {key}"
-        );
-    }
-    assert_eq!(experiment.components.len(), base.components.len() + 1);
-    assert_eq!(experiment.components["code-mode"].exports().count(), 1);
-    ModuleCatalog::from_config(&experiment).unwrap();
+    assert_eq!(
+        config
+            .tools
+            .enabled
+            .iter()
+            .filter(|tool| *tool == "code_mode")
+            .count(),
+        1
+    );
+    assert_eq!(config.components["code-mode"].exports().count(), 1);
+    assert_eq!(config.providers.len(), 2);
+    assert_eq!(config.providers["cheap"].provider, "opencode");
+    assert_eq!(config.providers["chatgpt"].provider, "openai_codex");
+    ModuleCatalog::from_config(&config).unwrap();
 }
 
 #[tokio::test]
@@ -110,49 +104,9 @@ async fn explicit_subscription_codex_profile_uses_public_templates_and_freeform_
 }
 
 #[tokio::test]
-async fn context_search_profile_changes_only_the_context_selection_and_configuration() {
-    let root = workspace_root();
-    let base = AppConfig::load(Some(
-        &root.join("configs/extended-subscription.config.toml"),
-    ))
-    .await
-    .unwrap();
-    let experiment = AppConfig::load(Some(
-        &root.join("configs/context-search-chatgpt.config.toml"),
-    ))
-    .await
-    .unwrap();
-    assert_eq!(experiment.modules.context.as_deref(), Some("repo_aware"));
-    let mut base = serde_json::to_value(base).unwrap();
-    let mut experiment = serde_json::to_value(experiment).unwrap();
-    // Everything outside this slot, including model limits/effort, peers, tools,
-    // workflow and permissions, must remain identical to the working profile.
-    for value in [&mut base, &mut experiment] {
-        value["profile"].as_object_mut().unwrap().remove("name");
-        value["modules"].as_object_mut().unwrap().remove("context");
-        value["module_config"]
-            .as_object_mut()
-            .unwrap()
-            .remove("context");
-        value["components"]["reference-context"]["exports"]
-            .as_object_mut()
-            .unwrap()
-            .remove("context");
-        for role in value["agent_control"]["roles"].as_array_mut().unwrap() {
-            role.as_object_mut().unwrap().remove("config");
-        }
-    }
-    assert_eq!(base, experiment);
-}
-
-#[tokio::test]
 async fn subscription_profiles_keep_root_and_every_peer_on_oauth() {
     let root = workspace_root();
-    for profile in [
-        "codex-subscription.config.toml",
-        "extended-subscription.config.toml",
-        "restricted.config.toml",
-    ] {
+    for profile in ["codex-subscription.config.toml", "fixtures/restricted.toml"] {
         let config = AppConfig::load(Some(&root.join("configs").join(profile)))
             .await
             .unwrap();
@@ -186,14 +140,34 @@ async fn subscription_profiles_keep_root_and_every_peer_on_oauth() {
 }
 
 #[tokio::test]
-async fn restricted_profile_preserves_default_behavior_and_trusted_capabilities() {
+async fn restricted_fixture_preserves_trusted_behavior_and_capabilities() {
     let root = workspace_root();
-    let default = AppConfig::load(Some(
-        &root.join("configs/extended-subscription.config.toml"),
-    ))
-    .await
+    let temporary = tempfile::tempdir().unwrap();
+    let trusted_path = temporary.path().join("trusted.toml");
+    let fragments = [
+        "openai-chatgpt",
+        "codex-behavior",
+        "codex-profile",
+        "codex-components",
+        "codex-subscription",
+    ]
+    .map(|name| root.join(format!("configs/fragments/{name}.toml")));
+    let includes = fragments
+        .iter()
+        .map(|path| serde_json::to_string(path).unwrap())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let prompt = root.join("configs/prompts/codex-default.md");
+    std::fs::write(
+        &trusted_path,
+        format!(
+            "include = [{includes}]\n[[instructions]]\nkind = \"System\"\npriority = 100\nfile = {}\n",
+            serde_json::to_string(&prompt).unwrap()
+        ),
+    )
     .unwrap();
-    let restricted = AppConfig::load(Some(&root.join("configs/restricted.config.toml")))
+    let default = AppConfig::load(Some(&trusted_path)).await.unwrap();
+    let restricted = AppConfig::load(Some(&root.join("configs/fixtures/restricted.toml")))
         .await
         .unwrap();
 
@@ -243,7 +217,6 @@ async fn restricted_profile_preserves_default_behavior_and_trusted_capabilities(
         "config.toml",
         "codex.config.toml",
         "codex-subscription.config.toml",
-        "extended-subscription.config.toml",
     ] {
         let trusted = AppConfig::load(Some(&root.join("configs").join(profile)))
             .await
@@ -278,7 +251,7 @@ async fn restricted_profile_resolves_six_single_export_read_only_process_specs()
     use serde_json::json;
 
     let config = AppConfig::load(Some(
-        &workspace_root().join("configs/restricted.config.toml"),
+        &workspace_root().join("configs/fixtures/restricted.toml"),
     ))
     .await
     .unwrap();
@@ -411,7 +384,11 @@ async fn restricted_profile_resolves_six_single_export_read_only_process_specs()
 fn tracked_configs() -> Vec<PathBuf> {
     let root = workspace_root();
     let mut files = Vec::new();
-    for directory in [root.join("configs"), root.join("examples/configs")] {
+    for directory in [
+        root.join("configs"),
+        root.join("configs/fixtures"),
+        root.join("examples/configs"),
+    ] {
         for entry in std::fs::read_dir(&directory)
             .unwrap_or_else(|error| panic!("failed to read {}: {error}", directory.display()))
         {

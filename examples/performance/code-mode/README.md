@@ -12,7 +12,7 @@ python3 examples/performance/code-mode/run.py \
 ```
 
 По умолчанию: модель `gpt-5.6-luna`, reasoning `high`, runtime из соседнего
-`Proteus-desktop/build/Proteus`, профиль `configs/code-mode.config.toml`.
+`Proteus-desktop/build/Proteus`, профиль `configs/config.toml`.
 Другой готовый executable и профиль выбираются через `--binary` и
 `--base-config`; модель — через `--model` и `--reasoning`. Профиль должен
 содержать настроенный `chatgpt` provider. Существующее окружение portable

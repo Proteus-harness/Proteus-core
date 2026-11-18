@@ -126,10 +126,6 @@ install_config "config.toml" "configs/config.toml"
 install_config "codex.config.toml" "configs/codex.config.toml"
 install_config "codex-task.config.toml" "configs/codex-task.config.toml"
 install_config "codex-subscription.config.toml" "configs/codex-subscription.config.toml"
-install_config "extended-subscription.config.toml" "configs/extended-subscription.config.toml"
-install_config "code-mode.config.toml" "configs/code-mode.config.toml"
-install_config "restricted.config.toml" "configs/restricted.config.toml"
-install_config "context-search-chatgpt.config.toml" "configs/context-search-chatgpt.config.toml"
 install_config "codex-explore.config.toml" "configs/codex-explore.config.toml"
 install_config "codex-coder.config.toml" "configs/codex-coder.config.toml"
 install_config "opencode.config.toml" "configs/opencode.config.toml"
@@ -141,6 +137,7 @@ install_config "proteus.provider.example.toml" "configs/proteus.provider.example
 # не перезаписываются).
 mkdir -p "${configs_dir}/fragments"
 mkdir -p "${configs_dir}/prompts"
+mkdir -p "${configs_dir}/fixtures"
 install_managed_config_asset() {
   relative_path="$1"
   source_path="${project_dir}/configs/${relative_path}"
@@ -152,6 +149,7 @@ install_managed_config_asset() {
   fi
   cp "${source_path}" "${dest_path}"
 }
+install_managed_config_asset "fixtures/restricted.toml"
 install_managed_config_asset "fragments/openai-chatgpt.toml"
 install_managed_config_asset "fragments/opencode-go.toml"
 install_managed_config_asset "fragments/codex-runtime.toml"

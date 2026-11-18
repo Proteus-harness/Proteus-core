@@ -403,10 +403,9 @@ Host связывает каждый provider request с той же attribution
 соответствующего id оно отключено. Provider ids не выбираются по имени tool;
 context не получает `host.tools.execute` или права на запись памяти.
 
-Profile `context-search-chatgpt` демонстрирует замену `codex_context` на
-существующий `repo_aware` через тот же `context/v3`: предварительный поиск
-выполняется callback-ом к явно указанному context provider. Workflow и Core не знают
-об имени экспериментального profile. Настройки и отличия — в
+Замена `codex_context` на `repo_aware` проходит через тот же `context/v3`.
+Предварительный поиск выполняется callback-ом к явно указанному context provider.
+Настройки provider задаются в config выбранной реализации, как описано в
 [configuration.md](../guides/configuration.md).
 
 ### Policy
@@ -489,7 +488,7 @@ host-owned `ExecutionAttribution`: обязательный `ExecutionId` и opt
 journal/replay. Sibling callbacks одного invocation учитывают зарегистрированное
 `supports_parallel_tool_calls`; отдельный gate каждого поколения детей сохраняет
 вложенные вызовы без reentrant deadlock. Подключение — через
-[профиль `code-mode`](../../configs/code-mode.config.toml), API и бюджеты принадлежат
+[основной `config.toml`](../../configs/config.toml), API и бюджеты принадлежат
 [реализации](https://github.com/Proteus-harness/Proteus-modules/tree/main/tool/code-mode).
 
 `apply_patch` предоставляется отдельным export `tool/direct_patch` или

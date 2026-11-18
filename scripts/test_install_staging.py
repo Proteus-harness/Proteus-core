@@ -124,6 +124,9 @@ worker.write_text('// staged native worker fixture\\n')
         self.assertEqual(profile.read_text(), '# retained user configuration\n')
         self.assertTrue((configs / 'config.toml').is_file())
         self.assertTrue((configs / 'fragments/openai-chatgpt.toml').is_file())
+        self.assertTrue((configs / 'fixtures/restricted.toml').is_file())
+        for name in ('code-mode', 'extended-subscription', 'context-search-chatgpt', 'restricted'):
+            self.assertFalse((configs / (name + '.config.toml')).exists(), name)
         self.assertFalse((home / '.config/Proteus-agent').exists())
 
     def test_missing_node_prerequisite_fails_before_build_or_staging(self):

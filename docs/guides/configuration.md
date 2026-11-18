@@ -71,13 +71,12 @@ references создаёт loader; вручную перечислять их в 
 
 | Файл | Поведение | Модель по умолчанию |
 |---|---|---|
-| `config.toml` | Experimental default владельца; сейчас Codex-shaped slots и read-only collaboration | `cheap`, OpenCode Go DeepSeek/high |
+| `config.toml` | Experimental default владельца, Codex-shaped slots, Code Mode и read-only collaboration | `cheap`, OpenCode Go DeepSeek/high; дополнительный preset `chatgpt` через подписку |
 | `codex.config.toml` | Независимая reference-сборка Codex: пять основных tools, compaction/base instructions; read-only collaboration | Тот же Go preset |
 | `codex-task.config.toml` | Та же основа; task-делегирование с отдельным worktree coder | Тот же preset; дети наследуют текущий выбор |
 | `pi.config.toml` | Pi 1.5.2 loop, четыре native tools, prompt builder и compactor | Тот же Go preset |
 | `opencode.config.toml` | OpenCode 2.0.22 tools, prompts, instructions, compaction и continuation | Тот же Go preset |
-| `code-mode.config.toml` | Основная сборка и дополнительный `code_mode` | Тот же Go preset |
-| `codex-subscription.config.toml`, `extended-subscription.config.toml` | Явно выбранные OAuth-сборки с пятью или 19 tools | Собственное ChatGPT-подключение |
+| `codex-subscription.config.toml` | Вспомогательная OAuth-сборка Codex с пятью tools | Собственное ChatGPT-подключение |
 
 Default и reference-профили — самостоятельные файлы без неявного наследования.
 Совпадающие сейчас настройки не связывают их дальнейшие изменения.
@@ -173,7 +172,7 @@ directory файлы `.toml` / `.json` merge-ятся лексикографич
 
 Directory mode предназначен для одного profile, разложенного на fragments.
 Каталог `configs/` в репозитории содержит альтернативные named profiles
-(`codex`, `restricted`, `context-search-chatgpt`, `opencode`) и потому не должен передаваться
+(`codex`, `pi`, `opencode`) и потому не должен передаваться
 целиком через `--config configs`: выбирайте конкретный файл или named config.
 
 ```toml
@@ -199,14 +198,13 @@ overlay и локальные каталоги сохраняют свои пр�
 выбранных дополнительных сборках:
 
 ```text
-configs/config.toml                самостоятельная experimental Go-сборка владельца
+configs/config.toml                самостоятельная experimental-сборка, Go и ChatGPT, Code Mode
 configs/codex.config.toml           самостоятельная reference-сборка Codex
 configs/codex-task.config.toml      Go-сборка с изолированным coding task
 configs/pi.config.toml             самостоятельные Pi slots и Go model
 configs/opencode.config.toml       самостоятельные OpenCode slots и Go model
 configs/codex-subscription.config.toml самостоятельный OAuth Codex, 5 tools
-configs/extended-subscription.config.toml самостоятельный OAuth, 19 tools
-configs/restricted.config.toml      рабочая Linux-сборка с частичной изоляцией
+configs/fixtures/restricted.toml   тестовая Linux-сборка с частичной изоляцией
 configs/fragments/codex-behavior.toml общий выбор modules/tools и peer routing
 configs/fragments/codex-components.toml единая доверенная process-композиция root и peers
 configs/fragments/restricted-components.toml частично ограниченная композиция
@@ -238,10 +236,10 @@ inline и наследует модель родителя. В отдельно�
 `codex-peer-runtime.toml` включает общий список components, а параметры
 конкретного peer задаются его собственным фрагментом.
 
-Основная Go и строгая подписочная сборки сохраняют пять Codex-shaped tools,
+Строгие Codex и подписочная сборки сохраняют пять Codex-shaped tools,
 `codex_base_instructions` и context providers `project_instructions`, `skills`,
-`environment`; transport определяет function/freeform patch. Расширенные
-19 tools и `repo_tree` выбираются отдельно через `extended-subscription`.
+`environment`; transport определяет function/freeform patch. Основной
+`config.toml` дополнительно подключает `code_mode`.
 `codex-profile.toml` и общий runtime также используются `proteus init codex`
 с его явно выбранным API-подключением.
 
@@ -284,33 +282,22 @@ profile, его `prompts/` должен указывать на общую па�
 
 `~`, `$HOME` и `${HOME}` раскрываются в path fields.
 
-## Рабочий Linux-Профиль Restricted
+## Тестовая Сборка Restricted
 
-[restricted.config.toml](../../configs/restricted.config.toml) — отдельная
-рабочая сборка с частичной OS-изоляцией. Она сохраняет подписочную модель,
-набор из 19 tools, роли и поведение явной сборки
-`extended-subscription.config.toml` через общие fragments. Основной Go-профиль
-и `codex` автоматически не переключаются.
+[fixtures/restricted.toml](../../configs/fixtures/restricted.toml) проверяет
+частичную OS-изоляцию выбранных components на Linux. Она хранится вместе
+с тестовыми fixtures, используется в smoke-проверках и скрыта из
+переключателя конфигов Desktop. Fixture сохраняет подписочную модель,
+19 tools и исследовательскую роль через общие fragments.
 
-После установки CLI:
-
-```bash
-cd /path/to/project
-proteus --config restricted doctor
-proteus --config restricted
-```
-
-В готовом Desktop portable профиль выбирается тем же named key:
+Для запуска из checkout:
 
 ```bash
-./proteus-native /path/to/project --config restricted
+proteus --config /absolute/path/to/Proteus-core/configs/fixtures/restricted.toml doctor
 ```
 
-В checkout без установки profiles используйте явный путь:
-`proteus --config /absolute/path/to/Proteus-core/configs/restricted.config.toml`.
-`--config restricted` ищет установленный `restricted.config.toml` в config-dir,
-а не произвольный файл в текущей папке. Installer и portable поставляют этот
-profile и его fragments; существующий пользовательский named config сохраняется.
+Installer и portable поставляют fixture в `configs/fixtures/restricted.toml`.
+При ручной проверке установленной копии передавайте её полный путь.
 
 Нужны Linux, исполняемый `/usr/bin/bwrap` и разрешённые user namespaces.
 Профиль явно разрешает чтение `/usr`, `/lib`, `/lib64` и `/bin`: все эти пути
@@ -536,36 +523,18 @@ token автоматически обновляется вместе с access t
 proteus-model-pack-module auth openai_codex logout
 ```
 
-Явные `codex-subscription` и `extended-subscription` используют
-`gpt-5.6-luna`; их дочерние роли также обращаются через подписку. Модель при
+Вспомогательный `codex-subscription` использует
+`gpt-5.6-luna`; его дочерняя роль также обращается через подписку. Модель при
 запуске задаётся в `providers.chatgpt.model`; доступные
 модели и лимиты определяются аккаунтом. Фрагмент `fragments/openai-chatgpt.toml` задаёт explicit
 model export, capabilities и консервативный порог контекста 200000 tokens.
 
-Основной `config.toml` и reference `codex.config.toml` самостоятельны:
-оба сейчас используют OpenCode Go, но их состав настраивается независимо.
+Основной `config.toml` и reference `codex.config.toml` самостоятельны.
+В обоих доступен OpenCode Go. Основной конфиг также содержит подключение
+ChatGPT и инструмент `code_mode`; его состав настраивается независимо.
 DCP отложен и
 исключён из штатных профилей и поставки. Его исходники сохранены в
 [Proteus-modules/research/dcp](https://github.com/Proteus-harness/Proteus-modules/tree/main/research/dcp).
-
-Экспериментальный `context-search-chatgpt` включает явный
-`extended-subscription.config.toml` и меняет
-только context selection на `repo_aware`. Запуск:
-
-```bash
-proteus --config context-search-chatgpt
-```
-
-Он подгружает project instructions, skills, environment и до 8 результатов
-поиска по словам текущей задачи через указанный `context_provider/rg_search`. Общий бюджет
-контекста — 60000 bytes; model limits, capabilities, effort, workflow, tools
-и конфигурация peers наследуются без изменения. Это отдельная сборка для
-экспериментов, а не заявление о Codex parity: `repo_aware` также добавляет task
-chunk и иначе оформляет project instructions. Поиск может добавить шум и
-увеличить первый запрос. Он не видит историю прочитанных файлов и не удаляет
-из контекста уже известные модели фрагменты. Запуск без `--config` возвращает
-основной experimental `config.toml`; `--config codex` явно выбирает
-самостоятельный reference-профиль Codex через OpenCode Go.
 
 `openai_codex` сам запрашивает `GET /backend-api/codex/models` с ChatGPT OAuth.
 Интерфейс приложения показывает все возвращённые модели, включая entries с отметкой «скрытая»,
@@ -1199,8 +1168,8 @@ tool:             reference.tools и узкие selectors, direct_patch, codex_p
 Он заменяет tool implementation; context provider отдельно не добавляется.
 
 Для выполнения JavaScript со вложенными вызовами инструментов есть отдельный
-пакет `code-mode` в Proteus-modules и
-[opt-in профиль `code-mode`](../../configs/code-mode.config.toml).
+пакет `code-mode` в Proteus-modules. Он подключён в
+[основном `config.toml`](../../configs/config.toml).
 Export `tool/code_mode` предоставляет инструмент `code_mode`; массив
 `tools.enabled` должен содержать также настоящие имена вызываемых инструментов.
 `await tools.call(name, args)` возвращает `ToolResult`, а `text()` и `console.log()`

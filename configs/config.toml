@@ -13,8 +13,30 @@ model = "deepseek-v4.1-flash"
 summary = true
 effort = "high"
 
+[models.chatgpt]
+provider = "openai_codex"
+model = "gpt-5.6-luna"
+stream = true
+effort = "high"
+summary = true
+
 [module_config.model.opencode]
 provider = "opencode-go"
+
+[module_config.model.openai_codex]
+implementation = "openai_codex"
+auth_file = "$HOME/.config/Proteus-harness/secrets/chatgpt.json"
+max_input_tokens = 200000
+support_verbosity = true
+default_verbosity = "low"
+prompt_cache = true
+
+[module_config.model.openai_codex.capabilities]
+supports_image_input = true
+supports_parallel_tool_calls = true
+supports_freeform_tools = false
+supports_json_schema = true
+supports_reasoning_config = true
 
 [module_config.workflow."coding.codex_loop"]
 stream_max_retries = 5
@@ -128,6 +150,17 @@ env_allowlist = ["HOME", "XDG_DATA_HOME", "PATH", "OPENCODE_API_KEY", "HTTP_PROX
 
 [components.opencode-model.exports.model.opencode]
 
+[components.reference-model]
+command = "proteus-model-pack-module"
+env_allowlist = ["HOME", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy"]
+
+[components.reference-model.exports.model.openai_codex]
+
+[components.code-mode]
+command = "proteus-code-mode-module"
+
+[components.code-mode.exports.tool.code_mode]
+
 [modules]
 session_storage = "jsonl"
 hooks = ["codex_compact", "codex_base_instructions"]
@@ -136,7 +169,7 @@ context = "codex_context"
 policy = "codex_policy"
 
 [tools]
-enabled = ["exec_command", "write_stdin", "apply_patch", "update_plan", "request_user_input"]
+enabled = ["exec_command", "write_stdin", "apply_patch", "update_plan", "request_user_input", "code_mode"]
 
 [permissions]
 mode = "normal"
