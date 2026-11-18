@@ -74,6 +74,7 @@ pub use runtime::{
 };
 #[cfg(test)]
 pub(crate) use session_journal::ModelMessageRecorded;
+pub(crate) use session_journal::is_display_kind;
 pub use session_journal::{
     ContextRequestRecorded, ContextResponseRecorded, DEFAULT_BLOB_THRESHOLD_BYTES, HistoryMutated,
     HistoryMutationKind, JOURNAL_FILE, JOURNAL_SCHEMA_VERSION, JournalEntry, JournalKind,

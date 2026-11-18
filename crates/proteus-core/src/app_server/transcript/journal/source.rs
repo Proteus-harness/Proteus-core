@@ -9,8 +9,7 @@ use anyhow::Result;
 use crate::{
     contracts::OperationOwner,
     core::{
-        JournalEntry, JournalKind, JournalReadSnapshot, JournalRecord, ModelResponseOutcome,
-        ToolCallRecordPhase,
+        JournalEntry, JournalReadSnapshot, JournalRecord, ModelResponseOutcome, ToolCallRecordPhase,
     },
     domain::TurnId,
 };
@@ -26,28 +25,7 @@ pub(crate) fn journal_transcript_from_source(
     source: &mut JournalReadSnapshot,
     live_turn_id: Option<TurnId>,
 ) -> Result<Vec<AppTranscriptMessage>> {
-    transcript_from_scan(
-        |visit| source.scan_selected(is_display_kind, visit),
-        live_turn_id,
-    )
-}
-
-// Full strict validation already hydrated every entry. Repeated display passes
-// may omit unrelated request/hook payloads; the fixed prefix and durable
-// session_seq keep frontier comparisons independent of those omissions.
-pub(super) fn is_display_kind(kind: JournalKind) -> bool {
-    matches!(
-        kind,
-        JournalKind::HistoryMutated
-            | JournalKind::ModelMessageRecorded
-            | JournalKind::ModelResponseRecorded
-            | JournalKind::ToolCallRecorded
-            | JournalKind::ToolResultRecorded
-            | JournalKind::ToolEffectRecorded
-            | JournalKind::SubagentSessionBoundRecorded
-            | JournalKind::TurnOpened
-            | JournalKind::TurnSettled
-    )
+    transcript_from_scan(|visit| source.scan_display(visit), live_turn_id)
 }
 
 pub(super) fn transcript_from_scan(
@@ -185,7 +163,7 @@ pub(super) fn from_records(
     transcript_from_scan(
         |visit| {
             for record in records {
-                if is_display_kind(record.entry.kind()) {
+                if crate::core::is_display_kind(record.entry.kind()) {
                     visit(record.clone())?;
                 }
             }

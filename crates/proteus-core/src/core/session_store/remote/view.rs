@@ -119,7 +119,7 @@ impl RemoteSessionStore {
         &self,
         render: impl FnOnce(&mut RemoteJournalSnapshot) -> Result<Vec<AppTranscriptMessage>>,
     ) -> Result<SessionReadModel> {
-        let read = RemoteValidatedRead::open(self.clone())?;
+        let read = RemoteValidatedRead::open_for_display(self.clone())?;
         let source = RemoteCacheSource::from_cursor(&read.cursor());
         let model = SessionReadModel::from_validated(self, read, render)?;
         self.save_read_model(&source, &model);

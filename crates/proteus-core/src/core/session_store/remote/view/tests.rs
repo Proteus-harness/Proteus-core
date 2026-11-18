@@ -4,6 +4,21 @@ use super::*;
 use support::{Backend, append, full};
 
 #[test]
+fn cold_display_reuses_the_validated_records_without_another_storage_traversal() {
+    let (backend, store) = Backend::store();
+    for _ in 0..80 {
+        backend.append(1);
+    }
+    let model = store
+        .project_read_model(|source| {
+            crate::app_server::journal_transcript_from_source(source, None)
+        })
+        .unwrap();
+    assert_eq!(model.transcript.len(), 80);
+    assert_eq!(backend.0.lock().unwrap().record_reads, 2);
+}
+
+#[test]
 fn remote_display_append_reuses_prefix_pages_and_matches_full_projection() {
     let (backend, store) = Backend::store();
     backend.append(75);

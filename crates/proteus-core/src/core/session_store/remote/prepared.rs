@@ -33,7 +33,7 @@ impl PreparedSession {
                 stale: !fresh,
             });
         }
-        let read = RemoteValidatedRead::open(store.clone())?;
+        let read = RemoteValidatedRead::open_for_display(store.clone())?;
         let source = Some(RemoteCacheSource::from_cursor(&read.cursor()));
         Ok(Self {
             store,

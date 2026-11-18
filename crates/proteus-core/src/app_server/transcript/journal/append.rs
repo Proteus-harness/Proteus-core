@@ -17,7 +17,8 @@ use crate::{
     model_standard::{CanonicalMessage, ContentPart},
 };
 
-use super::source::{is_display_kind, transcript_from_scan};
+use super::source::transcript_from_scan;
+use crate::core::is_display_kind;
 
 /// Only call after strict validation of this snapshot and verification that
 /// `previous` identifies its exact previously projected prefix. `baseline`
@@ -32,7 +33,7 @@ pub(crate) fn journal_transcript_append_from_source(
     final_history_len: usize,
 ) -> Result<Option<SessionTranscriptAppend>> {
     let Some(conversation_appended) = independent_append(
-        |visit| source.scan_selected(is_display_kind, visit),
+        |visit| source.scan_display(visit),
         previous.last_session_seq(),
         baseline,
         final_history_len,

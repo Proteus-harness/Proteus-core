@@ -6,6 +6,10 @@ use proteus_contracts::{
 };
 use serde::{Deserialize, Serialize};
 
+mod display_records;
+pub(crate) use display_records::is_display_kind;
+use display_records::{DisplayRecordWriter, DisplayRecords};
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RemoteJournalCursor {
@@ -20,6 +24,7 @@ impl RemoteJournalCursor {
 pub(crate) struct RemoteJournalSnapshot {
     store: RemoteSessionStore,
     snapshot: StorageSnapshot,
+    display_records: Option<DisplayRecords>,
 }
 impl std::fmt::Debug for RemoteJournalSnapshot {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -40,7 +45,11 @@ impl RemoteJournalSnapshot {
             snapshot.session == store.descriptor.session,
             "storage snapshot belongs to another session"
         );
-        Ok(Self { store, snapshot })
+        Ok(Self {
+            store,
+            snapshot,
+            display_records: None,
+        })
     }
     pub(crate) fn descriptor(&self) -> &StorageSnapshot {
         &self.snapshot
@@ -62,12 +71,14 @@ impl RemoteJournalSnapshot {
     pub(crate) fn scan(&mut self, consume: impl FnMut(JournalRecord) -> Result<()>) -> Result<()> {
         self.scan_from(0, |_| true, consume)
     }
-    pub(crate) fn scan_selected(
+    pub(crate) fn scan_display(
         &mut self,
-        select: fn(JournalKind) -> bool,
         consume: impl FnMut(JournalRecord) -> Result<()>,
     ) -> Result<()> {
-        self.scan_from(0, select, consume)
+        match &mut self.display_records {
+            Some(records) => records.scan(consume),
+            None => self.scan_from(0, is_display_kind, consume),
+        }
     }
     fn scan_from(
         &mut self,
@@ -183,11 +194,21 @@ pub(crate) struct RemoteValidatedRead {
 }
 impl RemoteValidatedRead {
     pub(crate) fn open(store: RemoteSessionStore) -> Result<Self> {
-        Self::open_with_cursor(store, None).map(|(read, _)| read)
+        Self::validate(store, None, None).map(|(read, _)| read)
+    }
+    pub(crate) fn open_for_display(store: RemoteSessionStore) -> Result<Self> {
+        Self::validate(store, None, DisplayRecordWriter::new()).map(|(read, _)| read)
     }
     pub(crate) fn open_with_cursor(
         store: RemoteSessionStore,
         previous: Option<&RemoteJournalCursor>,
+    ) -> Result<(Self, bool)> {
+        Self::validate(store, previous, None)
+    }
+    fn validate(
+        store: RemoteSessionStore,
+        previous: Option<&RemoteJournalCursor>,
+        mut display: Option<DisplayRecordWriter>,
     ) -> Result<(Self, bool)> {
         let mut source = store.snapshot()?;
         let prefix_matches = match previous {
@@ -212,6 +233,11 @@ impl RemoteValidatedRead {
             validation.apply_sequenced(store.session_id(), &record, &mut next_seq)?;
             usage.apply(&record);
             context.apply(&record);
+            if let Some(display) = &mut display
+                && is_display_kind(record.entry.kind())
+            {
+                display.push(&record);
+            }
             if prefix_seq == Some(record.session_seq) {
                 prefix_history_fingerprints = Some(
                     validation
@@ -223,6 +249,7 @@ impl RemoteValidatedRead {
             }
             Ok(())
         })?;
+        source.display_records = display.and_then(DisplayRecordWriter::finish);
         let resume = proteus_contracts::contracts::StorageResumeState {
             conversation: StorageConversation {
                 revision: source.snapshot.revision,

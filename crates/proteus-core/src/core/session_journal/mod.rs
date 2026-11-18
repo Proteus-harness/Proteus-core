@@ -27,3 +27,5 @@ mod tests;
 
 #[cfg(test)]
 mod hooks_tests;
+
+pub(crate) use crate::core::session_store::remote::snapshot::is_display_kind;
