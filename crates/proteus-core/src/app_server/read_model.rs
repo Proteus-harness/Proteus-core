@@ -125,6 +125,25 @@ pub(super) fn current_read_model(store: &SessionStore) -> anyhow::Result<Session
     }
 }
 
+pub(super) fn project_committed_transcript(
+    store: &SessionStore,
+    committed: Option<crate::core::CommittedDisplay>,
+) -> anyhow::Result<CompletedTranscript> {
+    if let Some(committed) = committed
+        && let Some(view) = store.publish_committed_view(
+            committed,
+            super::transcript::journal_transcript_append_committed,
+        )
+    {
+        release_projection_memory();
+        return Ok(CompletedTranscript {
+            messages: view.transcript,
+            cursor: view.cursor,
+        });
+    }
+    project_completed_transcript(store)
+}
+
 pub(super) fn project_completed_transcript(
     store: &SessionStore,
 ) -> anyhow::Result<CompletedTranscript> {

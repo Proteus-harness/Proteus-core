@@ -628,7 +628,7 @@ async fn terminal_completion_holds_next_reservation_until_transport_publishes() 
         UserMessageReservation::Queued(_) => panic!("idle runtime must start"),
     };
     let completion = runtime
-        .run_reserved_completion(reserved, CancellationToken::new())
+        .run_reserved_completion(reserved, CancellationToken::new(), false)
         .await
         .expect("completion");
     assert!(completion.output().is_some());

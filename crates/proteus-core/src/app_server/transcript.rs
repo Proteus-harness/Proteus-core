@@ -11,7 +11,10 @@ use rows::TranscriptRows;
 
 #[cfg(test)]
 pub(crate) use journal::journal_transcript_messages;
-pub(crate) use journal::{journal_transcript_append_from_source, journal_transcript_from_source};
+pub(crate) use journal::{
+    journal_transcript_append_committed, journal_transcript_append_from_source,
+    journal_transcript_from_source,
+};
 
 pub use proteus_contracts::app_protocol::{
     AppTranscriptMessage, AppTranscriptSubagent, AppTranscriptTool,

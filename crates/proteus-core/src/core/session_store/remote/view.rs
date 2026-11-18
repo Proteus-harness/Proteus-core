@@ -16,8 +16,12 @@ use super::{
 };
 
 mod cache;
+mod committed;
 mod incremental;
+pub(crate) use committed::CommittedDisplay;
+mod prefix;
 pub(crate) use cache::RemoteCacheSource;
+pub(crate) use prefix::PrefixIdentities;
 
 #[cfg(test)]
 mod tests;
@@ -29,6 +33,8 @@ pub(crate) struct SessionReadModel {
     pub conversation: ConversationSnapshot,
     pub transcript: Vec<AppTranscriptMessage>,
     pub usage: SessionUsageSnapshot,
+    #[serde(skip)]
+    pub(super) prefix: Option<PrefixIdentities>,
 }
 
 #[derive(Debug)]
@@ -86,6 +92,7 @@ impl SessionReadModel {
     ) -> Result<Self> {
         let (mut snapshot, state) = read.into_parts();
         let transcript = render(&mut snapshot)?;
+        let prefix = display_prefix(&mut snapshot, &state.history)?;
         Ok(Self {
             summary: cache::summary(store, &state.history)?,
             conversation: ConversationSnapshot {
@@ -95,6 +102,7 @@ impl SessionReadModel {
             },
             transcript,
             usage: state.usage,
+            prefix: Some(prefix),
         })
     }
 
@@ -163,4 +171,20 @@ impl RemoteSessionStore {
     pub(crate) fn saved_tool_state(&self, name: &str) -> Option<AppLatestToolState> {
         cache::tool_state(self, name)
     }
+}
+
+fn display_prefix(
+    snapshot: &mut RemoteJournalSnapshot,
+    history: &[crate::model_standard::CanonicalMessage],
+) -> Result<PrefixIdentities> {
+    let mut prefix = PrefixIdentities::default();
+    snapshot.scan_display(|record| {
+        prefix.visit(&record, false);
+        Ok(())
+    })?;
+    prefix.history = history
+        .iter()
+        .map(crate::core::history_message_sha256)
+        .collect::<Result<_>>()?;
+    Ok(prefix)
 }

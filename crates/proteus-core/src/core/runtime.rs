@@ -61,6 +61,7 @@ pub struct AgentRuntime {
 pub(crate) struct ReservedRunCompletion {
     result: Result<AgentOutput>,
     _finalization: SteeringFinalizationGuard,
+    pub(crate) display: Option<crate::core::CommittedDisplay>,
 }
 
 impl ReservedRunCompletion {

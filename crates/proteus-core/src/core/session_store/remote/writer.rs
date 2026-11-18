@@ -2,11 +2,21 @@ use super::*;
 use proteus_contracts::{
     contracts::{
         ExecutionAttribution, SessionStorageFailure, StorageCommit, StorageRecordAttribution,
-        StorageRevision, StorageWriterLease,
+        StorageRevision, StorageSnapshot, StorageWriterLease,
     },
     domain::new_record_id,
     storage::journal::{HistoryMutated, HistoryMutationKind, JournalEntry, JournalRecord},
 };
+
+use super::{
+    snapshot::{DisplayRecordWriter, is_display_kind},
+    view::CommittedDisplay,
+};
+
+struct DisplayCapture {
+    start: StorageSnapshot,
+    records: DisplayRecordWriter,
+}
 
 fn lease_lost(error: &anyhow::Error) -> bool {
     error.downcast_ref::<SessionStorageFailure>()
@@ -25,6 +35,7 @@ pub(super) struct RemoteWriter {
     lease: Option<StorageWriterLease>,
     revision: StorageRevision,
     retired: bool,
+    display_capture: Option<DisplayCapture>,
 }
 
 pub(super) fn shared_writer(
@@ -66,6 +77,7 @@ impl RemoteWriter {
             lease: None,
             revision: StorageRevision::default(),
             retired: false,
+            display_capture: None,
         }
     }
 
@@ -74,6 +86,7 @@ impl RemoteWriter {
         if let Some(lease) = &self.lease {
             return Ok(lease.clone());
         }
+        self.display_capture = None;
         match self
             .service
             .execute(Request::AcquireWriter {
@@ -109,6 +122,26 @@ impl RemoteWriter {
         }
     }
 
+    async fn display_source(&self) -> Option<StorageSnapshot> {
+        let Response::Snapshot { snapshot } = self
+            .service
+            .execute(Request::OpenSnapshot {
+                session: self.session.clone(),
+            })
+            .await
+            .ok()?
+        else {
+            return None;
+        };
+        self.service
+            .execute(Request::ReleaseSnapshot {
+                snapshot: snapshot.clone(),
+            })
+            .await
+            .ok()?;
+        (snapshot.session == self.session && snapshot.revision == self.revision).then_some(snapshot)
+    }
+
     async fn commit(
         &mut self,
         attribution: StorageRecordAttribution,
@@ -134,6 +167,7 @@ impl RemoteWriter {
             Ok(Response::Committed { ack }) => ack,
             Ok(_) => bail!("storage returned an unexpected commit response"),
             Err(original) => {
+                self.display_capture = None;
                 // Transport loss does not establish rollback. Reconcile the same
                 // operation; never turn uncertain persistence into repeated tools.
                 let status = self
@@ -179,6 +213,11 @@ impl RemoteWriter {
             "storage commit acknowledgement attribution mismatch"
         );
         self.revision = ack.revision;
+        if let Some(capture) = &mut self.display_capture
+            && is_display_kind(kind)
+        {
+            capture.records.push(&ack.record);
+        }
         if matches!(
             &ack.record.entry,
             JournalEntry::TurnSettled(_) | JournalEntry::HistoryMutated(HistoryMutated { .. })
@@ -215,6 +254,41 @@ impl RemoteSessionStore {
         // Admission transfers ownership to this task. Caller cancellation stops
         // waiting while the admitted persistence transaction finishes/reconciles.
         tokio::spawn(async move { operation(&mut writer).await }).await?
+    }
+
+    pub(crate) async fn begin_display_capture(&self) {
+        let mut writer = self.writer.lock().await;
+        writer.display_capture = None;
+        if writer.lease.is_some()
+            && let Some(records) = DisplayRecordWriter::new()
+            && let Some(start) = writer.display_source().await
+        {
+            writer.display_capture = Some(DisplayCapture { start, records });
+        }
+    }
+
+    pub(crate) async fn finish_display_capture(&self) -> Option<CommittedDisplay> {
+        let mut writer = self.writer.lock().await;
+        let capture = writer.display_capture.take()?;
+        if writer.revision == capture.start.revision {
+            return None;
+        }
+        let lease = writer.lease.clone()?;
+        let Response::Resumed { state } = writer
+            .service
+            .execute(Request::Resume { lease })
+            .await
+            .ok()?
+        else {
+            return None;
+        };
+        let end = writer.display_source().await?;
+        Some(CommittedDisplay {
+            start: capture.start,
+            end,
+            state,
+            records: capture.records.finish()?,
+        })
     }
 
     pub async fn append_journal_entry(

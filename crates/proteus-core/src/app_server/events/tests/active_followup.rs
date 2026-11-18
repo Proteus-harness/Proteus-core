@@ -143,7 +143,7 @@ async fn first_turn_handoff_keeps_submitted_input_before_and_after_turn_started(
     let runtime = server.runtime.clone();
     let completion = tokio::spawn(async move {
         runtime
-            .run_reserved_completion(reserved, CancellationToken::new())
+            .run_reserved_completion(reserved, CancellationToken::new(), true)
             .await
     });
     bounded(workflow.first_started.notified()).await;

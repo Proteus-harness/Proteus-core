@@ -35,10 +35,13 @@ impl RemoteSessionStore {
             && state.history.len().checked_sub(previous.conversation.rows)
                 == Some(suffix.conversation_appended)
         {
-            let publish = || {
+            let mut publish = || {
                 let mut next = previous.clone();
                 next.source = source.clone();
                 next.summary = cache::summary(self, &state.history).ok()?;
+                next.prefix = display_prefix(&mut snapshot, &state.history)
+                    .ok()
+                    .and_then(|index| cache::write_prefix(self, &source, &index));
                 next.revision = state.history_revision;
                 next.usage = state.usage.clone();
                 next.context_summary = crate::core::summarize_context_history(&state.history);
@@ -77,6 +80,8 @@ impl RemoteSessionStore {
         drop(baseline);
         #[cfg(feature = "memory-diagnostics")]
         crate::memory_diagnostics::point("read_view.incremental.full_fallback", &[]);
+        let transcript = full_renderer(&mut snapshot)?;
+        let prefix = display_prefix(&mut snapshot, &state.history)?;
         let model = SessionReadModel {
             summary: cache::summary(self, &state.history)?,
             conversation: ConversationSnapshot {
@@ -84,8 +89,9 @@ impl RemoteSessionStore {
                 messages: state.history,
                 model_context: state.model_context.snapshot(),
             },
-            transcript: full_renderer(&mut snapshot)?,
+            transcript,
             usage: state.usage,
+            prefix: Some(prefix),
         };
         if cache::save_model(self, &source, &model, Some(&cursor)).is_some()
             && let Some((published, view, true)) = cache::load_view(self)

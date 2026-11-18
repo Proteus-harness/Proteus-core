@@ -74,7 +74,7 @@ impl AgentRuntime {
                 anyhow::bail!("session acquired the run lock with an active root reservation")
             }
         };
-        Ok(self.run_reserved_chain(reserved, cancellation).await)
+        Ok(self.run_reserved_chain(reserved, cancellation, false).await)
     }
 
     #[cfg(test)]
@@ -83,7 +83,7 @@ impl AgentRuntime {
         reserved: ReservedUserMessage,
         cancellation: CancellationToken,
     ) -> Result<AgentOutput> {
-        self.run_reserved_completion(reserved, cancellation)
+        self.run_reserved_completion(reserved, cancellation, false)
             .await?
             .into_result()
     }
@@ -92,26 +92,38 @@ impl AgentRuntime {
         &self,
         reserved: ReservedUserMessage,
         cancellation: CancellationToken,
+        capture_display: bool,
     ) -> Result<ReservedRunCompletion> {
         let _run_guard = self.session.run_lock.lock().await;
         self.session
             .steering
             .validate_reservation(reserved.turn_id)
             .await?;
-        Ok(self.run_reserved_chain(reserved, cancellation).await)
+        Ok(self
+            .run_reserved_chain(reserved, cancellation, capture_display)
+            .await)
     }
 
     async fn run_reserved_chain(
         &self,
         mut reserved: ReservedUserMessage,
         cancellation: CancellationToken,
+        capture_display: bool,
     ) -> ReservedRunCompletion {
         let mut reservation_guard = self.session.steering.run_guard();
+        let store = self
+            .session
+            .session_store
+            .as_ref()
+            .filter(|_| capture_display);
         let settled = async {
             // Admission already published the accepted input. Keep ownership
             // through validation errors and terminal publication, just as for
             // workflow failures; no canonical write precedes strict recovery.
             self.validate_cached_resume().await?;
+            if let Some(store) = store {
+                store.begin_display_capture().await;
+            }
             loop {
                 let turn_id = reserved.turn_id;
                 let snapshot = reserved.snapshot.clone();
@@ -147,10 +159,15 @@ impl AgentRuntime {
             }
         };
         reservation_guard.disarm();
+        let display = match store {
+            Some(store) => store.finish_display_capture().await,
+            None => None,
+        };
         self.session.release_history().await;
         ReservedRunCompletion {
             result,
             _finalization: finalization,
+            display,
         }
     }
 

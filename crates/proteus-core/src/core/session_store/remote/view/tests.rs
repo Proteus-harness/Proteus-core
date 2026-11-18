@@ -19,6 +19,65 @@ fn cold_display_reuses_the_validated_records_without_another_storage_traversal()
 }
 
 #[test]
+fn acknowledged_turn_updates_saved_pages_without_reading_the_journal() {
+    use crate::core::{JournalEntry, session_store::remote::snapshot::DisplayRecordWriter};
+    use proteus_contracts::contracts::{StorageConversation, StorageResumeState};
+
+    let (backend, store) = Backend::store();
+    backend.append(75);
+    let baseline = store.project_read_model(full).unwrap();
+    let start = RemoteCacheSource::read(&store).unwrap().snapshot;
+    let mut records = DisplayRecordWriter::new().unwrap();
+    let mut messages = baseline.conversation.messages;
+    backend.append(1);
+    {
+        let backend = backend.0.lock().unwrap();
+        let record = backend.records.last().unwrap();
+        records.push(record);
+        let JournalEntry::HistoryMutated(mutation) = &record.entry else {
+            panic!("expected a committed append");
+        };
+        messages.extend(mutation.messages.clone());
+    }
+    let end = RemoteCacheSource::read(&store).unwrap().snapshot;
+    let reads = backend.0.lock().unwrap().record_reads;
+    let view = store
+        .publish_committed_view(
+            CommittedDisplay {
+                start,
+                end: end.clone(),
+                state: StorageResumeState {
+                    conversation: StorageConversation {
+                        messages,
+                        revision: end.revision,
+                        model_context: vec![],
+                    },
+                    usage: baseline.usage,
+                    last_history_turn: None,
+                    interrupted_turns: vec![],
+                },
+                records: records.finish().unwrap(),
+            },
+            crate::app_server::journal_transcript_append_committed,
+        )
+        .expect("acknowledged independent append must publish from the committed records");
+    assert_eq!(view.cursor.unwrap().base.unwrap().common_prefix, 75);
+    let saved = store.fresh_read_model().unwrap();
+    assert_eq!(backend.0.lock().unwrap().record_reads, reads);
+    let replayed = SessionReadModel::from_validated(
+        &store,
+        RemoteValidatedRead::open(store.clone()).unwrap(),
+        full,
+    )
+    .unwrap();
+    assert_eq!(
+        serde_json::to_value(saved.transcript).unwrap(),
+        serde_json::to_value(replayed.transcript).unwrap()
+    );
+    assert_eq!(saved.conversation, replayed.conversation);
+}
+
+#[test]
 fn remote_display_append_reuses_prefix_pages_and_matches_full_projection() {
     let (backend, store) = Backend::store();
     backend.append(75);

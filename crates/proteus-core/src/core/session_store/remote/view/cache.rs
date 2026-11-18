@@ -18,6 +18,7 @@ use crate::core::session_store::remote::snapshot::RemoteJournalCursor;
 const FORMAT: u32 = 1;
 pub(super) const PAGE_ROWS: usize = 50;
 const HEAD: &str = "display-view-v1-head";
+const PREFIX: &str = "display-view-v1-prefix";
 
 mod pages;
 use pages::valid_section;
@@ -79,6 +80,8 @@ pub(super) struct Header {
     pub(super) cursor: Option<RemoteJournalCursor>,
     pub(super) base: Option<AppTranscriptBase>,
     pub(super) tools: BTreeMap<String, String>,
+    #[serde(default)]
+    pub(super) prefix: Option<String>,
 }
 
 fn hash(value: &Value) -> Option<String> {
@@ -130,11 +133,26 @@ pub(super) fn read_content<T: DeserializeOwned>(
     serde_json::from_value(value).ok()
 }
 
-fn write_content<T: Serialize>(
+pub(super) fn read_prefix(store: &RemoteSessionStore, expected: &str) -> Option<PrefixIdentities> {
+    let value = read_value(store, PREFIX)?;
+    (hash(&value).as_deref() == Some(expected)).then_some(())?;
+    serde_json::from_value(value).ok()
+}
+
+pub(super) fn write_prefix(
     store: &RemoteSessionStore,
     source: &RemoteCacheSource,
-    value: &T,
+    prefix: &PrefixIdentities,
 ) -> Option<String> {
+    // Only the latest projection appends to this index. Keep one copy even
+    // when old revisions still serve their immutable display pages.
+    let value = bounded_value(prefix)?;
+    let digest = hash(&value)?;
+    write_value(store, source, PREFIX, value)?;
+    Some(digest)
+}
+
+fn bounded_value(value: &impl Serialize) -> Option<Value> {
     // Reject oversized groups before building an owned Value copy. The common
     // path serializes at most one display page; larger caches remain misses.
     struct Limit(usize);
@@ -156,7 +174,15 @@ fn write_content<T: Serialize>(
         }
     }
     serde_json::to_writer(&mut Limit(0), value).ok()?;
-    let value = serde_json::to_value(value).ok()?;
+    serde_json::to_value(value).ok()
+}
+
+pub(super) fn write_content<T: Serialize>(
+    store: &RemoteSessionStore,
+    source: &RemoteCacheSource,
+    value: &T,
+) -> Option<String> {
+    let value = bounded_value(value)?;
     let digest = hash(&value)?;
     let key = format!("display-data-{digest}");
     // Unchanged payload pages remain in the backend; only new content is sent.
@@ -234,6 +260,7 @@ pub(super) fn load_model(store: &RemoteSessionStore) -> Option<SessionReadModel>
         },
         transcript: read_section(store, &header.transcript, 0, header.transcript.rows)?,
         usage: header.usage,
+        prefix: None,
     };
     (model.matches(store) && RemoteCacheSource::read(store).as_ref() == Some(&header.source))
         .then_some(model)
@@ -338,6 +365,10 @@ pub(super) fn save_model(
             cursor: cursor.cloned(),
             base,
             tools,
+            prefix: model
+                .prefix
+                .as_ref()
+                .and_then(|index| write_prefix(store, source, index)),
         },
     )
 }

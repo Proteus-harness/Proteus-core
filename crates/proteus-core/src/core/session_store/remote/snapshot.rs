@@ -7,8 +7,8 @@ use proteus_contracts::{
 use serde::{Deserialize, Serialize};
 
 mod display_records;
-pub(crate) use display_records::is_display_kind;
-use display_records::{DisplayRecordWriter, DisplayRecords};
+pub(super) use display_records::DisplayRecordWriter;
+pub(crate) use display_records::{DisplayRecords, is_display_kind};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -203,7 +203,7 @@ impl RemoteValidatedRead {
         store: RemoteSessionStore,
         previous: Option<&RemoteJournalCursor>,
     ) -> Result<(Self, bool)> {
-        Self::validate(store, previous, None)
+        Self::validate(store, previous, DisplayRecordWriter::new())
     }
     fn validate(
         store: RemoteSessionStore,

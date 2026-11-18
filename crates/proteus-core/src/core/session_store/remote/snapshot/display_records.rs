@@ -24,14 +24,14 @@ pub(crate) fn is_display_kind(kind: JournalKind) -> bool {
     )
 }
 
-pub(super) struct DisplayRecordWriter {
+pub(in crate::core::session_store::remote) struct DisplayRecordWriter {
     writer: Option<BufWriter<File>>,
     remaining: u64,
     count: usize,
 }
 
 impl DisplayRecordWriter {
-    pub(super) fn new() -> Option<Self> {
+    pub(in crate::core::session_store::remote) fn new() -> Option<Self> {
         Some(Self {
             writer: Some(BufWriter::new(tempfile::tempfile().ok()?)),
             remaining: MAX_STAGING_BYTES,
@@ -39,7 +39,7 @@ impl DisplayRecordWriter {
         })
     }
 
-    pub(super) fn push(&mut self, record: &JournalRecord) {
+    pub(in crate::core::session_store::remote) fn push(&mut self, record: &JournalRecord) {
         if self.writer.is_none() {
             return;
         }
@@ -53,7 +53,7 @@ impl DisplayRecordWriter {
         }
     }
 
-    pub(super) fn finish(self) -> Option<DisplayRecords> {
+    pub(in crate::core::session_store::remote) fn finish(self) -> Option<DisplayRecords> {
         Some(DisplayRecords {
             file: self.writer?.into_inner().ok()?,
             count: self.count,
@@ -76,13 +76,13 @@ impl Write for DisplayRecordWriter {
     }
 }
 
-pub(super) struct DisplayRecords {
+pub(crate) struct DisplayRecords {
     file: File,
     count: usize,
 }
 
 impl DisplayRecords {
-    pub(super) fn scan(
+    pub(crate) fn scan(
         &mut self,
         mut consume: impl FnMut(JournalRecord) -> Result<()>,
     ) -> Result<()> {

@@ -17,7 +17,8 @@ pub use remote::RemoteSessionStore as SessionStore;
 pub use remote::StorageService;
 pub(crate) use remote::{
     prepared::{PreparedSession, prepare_latest_workspace_session},
-    view::{SessionReadModel, SessionTranscriptAppend},
+    snapshot::DisplayRecords,
+    view::{CommittedDisplay, PrefixIdentities, SessionReadModel, SessionTranscriptAppend},
 };
 pub use workspace_dir::{decode_workspace_path, encode_workspace_path};
 pub(crate) mod read_cache {

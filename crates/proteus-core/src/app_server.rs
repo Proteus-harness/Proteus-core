@@ -63,6 +63,8 @@ pub use config_history::{ConfigHistory, ConfigRevision};
 use context_map::{ContextMapInput, build_context_map_snapshot};
 use path_utils::paths_equal;
 #[cfg(test)]
+pub(crate) use transcript::journal_transcript_append_committed;
+#[cfg(test)]
 pub(crate) use transcript::journal_transcript_messages;
 use transcript::transcript_messages;
 pub use transcript::{AppTranscriptMessage, AppTranscriptSubagent, AppTranscriptTool};
@@ -743,6 +745,13 @@ impl AgentAppServer {
 async fn completed_transcript(
     runtime: Arc<AgentRuntime>,
 ) -> Result<read_model::CompletedTranscript> {
+    completed_transcript_from_commit(runtime, None).await
+}
+
+async fn completed_transcript_from_commit(
+    runtime: Arc<AgentRuntime>,
+    committed: Option<crate::core::CommittedDisplay>,
+) -> Result<read_model::CompletedTranscript> {
     if runtime.session_dir().is_none() {
         return Ok(transcript_messages(&runtime.history().await?).into());
     }
@@ -750,7 +759,7 @@ async fn completed_transcript(
         let store = runtime
             .session_store()
             .ok_or_else(|| anyhow!("persisted session has no store"))?;
-        read_model::project_completed_transcript(store)
+        read_model::project_committed_transcript(store, committed)
     })
     .await
     .map_err(|error| anyhow!("transcript projection task failed: {error}"))?

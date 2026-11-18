@@ -51,7 +51,7 @@ async fn finalization_defers_send_without_blocking_completion_or_cancel() {
         }
         let completion = server
             .runtime
-            .run_reserved_completion(reserved, cancellation.clone())
+            .run_reserved_completion(reserved, cancellation.clone(), true)
             .await
             .unwrap();
         assert_eq!(completion.output().is_some(), successful);
@@ -124,7 +124,7 @@ async fn shutdown_closes_admission_while_send_waits_for_finalization() {
     };
     let completion = server
         .runtime
-        .run_reserved_completion(reserved, CancellationToken::new())
+        .run_reserved_completion(reserved, CancellationToken::new(), true)
         .await
         .unwrap();
     let (settled_tx, settled) = watch::channel(false);
