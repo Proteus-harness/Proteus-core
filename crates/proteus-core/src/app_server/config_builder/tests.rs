@@ -119,7 +119,10 @@ async fn first_profile_save_does_not_persist_a_session_mode_override() {
     let server = AgentAppServer::launch(config, home.path().into(), Some(&source))
         .await
         .unwrap();
-    server.set_permission_mode(PermissionMode::Plan).await.unwrap();
+    server
+        .set_permission_mode(PermissionMode::Plan)
+        .await
+        .unwrap();
     assert!(!source.exists());
     assert_eq!(
         server.local_config_summary().await["permission_mode"],
