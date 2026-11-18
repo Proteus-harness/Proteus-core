@@ -24,6 +24,27 @@ pub struct BehaviorModeDefinition {
 mod tests {
     use super::*;
     #[test]
+    fn permission_values_round_trip_without_upgrading_legacy_auto() {
+        use super::super::PermissionMode;
+        for mode in PermissionMode::SELECTABLE
+            .into_iter()
+            .chain([PermissionMode::Auto])
+        {
+            let value = serde_json::to_value(mode).unwrap();
+            assert_eq!(value, mode.as_str());
+            assert_eq!(
+                serde_json::from_value::<PermissionMode>(value).unwrap(),
+                mode
+            );
+        }
+        assert!(!PermissionMode::SELECTABLE.contains(&PermissionMode::Auto));
+        assert_eq!(
+            serde_json::from_str::<PermissionMode>("\"auto\"").unwrap(),
+            PermissionMode::Auto
+        );
+    }
+
+    #[test]
     fn definitions_distinguish_inheritance_from_empty_lists_and_reject_other_settings() {
         let inherited: BehaviorModeDefinition = serde_json::from_str("{}").unwrap();
         let empty: BehaviorModeDefinition =
@@ -36,8 +57,14 @@ mod tests {
             serde_json::json!({})
         );
         assert!(serde_json::from_str::<BehaviorModeDefinition>(r#"{"model":"cheap"}"#).is_err());
+        let full: BehaviorModeDefinition =
+            serde_json::from_str(r#"{"permission_mode":"full_access"}"#).unwrap();
+        assert_eq!(
+            full.permission_mode,
+            Some(super::super::PermissionMode::FullAccess)
+        );
         assert!(
-            serde_json::from_str::<BehaviorModeDefinition>(r#"{"permission_mode":"full_access"}"#)
+            serde_json::from_str::<BehaviorModeDefinition>(r#"{"permission_mode":"unknown"}"#)
                 .is_err()
         );
     }
