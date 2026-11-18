@@ -18,19 +18,10 @@ CLI и app-server. Реализации находятся в соседнем `
 [Proteus-desktop-extensions](https://github.com/Proteus-harness/Proteus-desktop-extensions).
 Прежнее веб-приложение сохранено в git-теге `archive/web-app`.
 
-Текущий сценарий — локальная работа владельца с собственными модулями.
-Доверенный запуск остаётся default. По запросу владельца добавлен первый
-явно включаемый режим `components.<id>.sandbox.mode = "restricted"`: Linux,
-один export, явные filesystem grants и доступ к сети. Точная граница — в
-`docs/guides/security-and-policy.md#ограниченный-запуск-components-под-linux`.
-Это не общая изоляция всех подсистем и не поручение менять существующие
-policy/approval contracts или автоматически ограничивать поставляемые profiles.
-Тестовая fixture `configs/fixtures/restricted.toml` проверяет сборку с
-частичной изоляцией выбранных components. Default и `codex` остаются trusted;
-конкретный состав этой сборки не переносите в constructor/runtime.
-Для stdio MCP доступна та же явная launch policy в
-`tools.mcp_servers[].sandbox`; отсутствие настройки сохраняет trusted default.
-Ограничение одного export относится к components, а не к числу tools MCP-сервера.
+Локальные модули владельца по умолчанию запускаются как доверенные процессы.
+Ограниченный запуск включается явно для конкретного component или stdio MCP.
+Его границы и grants описаны в [руководстве по безопасности](docs/guides/security-and-policy.md#ограниченный-запуск-components-под-linux).
+Состав тестового профиля `configs/fixtures/restricted.toml` задаётся в конфиге.
 
 ## Главный Инвариант
 
@@ -43,8 +34,8 @@ Core -> Contract -> Module Implementation
 Core не должен знать детали конкретного поиска, памяти, модели, tools, policy или patch algorithm. Новая функциональность должна проходить через существующий slot или через явно добавленный contract.
 
 Отдельные слоты `search`, `memory` и `patch` удалены. Явный поиск,
-чтение/запись памяти и применение patch реализуются через `tool/v7`;
-автоматическое чтение поиска/памяти — через `context_provider/v4`.
+чтение/запись памяти и применение patch реализуются через `tool`;
+автоматическое чтение поиска/памяти — через `context_provider`.
 `rg_search`, `jsonl_memory`, `sqlite_memory`, `direct_patch` и `codex_patch` —
 имена implementations этих общих контрактов, а не отдельные слоты.
 Context builder не вызывает tool: provider — самостоятельный read-only export.
@@ -81,18 +72,11 @@ exports делят process lifecycle/failure domain. Authority всё равно
 broker допускает concurrent invocation и host-routed reentrancy между exports
 одного component; direct cross-export dispatch и union authority запрещены.
 
-Transport и cardinality не смешиваются. Host-defined process contract явно
-задаёт один из режимов:
-
-```text
-composition(contract) = select_one | ordered_many
-```
-
-Behavior slots используют `select_one`, кроме typed `hook/v8` chain с
-явным порядком `modules.hooks`. `ordered_many` допустим только для
-typed chain surface с одинаковой authority всех участников, явным порядком,
-повторной validation и отдельным slot-governance evidence. Module не может
-сам объявить новый hook или изменить composition mode.
+Сколько реализаций можно подключить, определяет контракт слота.
+[Таблица слотов](docs/architecture/modules.md#слоты-и-их-выбор) указывает это
+для каждого слота. Порядок hooks задаёт `modules.hooks`. Core проверяет
+результат каждого обработчика. Изменение этого правила для слота проходит
+[проверку контракта](docs/architecture/slot-governance.md).
 
 Process boundary сам по себе не sandbox. Таблица slot authority задаёт
 protocol-visible `host.*` права, а OS-права процесса задаёт отдельный launch
@@ -137,34 +121,20 @@ rendering, UI state, tests и provider/module-specific детали.
 
 ## Стоимость Runtime
 
-Для новых и изменяемых затратных путей применяйте общий стандарт
-[расхода ОЗУ](docs/development/memory.md): ownership/lifetime, совокупные бюджеты,
-ленивая подготовка, очереди и сопоставимые замеры.
-
-Следуйте [правилам стоимости runtime](docs/development/testing.md#стоимость-runtime-и-evidence):
-
-- Большие owned данные передавайте move/borrow; snapshot/clone требует
-  конкретного инварианта, например frozen view или rollback.
-- Immutable schema готовьте на bound identity/generation; arguments,
-  policy/approval и authority проверяйте заново на каждом invocation.
-- Сохраняйте typed DTO/`Value` внутри процесса; encoding — на wire/storage.
-- Derived work считайте по изменениям; cache ограничивайте и инвалидируйте
-  явно, с сохранением error semantics; cache не заменяет authority check.
-- Admission и допустимое coalescing — до крупных allocation/clone/encoding,
-  без потери ordering, cancellation, backpressure и обязательных events.
-
-Это не запрет clone/JSON/cache и не повод ослаблять correctness.
-Устранение повторной работы видно по исходникам; runtime-выигрыш требует замера.
+Для горячих путей используйте [правила стоимости runtime](docs/development/testing.md#стоимость-runtime-и-evidence)
+и [правила работы с памятью](docs/development/memory.md). Утверждение о выигрыше
+в latency, памяти или CPU подтверждайте замером при сопоставимой нагрузке.
 
 ## Workspace Layout
 
 - `crates/proteus-contracts` — публичные traits, DTO и canonical model;
+  `proteus-session-semantics` — проверка и проекции данных сессии;
   `proteus-core` — runtime, wiring, process adapters и app-server;
   `proteus-module-protocol` — component-v3 broker и conformance;
   `proteus-module-sdk` — experimental Rust worker SDK внешних модулей;
   `proteus-process-host` — lifecycle stdio процессных модулей.
 - Proteus-modules группирует реализации по `model`, `workflow`, `context`,
-  `policy`, `hook`, `tool`, `context_provider`; executable с несколькими
+  `policy`, `hook`, `tool`, `context_provider`, `storage`; executable с несколькими
   exports находится в `components/<id>-module`, общий fixture — в
   `components/process-module`, эксперименты — в `research`.
 - Proteus-desktop и Proteus-desktop-extensions имеют собственные workspace,
@@ -189,7 +159,8 @@ rendering, UI state, tests и provider/module-specific детали.
 - Не выдавать implementation дополнительные права из-за того, что она
   зарегистрировала tool через broad extension/hook path; одинаковая behavior
   surface должна проходить один contract и safety path.
-- Не импортировать provider-specific типы OpenAI, Anthropic или локальных API за пределами provider implementation в `Proteus-modules/model/model-pack/src/adapters`. Core model shaping остаётся provider-neutral.
+- Форматы запросов и ответов конкретного провайдера принадлежат его реализации
+  в Proteus-modules. Core формирует и проверяет общую модель запроса.
 - Не добавлять runtime-логику в CLI, если она принадлежит `core` или `workflow`.
 - Не обходить `ToolRegistry`, `ApprovalPolicy` и `ToolSafety` при исполнении tools.
 - Не менять DTO на границах модулей без обновления документации и тестов.
@@ -243,54 +214,25 @@ schema-driven `app_protocol::settings`. Новые id настроек и metada
 
 ## Как Добавлять Модуль
 
-1. Найти подходящий trait в `crates/proteus-contracts/src/contracts`.
-2. Проверить, имеет ли slot component export contract из
-   `docs/architecture/process-module-architecture.md`.
-3. Если да — реализовать внешний процессный модуль, не зависящий от
-   `proteus-core`, и пройти conformance gate этого slot.
-4. Если нет — сначала реализовать общий process adapter для всего slot. Не
-   добавлять временный native/builtin путь для одной implementation.
-5. Добавить explicit component export и config/profile selection; reference implementation при
-   необходимости разместить в Proteus-modules: `<slot>/<name>`, не присваивая ей
-   default/standard статус.
-6. Добавить protocol и runtime swap evidence, затем обновить
-   `docs/architecture/modules.md` и `docs/guides/configuration.md`.
+Найдите контракт в `crates/proteus-contracts/src/contracts`. Для реализации
+существующего слота следуйте [руководству по подключению модуля](docs/architecture/modules.md#как-подключить-модуль).
+Реализация работает отдельным процессом и проверяется через контракт этого
+слота. При добавлении модуля в профиль укажите его export и выбор в конфиге.
 
-Model provider implementations проходят общий `model/v14` process contract.
-Core владеет canonical shaping/validation, execution binding и journal, но не HTTP provider adapters. `AgentControl` — отдельный root-owned service для полных Proteus
-peers, а не behavior slot или основание возвращать общий native loader.
-Marketplace, package manager и hot reload не входят в текущий process runtime.
-Linux sandbox — отдельный opt-in launch режим: component допускает один export,
-stdio MCP server — несколько remote tools в одной process generation.
-LSP, peers и расширения клиента используют отдельные launch paths; не объявляйте
-их изолированными вследствие настройки component или MCP server.
+Если задача требует нового слота, примените
+[правила добавления слота](docs/architecture/slot-governance.md). Нужны общий
+process adapter, проверка протокола и заменяемости, описание слота и его
+настройки. Поставляемые реализации подключаются на тех же условиях, что и
+внешние.
 
-## Как Добавлять И Проверять Фичу
-
-Для существенного изменения используйте общий evidence path из
-`docs/development/testing.md`:
-
-1. Назовите измеримую проблему и ожидаемый проверяемый результат.
-2. Разместите поведение в существующем contract/slot/tool/protocol boundary;
-   новый slot сначала пропустите через `docs/architecture/slot-governance.md`.
-3. Используйте существующую проверку поведения; новый regression добавляйте,
-   если она не ловит конкретный дефект. Boundary/swap/protocol test нужен при
-   изменении соответствующей границы.
-4. Для runtime-поведения сохраните canonical journal evidence: поддерживаемый
-   root `Success`/`Error` проверяйте через workflow replay, а внешний
-   `Canceled`/`Timeout` — через `TurnSettled` и cold `/history`.
-5. Replay используйте для проверки эквивалентности, dogfood/eval — для ответа
-   «стало ли лучше»; намеренный divergence не обновляйте вслепую.
-6. Прогоните проверки по затронутой границе, обновите ближайшую русскую документацию и
-   сделайте отдельный commit.
-
-Не каждая правка требует всех видов evidence. Выберите строку матрицы в
-`docs/development/testing.md` по затронутой границе и явно укажите непройденную применимую
-проверку.
-
-При падении сначала установите, какое требование нарушено. По результату
-исправьте реализацию, ожидание теста или подготовку стенда.
-[Разбор падений](docs/development/testing.md#разбор-падений).
+При вызове модели Core связывает запрос с исполнением и проверяет его по
+общему контракту. Для журнала Core задаёт порядок фактов и проверяет
+подтверждение записи. Данные сохраняет выбранный
+[модуль хранения сессий](docs/architecture/modules.md#хранение-сессий).
+`AgentControl` принадлежит Core и управляет отдельными процессами агентов.
+LSP, агенты и расширения клиента имеют собственные пути запуска. Настройки
+изоляции component и stdio MCP действуют только на соответствующий процесс.
+Marketplace, package manager и hot reload вне текущего process runtime.
 
 ## Документация
 
@@ -300,23 +242,9 @@ LSP, peers и расширения клиента используют отде�
 сводки прохода, гипотезы и завершённые этапы не добавляйте в текущие справочники.
 Отдельный документ нужен только для самостоятельной долговечной темы.
 
-При изменении поведения обновляйте ближайший документ (полный индекс —
-`docs/README.md`):
-
-- quickstart и CLI: `README.md`;
-- архитектурные границы: `docs/architecture/architecture.md`;
-- module slots: `docs/architecture/modules.md`;
-- целевая process-module архитектура:
-  `docs/architecture/process-module-architecture.md`;
-- config schema и examples: `docs/guides/configuration.md`;
-- event log, sessions, REPL: `docs/guides/runtime-and-events.md`;
-- tools и approval: `docs/guides/security-and-policy.md`;
-- тестовые правила: `docs/development/testing.md`;
-- vision/spec: `docs/product/spec.md`;
-- roadmap: `docs/product/roadmap.md`;
-- межпаковые контракты: `docs/architecture/pack-contracts.md`;
-- текущая документация: по индексу `docs/README.md`; исторические материалы:
-  `docs/archive/`.
+Если меняется поведение, обновите справочник владельца этой границы.
+[Индекс документации](docs/README.md) ведёт к руководствам по конфигурации,
+исполнению, модулям и проверкам.
 
 ## Ведение Запросов Пользователя
 
@@ -337,54 +265,15 @@ LSP, peers и расширения клиента используют отде�
 
 ## Проверка Перед Завершением
 
-После успешной проверки изменений сразу фиксируйте их отдельным git commit,
-если пользователь явно не попросил оставить рабочее дерево без коммита.
+Выберите проверку по [матрице изменений](docs/development/testing.md#evidence-matrix).
+Для Rust-кода Core используйте `scripts/test.py` с нужным package и target.
+Runner подготавливает процессные fixtures. При изменении общей границы
+проверьте её производителей, потребителей и заменяемость затронутого слота.
+При падении сверьте ожидание с действующим требованием.
+[Разбор падений](docs/development/testing.md#разбор-падений).
 
-Объём проверки выбирайте по изменению, согласно `docs/development/testing.md`.
-Используйте `scripts/test.py` с явным package/target/filter, либо `full`
-для полного Rust gate. Core fixtures требуют свежий путь к reference-модулю,
-который готовит runner; не запускайте вложенные Cargo builds из tests.
-Для документации достаточно проверить содержание, ссылки и `git diff --check`.
-Для небольших prompts/config правок без изменения schema, contracts и runtime-кода
-достаточно загрузки затронутого профиля; при подключении готового модуля — ещё
-одного целевого invocation через уже собранный актуальный executable. Выбор
-существующего модуля в профиле не является изменением runtime wiring.
-Не запускайте Cargo tests, runner с пересборкой reference-модуля, полный gate
-или portable build только ради такой правки. Дополнительная проверка нужна
-лишь для конкретной неразрешённой проблемы, а не «на всякий случай».
-При долгой сборке объясните её необходимость. Расширение задачи согласуйте
-с владельцем. Несвязанные ошибки отмечайте отдельно, не начиная
-их исследование или исправление без запроса.
-Локальная production-правка требует затронутого test target; полный workspace —
-общих contracts, runtime wiring, зависимостей или изменений нескольких
-взаимодействующих crates.
-После успешной проверки повторяйте её только при новых изменениях или конкретной
-неразрешённой проблеме. В финале указывайте фактически выполненные проверки.
-После полного прогона и исправления только упавших tests/fixtures повторяйте
-эти targets, а не весь workspace. Новая общая production-правка требует
-применимого полного gate.
-
-Для архитектурных правок проверьте, что `tests/module_swap.rs` продолжает подтверждать заменяемость slots и canonical model contract.
-
-Для каждого затронутого репозитория выберите проверку по его `AGENTS.md`.
-При изменении общего контракта включите затронутых производителей и потребителей.
-Runner harness готовит отдельный process fixture через `scripts/build_module.py`;
-не добавляйте реализации модулей обратно в Cargo workspace.
-
-После проверенной и закоммиченной production-правки Core обновите только
-backend в готовой поставке из `../Proteus-desktop`:
-`python3 scripts/portable.py --components core --no-archive`.
-Остальные компоненты берутся целиком из `build/Proteus` или `--base PATH`.
-Изменение общего контракта требует явного выбора затронутых компонентов и
-проверки потребителей; правка одного Desktop не требует сборки Core.
-`--full` явно выбирает bootstrap/полную поставку. `--fast` и `--reuse-hosts`
-удалены; обычный профиль — release. Подробнее —
-[BUILDING.md клиента](../Proteus-desktop/BUILDING.md).
-
-Для UI-проверок берите готовые синтетические чаты или готовый seeder;
-не компилируйте Core только ради получения чатов. Целевая сборка генератора
-нужна при изменении его кода или формата истории, когда требуемой готовой
-fixture нет, либо по явному поручению владельца получить новую таким способом.
-Не запускайте Cargo/portable ради документации или сборочных скриптов:
-достаточны применимые целевые Python-тесты, ссылки и `git diff --check`.
-Сохраняйте `target`: сборка инкрементальная.
+Сообщите, что проверили и какая применимая проверка осталась. После успешной
+проверки создайте отдельный commit, если владелец не попросил оставить правку
+в рабочем дереве. Если изменился исполняемый код Core, затем обновите backend
+в готовой поставке. Выберите затронутые компоненты по [руководству по сборке Desktop](https://github.com/Proteus-harness/Proteus-desktop/blob/main/BUILDING.md#выбор-компонентов).
+Сохраняйте инкрементальный кэш сборки.

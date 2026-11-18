@@ -46,10 +46,11 @@ GitHub Actions запускаются вручную через `workflow_dispat
 раньше. Для ошибки до первого действия сначала проверьте подготовку стенда,
 сигнатуры заглушек и соответствие бинарников проверяемому исходнику.
 
-Если нарушен контракт, исправьте реализацию. Обновляйте ожидание, когда изменилось
-само требование, а подготовку стенда — когда в нём пропущен шаг штатного запуска.
-В обоих случаях тест должен обнаруживать нарушение действующего требования. При проверке
-сброса поля сравнивайте восстановленное значение и состояние черновика. Точный
+Если нарушен контракт, исправьте реализацию. Если тест требует лишнего или
+закрепляет прежнее требование, измените ожидание так, чтобы оно по-прежнему
+ловило ошибку в нужном поведении. Если стенд пропускает шаг штатного запуска,
+исправьте подготовку. Например, для сброса поля проверьте восстановленное
+значение и исчезновение отметки об изменении. Точный
 текст подписи проверяйте, когда формулировка входит в требование. В smoke-тесте
 поставки Core сам запускает хук, а тест проверяет его эффект. Точную версию
 протокола проверяйте там, где предмет теста — совместимость участников.
@@ -81,7 +82,7 @@ GitHub Actions запускаются вручную через `workflow_dispat
 | Agent control | Real process peers, адресная доставка/отмена и независимые child configs |
 | HTTP/session | Затронутые handlers; reconnect/cold history/auth/SSE при изменении этих границ |
 | MCP/ACP | Реальный stdio peer; prompt/tools/approval/cancel и cold history по изменению |
-| Клиент | `python3 scripts/test.py` в Proteus-desktop; при UX change — ручной запуск окна |
+| Клиент | Затронутый target в Desktop. Для изменения взаимодействия проверьте сценарий в нативном окне |
 | Расширения клиента | Tests `declarative`/`extensions`; пример `Proteus-desktop/examples/extensions` в живом окне при изменении протокола |
 | Запуск приложения и portable | Запуск backend, завершение вместе с окном, portable build и запуск собранной папки |
 
@@ -127,7 +128,7 @@ cancellation и schema validation не меняются. Cargo features объе
 отдельно проверьте normal dependency tree выбранного worker, а не только
 workspace tests. `Cargo.lock` может сохранять clap для других targets.
 
-`full` выбирает пять crates harness, включая worker SDK. Реализации проверяются
+`full` проверяет crates из текущего Cargo workspace. Реализации проверяются
 своим `python3 scripts/test.py full` в Proteus-modules. В приложении обычный
 `python3 scripts/test.py` из Proteus-desktop проверяет только GPUI workspace
 и client-common. Проверки с готовыми расширениями включаются явно через
@@ -410,8 +411,8 @@ projection_clone_benchmark -- --ignored --nocapture` измеряет подго
 Изменённые configs должны загружаться через текущий reader. При изменении
 schema обновляются все tracked producers/consumers/examples. Для проверки
 сборки без model request используйте `doctor`, `modules list` или `tools list`
-на representative profile; reference-модуль должен быть собран и доступен
-в `PATH`.
+на затронутом профиле. Его команды запуска должны разрешаться в готовые
+бинарники выбранных модулей. Reference-модуль нужен только профилю, который его использует.
 
 Tool проверяется по собственной semantics: input, safety, visibility,
 allow/ask/deny, path, timeout/cancel или output limits — когда эта ветка
@@ -426,21 +427,12 @@ Core на reference crates. Shell fixtures разбирают JSON-RPC id JSON-�
 
 ### Клиенты И Установка
 
-Клиент и `Proteus-desktop/crates/client-common` исключены из root workspace; клиент собирается
-своим toolchain из `Proteus-desktop/rust-toolchain.toml`:
-
-```bash
-cargo test --manifest-path Proteus-desktop/Cargo.toml
-cargo test --manifest-path Proteus-desktop/crates/client-common/Cargo.toml
-```
-
-Второй target нужен только при правке общих правил. При изменении shared
-client DTO в `proteus-contracts` клиент проверяется вместе с producers.
-
-Новая переносимая сборка (`python3 Proteus-desktop/scripts/portable.py`) нужна
-при проверке упаковки, запуска или по запросу владельца. Не запускайте её
-после каждой правки окна. Общие Rust gates выбирайте по затронутой границе,
-а не по факту запуска приложения.
+Клиент использует собственный Cargo workspace и toolchain. При изменении
+клиентского DTO в `proteus-contracts` проверьте затронутые операции Core и
+клиента. Команды для локального теста, проверки расширений и проверки готовой
+поставки приведены в [руководстве Desktop](https://github.com/Proteus-harness/Proteus-desktop/blob/main/BUILDING.md#запуск-и-проверки).
+После проверенной правки исполняемого компонента обновите его в рабочей поставке
+по правилам соответствующего репозитория.
 
 - Изолированная проверка installer: `./scripts/install-smoke.sh`.
   Она сама собирает и устанавливает Core и самостоятельные process modules
@@ -453,9 +445,6 @@ client DTO в `proteus-contracts` клиент проверяется вмест
   Process fixtures привязаны к установленным executable из `current`:
   shell launchers требуют пользовательский env, который component fixture
   намеренно не наследует. Launchers проверяются отдельными CLI этапами smoke.
-
-Для docs-only правки этих руководств достаточно проверки содержания и ссылок;
-пересборка клиента или установка не требуется.
 
 ## Ordered Hook Evidence
 

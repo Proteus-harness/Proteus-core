@@ -191,11 +191,9 @@ export к ним не относится. MCP cancel/timeout завершает 
 composition(slot contract) = select_one | ordered_many
 ```
 
-Composition хранится в общей authority table и подтверждается отдельно для
-каждого export:
-
-- `select_one`: workflow, model, context, policy;
-- `ordered_many`: tool, context provider, hook.
+Правило выбора хранится в таблице прав протокола и подтверждается отдельно для
+каждого export при handshake. Для каждого слота оно приведено в
+[таблице контрактов](modules.md#слоты-и-их-выбор).
 
 Модуль не может изменить cardinality, сделать свой `module_id` особым или
 объявить новый slot. Это изменение host contract.
