@@ -116,11 +116,19 @@ impl ExecutionHooks for RuntimeHookChain {
                 }
             };
             let validated = outcome.and_then(|response| {
+                // A no-op contribution retains the accepted event. Model
+                // boundaries still run canonical request shaping below.
+                let unchanged = matches!(response, crate::contracts::HookResponse::Continue);
+                if unchanged && !matches!(event, HookEvent::BeforeModel { .. }) {
+                    return Ok((response, None));
+                }
                 // Parts removed by an earlier contribution remain immutable at this boundary.
-                if matches!(
-                    &trace.input.event,
-                    HookEvent::BeforeModel { .. } | HookEvent::BeforeToolSelection { .. }
-                ) {
+                if !unchanged
+                    && matches!(
+                        &trace.input.event,
+                        HookEvent::BeforeModel { .. } | HookEvent::BeforeToolSelection { .. }
+                    )
+                {
                     apply_hook_response(&trace.input.event, &response)?;
                 }
                 let mut next = apply_hook_response(&event, &response)?;
@@ -131,7 +139,7 @@ impl ExecutionHooks for RuntimeHookChain {
                         .ok_or_else(|| anyhow!("no model is configured"))?
                         .prepare_request(request.clone())?;
                 }
-                Ok((response, next))
+                Ok((response, Some(next)))
             });
             match validated {
                 Ok((response, next)) => {
@@ -140,7 +148,9 @@ impl ExecutionHooks for RuntimeHookChain {
                         module_id: module_id.clone(),
                         outcome: HookStepOutcome::Accepted { response },
                     });
-                    event = next;
+                    if let Some(next) = next {
+                        event = next;
+                    }
                     if matches!(
                         &event,
                         HookEvent::BeforeTool {

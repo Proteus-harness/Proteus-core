@@ -10,6 +10,15 @@ use crate::{
     },
 };
 use serde::{Deserialize, Serialize};
+mod hook_trace;
+
+#[derive(Deserialize)]
+#[serde(transparent)]
+struct StoredHookTrace(#[serde(with = "hook_trace")] crate::contracts::HookTrace);
+
+#[derive(Serialize)]
+#[serde(transparent)]
+struct StoredHookTraceRef<'a>(#[serde(with = "hook_trace")] &'a crate::contracts::HookTrace);
 
 pub const JOURNAL_SCHEMA_VERSION: u32 = 21;
 
@@ -211,6 +220,37 @@ macro_rules! decode_entry {
 }
 
 impl JournalEntry {
+    /// Lossless compact payload for built-in durable storage. Live DTO serialization
+    /// continues to use the full canonical representation.
+    pub fn stored_payload_value(&self) -> serde_json::Result<serde_json::Value> {
+        match self {
+            Self::HookInvoked(trace) => serde_json::to_value(StoredHookTraceRef(trace)),
+            _ => self.payload_value(),
+        }
+    }
+
+    pub fn from_stored_kind_and_payload(
+        kind: JournalKind,
+        payload: serde_json::Value,
+    ) -> serde_json::Result<Self> {
+        match kind {
+            JournalKind::HookInvoked => serde_json::from_value::<StoredHookTrace>(payload)
+                .map(|trace| Self::HookInvoked(trace.0)),
+            _ => Self::from_kind_and_payload(kind, payload),
+        }
+    }
+
+    pub fn from_stored_kind_and_bytes(
+        kind: JournalKind,
+        payload: &[u8],
+    ) -> serde_json::Result<Self> {
+        match kind {
+            JournalKind::HookInvoked => serde_json::from_slice::<StoredHookTrace>(payload)
+                .map(|trace| Self::HookInvoked(trace.0)),
+            _ => Self::from_kind_and_bytes(kind, payload),
+        }
+    }
+
     pub fn kind(&self) -> JournalKind {
         match self {
             Self::HookInvoked(_) => JournalKind::HookInvoked,

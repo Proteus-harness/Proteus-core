@@ -33,6 +33,13 @@ impl ContextPreparationInput {
         }
     }
 
+    /// Split the source request once. Strategies receive the complete model
+    /// controls and one authoritative copy of the material to prepare.
+    pub fn from_request(mut request: CanonicalModelRequest) -> Self {
+        let messages = std::mem::take(&mut request.messages);
+        Self::new(messages, Some(request))
+    }
+
     pub fn with_reason(mut self, reason: impl Into<String>) -> Self {
         self.reason = Some(reason.into());
         self
@@ -72,7 +79,39 @@ pub struct ContextPreparationOutput {
     pub metadata: serde_json::Value,
 }
 
+/// Diagnostics for an unchanged preparation candidate, without copying its messages.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ContextPreparationDiagnostics {
+    pub token_estimate: Option<u32>,
+    pub original_token_estimate: Option<u32>,
+    pub trigger_tokens: Option<u32>,
+    pub summary_source: Option<String>,
+    pub skipped_reason: Option<String>,
+    pub metadata: serde_json::Value,
+}
+
 impl ContextPreparationOutput {
+    pub fn diagnostics(&self) -> ContextPreparationDiagnostics {
+        ContextPreparationDiagnostics {
+            token_estimate: self.token_estimate,
+            original_token_estimate: self.original_token_estimate,
+            trigger_tokens: self.trigger_tokens,
+            summary_source: self.summary_source.clone(),
+            skipped_reason: self.skipped_reason.clone(),
+            metadata: self.metadata.clone(),
+        }
+    }
+
+    pub(crate) fn set_diagnostics(&mut self, diagnostics: &ContextPreparationDiagnostics) {
+        self.token_estimate = diagnostics.token_estimate;
+        self.original_token_estimate = diagnostics.original_token_estimate;
+        self.trigger_tokens = diagnostics.trigger_tokens;
+        self.summary_source = diagnostics.summary_source.clone();
+        self.skipped_reason = diagnostics.skipped_reason.clone();
+        self.metadata = diagnostics.metadata.clone();
+    }
+
     pub fn changed(messages: Vec<CanonicalMessage>, summary: impl Into<Option<String>>) -> Self {
         Self {
             messages,
@@ -448,3 +487,45 @@ mod tests {
 #[cfg(test)]
 #[path = "context_preparation/allocation_tests.rs"]
 mod allocation_tests;
+
+#[cfg(test)]
+mod diagnostic_response_tests {
+    use super::*;
+    use crate::{
+        contracts::{HookEvent, HookResponse, apply_hook_response},
+        model_standard::MessageRole,
+    };
+
+    #[test]
+    fn diagnostics_preserve_the_preceding_candidate_and_match_full_response() {
+        let message = CanonicalMessage::text(MessageRole::User, "accepted material".repeat(500));
+        let input = ContextPreparationInput::new(vec![message.clone()], None)
+            .with_token_estimate(Some(500));
+        for changed in [false, true] {
+            let mut output = if changed {
+                ContextPreparationOutput::changed(vec![message.clone()], Some("summary".into()))
+            } else {
+                ContextPreparationOutput::unchanged(vec![message.clone()])
+            };
+            output.token_estimate = Some(100);
+            let event = HookEvent::BeforeContext {
+                input: input.clone(),
+                output: output.clone(),
+                model_capabilities: None,
+                target: None,
+            };
+            output.token_estimate = Some(80);
+            output.skipped_reason = Some("below_trigger_threshold".into());
+            output.metadata = serde_json::json!({"estimated": true});
+            let response = HookResponse::ContextPreparationDiagnostics {
+                diagnostics: output.diagnostics(),
+            };
+            let encoded = serde_json::to_string(&response).unwrap();
+            assert!(!encoded.contains("accepted material"));
+            let decoded: HookResponse = serde_json::from_str(&encoded).unwrap();
+            let expected =
+                apply_hook_response(&event, &HookResponse::ContextPreparation { output }).unwrap();
+            assert_eq!(apply_hook_response(&event, &decoded).unwrap(), expected);
+        }
+    }
+}

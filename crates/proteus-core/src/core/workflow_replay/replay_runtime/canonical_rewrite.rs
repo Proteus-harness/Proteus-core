@@ -19,6 +19,7 @@ pub(super) fn rewrite_response(
         HookResponse::ModelContext { messages, .. } => Some(("/messages", messages)),
         HookResponse::ContextPreparation { output } => Some(("/output/messages", &output.messages)),
         HookResponse::Continue
+        | HookResponse::ContextPreparationDiagnostics { .. }
         | HookResponse::ToolSelection { .. }
         | HookResponse::ToolArguments { .. }
         | HookResponse::ContinueTurn { .. }

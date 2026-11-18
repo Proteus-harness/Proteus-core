@@ -563,16 +563,57 @@ fn replay_rebinds_retained_opaque_estimate_ids_with_the_hook_proposal() {
         }],
     }
     .write_metadata(&mut output.metadata);
-    let mut response = HookResponse::ContextPreparation { output };
-    rewrite_preparation_identities(&mut response, &expected, &current).unwrap();
-    let HookResponse::ContextPreparation { output } = response else {
+    for mut response in [
+        HookResponse::ContextPreparationDiagnostics {
+            diagnostics: output.diagnostics(),
+        },
+        HookResponse::ContextPreparation { output },
+    ] {
+        rewrite_preparation_identities(&mut response, &expected, &current).unwrap();
+        let HookEvent::BeforeContext { output, .. } =
+            apply_hook_response(&current, &response).unwrap()
+        else {
+            panic!()
+        };
+        assert_eq!(
+            ModelInputEstimate::from_metadata(&output.metadata)
+                .unwrap()
+                .tokens_for(&actual.parts[0]),
+            Some(13)
+        );
+        assert_eq!(output.messages[0], actual);
+    }
+}
+
+#[test]
+fn preparation_diagnostics_rebind_metadata_without_replacing_messages() {
+    use crate::{
+        contracts::{ContextPreparationInput, ContextPreparationOutput},
+        model_standard::{CanonicalMessage, MessageRole},
+    };
+    let message = CanonicalMessage::text(MessageRole::User, "retained canonical content");
+    let mut output = ContextPreparationOutput::unchanged(vec![message.clone()]);
+    output.token_estimate = Some(7);
+    output.metadata = serde_json::json!({"call_id":"recorded-call"});
+    let response = HookResponse::ContextPreparationDiagnostics {
+        diagnostics: output.diagnostics(),
+    };
+    let rewritten = rewrite_response(
+        &response,
+        &HashMap::from([("recorded-call".into(), "actual-call".into())]),
+    )
+    .unwrap();
+    let event = HookEvent::BeforeContext {
+        input: ContextPreparationInput::new(vec![message.clone()], None),
+        output: ContextPreparationOutput::unchanged(vec![message.clone()]),
+        model_capabilities: None,
+        target: None,
+    };
+    let HookEvent::BeforeContext { output, .. } = apply_hook_response(&event, &rewritten).unwrap()
+    else {
         panic!()
     };
-    assert_eq!(
-        ModelInputEstimate::from_metadata(&output.metadata)
-            .unwrap()
-            .tokens_for(&actual.parts[0]),
-        Some(13)
-    );
-    assert_eq!(output.messages[0], actual);
+    assert_eq!(output.messages, vec![message]);
+    assert_eq!(output.metadata["call_id"], "actual-call");
+    assert_eq!(output.token_estimate, Some(7));
 }

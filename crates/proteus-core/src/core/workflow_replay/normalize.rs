@@ -32,6 +32,56 @@ pub(super) fn requests_equal(
     actual == expected
 }
 
+/// Older preparation records carried an exact second copy of the bound material
+/// in the request template. Replay compares model controls and uses the bound
+/// messages for normalizing advisory estimates in both representations.
+pub(super) fn preparation_requests_equal(
+    actual: &crate::contracts::ContextPreparationInput,
+    expected: &crate::contracts::ContextPreparationInput,
+    ids: &HashMap<CallId, CallId>,
+) -> bool {
+    match (&actual.request, &expected.request) {
+        (Some(a), Some(b)) => {
+            if !(a.messages.is_empty() || a.messages == actual.messages)
+                || !(b.messages.is_empty() || b.messages == expected.messages)
+            {
+                return requests_equal(a, b, ids);
+            }
+            let mut a = a.clone();
+            let mut b = b.clone();
+            a.messages.clear();
+            b.messages.clear();
+            normalize_estimate_metadata(&mut a.metadata, &actual.messages);
+            normalize_estimate_metadata(&mut b.metadata, &expected.messages);
+            rewrite_value_strings(&mut a.metadata, ids);
+            a == b
+        }
+        (None, None) => true,
+        _ => false,
+    }
+}
+
+#[test]
+fn preparation_replay_accepts_only_a_redundant_material_copy() {
+    use crate::{
+        contracts::ContextPreparationInput, domain::ModelRef, model_standard::MessageRole,
+    };
+    let request = CanonicalModelRequest::new(
+        ModelRef::new("fixture", "model"),
+        vec![CanonicalMessage::text(MessageRole::User, "source")],
+    );
+    let current = ContextPreparationInput::from_request(request.clone());
+    let mut prior = ContextPreparationInput::new(request.messages.clone(), Some(request));
+    let ids = HashMap::new();
+    assert!(preparation_requests_equal(&current, &prior, &ids));
+    prior.request.as_mut().unwrap().messages[0] =
+        CanonicalMessage::text(MessageRole::User, "different");
+    assert!(!preparation_requests_equal(&current, &prior, &ids));
+    prior.request.as_mut().unwrap().messages.clear();
+    prior.request.as_mut().unwrap().limits.max_output_tokens = Some(321);
+    assert!(!preparation_requests_equal(&current, &prior, &ids));
+}
+
 pub(super) fn messages_equal(
     actual: &[CanonicalMessage],
     expected: &[CanonicalMessage],

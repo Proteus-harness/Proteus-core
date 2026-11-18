@@ -146,8 +146,34 @@ fn turn_details(projection: &JournalProjection, turn_id: TurnId) -> Result<AppTu
                 });
             }
             JournalEntry::HookInvoked(trace) => {
+                let mut trace = trace.clone();
+                if matches!(
+                    trace.input.event,
+                    crate::contracts::HookEvent::BeforeContext { .. }
+                ) && trace.steps.iter().any(|step| {
+                    matches!(
+                        step.outcome,
+                        crate::contracts::HookStepOutcome::Accepted {
+                            response:
+                                crate::contracts::HookResponse::ContextPreparationDiagnostics { .. }
+                        }
+                    )
+                }) {
+                    let mut event = trace.input.event.clone();
+                    for contribution in &mut trace.steps {
+                        if let crate::contracts::HookStepOutcome::Accepted { response } =
+                            &mut contribution.outcome
+                        {
+                            let expanded = crate::contracts::expand_context_preparation_response(
+                                &event, response,
+                            )?;
+                            event = crate::contracts::apply_hook_response(&event, response)?;
+                            *response = expanded;
+                        }
+                    }
+                }
                 let mut step = new_step(AppAnalysisStepData::Hook {
-                    trace: Box::new(trace.clone()),
+                    trace: Box::new(trace),
                 });
                 step.finished_at_ms = Some(record.timestamp_ms);
                 steps.push(step);

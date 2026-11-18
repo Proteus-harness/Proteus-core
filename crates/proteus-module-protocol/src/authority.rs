@@ -139,7 +139,9 @@ pub const PROCESS_CONTRACT_AUTHORITIES: &[ProcessContractAuthority] = &[
         module_methods: &[PROCESS_HOOK_INVOKE_METHOD],
         module_method_features: &[],
         host_methods: HOOK_HOST_METHODS,
-        host_features: NO_PROTOCOL_FEATURES,
+        host_features: &[
+            proteus_contracts::contracts::HOOK_CONTEXT_PREPARATION_DIAGNOSTICS_FEATURE,
+        ],
         required_features: NO_PROTOCOL_FEATURES,
     },
     ProcessContractAuthority {
@@ -310,7 +312,11 @@ mod tests {
         assert_eq!(authority.composition, ProcessModuleComposition::OrderedMany);
         assert_eq!(authority.module_methods, [PROCESS_HOOK_INVOKE_METHOD]);
         assert_eq!(authority.host_methods, HOOK_HOST_METHODS);
-        assert!(authority.host_features.is_empty());
+        assert_eq!(
+            authority.host_features,
+            [proteus_contracts::contracts::HOOK_CONTEXT_PREPARATION_DIAGNOSTICS_FEATURE]
+        );
+        assert!(authority.required_features.is_empty());
         assert!(process_contract_authority("hook", "v5").is_none());
     }
 

@@ -261,11 +261,7 @@ fn events_equal(actual: &HookEvent, expected: &HookEvent, ids: &HashMap<CallId, 
                 && a.token_estimate == b.token_estimate
                 && a.window_tokens == b.window_tokens
                 && messages_equal(&a.messages, &b.messages, ids)
-                && match (&a.request, &b.request) {
-                    (Some(a), Some(b)) => requests_equal(a, b, ids),
-                    (None, None) => true,
-                    _ => false,
-                }
+                && super::super::normalize::preparation_requests_equal(a, b, ids)
                 && messages_equal(&ao.messages, &bo.messages, ids)
                 && ao.changed == bo.changed
                 && ao.summary == bo.summary
@@ -368,9 +364,13 @@ fn rewrite_preparation_identities(
     expected: &HookEvent,
     actual: &HookEvent,
 ) -> Result<()> {
-    let HookResponse::ContextPreparation { output } = response else {
+    if !matches!(
+        response,
+        HookResponse::ContextPreparation { .. }
+            | HookResponse::ContextPreparationDiagnostics { .. }
+    ) {
         return Ok(());
-    };
+    }
     let (
         HookEvent::BeforeContext {
             input: expected_input,
@@ -399,33 +399,40 @@ fn rewrite_preparation_identities(
             parts.insert(source_part.part_id, current_part);
         }
     }
-    for message in &mut output.messages {
-        if let Some(current) = messages.get(&message.id) {
-            *message = (*current).clone();
-        } else {
-            for part in &mut message.parts {
-                if let Some(current) = parts.get(&part.part_id) {
-                    *part = (*current).clone();
+    if let HookResponse::ContextPreparation { output } = response {
+        for message in &mut output.messages {
+            if let Some(current) = messages.get(&message.id) {
+                *message = (*current).clone();
+            } else {
+                for part in &mut message.parts {
+                    if let Some(current) = parts.get(&part.part_id) {
+                        *part = (*current).clone();
+                    }
                 }
             }
         }
     }
-    if let Some(mut estimate) =
-        crate::model_standard::ModelInputEstimate::from_metadata(&output.metadata)
-    {
+    let metadata = match response {
+        HookResponse::ContextPreparation { output } => &mut output.metadata,
+        HookResponse::ContextPreparationDiagnostics { diagnostics } => &mut diagnostics.metadata,
+        _ => unreachable!(),
+    };
+    if let Some(mut estimate) = crate::model_standard::ModelInputEstimate::from_metadata(metadata) {
         for estimate in &mut estimate.parts {
             if let Some(current) = parts.get(&estimate.part_id) {
                 estimate.part_id = current.part_id;
             }
         }
-        estimate.write_metadata(&mut output.metadata);
+        estimate.write_metadata(metadata);
     }
-    for replacement in &mut output.user_message_replacements {
-        if let Some(current) = messages.get(&replacement.source_message_id) {
-            replacement.source_message_id = current.id;
-        }
-        if let Some(current) = messages.get(&replacement.replacement_message_id) {
-            replacement.replacement_message_id = current.id;
+    if let HookResponse::ContextPreparation { output } = response {
+        for replacement in &mut output.user_message_replacements {
+            if let Some(current) = messages.get(&replacement.source_message_id) {
+                replacement.source_message_id = current.id;
+            }
+            if let Some(current) = messages.get(&replacement.replacement_message_id) {
+                replacement.replacement_message_id = current.id;
+            }
         }
     }
     Ok(())
