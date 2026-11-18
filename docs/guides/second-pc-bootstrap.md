@@ -5,6 +5,32 @@
 `--config` (по умолчанию — основной `config.toml`). Сборка из исходников и системные
 зависимости описаны в [руководстве приложения](https://github.com/Proteus-harness/Proteus-desktop/blob/main/README.md).
 
+Сборку Linux x86_64 для Fedora можно скачать из артефакта
+`linux-x86_64-release` после успешного запуска workflow
+[Check or release Linux portable](https://github.com/Proteus-harness/Proteus-desktop/actions/workflows/release.yml)
+с параметром `build`. Проверьте `sha256sum -c SHA256SUMS`, распакуйте
+`Proteus-*-linux-x86_64.tar.gz` и запустите `Proteus/install-shortcut`,
+если нужен ярлык приложения.
+
+## Архив Настроек
+
+[Скрипт settings-migration.py](https://github.com/Proteus-harness/Proteus-desktop/blob/main/scripts/settings-migration.py)
+работает с Python 3.11+. Закройте Desktop перед восстановлением, чтобы открытое
+окно не перезаписало сохранённые настройки при выходе.
+
+```bash
+# На исходном ПК
+python3 settings-migration.py export Proteus-settings.tar.gz
+# На новом ПК
+python3 settings-migration.py restore Proteus-settings.tar.gz
+```
+
+Скрипт переносит профили, prompts, визуальные настройки, привязки и настройки
+виджетов. Он корректирует абсолютные пути внутри прежнего домашнего каталога
+и сохраняет резервные копии заменяемых файлов. `restore --dry-run` показывает
+объём изменений. Архив содержит личные настройки. Авторизация, история чатов
+и выбор модели в отдельных чатах остаются на исходном ПК.
+
 ## Профили И Доступ К Модели
 
 Именованные профили хранятся в `~/.config/Proteus-harness/configs/`.
