@@ -80,6 +80,14 @@ pub async fn run_http_app_server(
     http_config: HttpServerConfig,
 ) -> Result<()> {
     http_config.validate()?;
+    anyhow::ensure!(
+        config_path.is_some() || resume_session_dir.is_some(),
+        "HTTP app-server requires a config path for session storage"
+    );
+    anyhow::ensure!(
+        config.modules.session_storage.is_some(),
+        "HTTP app-server requires a session storage module; select modules.session_storage and configure its component export in the profile"
+    );
     let server = super::startup::launch_selected(
         config,
         cwd,
@@ -92,7 +100,7 @@ pub async fn run_http_app_server(
     let security = HttpSecurity::from_config(&http_config);
     if server.session_dir_path().is_none() {
         return Err(anyhow!(
-            "HTTP app-server requires a config path for session storage"
+            "HTTP app-server could not create a persistent session with the configured storage module"
         ));
     }
     let state = HttpAppState::new(server, shutdown, security).await;

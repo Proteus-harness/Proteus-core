@@ -116,6 +116,49 @@ fn default_http_config_does_not_require_session_token() {
     ));
 }
 
+#[tokio::test]
+async fn http_startup_identifies_the_missing_storage_requirement() {
+    let root = tempfile::tempdir().unwrap();
+    let mut config = AppConfig::default();
+    config.modules.session_storage = Some("jsonl".into());
+    let missing_path = run_http_app_server(
+        config.clone(),
+        root.path().into(),
+        None,
+        None,
+        false,
+        HttpServerConfig::default(),
+    )
+    .await
+    .unwrap_err()
+    .to_string();
+    assert!(missing_path.contains("config path"), "{missing_path}");
+
+    config.modules.session_storage = None;
+    let path = root.path().join("config.toml");
+    std::fs::write(&path, "[modules]\n").unwrap();
+    let missing_storage = run_http_app_server(
+        config,
+        root.path().into(),
+        Some(path),
+        None,
+        false,
+        HttpServerConfig::default(),
+    )
+    .await
+    .unwrap_err()
+    .to_string();
+    assert!(
+        missing_storage.contains("modules.session_storage"),
+        "{missing_storage}"
+    );
+    assert!(
+        !missing_storage.contains("config path"),
+        "{missing_storage}"
+    );
+    assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 1);
+}
+
 #[test]
 fn http_config_requires_non_empty_token_for_non_loopback_bind() {
     let mut config = HttpServerConfig {
