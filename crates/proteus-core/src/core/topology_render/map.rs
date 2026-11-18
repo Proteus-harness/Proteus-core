@@ -94,8 +94,12 @@ pub fn render_topology_map(snapshot: &TopologySnapshot) -> String {
     if dangling.is_empty() {
         out.push_str("  (none)\n");
     } else {
-        for node in dangling.into_iter().take(24) {
+        let (visible, omitted) = dangling.split_at(dangling.len().min(24));
+        for node in visible {
             out.push_str(&format!("  - {node}\n"));
+        }
+        if !omitted.is_empty() {
+            out.push_str(&format!("  ... and {} more\n", omitted.len()));
         }
     }
 
@@ -172,17 +176,8 @@ fn dangling_nodes(snapshot: &TopologySnapshot) -> Vec<String> {
         nodes.insert(format!("tool:{}", tool.name));
     }
     for edge in &snapshot.edges {
-        nodes.insert(edge.from.clone());
-        nodes.insert(edge.to.clone());
+        nodes.remove(&edge.from);
+        nodes.remove(&edge.to);
     }
-
-    let mut connected = BTreeSet::new();
-    for edge in &snapshot.edges {
-        connected.insert(edge.from.clone());
-        connected.insert(edge.to.clone());
-    }
-    nodes
-        .into_iter()
-        .filter(|node| !connected.contains(node))
-        .collect()
+    nodes.into_iter().collect()
 }

@@ -1,6 +1,8 @@
+use std::fmt::Write as _;
+
 use crate::core::TopologySnapshot;
 
-use super::helpers::{module_source_label, yes_no};
+use super::helpers::{module_source_label, ordered_slots, yes_no};
 
 pub fn render_topology_table(snapshot: &TopologySnapshot) -> String {
     let mut lines = Vec::new();
@@ -16,9 +18,8 @@ pub fn render_topology_table(snapshot: &TopologySnapshot) -> String {
     lines.push("Active slots:".to_owned());
     lines.push(render_table(
         ["slot", "active_module", "source"],
-        &snapshot
-            .slots
-            .iter()
+        &ordered_slots(snapshot)
+            .into_iter()
             .filter_map(|slot| {
                 let active = slot.active_module.as_ref()?;
                 let source = snapshot
@@ -60,10 +61,7 @@ pub fn render_topology_table(snapshot: &TopologySnapshot) -> String {
 }
 
 fn render_table<const N: usize>(headers: [&str; N], rows: &[[String; N]]) -> String {
-    let mut widths = headers
-        .iter()
-        .map(|header| header.chars().count())
-        .collect::<Vec<_>>();
+    let mut widths = headers.map(|header| header.chars().count());
     for row in rows {
         for (index, cell) in row.iter().enumerate() {
             widths[index] = widths[index].max(cell.chars().count());
@@ -71,26 +69,31 @@ fn render_table<const N: usize>(headers: [&str; N], rows: &[[String; N]]) -> Str
     }
 
     let mut rendered = String::new();
-    rendered.push_str(&render_table_row(&headers.map(str::to_owned), &widths));
+    push_table_row(&mut rendered, &headers, &widths);
     rendered.push('\n');
-    rendered.push_str(
-        &widths
-            .iter()
-            .map(|width| "-".repeat(*width))
-            .collect::<Vec<_>>()
-            .join("  "),
-    );
+    for (index, &width) in widths.iter().enumerate() {
+        if index != 0 {
+            rendered.push_str("  ");
+        }
+        rendered.extend(std::iter::repeat_n('-', width));
+    }
     for row in rows {
         rendered.push('\n');
-        rendered.push_str(&render_table_row(row, &widths));
+        push_table_row(&mut rendered, row, &widths);
     }
     rendered
 }
 
-fn render_table_row<const N: usize>(row: &[String; N], widths: &[usize]) -> String {
-    row.iter()
-        .enumerate()
-        .map(|(index, cell)| format!("{cell:width$}", width = widths[index]))
-        .collect::<Vec<_>>()
-        .join("  ")
+fn push_table_row<const N: usize>(
+    out: &mut String,
+    row: &[impl AsRef<str>; N],
+    widths: &[usize; N],
+) {
+    for (index, (cell, &width)) in row.iter().zip(widths).enumerate() {
+        if index != 0 {
+            out.push_str("  ");
+        }
+        let cell = cell.as_ref();
+        write!(out, "{cell:width$}").expect("writing to a String cannot fail");
+    }
 }

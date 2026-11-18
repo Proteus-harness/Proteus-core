@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::core::TopologySnapshot;
@@ -26,7 +27,7 @@ pub fn render_topology_mermaid(snapshot: &TopologySnapshot) -> String {
     let config_id = ids.get("config");
     out.push_str(&format!(
         "    {config_id}([\"{}\"])\n",
-        mermaid_label(&format!(
+        quoted_node_label(&format!(
             "config<br/>{}",
             if snapshot.profile.trim().is_empty() {
                 "default"
@@ -54,7 +55,7 @@ pub fn render_topology_mermaid(snapshot: &TopologySnapshot) -> String {
         let active = slot.active_module.as_deref().unwrap_or("missing");
         out.push_str(&format!(
             "        {id}[\"{}\"]\n",
-            mermaid_label(&format!("{}<br/>{active}", slot.id))
+            quoted_node_label(&format!("{}<br/>{active}", slot.id))
         ));
         classes.push((
             id,
@@ -83,7 +84,7 @@ pub fn render_topology_mermaid(snapshot: &TopologySnapshot) -> String {
             let id = ids.get(&format!("tool:{}", tool.name));
             out.push_str(&format!(
                 "        {id}[\"{}\"]\n",
-                mermaid_label(&tool.name)
+                quoted_node_label(&tool.name)
             ));
             classes.push((id, if tool.enabled { "tool" } else { "tooldisabled" }));
         }
@@ -102,7 +103,7 @@ pub fn render_topology_mermaid(snapshot: &TopologySnapshot) -> String {
             let id = ids.get(&format!("tool:{}", tool.name));
             out.push_str(&format!(
                 "        {id}[\"{}\"]\n",
-                mermaid_label(&tool.name)
+                quoted_node_label(&tool.name)
             ));
             classes.push((id, "tooldisabled"));
         }
@@ -117,7 +118,7 @@ pub fn render_topology_mermaid(snapshot: &TopologySnapshot) -> String {
             let active = slot.active_module.as_deref().unwrap_or("missing");
             out.push_str(&format!(
                 "        {id}[\"{}\"]\n",
-                mermaid_label(&format!("{}<br/>{active}", slot.id))
+                quoted_node_label(&format!("{}<br/>{active}", slot.id))
             ));
             classes.push((id, "backend"));
         }
@@ -182,6 +183,26 @@ pub fn render_topology_mermaid(snapshot: &TopologySnapshot) -> String {
     out
 }
 
+/// Mermaid quoted strings use entity codes, not backslash escapes. Protect
+/// literal entity introducers too, without re-encoding emitted codes.
+fn quoted_node_label(value: &str) -> Cow<'_, str> {
+    if !value.contains(['"', '#', '&']) {
+        return Cow::Borrowed(value);
+    }
+    let mut encoded = String::with_capacity(value.len());
+    for character in value.chars() {
+        match character {
+            '"' => encoded.push_str("#quot;"),
+            '#' => encoded.push_str("#35;"),
+            '&' => encoded.push_str("#38;"),
+            // An encoded label is literal text, not a style declaration.
+            ':' => encoded.push_str("#58;"),
+            other => encoded.push(other),
+        }
+    }
+    Cow::Owned(encoded)
+}
+
 #[derive(Default)]
 struct MermaidIds {
     ids: BTreeMap<String, String>,
@@ -203,5 +224,30 @@ impl MermaidIds {
 
     fn lookup(&self, key: &str) -> Option<String> {
         self.ids.get(key).cloned()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn quoted_profile_preserves_literal_punctuation() {
+        let snapshot = TopologySnapshot {
+            profile: r#"Research "Alpha" · C:\Notes · #quot; &amp;"#.to_owned(),
+            ..Default::default()
+        };
+        let graph = render_topology_mermaid(&snapshot);
+        assert!(graph.contains(
+            r#"(["config<br/>Research #quot;Alpha#quot; · C#58;\Notes · #35;quot; #38;amp;"])"#,
+        ));
+    }
+    #[test]
+    fn style_word_in_profile_does_not_change_entity_text() {
+        let snapshot = TopologySnapshot {
+            profile: "Status style:C#".to_owned(),
+            ..Default::default()
+        };
+        assert!(render_topology_mermaid(&snapshot).contains("config<br/>Status style#58;C#35;"));
     }
 }
