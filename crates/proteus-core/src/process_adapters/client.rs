@@ -20,6 +20,7 @@ mod cancellation;
 use cancellation::CancellationSource;
 
 /// Typed view of one export on a shared multiplexed process component broker.
+#[derive(Clone)]
 pub struct ProcessExportClient {
     component_id: String,
     module_id: String,
@@ -69,6 +70,13 @@ impl ProcessExportClient {
                     && export.module_features.iter().any(|value| value == feature)
             })
         })
+    }
+
+    pub(super) fn with_timeout(&self, timeout: Duration) -> Self {
+        Self {
+            timeout,
+            ..self.clone()
+        }
     }
 
     pub async fn invoke<P, R>(&self, method: &str, params: &P) -> Result<R>
