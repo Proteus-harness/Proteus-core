@@ -180,7 +180,10 @@ pub(super) fn release_projection_memory() {
     }
 }
 
-pub(super) fn refresh_in_background(server: &AppServerHandle) {
+pub(super) fn refresh_in_background(
+    server: &AppServerHandle,
+    cached_source: crate::core::session_read_cache::SourceFingerprint,
+) {
     let server = server.clone();
     let Some(baseline) = server.events.completed_history() else {
         return;
@@ -190,25 +193,16 @@ pub(super) fn refresh_in_background(server: &AppServerHandle) {
             let Some(store) = server.runtime.session_store().cloned() else {
                 return Ok(());
             };
-            #[cfg(unix)]
-            let source = {
-                let store = store.clone();
-                tokio::task::spawn_blocking(move || {
-                    crate::core::session_read_cache::SourceFingerprint::read(&store)
-                })
-                .await?
-            };
-            let Some(read) = server.runtime.refresh_cached_resume().await? else {
+            let Some(read) = server.runtime.refresh_cached_resume(cached_source).await? else {
                 return Ok(());
             };
             let transcript = tokio::task::spawn_blocking(move || {
+                let source =
+                    crate::core::session_read_cache::SourceFingerprint::from_cursor(&read.cursor());
                 let model = SessionReadModel::from_validated(&store, read, |source| {
                     journal_transcript_from_source(source, None)
                 })?;
-                #[cfg(unix)]
-                if let Some(source) = source {
-                    store.save_read_model(&source, &model);
-                }
+                store.save_read_model(&source, &model);
                 Ok::<_, anyhow::Error>(CompletedTranscript::from_model(
                     &store,
                     model.transcript,

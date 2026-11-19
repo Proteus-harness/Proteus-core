@@ -30,7 +30,7 @@ pub(super) struct State {
     pub(super) writes: Vec<String>,
     pub(super) record_reads: usize,
     pub(super) fail_head: bool,
-    handles: u64,
+    pub(super) handles: u64,
 }
 
 pub(super) struct Backend(pub(super) Mutex<State>);

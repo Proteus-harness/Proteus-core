@@ -269,10 +269,17 @@ pub(super) fn load_model(store: &RemoteSessionStore) -> Option<SessionReadModel>
 pub(super) fn load_view(
     store: &RemoteSessionStore,
 ) -> Option<(RemoteCacheSource, SessionReadView, bool)> {
+    let (source, view) = load_saved_view(store)?;
+    let fresh = RemoteCacheSource::read(store).as_ref() == Some(&source);
+    Some((source, view, fresh))
+}
+
+pub(super) fn load_saved_view(
+    store: &RemoteSessionStore,
+) -> Option<(RemoteCacheSource, SessionReadView)> {
     let header = header(store)?;
     let start = header.transcript.rows.saturating_sub(PAGE_ROWS);
     let transcript = read_section(store, &header.transcript, start, header.transcript.rows)?;
-    let fresh = RemoteCacheSource::read(store).as_ref() == Some(&header.source);
     let view = SessionReadView {
         summary: header.summary,
         revision: header.revision,
@@ -284,7 +291,7 @@ pub(super) fn load_view(
             base: header.base,
         }),
     };
-    Some((header.source, view, fresh))
+    Some((header.source, view))
 }
 
 pub(super) fn transcript_page(

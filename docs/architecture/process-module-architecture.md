@@ -420,7 +420,7 @@ Rust host и модуль используют один
 
 | Slot | Contract | Module methods | Host callbacks |
 |---|---|---|---|
-| session_storage | v1 | `execute` | — |
+| session_storage | v2 | `execute` | — |
 | hook | v8 | `hook.invoke` | `host.model.complete`, `host.model.estimate_input`, `host.tools.execute` (по фазе invocation) |
 | policy | v2 | `evaluate`, `evaluate_visibility` | — |
 | context provider | v4 | `provide`, `catalog` | — |
@@ -579,7 +579,10 @@ tools. Запрос без результата остаётся неизвес�
 
 ## Session Storage
 
-`session_storage/v1` — `select_one` export с единственным методом `execute`.
+`session_storage/v2` — `select_one` export с единственным методом `execute`.
+`ListCandidates` перечисляет descriptors по identity и файловым метаданным для
+предварительного выбора чата. `List` сохраняет проверку canonical journal и
+возвращает проверенные summaries. Кандидат сам по себе не разрешает execution.
 `SessionStorageRequest` и `SessionStorageResponse` задаются в
 `proteus-contracts::contracts::session_storage`. Host callbacks отсутствуют.
 `local_path` и `record_location` в session descriptor служат для отображения и
@@ -1095,7 +1098,7 @@ Tracked reference crates — ordinary Rust libraries, линкуемые вну�
 Все behavior implementations, включая model providers, используют process
 exports. Core сохраняет canonical model service, execution binding и порядок
 фиксации journal facts. Физическое хранение сессии делегируется выбранному
-`session_storage/v1`; provider HTTP/SDK implementations находятся в model module.
+`session_storage/v2`; provider HTTP/SDK implementations находятся в model module.
 Для subagents действует другой process contract: полный Proteus соединяется с
 другим полным Proteus через root-owned `AgentControl`, а не становится
 Component Runtime export-ом. Это не скрытый extension mechanism и не основание

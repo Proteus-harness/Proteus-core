@@ -123,6 +123,25 @@ impl SessionStorageRequest {
                     }
                 }
             }
+            (
+                Self::ListCandidates { workspace_path, .. },
+                SessionStorageResponse::Candidates { sessions },
+            ) => {
+                let mut identities = std::collections::HashSet::new();
+                for descriptor in sessions {
+                    validate_descriptor(descriptor)?;
+                    ensure!(
+                        identities.insert(&descriptor.session),
+                        "storage candidates contain duplicate sessions"
+                    );
+                    if let Some(workspace) = workspace_path {
+                        ensure!(
+                            descriptor.workspace_path == *workspace,
+                            "storage candidate belongs to another workspace"
+                        );
+                    }
+                }
+            }
             (Self::AcquireWriter { session }, SessionStorageResponse::Writer { lease, .. }) => {
                 ensure!(
                     lease.session == *session,

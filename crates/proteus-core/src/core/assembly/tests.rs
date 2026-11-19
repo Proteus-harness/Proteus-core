@@ -43,7 +43,7 @@ fn session_storage_is_optional_and_selected_by_exact_process_export() {
         .exports
         .first()
         .unwrap();
-    assert_eq!(export.contract_version, "v1");
+    assert_eq!(export.contract_version, "v2");
     assert_eq!(
         export.composition,
         crate::contracts::ProcessModuleComposition::SelectOne

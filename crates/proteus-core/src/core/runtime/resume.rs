@@ -3,6 +3,7 @@
 use crate::core::{
     model_context::ModelContextState,
     session_journal::{JournalResumeState, ValidatedJournalRead},
+    session_read_cache::SourceFingerprint,
 };
 
 use super::AgentRuntime;
@@ -35,6 +36,7 @@ impl AgentRuntime {
 
     pub(crate) async fn refresh_cached_resume(
         &self,
+        cached_source: SourceFingerprint,
     ) -> anyhow::Result<Option<ValidatedJournalRead>> {
         let deferred = self.session.deferred_resume_validation.lock().await;
         if !*deferred {
@@ -43,7 +45,13 @@ impl AgentRuntime {
         let Some(store) = self.session.session_store.clone() else {
             return Ok(None);
         };
-        let read = tokio::task::spawn_blocking(move || ValidatedJournalRead::open(store)).await??;
+        let Some(read) = tokio::task::spawn_blocking(move || {
+            ValidatedJournalRead::open_for_display_if_changed(store, &cached_source)
+        })
+        .await??
+        else {
+            return Ok(None);
+        };
         let mut history = self.session.history.lock().await;
         let mut model_context = self.session.model_context.lock().await;
         self.session

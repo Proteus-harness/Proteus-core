@@ -16,7 +16,7 @@
 
 Внешние модули работают через Component Runtime v2 и протокол wire v3. У
 `workflow` действует контракт v22, у `hook` — v8, у `tool` — v7, у `model` — v14.
-Хранение сессий использует отдельный `session_storage/v1`.
+Хранение сессий использует отдельный `session_storage/v2`.
 Версии и разрешённые методы остальных слотов перечислены в
 [описании процессной границы](process-module-architecture.md). Один процесс
 может обслуживать несколько одновременных и вложенных вызовов. Загрузки
@@ -24,7 +24,7 @@
 
 ## Хранение Сессий
 
-Выбранный `session_storage/v1` хранит canonical journal, blobs, metadata и
+Выбранный `session_storage/v2` хранит canonical journal, blobs, metadata и
 перестраиваемые кеши. Core назначает identity операции и порядок фактов,
 проверяет ответы и продолжает исполнение после durable ACK. Формат файлов,
 транзакции, writer leases и физическое восстановление принадлежат модулю.
@@ -90,7 +90,7 @@ Wire shape и правила validation — в
 
 | Слот | Правило выбора | Где выбирается | Процессный контракт | Примеры имён |
 |---|---|---|---|---|
-| `session_storage` | `select_one` | `modules.session_storage` | да, `session_storage/v1` | `jsonl`, `sqlite` |
+| `session_storage` | `select_one` | `modules.session_storage` | да, `session_storage/v2` | `jsonl`, `sqlite` |
 | `hook` | `ordered_many` | `modules.hooks` (явный порядок) | да, `hook/v8` | `hook.instructions`, `hook.output_budget`, `codex_compact`, `tool_selection.dynamic` |
 | `workflow` | `select_one` | `modules.workflow` | да | `coding.single_loop`, `coding.codex_loop`, `coding.plan_execute_review`, `coding.project_check` |
 | `context` | `select_one` | `modules.context` | да, `context/v3` | `simple`, `repo_aware`, `codex_context` |

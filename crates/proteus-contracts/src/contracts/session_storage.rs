@@ -14,7 +14,7 @@ use crate::{
     storage::journal::{JournalEntry, JournalRecord},
 };
 
-pub const PROCESS_SESSION_STORAGE_CONTRACT_VERSION: &str = "v1";
+pub const PROCESS_SESSION_STORAGE_CONTRACT_VERSION: &str = "v2";
 pub const PROCESS_SESSION_STORAGE_EXECUTE_METHOD: &str = "execute";
 pub const SESSION_STORAGE_MAX_PAGE_RECORDS: u32 = 1024;
 pub const SESSION_STORAGE_PAGE_BYTE_BUDGET: usize = 4 * 1024 * 1024;
@@ -220,6 +220,12 @@ pub enum SessionStorageRequest {
         workspace_path: Option<PathBuf>,
         audit: bool,
     },
+    /// Display discovery only. Descriptors identify candidates without validating
+    /// journal records or granting authority to resume execution.
+    ListCandidates {
+        config_root: PathBuf,
+        workspace_path: Option<PathBuf>,
+    },
     AcquireWriter {
         session: SessionLocator,
     },
@@ -331,6 +337,9 @@ pub enum SessionStorageRequest {
 pub enum SessionStorageResponse {
     Session {
         descriptor: StorageSessionDescriptor,
+    },
+    Candidates {
+        sessions: Vec<StorageSessionDescriptor>,
     },
     Sessions {
         sessions: Vec<StorageSessionSummary>,

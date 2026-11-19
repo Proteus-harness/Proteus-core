@@ -84,7 +84,6 @@ pub use session_journal::{
     TurnSettlementStatus,
 };
 pub(crate) use session_journal::{JournalReadCursor, JournalReadSnapshot, history_message_sha256};
-#[cfg(unix)]
 pub(crate) use session_store::read_cache as session_read_cache;
 #[cfg(unix)]
 pub(crate) use session_store::subscribe_catalog_updates;

@@ -1,4 +1,4 @@
-//! Typed, callback-free session_storage/v1 export.
+//! Typed, callback-free session_storage/v2 export.
 use anyhow::{Result, bail};
 use proteus_contracts::contracts::{
     PROCESS_SESSION_STORAGE_CONTRACT_VERSION, PROCESS_SESSION_STORAGE_EXECUTE_METHOD,

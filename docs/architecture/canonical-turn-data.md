@@ -41,7 +41,7 @@ adapter-а и может сохраняться отдельно как opt-in d
 
 Journal DTO и storage envelope принадлежат `proteus-contracts`. Чистые правила
 validation, redaction и проекций находятся в `proteus-session-semantics`.
-Выбранный `session_storage/v1` владеет физическим форматом, writer lease,
+Выбранный `session_storage/v2` владеет физическим форматом, writer lease,
 транзакцией и восстановлением. Core назначает record identity, ожидаемую
 revision и порядок записи в своей lifecycle boundary, затем проверяет durable
 ACK. Workflow, hook и provider adapter возвращают contract DTO через свои

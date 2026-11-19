@@ -77,12 +77,13 @@ async fn stale_saved_transcript_refreshes_through_the_session_stream_without_a_t
         store.load_messages().unwrap()
     );
     assert_eq!(std::fs::read(store.journal_path()).unwrap(), before);
-    let (_, _, deferred, stale) =
+    let (_, _, cached_source) =
         crate::core::PreparedSession::from_dir(store.storage_service(), store.session_dir().into())
             .unwrap()
             .into_display_view(|_| panic!("background refresh should persist the current view"))
             .unwrap();
-    assert!(deferred && !stale);
+    assert!(cached_source.is_some());
+    assert!(store.saved_transcript_page(None, None).is_some());
     reopened.shutdown().await;
 }
 
@@ -103,12 +104,12 @@ async fn clear_persists_empty_view_but_external_append_makes_it_a_resume_candida
     .await
     .unwrap();
     handle.clear_history().await.unwrap();
-    let (_, view, deferred, stale) =
+    let (_, view, cached_source) =
         crate::core::PreparedSession::from_dir(store.storage_service(), store.session_dir().into())
             .unwrap()
             .into_display_view(|_| panic!("clear must persist the empty view"))
             .unwrap();
-    assert!(deferred && !stale);
+    assert!(cached_source.is_some());
     assert_eq!(view.summary.message_count, 0);
     assert!(view.transcript.is_empty());
     assert!(
@@ -140,10 +141,10 @@ async fn clear_persists_empty_view_but_external_append_makes_it_a_resume_candida
     .unwrap()
     .unwrap();
     assert_eq!(prepared.session_dir(), store.session_dir());
-    let (_, old, deferred, stale) = prepared
-        .into_display_view(|_| panic!("stale view must not block startup"))
+    let (_, view, _) = prepared
+        .into_display_view(|source| journal_transcript_from_source(source, None))
         .unwrap();
-    assert!(deferred && stale && old.transcript.is_empty());
+    assert_eq!(view.summary.message_count, 1);
     let reopened = AgentAppServer::launch_or_resume_latest_with_storage(
         crate::test_model::config(),
         workspace.path().into(),

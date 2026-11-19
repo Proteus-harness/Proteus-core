@@ -271,7 +271,7 @@ mod tests {
     #[test]
     fn session_storage_is_selected_and_cannot_call_execution_services() {
         let authority = current_process_contract_authority("session_storage").unwrap();
-        assert_eq!(authority.contract_version, "v1");
+        assert_eq!(authority.contract_version, "v2");
         assert_eq!(authority.composition, ProcessModuleComposition::SelectOne);
         assert_eq!(authority.module_methods, ["execute"]);
         assert!(authority.host_methods.is_empty());

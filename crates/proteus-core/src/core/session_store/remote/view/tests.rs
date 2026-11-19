@@ -122,18 +122,18 @@ fn stale_remote_view_is_display_only_and_old_revision_remains_coherent() {
     assert!(store.fresh_read_model().is_none());
     assert!(store.saved_transcript_page(None, None).is_none());
     assert_eq!(store.saved_display_page().unwrap().total, 75);
-    let reads = backend.0.lock().unwrap().record_reads;
+    let handles = backend.0.lock().unwrap().handles;
     let prepared = super::super::prepared::PreparedSession::from_dir(
         backend.clone(),
         store.session_dir().to_owned(),
     )
     .unwrap();
-    let (_, provisional, deferred, stale) = prepared
+    let (_, provisional, cached_source) = prepared
         .into_display_view(|_| panic!("startup should use a bounded saved display page"))
         .unwrap();
-    assert!(deferred && stale);
+    assert!(cached_source.is_some());
     assert_eq!(provisional.transcript.len(), 50);
-    assert_eq!(backend.0.lock().unwrap().record_reads, reads);
+    assert_eq!(backend.0.lock().unwrap().handles, handles);
     store.project_read_view(full, append).unwrap();
     assert_eq!(store.saved_transcript(&revision).unwrap().len(), 75);
 }

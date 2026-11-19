@@ -367,3 +367,46 @@ fn writer_model_context_request_roundtrips_and_accepts_only_model_context_respon
             .is_err()
     );
 }
+
+#[test]
+fn display_candidates_are_workspace_bound_and_cannot_substitute_verified_summaries() {
+    let descriptor = StorageSessionDescriptor {
+        session: session(),
+        parent_session_id: None,
+        workspace_path: "/work".into(),
+        local_path: Some("/sessions/one".into()),
+        record_location: None,
+        created_at_ms: 1,
+        updated_at_ms: 2,
+    };
+    let request = SessionStorageRequest::ListCandidates {
+        config_root: "/config".into(),
+        workspace_path: Some("/work".into()),
+    };
+    request
+        .validate_response(&SessionStorageResponse::Candidates {
+            sessions: vec![descriptor.clone()],
+        })
+        .unwrap();
+    assert!(
+        request
+            .validate_response(&SessionStorageResponse::Candidates {
+                sessions: vec![descriptor.clone(), descriptor.clone()],
+            })
+            .is_err()
+    );
+    let mut other = descriptor;
+    other.workspace_path = "/other".into();
+    assert!(
+        request
+            .validate_response(&SessionStorageResponse::Candidates {
+                sessions: vec![other],
+            })
+            .is_err()
+    );
+    assert!(
+        request
+            .validate_response(&SessionStorageResponse::Sessions { sessions: vec![] })
+            .is_err()
+    );
+}

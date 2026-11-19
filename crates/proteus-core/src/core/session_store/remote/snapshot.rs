@@ -199,6 +199,18 @@ impl RemoteValidatedRead {
     pub(crate) fn open_for_display(store: RemoteSessionStore) -> Result<Self> {
         Self::validate(store, None, DisplayRecordWriter::new()).map(|(read, _)| read)
     }
+    pub(crate) fn open_for_display_if_changed(
+        store: RemoteSessionStore,
+        cached_source: &super::view::RemoteCacheSource,
+    ) -> Result<Option<Self>> {
+        let source = store.snapshot()?;
+        if super::view::RemoteCacheSource::from_cursor(&source.cursor()) == *cached_source {
+            return Ok(None);
+        }
+        Self::validate_snapshot(store, source, None, DisplayRecordWriter::new())
+            .map(|(read, _)| Some(read))
+    }
+
     pub(crate) fn open_with_cursor(
         store: RemoteSessionStore,
         previous: Option<&RemoteJournalCursor>,
@@ -208,9 +220,18 @@ impl RemoteValidatedRead {
     fn validate(
         store: RemoteSessionStore,
         previous: Option<&RemoteJournalCursor>,
+        display: Option<DisplayRecordWriter>,
+    ) -> Result<(Self, bool)> {
+        let source = store.snapshot()?;
+        Self::validate_snapshot(store, source, previous, display)
+    }
+
+    fn validate_snapshot(
+        store: RemoteSessionStore,
+        mut source: RemoteJournalSnapshot,
+        previous: Option<&RemoteJournalCursor>,
         mut display: Option<DisplayRecordWriter>,
     ) -> Result<(Self, bool)> {
-        let mut source = store.snapshot()?;
         let prefix_matches = match previous {
             Some(previous) => matches!(
                 store.request(Request::CompareSnapshots {

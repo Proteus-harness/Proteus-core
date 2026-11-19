@@ -654,9 +654,9 @@ impl AgentAppServer {
         if let Some(parent_session_id) = parent_session_id {
             builder = builder.with_parent_session_id(parent_session_id);
         }
-        let mut refresh_stale_view = false;
+        let mut cached_display_source = None;
         let initial_transcript = if let Some(prepared) = resumed_session {
-            let (session_store, model, _, stale) = tokio::task::spawn_blocking(move || {
+            let (session_store, model, cached_source) = tokio::task::spawn_blocking(move || {
                 let result = prepared
                     .into_display_view(|source| journal_transcript_from_source(source, None));
                 read_model::release_projection_memory();
@@ -664,7 +664,7 @@ impl AgentAppServer {
             })
             .await
             .map_err(|error| anyhow!("session transcript task failed: {error}"))??;
-            refresh_stale_view = stale;
+            cached_display_source = cached_source;
             builder = builder.resume_from_session_view(
                 session_store,
                 model.revision,
@@ -732,8 +732,8 @@ impl AgentAppServer {
         Box::pin(session_behavior::restore(&handle, selection_is_new)).await?;
         handle.command_catalog().await?;
         profile_watch::start(&handle).await;
-        if refresh_stale_view {
-            read_model::refresh_in_background(&handle);
+        if let Some(source) = cached_display_source {
+            read_model::refresh_in_background(&handle, source);
         }
         Ok(handle)
     }

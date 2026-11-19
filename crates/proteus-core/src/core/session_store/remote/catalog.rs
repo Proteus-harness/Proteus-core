@@ -35,6 +35,22 @@ pub(crate) fn list(
         .collect()
 }
 
+/// Provisional display discovery. Canonical validation happens after selection.
+pub(crate) fn candidates(
+    service: StorageService,
+    config_root: &Path,
+    workspace_path: Option<&Path>,
+) -> Result<Vec<proteus_contracts::contracts::StorageSessionDescriptor>> {
+    let Response::Candidates { sessions } = service.execute_blocking(Request::ListCandidates {
+        config_root: config_root.to_owned(),
+        workspace_path: workspace_path.map(Path::to_owned),
+    })?
+    else {
+        bail!("storage returned an unexpected candidate response")
+    };
+    Ok(sessions)
+}
+
 fn updates() -> &'static tokio::sync::watch::Sender<u64> {
     static UPDATES: std::sync::OnceLock<tokio::sync::watch::Sender<u64>> =
         std::sync::OnceLock::new();

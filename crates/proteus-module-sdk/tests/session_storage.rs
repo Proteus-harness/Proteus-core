@@ -26,6 +26,9 @@ impl SessionStorageModule for Probe {
     fn execute(&self, request: SessionStorageRequest) -> Result<SessionStorageResponse> {
         self.0.fetch_add(1, Ordering::SeqCst);
         match request {
+            SessionStorageRequest::ListCandidates { .. } => {
+                Ok(SessionStorageResponse::Candidates { sessions: vec![] })
+            }
             SessionStorageRequest::List { .. } => {
                 Ok(SessionStorageResponse::Sessions { sessions: vec![] })
             }
@@ -38,7 +41,7 @@ fn binding() -> ProcessComponentExportInitialize {
     ProcessComponentExportInitialize::new(
         "session_storage",
         "probe",
-        "v1",
+        "v2",
         ProcessModuleComposition::SelectOne,
         json!({}),
         Vec::<String>::new(),
@@ -101,6 +104,12 @@ fn storage_export_crosses_sdk_frames_without_callbacks_and_rejects_invalid_reque
             false,
         ),
         (3, "describe", Value::Null, false),
+        (
+            4,
+            "execute",
+            json!({"operation":"list_candidates", "config_root":"/unused", "workspace_path":null}),
+            true,
+        ),
     ] {
         let id = format!("h:9:{sequence}");
         send(
@@ -119,7 +128,7 @@ fn storage_export_crosses_sdk_frames_without_callbacks_and_rejects_invalid_reque
     }
     assert_eq!(
         calls.load(Ordering::SeqCst),
-        1,
+        2,
         "invalid input must not reach storage"
     );
     drop(writer);
@@ -130,10 +139,10 @@ fn storage_export_crosses_sdk_frames_without_callbacks_and_rejects_invalid_reque
 fn storage_export_rejects_wrong_slot_version_and_composition() {
     for (slot, version, composition) in [
         ("tool", "v1", ProcessModuleComposition::SelectOne),
-        ("session_storage", "v0", ProcessModuleComposition::SelectOne),
+        ("session_storage", "v1", ProcessModuleComposition::SelectOne),
         (
             "session_storage",
-            "v1",
+            "v2",
             ProcessModuleComposition::OrderedMany,
         ),
     ] {

@@ -105,7 +105,7 @@ authority(module) = authority(slot, invocation_context)
 
 | Требуется | Существующее место |
 |---|---|
-| Хранится или восстанавливается canonical session journal, metadata, blobs и кеши | `session_storage/v1`; порядок lifecycle и принятие ACK принадлежат Core |
+| Хранится или восстанавливается canonical session journal, metadata, blobs и кеши | `session_storage/v2`; порядок lifecycle и принятие ACK принадлежат Core |
 | Модель сама вызывает действие | `Tool` |
 | Меняется порядок действий агента | `Workflow` |
 | Контекст добавляется или сокращается перед вызовом модели | `ContextBuilder`, `context_provider` или `BeforeContext`/`BeforeModel` hook |

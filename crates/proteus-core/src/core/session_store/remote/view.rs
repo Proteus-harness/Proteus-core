@@ -138,8 +138,8 @@ impl RemoteSessionStore {
         let _ = cache::save_model(self, source, model, None);
     }
 
-    pub(crate) fn saved_read_view(&self) -> Option<(RemoteCacheSource, SessionReadView, bool)> {
-        cache::load_view(self)
+    pub(crate) fn saved_read_view(&self) -> Option<(RemoteCacheSource, SessionReadView)> {
+        cache::load_saved_view(self)
     }
 
     pub(crate) fn fresh_read_usage(&self) -> Option<SessionUsageSnapshot> {
