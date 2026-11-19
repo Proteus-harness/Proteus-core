@@ -7,8 +7,8 @@ use proteus_contracts::{
     domain::{PermissionMode, PolicyDecision, ToolCall, ToolSafety, ToolSpec},
 };
 use proteus_core::core::{
-    AppConfig, HeadlessApprovalTransport, ModelExecutionBinding, ModuleEpoch, PreparedAssembly,
-    RuntimeSnapshot,
+    AppConfig, BoundTools, HeadlessApprovalTransport, ModelExecutionBinding, ModuleEpoch,
+    PreparedAssembly, RuntimeSnapshot, ToolExecutionBinding,
 };
 use serde_json::json;
 use std::{path::Path, sync::Arc};
@@ -22,7 +22,7 @@ async fn experimental_profile_confirms_writes_and_commands_and_full_access_keeps
     .unwrap();
     let mut config = test_model::config();
     config.modules.policy = profile.modules.policy.clone();
-    config.tools.enabled.clear();
+    config.tools.enabled = vec!["request_permissions".into()];
     config
         .module_config
         .insert("policy".into(), profile.module_config["policy"].clone());
@@ -35,7 +35,7 @@ async fn experimental_profile_confirms_writes_and_commands_and_full_access_keeps
     config.components.insert(
         "test-policy".into(),
         serde_json::from_value(json!({
-            "command": test_model::reference_module(), "exports": {"policy": {"codex_policy": {}}}
+            "command": test_model::reference_module(), "exports": {"policy": {"codex_policy": {}}, "tool": {"policy_tools": {}}}
         }))
         .unwrap(),
     );
@@ -54,8 +54,34 @@ async fn experimental_profile_confirms_writes_and_commands_and_full_access_keeps
                 mode,
             )
             .unwrap();
-        // Automatic approval never issues a sandbox escalation grant.
         assert!(execution.permission_grants.snapshot().is_empty());
+        if mode == PermissionMode::FullAccess {
+            let tools = BoundTools::new(
+                execution.tools.clone(),
+                execution.policy.clone(),
+                execution.approval.clone(),
+                execution.permission_grants.clone(),
+                ToolExecutionBinding::detached(execution.scope.clone()),
+            );
+            let result = tools
+                .execute(
+                    workspace.path().into(),
+                    ToolCall::new(
+                        "grant-call",
+                        "request_permissions",
+                        json!({"permissions":["escalated_exec"], "justification":"fixture"}),
+                    ),
+                )
+                .await
+                .unwrap();
+            assert!(result.ok, "{result:?}");
+            assert_eq!(
+                result.metadata["granted_permissions"],
+                json!(["escalated_exec"])
+            );
+            // Only actual user approval can publish these metadata grants.
+            assert!(execution.permission_grants.snapshot().is_empty());
+        }
         for (name, safety) in [
             ("read_file", ToolSafety::ReadOnly),
             ("apply_patch", ToolSafety::WritesFiles),
