@@ -146,7 +146,10 @@ impl JournalValidationState {
                         self.capture_owner = Some((required_thread_id(record)?, turn_id));
                     }
                 }
-                validate_active_history_ids(&self.history)?;
+                self.check_active_ids(
+                    (mutation.mutation == HistoryMutationKind::Append)
+                        .then_some(mutation.messages.len()),
+                )?;
                 if mutation
                     .compaction
                     .as_ref()
@@ -352,7 +355,7 @@ impl JournalValidationState {
                     && let Some(index) = self.capture_tool_result(&tool.result)?
                 {
                     self.history_revision = self.history_revision.saturating_add(1);
-                    validate_active_history_ids(&self.history)?;
+                    self.check_active_ids(None)?;
                     Self::validate_part_id_stability(
                         &mut self.known_parts,
                         &self.history[index..index + 1],
@@ -381,7 +384,7 @@ impl JournalValidationState {
                     for result in pending {
                         if let Some(index) = self.capture_tool_result(&result)? {
                             self.history_revision = self.history_revision.saturating_add(1);
-                            validate_active_history_ids(&self.history)?;
+                            self.check_active_ids(None)?;
                             Self::validate_part_id_stability(
                                 &mut self.known_parts,
                                 &self.history[index..index + 1],

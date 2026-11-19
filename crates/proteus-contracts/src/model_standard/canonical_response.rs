@@ -1,9 +1,9 @@
-use std::{borrow::Cow, collections::HashSet};
+use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    domain::{ToolCall, ToolSpec},
+    domain::{ToolCall, ToolCallSurface, ToolSpec},
     model_standard::{CanonicalMessage, CanonicalModelRequest, ContentPart, MessageRole},
 };
 
@@ -169,19 +169,32 @@ pub fn validate_model_response_against_request(
 /// чтобы borrowed и owned пути использовали одну реализацию проверки.
 #[derive(Clone)]
 pub struct ModelResponseValidationContext<'a> {
-    tools: Cow<'a, [ToolSpec]>,
+    tools: ValidationTools<'a>,
+}
+
+#[derive(Clone)]
+enum ValidationTools<'a> {
+    Borrowed(&'a [ToolSpec]),
+    // Preserve declaration order (including first-match behavior) without retaining schemas.
+    Owned(Vec<(String, Option<ToolCallSurface>)>),
 }
 
 impl<'a> ModelResponseValidationContext<'a> {
     pub fn from_request(request: &'a CanonicalModelRequest) -> Self {
         Self {
-            tools: Cow::Borrowed(&request.tools),
+            tools: ValidationTools::Borrowed(&request.tools),
         }
     }
 
     pub fn into_owned(self) -> ModelResponseValidationContext<'static> {
         ModelResponseValidationContext {
-            tools: Cow::Owned(self.tools.into_owned()),
+            tools: ValidationTools::Owned(match self.tools {
+                ValidationTools::Borrowed(tools) => tools
+                    .iter()
+                    .map(|tool| (tool.name.clone(), tool.surface.call_surface()))
+                    .collect(),
+                ValidationTools::Owned(tools) => tools,
+            }),
         }
     }
 
@@ -196,7 +209,15 @@ impl<'a> ModelResponseValidationContext<'a> {
     /// Та же tool surface для MessageCompleted и terminal response.
     /// Не заменяет workflow visibility/policy или проверку аргументов.
     pub fn validate_tool_call(&self, call: &ToolCall) -> Result<(), String> {
-        validate_model_tool_call_surface(&self.tools, call)
+        match &self.tools {
+            ValidationTools::Borrowed(tools) => validate_model_tool_call_surface(tools, call),
+            ValidationTools::Owned(tools) => {
+                let Some((_, surface)) = tools.iter().find(|(name, _)| name == &call.name) else {
+                    return Ok(());
+                };
+                validate_declared_surface(*surface, call)
+            }
+        }
     }
 }
 
@@ -206,7 +227,14 @@ pub fn validate_model_tool_call_surface(tools: &[ToolSpec], call: &ToolCall) -> 
     let Some(tool) = tools.iter().find(|tool| tool.name == call.name) else {
         return Ok(());
     };
-    match tool.surface.call_surface() {
+    validate_declared_surface(tool.surface.call_surface(), call)
+}
+
+fn validate_declared_surface(
+    surface: Option<ToolCallSurface>,
+    call: &ToolCall,
+) -> Result<(), String> {
+    match surface {
         Some(expected) if call.surface != expected => Err(format!(
             "model response tool '{}' used {} surface, but request declared {} surface",
             call.name,

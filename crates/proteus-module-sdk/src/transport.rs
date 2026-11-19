@@ -193,7 +193,11 @@ impl Write for FrameByteCounter {
 }
 
 pub fn rpc_success(id: &str, result: Value) -> Value {
-    json!({"jsonrpc": "2.0", "id": id, "result": result})
+    // The result is already JSON. Move it into the envelope instead of
+    // serializing it into a second Value tree (potentially a full record page).
+    let mut frame = json!({"jsonrpc": "2.0", "id": id});
+    frame["result"] = result;
+    frame
 }
 
 pub fn rpc_error(id: &str, error: ProcessModuleRpcError) -> Value {
@@ -214,6 +218,19 @@ mod tests {
         fn flush(&mut self) -> std::io::Result<()> {
             Ok(())
         }
+    }
+
+    #[test]
+    fn success_envelope_preserves_opaque_result_without_copying_its_payload() {
+        let result = json!({"nested": [null, {"text": "a nonempty owned response"}]});
+        let text = result["nested"][1]["text"].as_str().unwrap().as_ptr();
+        let expected =
+            serde_json::to_vec(&json!({"jsonrpc": "2.0", "id": "h:1:9", "result": result}))
+                .unwrap();
+        let frame = rpc_success("h:1:9", result);
+        assert_eq!(serde_json::to_vec(&frame).unwrap(), expected);
+        let actual = frame["result"]["nested"][1]["text"].as_str().unwrap();
+        assert_eq!(actual.as_ptr(), text);
     }
 
     #[test]

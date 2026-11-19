@@ -5,8 +5,9 @@ use anyhow::{Result, bail, ensure};
 use proteus_module_sdk::{
     Export,
     contracts::contracts::{
-        ProcessComponentExportRef, SessionLocator, SessionStorageRequest, SessionStorageResponse,
-        StorageMetadataDocument, StorageRevision, StorageSnapshot, storage_value_etag,
+        PROCESS_SESSION_STORAGE_CONTRACT_VERSION, ProcessComponentExportRef, SessionLocator,
+        SessionStorageRequest, SessionStorageResponse, StorageMetadataDocument, StorageRevision,
+        StorageSnapshot, storage_value_etag,
     },
     protocol::{
         ProcessComponentBinding, ProcessExportBinding,
@@ -89,7 +90,7 @@ fn broker(host_limit: usize, child_limit: usize) -> Result<ComponentBroker> {
         [ProcessExportBinding::new(
             "session_storage",
             "echo",
-            "v1",
+            PROCESS_SESSION_STORAGE_CONTRACT_VERSION,
             json!({}),
         )?],
     )?;

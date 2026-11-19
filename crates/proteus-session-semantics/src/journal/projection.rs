@@ -1,3 +1,4 @@
+mod active_ids;
 mod build;
 #[cfg(test)]
 mod capture_tests;
@@ -9,7 +10,7 @@ mod sequence;
 mod subagent;
 
 use im::{HashMap as SharedMap, HashSet as SharedSet};
-use std::{collections::HashSet, sync::Arc};
+use std::sync::Arc;
 
 use anyhow::{Result, bail};
 use proteus_contracts::{
@@ -28,6 +29,7 @@ pub struct JournalValidationState {
     capture: Arc<super::history_capture::HistoryCapture>,
     capture_owner: Option<JournalRecordAttributionOwner>,
     history: Arc<Vec<CanonicalMessage>>,
+    active_ids: Option<Arc<active_ids::ActiveIds>>,
     history_revision: u64,
     history_turn: Option<TurnId>,
     interrupted_turns: Arc<Vec<proteus_contracts::contracts::WorkflowHistoryInterruption>>,
@@ -270,29 +272,6 @@ fn validate_conversation_messages(messages: &[CanonicalMessage]) -> Result<()> {
                     message.id,
                     part.part_id,
                     part.scope
-                );
-            }
-        }
-    }
-    Ok(())
-}
-
-fn validate_active_history_ids(messages: &[CanonicalMessage]) -> Result<()> {
-    let mut message_ids = HashSet::new();
-    let mut part_ids = HashSet::new();
-    for message in messages {
-        if !message_ids.insert(message.id) {
-            bail!(
-                "active history contains duplicate message id {}",
-                message.id
-            );
-        }
-        for part in &message.parts {
-            if !part_ids.insert(part.part_id) {
-                bail!(
-                    "active history contains duplicate part id {} at message {}",
-                    part.part_id,
-                    message.id,
                 );
             }
         }
