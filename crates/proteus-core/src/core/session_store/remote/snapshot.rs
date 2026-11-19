@@ -271,20 +271,20 @@ impl RemoteValidatedRead {
             Ok(())
         })?;
         source.display_records = display.and_then(DisplayRecordWriter::finish);
-        let resume = proteus_contracts::contracts::StorageResumeState {
-            conversation: StorageConversation {
-                revision: source.snapshot.revision,
-                model_context: context.snapshot(),
-                messages: validation.history().to_vec(),
-            },
-            usage: usage.snapshot(store.session_id()),
-            last_history_turn: validation.last_history_turn(),
-            interrupted_turns: validation.interrupted_turns(),
-        };
         ensure!(
             validation.history_revision() == source.snapshot.revision.history_revision,
             "storage snapshot history revision mismatch"
         );
+        let resume = proteus_contracts::contracts::StorageResumeState {
+            last_history_turn: validation.last_history_turn(),
+            interrupted_turns: validation.interrupted_turns(),
+            conversation: StorageConversation {
+                revision: source.snapshot.revision,
+                model_context: context.snapshot(),
+                messages: validation.into_history(),
+            },
+            usage: usage.snapshot(store.session_id()),
+        };
         Ok((
             Self {
                 source,
