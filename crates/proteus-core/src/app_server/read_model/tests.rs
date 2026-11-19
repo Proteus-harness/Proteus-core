@@ -119,3 +119,5 @@ async fn history_recovery_does_not_hide_corrupt_canonical_source() {
     assert!(store.fresh_read_model().is_none());
     assert_eq!(std::fs::read(store.journal_path()).unwrap(), damaged);
 }
+
+mod cold;

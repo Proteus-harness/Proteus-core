@@ -7,6 +7,8 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
+mod packed;
+
 /// Prefix-only identities. New identities are deliberately not inserted during
 /// suffix inspection: repeats and forward references within one new turn need
 /// the complete suffix renderer, but cannot affect previously cached rows.

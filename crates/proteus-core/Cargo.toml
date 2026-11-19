@@ -13,6 +13,7 @@ memory-diagnostics = []
 
 [dependencies]
 base64 = "0.22"
+miniz_oxide = "0.8.9"
 agent-client-protocol = "=2.1.0"
 rmcp = { version = "=3.3.0", default-features = false, features = ["client"] }
 proteus-contracts = { path = "../proteus-contracts" }

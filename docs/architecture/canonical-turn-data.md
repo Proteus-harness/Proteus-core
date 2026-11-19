@@ -58,7 +58,9 @@ BoundModel записывает полный окончательный request 
 part и call identities и owned `ModelResponseValidationContext`, а не вторую
 копию historical payload. Context создаётся заново для каждого prepared request
 и используется одновременно для MessageCompleted и terminal response; tools
-между вызовами не кэшируются. Public request-based validator использует тот же
+между вызовами не кэшируются. Owned context хранит только имена и форму вызова
+в исходном порядке объявлений, без копий описаний и JSON-схем. Public
+request-based validator использует тот же
 context заимствованно, без копирования tools. При расширении request-specific
 правил меняются поля context и обе формы его construction, не фиктивный request.
 Provider DTO, полный journal request и failure reconciliation не меняются.

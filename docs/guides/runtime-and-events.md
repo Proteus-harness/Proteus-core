@@ -95,6 +95,13 @@ token отклоняется до запуска runtime и bind.
 после сборки runtime и фактического bind сервер печатает и flush-ит одну JSON
 строку `{"type":"http_ready","origin":"http://127.0.0.1:<port>"}`. Остальные
 строки stdout остаются диагностикой; credential в readiness не входит.
+В этом режиме supervisor может передать абсолютный каталог нужной вкладки в
+`PROTEUS_HTTP_PREFERRED_SESSION`: Core сначала пытается открыть её вместо
+последней сессии workspace. При недоступном адресе действует обычный выбор
+последней непустой сессии проекта либо новой. Сохранённая сессия другого
+проекта не меняет `/bootstrap.cwd` или workspace нового чата без источника.
+Явные `--resume-session` и `--new-session` имеют приоритет. Без
+`--ready-stdout` переменная не участвует в выборе.
 Supervisor передаёт `--token` и нужные `--allow-origin` явно; для проверки
 и завершения есть `/bootstrap` и authenticated `POST /shutdown`.
 [Приложение](https://github.com/Proteus-harness/Proteus-desktop/blob/main/README.md) запускает сервер с собственным

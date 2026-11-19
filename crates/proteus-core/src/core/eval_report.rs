@@ -249,16 +249,14 @@ fn record_changed_files(
                 .or_else(|| call.args.get("input"))
                 .and_then(serde_json::Value::as_str)
             {
-                for path in patch_paths(patch) {
-                    changed_files.insert(path);
-                }
+                changed_files.extend(patch_paths(patch));
             }
         }
         _ => {}
     }
 }
 
-fn patch_paths(patch: &str) -> Vec<String> {
+fn patch_paths(patch: &str) -> impl Iterator<Item = String> {
     patch
         .lines()
         .filter_map(|line| {
@@ -270,7 +268,6 @@ fn patch_paths(patch: &str) -> Vec<String> {
         .map(str::trim)
         .filter(|path| !path.is_empty())
         .map(str::to_owned)
-        .collect()
 }
 
 #[cfg(test)]

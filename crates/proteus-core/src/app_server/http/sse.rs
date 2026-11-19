@@ -108,15 +108,27 @@ pub(super) async fn sse_response(
 }
 
 pub(super) fn encode_sse_output(output: &StdioOutput) -> Bytes {
-    let data = serde_json::to_string(output).unwrap_or_else(|error| {
-        serde_json::to_string(&serde_json::json!({
-            "type": "response",
-            "id": null,
-            "ok": false,
-            "output": null,
-            "error": format!("{error:#}"),
-        }))
-        .expect("fallback response serializes")
-    });
-    Bytes::from(format!("event: output\ndata: {data}\n\n"))
+    const PREFIX: &[u8] = b"event: output\ndata: ";
+    let mut frame = Vec::with_capacity(128);
+    frame.extend_from_slice(PREFIX);
+    if let Err(error) = serde_json::to_writer(&mut frame, output) {
+        // An error can follow a large partial event. Do not retain its buffer
+        // in the small error response.
+        frame = PREFIX.to_vec();
+        serde_json::to_writer(
+            &mut frame,
+            &serde_json::json!({
+                "type": "response",
+                "id": null,
+                "ok": false,
+                "output": null,
+                "error": format!("{error:#}"),
+            }),
+        )
+        .expect("fallback response serializes");
+    }
+    // A two-byte terminator should not double a nearly full large buffer.
+    frame.reserve_exact(2);
+    frame.extend_from_slice(b"\n\n");
+    Bytes::from(frame)
 }

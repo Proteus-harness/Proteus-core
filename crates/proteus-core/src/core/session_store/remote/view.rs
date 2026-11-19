@@ -52,38 +52,6 @@ pub(crate) struct SessionTranscriptAppend {
     pub conversation_appended: usize,
 }
 
-impl SessionReadView {
-    pub(crate) fn from_model(
-        store: &RemoteSessionStore,
-        model: SessionReadModel,
-        stale: bool,
-    ) -> Self {
-        let page = if stale {
-            store.saved_display_page()
-        } else {
-            store.saved_transcript_page(None, None)
-        };
-        let (transcript, cursor) = match page {
-            Some(page) => (
-                page.messages,
-                Some(AppTranscriptCursor {
-                    revision: page.revision,
-                    before: page.start,
-                    base: page.base,
-                }),
-            ),
-            None => (model.transcript, None),
-        };
-        Self {
-            summary: model.summary,
-            revision: model.conversation.revision,
-            usage: model.usage,
-            transcript,
-            cursor,
-        }
-    }
-}
-
 impl SessionReadModel {
     pub(crate) fn from_validated(
         store: &RemoteSessionStore,
@@ -119,6 +87,44 @@ impl SessionReadModel {
 }
 
 impl RemoteSessionStore {
+    pub(crate) fn project_validated_view(
+        &self,
+        read: RemoteValidatedRead,
+        paged: bool,
+        render: impl FnOnce(&mut RemoteJournalSnapshot) -> Result<Vec<AppTranscriptMessage>>,
+    ) -> Result<SessionReadView> {
+        let source = RemoteCacheSource::from_cursor(&read.cursor());
+        let model = SessionReadModel::from_validated(self, read, render)?;
+        self.save_read_model(&source, &model);
+        // A concurrent projection may have advanced HEAD. Only this immutable
+        // revision can provide a page for the model's summary, revision and usage.
+        let page = if paged {
+            source
+                .revision()
+                .and_then(|revision| self.saved_transcript_page(None, Some(&revision)))
+        } else {
+            None
+        };
+        let (transcript, cursor) = match page {
+            Some(page) => (
+                page.messages,
+                Some(AppTranscriptCursor {
+                    revision: page.revision,
+                    before: page.start,
+                    base: page.base,
+                }),
+            ),
+            None => (model.transcript, None),
+        };
+        Ok(SessionReadView {
+            summary: model.summary,
+            revision: model.conversation.revision,
+            usage: model.usage,
+            transcript,
+            cursor,
+        })
+    }
+
     pub(crate) fn fresh_read_model(&self) -> Option<SessionReadModel> {
         cache::load_model(self)
     }
@@ -127,11 +133,26 @@ impl RemoteSessionStore {
         &self,
         render: impl FnOnce(&mut RemoteJournalSnapshot) -> Result<Vec<AppTranscriptMessage>>,
     ) -> Result<SessionReadModel> {
+        self.project_sourced_read_model(None, render)
+            .map(|(_, model)| model)
+    }
+
+    /// Report the source actually validated and rendered. If the caller is
+    /// repairing a named revision, do not publish a different projection.
+    pub(crate) fn project_sourced_read_model(
+        &self,
+        expected: Option<&RemoteCacheSource>,
+        render: impl FnOnce(&mut RemoteJournalSnapshot) -> Result<Vec<AppTranscriptMessage>>,
+    ) -> Result<(RemoteCacheSource, SessionReadModel)> {
         let read = RemoteValidatedRead::open_for_display(self.clone())?;
         let source = RemoteCacheSource::from_cursor(&read.cursor());
+        anyhow::ensure!(
+            expected.is_none_or(|expected| expected == &source),
+            "history source changed during recovery; refresh the session snapshot"
+        );
         let model = SessionReadModel::from_validated(self, read, render)?;
         self.save_read_model(&source, &model);
-        Ok(model)
+        Ok((source, model))
     }
 
     pub(crate) fn save_read_model(&self, source: &RemoteCacheSource, model: &SessionReadModel) {
@@ -159,6 +180,7 @@ impl RemoteSessionStore {
         cache::transcript_page(self, before, revision, false)
     }
 
+    #[cfg(test)]
     pub(crate) fn saved_display_page(&self) -> Option<AppTranscriptPage> {
         cache::transcript_page(self, None, None, true)
     }

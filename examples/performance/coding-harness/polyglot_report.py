@@ -184,10 +184,12 @@ def cluster_interval(pairs, agents, field, repetitions=10000, seed=SEED):
     for _ in range(repetitions):
         chosen = rng.choices(range(len(sizes)), k=len(sizes))
         count = sum(sizes[index] for index in chosen)
-        scores = [sum(sums[index][arm] for index in chosen)/count for arm in range(len(agents))]
-        for arm, score in enumerate(scores):
-            draws[arm].append(score)
-        differences.append(scores[0]-scores[1])
+        wins = [sum(sums[index][arm] for index in chosen) for arm in range(len(agents))]
+        for arm, total in enumerate(wins):
+            draws[arm].append(total/count)
+        # Subtract exact counts before division: a constant paired effect must
+        # not look variable merely because the individual rates were rounded.
+        differences.append((wins[0]-wins[1])/count)
     for agent, values in zip(agents, draws):
         result['arms'][agent].update(bootstrap_uncertainty(values))
     result['delta'].update(bootstrap_uncertainty(differences))

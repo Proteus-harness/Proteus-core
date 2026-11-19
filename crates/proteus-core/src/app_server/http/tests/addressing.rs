@@ -340,6 +340,75 @@ async fn session_routes_reject_missing_unknown_and_ambiguous_addresses() {
 }
 
 #[tokio::test]
+async fn supervised_saved_chat_skips_unrelated_live_handle_and_keeps_launch_workspace() {
+    let a = tempfile::tempdir().unwrap();
+    let b = tempfile::tempdir().unwrap();
+    let root = tempfile::tempdir().unwrap();
+    let config_path = root.path().join("config.toml");
+    let storage = crate::test_model::storage(a.path());
+    let mut dirs = Vec::new();
+    for (workspace, text) in [(a.path(), "unrelated A"), (b.path(), "required B")] {
+        let store = crate::core::SessionStore::new(
+            storage.clone(),
+            root.path(),
+            workspace,
+            crate::domain::new_session_id(),
+        )
+        .unwrap();
+        store
+            .append_history(
+                crate::domain::new_thread_id(),
+                None,
+                &[crate::model_standard::CanonicalMessage::text(
+                    crate::model_standard::MessageRole::User,
+                    text,
+                )],
+            )
+            .await
+            .unwrap();
+        dirs.push(store.session_dir().to_owned());
+    }
+    let missing = root.path().join("deleted");
+    for (hint, initial, count) in [
+        (None, &dirs[0], 2),
+        (Some(dirs[1].clone()), &dirs[1], 1),
+        (Some(missing), &dirs[0], 2),
+    ] {
+        let (server, default_workspace) = crate::app_server::startup::launch_http_selected(
+            crate::test_model::config(),
+            a.path().to_owned(),
+            Some(&config_path),
+            None,
+            false,
+            hint,
+        )
+        .await
+        .unwrap();
+        assert_eq!(server.session_dir_path().as_ref(), Some(initial));
+        let (shutdown, _) = broadcast::channel(1);
+        let state =
+            HttpAppState::new_for_workspace(server, default_workspace, shutdown, test_security())
+                .await;
+        // Real handler path used by Desktop, including reuse for its second /resume.
+        let opened =
+            command_value(post_at(&state, "/resume", json!({"session_dir":dirs[1]})).await);
+        assert_eq!(opened["workspace_path"], json!(b.path()));
+        assert_eq!(opened["session_dir"], json!(dirs[1]));
+        let live = state.server_for_session_dir(&dirs[1]).await.unwrap();
+        assert_eq!(live.transcript().await.unwrap()[0].text, "required B");
+        assert_eq!(state.all_servers().await.len(), count);
+        let bootstrap = read_json_at(&state, "/bootstrap").await;
+        assert_eq!(bootstrap["session_dir"], json!(initial));
+        assert_eq!(bootstrap["cwd"], json!(a.path()));
+        let new_session = command_value(post_at(&state, "/new-session", json!({})).await);
+        assert_eq!(new_session["workspace_path"], json!(a.path()));
+        for live in state.all_servers().await {
+            live.shutdown().await;
+        }
+    }
+}
+
+#[tokio::test]
 async fn lifecycle_uses_the_explicit_source_workspace_and_keeps_deletion_in_the_config_store() {
     let workspace_a = tempfile::tempdir().unwrap();
     let workspace_b = tempfile::tempdir().unwrap();

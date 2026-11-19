@@ -22,32 +22,6 @@ impl From<Vec<AppTranscriptMessage>> for CompletedTranscript {
     }
 }
 
-impl CompletedTranscript {
-    pub fn from_model(
-        store: &SessionStore,
-        transcript: Vec<AppTranscriptMessage>,
-        stale: bool,
-    ) -> Self {
-        #[cfg(unix)]
-        if let Some(page) = if stale {
-            store.saved_display_page()
-        } else {
-            store.saved_transcript_page(None, None)
-        } {
-            return Self {
-                messages: page.messages,
-                cursor: Some(AppTranscriptCursor {
-                    revision: page.revision,
-                    before: page.start,
-                    base: page.base,
-                }),
-            };
-        }
-        let _ = (store, stale);
-        transcript.into()
-    }
-}
-
 /// Read a complete named display revision. A disposable cache miss must not
 /// make the canonical history unreadable, but a newer source is not that revision.
 #[cfg(unix)]
@@ -96,22 +70,29 @@ fn rebuild_transcript(
 ) -> anyhow::Result<(String, Vec<AppTranscriptMessage>)> {
     use crate::core::session_read_cache::SourceFingerprint;
 
-    let source = SourceFingerprint::read(store)
-        .ok_or_else(|| anyhow::anyhow!("history source cannot be fingerprinted"))?;
+    // Reject an unavailable named revision before rebuilding anything. An
+    // unnamed cold page needs no preliminary OpenSnapshot: its strict display
+    // read already captures the input fingerprint (also on canonical fallback).
+    let named = if let Some(expected) = expected {
+        let source = SourceFingerprint::try_read(store)?;
+        anyhow::ensure!(
+            source.revision().as_deref() == Some(expected),
+            "history revision changed; refresh the session snapshot"
+        );
+        Some(source)
+    } else {
+        None
+    };
+    let (source, model) = store.project_sourced_read_model(named.as_ref(), |snapshot| {
+        journal_transcript_from_source(snapshot, None)
+    })?;
+    anyhow::ensure!(
+        SourceFingerprint::try_read(store)? == source,
+        "history source changed during recovery; refresh the session snapshot"
+    );
     let revision = source
         .revision()
         .ok_or_else(|| anyhow::anyhow!("history source revision is unavailable"))?;
-    anyhow::ensure!(
-        expected.is_none_or(|expected| expected == revision),
-        "history revision changed; refresh the session snapshot"
-    );
-    // Strict journal validation is mandatory; cached conversation state is not
-    // an authority. project_read_model saves the index only on a stable source.
-    let model = store.project_read_model(|source| journal_transcript_from_source(source, None))?;
-    anyhow::ensure!(
-        SourceFingerprint::read(store).as_ref() == Some(&source),
-        "history source changed during recovery; refresh the session snapshot"
-    );
     // Cache writes are best effort (e.g. disk full). The verified in-memory
     // result remains usable without retrying indefinitely or requiring a writer lease.
     Ok((revision, model.transcript))
@@ -197,17 +178,13 @@ pub(super) fn refresh_in_background(
                 return Ok(());
             };
             let transcript = tokio::task::spawn_blocking(move || {
-                let source =
-                    crate::core::session_read_cache::SourceFingerprint::from_cursor(&read.cursor());
-                let model = SessionReadModel::from_validated(&store, read, |source| {
+                let view = store.project_validated_view(read, cfg!(unix), |source| {
                     journal_transcript_from_source(source, None)
                 })?;
-                store.save_read_model(&source, &model);
-                Ok::<_, anyhow::Error>(CompletedTranscript::from_model(
-                    &store,
-                    model.transcript,
-                    false,
-                ))
+                Ok::<_, anyhow::Error>(CompletedTranscript {
+                    messages: view.transcript,
+                    cursor: view.cursor,
+                })
             })
             .await??;
             server.events.refresh_history(&baseline, transcript)?;

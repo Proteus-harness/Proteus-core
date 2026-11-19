@@ -28,6 +28,7 @@ pub(super) struct State {
     pub(super) records: Vec<JournalRecord>,
     pub(super) cache: HashMap<String, Value>,
     pub(super) writes: Vec<String>,
+    pub(super) cache_reads: Vec<String>,
     pub(super) record_reads: usize,
     pub(super) fail_head: bool,
     pub(super) handles: u64,
@@ -55,6 +56,7 @@ impl Backend {
             records: vec![],
             cache: HashMap::new(),
             writes: vec![],
+            cache_reads: vec![],
             record_reads: 0,
             handles: 0,
             fail_head: false,
@@ -168,6 +170,7 @@ impl SessionStorage for Backend {
                 })
             }
             Request::ReadCache { key, source, .. } => {
+                state.cache_reads.push(key.clone());
                 let value = if source.as_ref().is_none_or(|source| current(&state, source)) {
                     state.cache.get(&key).cloned()
                 } else {

@@ -88,22 +88,28 @@ pub async fn run_http_app_server(
         config.modules.session_storage.is_some(),
         "HTTP app-server requires a session storage module; select modules.session_storage and configure its component export in the profile"
     );
-    let server = super::startup::launch_selected(
+    let (shutdown, mut shutdown_rx) = broadcast::channel(1);
+    let security = HttpSecurity::from_config(&http_config);
+    let preferred = if http_config.ready_stdout {
+        std::env::var_os("PROTEUS_HTTP_PREFERRED_SESSION").map(PathBuf::from)
+    } else {
+        None
+    };
+    let (server, default_workspace) = super::startup::launch_http_selected(
         config,
         cwd,
         config_path.as_deref(),
         resume_session_dir,
         fresh_session,
+        preferred,
     )
     .await?;
-    let (shutdown, mut shutdown_rx) = broadcast::channel(1);
-    let security = HttpSecurity::from_config(&http_config);
-    if server.session_dir_path().is_none() {
-        return Err(anyhow!(
-            "HTTP app-server could not create a persistent session with the configured storage module"
-        ));
-    }
-    let state = HttpAppState::new(server, shutdown, security).await;
+    anyhow::ensure!(
+        server.session_dir_path().is_some(),
+        "HTTP app-server could not create a persistent session with the configured storage module"
+    );
+    let state =
+        HttpAppState::new_for_workspace(server, default_workspace, shutdown, security).await;
     let listener = TcpListener::bind(http_config.bind).await?;
     if http_config.ready_stdout {
         use std::io::Write;

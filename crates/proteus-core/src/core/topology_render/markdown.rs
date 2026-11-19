@@ -97,11 +97,21 @@ pub fn render_topology_markdown(snapshot: &TopologySnapshot) -> String {
 }
 
 fn md_cell(value: &str) -> String {
-    value
-        .replace('\n', " ")
-        .replace('|', "\\|")
-        .trim()
-        .to_owned()
+    let value = value.trim();
+    let mut escaped = String::with_capacity(value.len());
+    let mut chars = value.chars().peekable();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '\r' => {
+                chars.next_if_eq(&'\n');
+                escaped.push(' ');
+            }
+            '\n' => escaped.push(' '),
+            '|' => escaped.push_str("\\|"),
+            ch => escaped.push(ch),
+        }
+    }
+    escaped
 }
 
 fn md_code_span(value: &str) -> String {
@@ -130,6 +140,21 @@ mod tests {
             ("`a``b`", "``` `a``b` ```"),
         ] {
             assert_eq!(md_code_span(value), markdown);
+        }
+    }
+}
+
+#[cfg(test)]
+mod markdown_cell_tests {
+    use super::md_cell;
+
+    #[test]
+    fn one_cell_flattens_each_logical_line_break_once() {
+        for br in ["\n", "\r\n", "\r"] {
+            assert_eq!(
+                md_cell(&format!(" first|part{br}{br}last ")),
+                "first\\|part  last"
+            );
         }
     }
 }

@@ -23,7 +23,8 @@ const PREFIX: &str = "display-view-v1-prefix";
 mod pages;
 use pages::valid_section;
 pub(super) use pages::{
-    Section, append_section, extend_known_section, read_section, write_section,
+    Section, append_section, extend_known_section, read_section, visit_section, write_section,
+    write_transcript,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -43,8 +44,11 @@ impl Eq for RemoteCacheSource {}
 
 impl RemoteCacheSource {
     pub(crate) fn read(store: &RemoteSessionStore) -> Option<Self> {
-        Some(Self {
-            snapshot: store.snapshot().ok()?.descriptor().clone(),
+        Self::try_read(store).ok()
+    }
+    pub(crate) fn try_read(store: &RemoteSessionStore) -> Result<Self> {
+        Ok(Self {
+            snapshot: store.journal_snapshot()?,
         })
     }
     pub(crate) fn from_cursor(cursor: &RemoteJournalCursor) -> Self {
@@ -128,15 +132,18 @@ pub(super) fn read_content<T: DeserializeOwned>(
     store: &RemoteSessionStore,
     expected: &str,
 ) -> Option<T> {
+    serde_json::from_value(read_content_value(store, expected)?).ok()
+}
+
+fn read_content_value(store: &RemoteSessionStore, expected: &str) -> Option<Value> {
     let value = read_value(store, &format!("display-data-{expected}"))?;
-    (hash(&value).as_deref() == Some(expected)).then_some(())?;
-    serde_json::from_value(value).ok()
+    (hash(&value).as_deref() == Some(expected)).then_some(value)
 }
 
 pub(super) fn read_prefix(store: &RemoteSessionStore, expected: &str) -> Option<PrefixIdentities> {
     let value = read_value(store, PREFIX)?;
     (hash(&value).as_deref() == Some(expected)).then_some(())?;
-    serde_json::from_value(value).ok()
+    PrefixIdentities::decode_cache(value)
 }
 
 pub(super) fn write_prefix(
@@ -146,7 +153,7 @@ pub(super) fn write_prefix(
 ) -> Option<String> {
     // Only the latest projection appends to this index. Keep one copy even
     // when old revisions still serve their immutable display pages.
-    let value = bounded_value(prefix)?;
+    let value = bounded_value(&prefix.encode_cache()?)?;
     let digest = hash(&value)?;
     write_value(store, source, PREFIX, value)?;
     Some(digest)
@@ -184,13 +191,22 @@ pub(super) fn write_content<T: Serialize>(
 ) -> Option<String> {
     let value = bounded_value(value)?;
     let digest = hash(&value)?;
+    write_content_value(store, source, &digest, value)?;
+    Some(digest)
+}
+
+fn write_content_value(
+    store: &RemoteSessionStore,
+    source: &RemoteCacheSource,
+    digest: &str,
+    value: Value,
+) -> Option<()> {
     let key = format!("display-data-{digest}");
     // Unchanged payload pages remain in the backend; only new content is sent.
-    if read_value(store, &key).is_some_and(|existing| hash(&existing) == Some(digest.clone())) {
-        return Some(digest);
+    if read_value(store, &key).is_some_and(|existing| hash(&existing).as_deref() == Some(digest)) {
+        return Some(());
     }
-    write_value(store, source, &key, value)?;
-    Some(digest)
+    write_value(store, source, &key, value)
 }
 
 fn matches(store: &RemoteSessionStore, header: &Header) -> bool {
@@ -342,7 +358,7 @@ pub(super) fn save_model(
     }
     let previous = header(store);
     let conversation = write_section(store, source, &model.conversation.messages)?;
-    let transcript = write_section(store, source, &model.transcript)?;
+    let transcript = write_transcript(store, source, &model.transcript)?;
     let context = write_section(store, source, &model.conversation.model_context)?;
     let base = previous.as_ref().and_then(|previous| {
         Some(AppTranscriptBase {
@@ -388,11 +404,12 @@ fn common_prefix(
 ) -> Option<usize> {
     let mut common = 0;
     for (before, after) in old.pages.iter().zip(&new.pages) {
-        if before.hash == after.hash {
+        if before.hash == after.hash && before.rows == after.rows {
             common += before.rows;
             continue;
         }
-        let old_rows: Vec<Value> = read_content(store, &before.hash)?;
+        let old_rows: Vec<Value> =
+            read_section(store, old, common, common.checked_add(before.rows)?)?;
         for old_row in &old_rows {
             let Some(new_row) = rows.get(common) else {
                 return Some(common);
@@ -475,14 +492,12 @@ fn rebuild_tools(
 ) -> Option<AppLatestToolState> {
     let mut tools = BTreeMap::new();
     let mut requested = None;
-    for start in (0..header.transcript.rows).step_by(PAGE_ROWS) {
-        let rows: Vec<CompactRow> = read_section(
-            store,
-            &header.transcript,
-            start,
-            (start + PAGE_ROWS).min(header.transcript.rows),
-        )?;
-        for row in rows {
+    visit_section(
+        store,
+        &header.transcript,
+        0,
+        header.transcript.rows,
+        |row: CompactRow| {
             if let Some(tool) = row.tool
                 && accepted(&tool.status)
             {
@@ -501,8 +516,9 @@ fn rebuild_tools(
                     write_content(store, &header.source, &state)?,
                 );
             }
-        }
-    }
+            Some(())
+        },
+    )?;
     if RemoteCacheSource::read(store).as_ref() != Some(&header.source) {
         return None;
     }

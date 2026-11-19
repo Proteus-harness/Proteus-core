@@ -24,6 +24,63 @@ pub(super) async fn launch_selected(
     }
 }
 
+/// Select an initial HTTP handle without coupling the supervisor's default
+/// workspace to a best-effort saved chat. Explicit CLI choices stay strict.
+pub(super) async fn launch_http_selected(
+    config: AppConfig,
+    cwd: PathBuf,
+    config_path: Option<&Path>,
+    resume: Option<PathBuf>,
+    fresh: bool,
+    preferred: Option<PathBuf>,
+) -> Result<(AppServerHandle, PathBuf)> {
+    let Some(path) = preferred.filter(|p| p.is_absolute() && resume.is_none() && !fresh) else {
+        let server = launch_selected(config, cwd, config_path, resume, fresh).await?;
+        let workspace = server.cwd.clone();
+        return Ok((server, workspace));
+    };
+
+    let storage = super::selected_storage(&config, &cwd)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("no session storage module is selected"))?;
+    let attempt = async {
+        let selected = storage.clone();
+        let prepared = tokio::task::spawn_blocking(move || {
+            let prepared = crate::core::PreparedSession::from_dir(selected, path.clone())?;
+            // Desktop accepts exactly the saved directory, not a journal alias.
+            anyhow::ensure!(
+                prepared.session_dir() == path,
+                "not the saved session directory"
+            );
+            Ok::<_, anyhow::Error>(prepared)
+        })
+        .await??;
+        AgentAppServer::launch_prepared_with_storage(
+            config.clone(),
+            cwd.clone(),
+            config_path,
+            prepared,
+            storage.clone(),
+        )
+        .await
+    }
+    .await;
+    let server = match attempt {
+        Ok(server) => server,
+        Err(error) => {
+            eprintln!("warning: could not restore preferred HTTP session: {error:#}");
+            AgentAppServer::launch_or_resume_latest_with_storage(
+                config,
+                cwd.clone(),
+                config_path,
+                Some(storage),
+            )
+            .await?
+        }
+    };
+    Ok((server, cwd))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

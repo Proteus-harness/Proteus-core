@@ -40,15 +40,26 @@ impl HttpAppState {
             .ok_or_else(|| anyhow::anyhow!("no session storage module is selected"))
     }
 
+    #[cfg(test)]
     pub(super) async fn new(
         server: AppServerHandle,
+        shutdown: broadcast::Sender<()>,
+        security: HttpSecurity,
+    ) -> Self {
+        let workspace = server.cwd.clone();
+        Self::new_for_workspace(server, workspace, shutdown, security).await
+    }
+
+    pub(super) async fn new_for_workspace(
+        server: AppServerHandle,
+        cwd: PathBuf,
         shutdown: broadcast::Sender<()>,
         security: HttpSecurity,
     ) -> Self {
         let initial_server = server.clone();
         let launch = HttpLaunchContext {
             config: server.config.read().await.clone(),
-            cwd: server.cwd.clone(),
+            cwd,
             config_path: server.config_path.clone(),
             profile_was_present: server
                 .config_path

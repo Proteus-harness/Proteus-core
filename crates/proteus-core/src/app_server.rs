@@ -575,6 +575,16 @@ impl AgentAppServer {
         })
         .await
         .map_err(|error| anyhow!("session restore task failed: {error}"))??;
+        Self::launch_prepared_with_storage(config, cwd, config_path, resumed, storage).await
+    }
+
+    async fn launch_prepared_with_storage(
+        config: AppConfig,
+        cwd: PathBuf,
+        config_path: Option<&Path>,
+        resumed: crate::core::PreparedSession,
+        storage: StorageService,
+    ) -> Result<AppServerHandle> {
         Box::pin(Self::launch_inner(
             config,
             cwd,

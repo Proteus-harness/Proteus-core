@@ -7,7 +7,7 @@ use proteus_contracts::app_protocol::AppTranscriptMessage;
 use super::{
     RemoteSessionStore, StorageService, catalog,
     snapshot::{RemoteJournalSnapshot, RemoteValidatedRead},
-    view::{RemoteCacheSource, SessionReadModel, SessionReadView},
+    view::{RemoteCacheSource, SessionReadView},
 };
 
 pub(crate) struct PreparedSession {
@@ -40,7 +40,6 @@ impl PreparedSession {
         })
     }
 
-    #[cfg(test)]
     pub(crate) fn session_dir(&self) -> &Path {
         self.store.session_dir()
     }
@@ -65,10 +64,7 @@ impl PreparedSession {
     )> {
         let (view, cached_source) = match self.history {
             PreparedHistory::Validated(read) => {
-                let source = RemoteCacheSource::from_cursor(&read.cursor());
-                let model = SessionReadModel::from_validated(&self.store, read, render)?;
-                self.store.save_read_model(&source, &model);
-                (SessionReadView::from_model(&self.store, model, false), None)
+                (self.store.project_validated_view(read, true, render)?, None)
             }
             PreparedHistory::Cached(source, view) => (view, Some(source)),
         };

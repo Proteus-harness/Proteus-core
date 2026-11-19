@@ -4,6 +4,41 @@ use super::*;
 use support::{Backend, append, full};
 
 #[test]
+fn prepared_view_never_mixes_an_older_summary_with_a_newer_transcript() {
+    use super::super::prepared::PreparedSession;
+
+    for retain_old_page in [false, true] {
+        let (backend, store) = Backend::store();
+        backend.append(51);
+        let prepared =
+            PreparedSession::from_dir(backend.clone(), store.session_dir().to_owned()).unwrap();
+        let old_revision = RemoteCacheSource::read(&store).unwrap().revision().unwrap();
+        if retain_old_page {
+            store.project_read_model(full).unwrap();
+        }
+        // A second reader publishes a newer head before startup renders its fixed snapshot.
+        backend.append(1);
+        store.project_read_model(full).unwrap();
+
+        let opens = backend.0.lock().unwrap().handles;
+        let (_, view, _) = prepared.into_display_view(full).unwrap();
+        assert_eq!(view.revision, 1);
+        assert_eq!(view.summary.message_count, 51);
+        assert_eq!(view.transcript.last().unwrap().text, "message-0-50");
+        assert_eq!(backend.0.lock().unwrap().handles, opens);
+        if retain_old_page {
+            let cursor = view.cursor.expect("retained immutable page");
+            assert_eq!(cursor.revision, old_revision);
+            assert_eq!(cursor.before, 1);
+            assert_eq!(view.transcript.len(), 50);
+        } else {
+            assert!(view.cursor.is_none());
+            assert_eq!(view.transcript.len(), 51);
+        }
+    }
+}
+
+#[test]
 fn cold_display_reuses_the_validated_records_without_another_storage_traversal() {
     let (backend, store) = Backend::store();
     for _ in 0..80 {
@@ -226,4 +261,57 @@ fn cache_fingerprints_ignore_independent_worker_object_order() {
     }
     assert_eq!(store.saved_transcript_page(None, None).unwrap().total, 51);
     assert!(store.fresh_read_model().is_some());
+}
+
+mod packs;
+
+#[test]
+fn full_reprojection_compares_changed_archived_leaf_and_preserves_pinned_history() {
+    let (backend, store) = Backend::store();
+    backend.append(953);
+    let original = store.project_read_model(full).unwrap();
+    let old_header = cache::header(&store).unwrap();
+    let old_revision = old_header.source.revision().unwrap();
+    let changed = 401usize;
+    backend.append(1);
+    let mut current = SessionReadModel::from_validated(
+        &store,
+        RemoteValidatedRead::open(store.clone()).unwrap(),
+        full,
+    )
+    .unwrap();
+    current.transcript[changed].text = "replacement".to_string();
+    let source = RemoteCacheSource::read(&store).unwrap();
+    store.save_read_model(&source, &current);
+    let current_page = store.saved_transcript_page(Some(425), None).unwrap();
+    let base = current_page.base.unwrap();
+    assert_eq!(base.revision, old_revision);
+    assert_eq!(base.common_prefix, changed);
+    assert_eq!(
+        current_page.messages[changed - current_page.start].text,
+        "replacement"
+    );
+    let pinned = store
+        .saved_transcript_page(Some(425), Some(&old_revision))
+        .unwrap();
+    assert_eq!(
+        pinned.messages[changed - pinned.start].text,
+        original.transcript[changed].text
+    );
+    // Evicting only the old pack must never resolve this revision against the
+    // newer pack, even though both manifests refer to leaf index 8.
+    let old = serde_json::to_value(old_header.transcript).unwrap();
+    let digest = old["packs"][1]["hash"].as_str().unwrap();
+    backend
+        .0
+        .lock()
+        .unwrap()
+        .cache
+        .remove(&format!("display-data-{digest}"));
+    assert!(
+        store
+            .saved_transcript_page(Some(425), Some(&old_revision))
+            .is_none()
+    );
+    assert!(store.saved_transcript_page(Some(425), None).is_some());
 }

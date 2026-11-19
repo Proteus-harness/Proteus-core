@@ -197,6 +197,21 @@ class PolyglotReports(unittest.TestCase):
         self.assertTrue(interval['delta']['interval_informative'])
         self.assertIn('95% CI [', report.markdown(result))
 
+    def test_constant_nonzero_paired_effect_has_no_informative_interval(self):
+        pairs = []
+        for exercise, wins_a, wins_b in [('one', 1, 0), ('two', 3, 2)]:
+            for i in range(3):
+                pairs.append({'a': {'exercise': exercise, 'passed': i < wins_a},
+                              'b': {'exercise': exercise, 'passed': i < wins_b}})
+        for agents, direction in [(['a', 'b'], 1), (['b', 'a'], -1)]:
+            with self.subTest(agents=agents):
+                result = report.cluster_interval(pairs, agents, 'passed', 200, 7)
+                self.assertEqual(result['delta']['rate'], direction/3)
+                self.assertTrue(all(arm['interval_informative'] for arm in result['arms'].values()))
+                self.assertIsNone(result['delta']['ci95'])
+                self.assertTrue(result['delta']['bootstrap_degenerate'])
+                self.assertFalse(result['delta']['interval_informative'])
+
     def test_bootstrap_keeps_language_variants_and_both_arms_in_same_cluster(self):
         pairs = []
         for exercise, proteus_pass in [('a', True), ('b', False)]:
