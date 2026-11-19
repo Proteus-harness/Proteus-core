@@ -25,6 +25,7 @@ pub(crate) struct RemoteJournalSnapshot {
     store: RemoteSessionStore,
     snapshot: StorageSnapshot,
     display_records: Option<DisplayRecords>,
+    display_only: bool,
 }
 impl std::fmt::Debug for RemoteJournalSnapshot {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -49,6 +50,7 @@ impl RemoteJournalSnapshot {
             store,
             snapshot,
             display_records: None,
+            display_only: false,
         })
     }
     pub(crate) fn descriptor(&self) -> &StorageSnapshot {
@@ -69,6 +71,7 @@ impl RemoteJournalSnapshot {
         }
     }
     pub(crate) fn scan(&mut self, consume: impl FnMut(JournalRecord) -> Result<()>) -> Result<()> {
+        ensure!(!self.display_only, "cannot replay a display snapshot");
         self.scan_from(0, |_| true, consume)
     }
     pub(crate) fn scan_display(
@@ -87,11 +90,21 @@ impl RemoteJournalSnapshot {
         mut consume: impl FnMut(JournalRecord) -> Result<()>,
     ) -> Result<()> {
         loop {
-            let response = self.store.request(Request::ReadRecords {
-                snapshot: self.snapshot.clone(),
-                after_seq,
-                limit: 64,
-            })?;
+            let cursor_before_page = after_seq;
+            let request = if self.display_only {
+                Request::ReadDisplayRecords {
+                    snapshot: self.snapshot.clone(),
+                    after_seq,
+                    limit: 64,
+                }
+            } else {
+                Request::ReadRecords {
+                    snapshot: self.snapshot.clone(),
+                    after_seq,
+                    limit: 64,
+                }
+            };
+            let response = self.store.request(request)?;
             let Response::Records { page } = response else {
                 bail!("storage returned an unexpected record page response")
             };
@@ -103,7 +116,8 @@ impl RemoteJournalSnapshot {
                 ensure!(
                     record.session_id == self.snapshot.session.session_id
                         && record.session_seq > after_seq
-                        && record.session_seq <= self.snapshot.revision.session_seq,
+                        && record.session_seq <= self.snapshot.revision.session_seq
+                        && (!self.display_only || record.entry.kind().is_display_record()),
                     "storage record escaped the requested snapshot"
                 );
                 after_seq = record.session_seq;
@@ -114,13 +128,15 @@ impl RemoteJournalSnapshot {
             match page.next_after_seq {
                 Some(next) => {
                     ensure!(
-                        next == after_seq && after_seq < self.snapshot.revision.session_seq,
+                        next == after_seq
+                            && after_seq > cursor_before_page
+                            && after_seq < self.snapshot.revision.session_seq,
                         "storage record page made no progress"
                     );
                 }
                 None => {
                     ensure!(
-                        after_seq == self.snapshot.revision.session_seq,
+                        self.display_only || after_seq == self.snapshot.revision.session_seq,
                         "storage returned an incomplete snapshot"
                     );
                     return Ok(());
@@ -197,8 +213,46 @@ impl RemoteValidatedRead {
         Self::validate(store, None, None).map(|(read, _)| read)
     }
     pub(crate) fn open_for_display(store: RemoteSessionStore) -> Result<Self> {
+        if let Some(read) = Self::open_projected_display(&store)? {
+            return Ok(read);
+        }
         Self::validate(store, None, DisplayRecordWriter::new()).map(|(read, _)| read)
     }
+
+    fn open_projected_display(store: &RemoteSessionStore) -> Result<Option<Self>> {
+        if !store.service.supports_display_projection() {
+            return Ok(None);
+        }
+        let request = Request::OpenDisplaySnapshot {
+            session: store.descriptor.session.clone(),
+        };
+        let response = store.request(request)?;
+        let Response::DisplaySnapshot { projection } = response else {
+            bail!("storage returned an unexpected display snapshot response");
+        };
+        let Some(projection) = projection else {
+            return Ok(None);
+        };
+        let mut source = RemoteJournalSnapshot {
+            store: store.clone(),
+            snapshot: projection.snapshot,
+            display_records: None,
+            display_only: true,
+        };
+        if let Some(mut display) = DisplayRecordWriter::new() {
+            source.scan_display(|record| {
+                display.push(&record);
+                Ok(())
+            })?;
+            source.display_records = display.finish();
+        }
+        Ok(Some(Self {
+            source,
+            resume: projection.state,
+            prefix_history_fingerprints: None,
+        }))
+    }
+
     pub(crate) fn open_for_display_if_changed(
         store: RemoteSessionStore,
         cached_source: &super::view::RemoteCacheSource,
@@ -206,6 +260,9 @@ impl RemoteValidatedRead {
         let source = store.snapshot()?;
         if super::view::RemoteCacheSource::from_cursor(&source.cursor()) == *cached_source {
             return Ok(None);
+        }
+        if let Some(read) = Self::open_projected_display(&store)? {
+            return Ok(Some(read));
         }
         Self::validate_snapshot(store, source, None, DisplayRecordWriter::new())
             .map(|(read, _)| Some(read))

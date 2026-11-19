@@ -6,7 +6,8 @@ use async_trait::async_trait;
 
 use crate::contracts::{
     PROCESS_SESSION_STORAGE_CONTRACT_VERSION, PROCESS_SESSION_STORAGE_EXECUTE_METHOD,
-    SessionStorage, SessionStorageFailure, SessionStorageRequest, SessionStorageResponse,
+    SESSION_STORAGE_DISPLAY_PROJECTION_FEATURE, SessionStorage, SessionStorageFailure,
+    SessionStorageRequest, SessionStorageResponse,
 };
 
 use super::{
@@ -35,6 +36,11 @@ impl ProcessSessionStorage {
 
 #[async_trait]
 impl SessionStorage for ProcessSessionStorage {
+    fn supports_display_projection(&self) -> bool {
+        self.client
+            .supports_feature(SESSION_STORAGE_DISPLAY_PROJECTION_FEATURE)
+    }
+
     async fn execute(&self, request: SessionStorageRequest) -> Result<SessionStorageResponse> {
         request.validate()?;
         let response = self

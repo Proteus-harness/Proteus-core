@@ -96,7 +96,7 @@ pub const PROCESS_CONTRACT_AUTHORITIES: &[ProcessContractAuthority] = &[
         module_methods: &[proteus_contracts::contracts::PROCESS_SESSION_STORAGE_EXECUTE_METHOD],
         module_method_features: &[],
         host_methods: NO_HOST_METHODS,
-        host_features: NO_PROTOCOL_FEATURES,
+        host_features: &[proteus_contracts::contracts::SESSION_STORAGE_DISPLAY_PROJECTION_FEATURE],
         required_features: NO_PROTOCOL_FEATURES,
     },
     ProcessContractAuthority {
@@ -275,7 +275,10 @@ mod tests {
         assert_eq!(authority.composition, ProcessModuleComposition::SelectOne);
         assert_eq!(authority.module_methods, ["execute"]);
         assert!(authority.host_methods.is_empty());
-        assert!(authority.host_features.is_empty());
+        assert_eq!(
+            authority.host_features,
+            [proteus_contracts::contracts::SESSION_STORAGE_DISPLAY_PROJECTION_FEATURE]
+        );
         assert!(authority.required_features.is_empty());
         for method in [
             OPERATION_HOST_COMPLETE_MODEL_METHOD,

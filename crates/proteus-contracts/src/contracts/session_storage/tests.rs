@@ -141,6 +141,48 @@ fn fixed_prefix_pages_reject_nonadvancing_cursors_and_another_snapshot() {
 }
 
 #[test]
+fn display_pages_allow_skipped_diagnostics_and_still_require_progress() {
+    let mut snapshot = snapshot();
+    snapshot.revision.session_seq = 3;
+    let (_, mut ack) = commit_fixture();
+    ack.record.session_id = snapshot.session.session_id;
+    ack.record.session_seq = 2;
+    let display = SessionStorageRequest::ReadDisplayRecords {
+        snapshot: snapshot.clone(),
+        after_seq: 0,
+        limit: 1,
+    };
+    let page = StorageRecordPage {
+        snapshot: snapshot.clone(),
+        records: vec![ack.record],
+        next_after_seq: None,
+    };
+    display
+        .validate_response(&SessionStorageResponse::Records { page: page.clone() })
+        .unwrap();
+    let replay = SessionStorageRequest::ReadRecords {
+        snapshot: snapshot.clone(),
+        after_seq: 0,
+        limit: 1,
+    };
+    assert!(
+        replay
+            .validate_response(&SessionStorageResponse::Records { page })
+            .is_err()
+    );
+    let stalled = StorageRecordPage {
+        snapshot,
+        records: vec![],
+        next_after_seq: Some(0),
+    };
+    assert!(
+        display
+            .validate_response(&SessionStorageResponse::Records { page: stalled })
+            .is_err()
+    );
+}
+
+#[test]
 fn storage_wire_is_strict_and_requests_are_bounded() {
     let (commit, _) = commit_fixture();
     let value = serde_json::to_value(SessionStorageRequest::Commit { commit }).unwrap();

@@ -15,6 +15,11 @@ pub(super) fn validate_additional_request(request: &SessionStorageRequest) -> Re
             snapshot,
             after_seq,
             ..
+        }
+        | SessionStorageRequest::ReadDisplayRecords {
+            snapshot,
+            after_seq,
+            ..
         } => {
             validate_snapshot(snapshot)?;
             ensure!(
@@ -198,7 +203,31 @@ impl SessionStorageRequest {
                 );
             }
             (
+                Self::OpenDisplaySnapshot { session },
+                SessionStorageResponse::DisplaySnapshot { projection },
+            ) => {
+                if let Some(StorageDisplaySnapshot { snapshot, state }) = projection {
+                    validate_snapshot(snapshot)?;
+                    ensure!(
+                        snapshot.session == *session
+                            && state.conversation.revision == snapshot.revision
+                            && state.usage.session_id == session.session_id
+                            && state.usage.revision <= snapshot.revision.session_seq,
+                        "display projection escaped its committed prefix"
+                    );
+                    serde_json::to_writer(
+                        ByteCounter::new(SESSION_STORAGE_MAX_DISPLAY_STATE_BYTES),
+                        state,
+                    )?;
+                }
+            }
+            (
                 Self::ReadRecords {
+                    snapshot,
+                    after_seq,
+                    limit,
+                }
+                | Self::ReadDisplayRecords {
                     snapshot,
                     after_seq,
                     limit,
@@ -222,20 +251,26 @@ impl SessionStorageRequest {
                 for record in &page.records {
                     serde_json::to_writer(&mut counter, record)?;
                 }
+                let display_only = matches!(self, Self::ReadDisplayRecords { .. });
                 let mut sequence = *after_seq;
                 for record in &page.records {
-                    sequence = sequence
-                        .checked_add(1)
-                        .ok_or_else(|| anyhow::anyhow!("storage sequence overflow"))?;
                     ensure!(
                         record.session_id == snapshot.session.session_id
                             && record.schema_version == JOURNAL_SCHEMA_VERSION
-                            && record.session_seq == sequence
-                            && sequence <= snapshot.revision.session_seq,
+                            && record.session_seq > sequence
+                            && record.session_seq <= snapshot.revision.session_seq
+                            && if display_only {
+                                record.entry.kind().is_display_record()
+                            } else {
+                                record.session_seq - sequence == 1
+                            },
                         "storage record page escaped its committed prefix"
                     );
+                    sequence = record.session_seq;
                 }
-                let next = (sequence < snapshot.revision.session_seq).then_some(sequence);
+                let next = (sequence < snapshot.revision.session_seq
+                    && (!display_only || page.next_after_seq.is_some()))
+                .then_some(sequence);
                 ensure!(
                     page.next_after_seq == next && (next.is_none() || !page.records.is_empty()),
                     "storage record cursor does not advance"

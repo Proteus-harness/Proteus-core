@@ -61,6 +61,16 @@ impl ProcessExportClient {
         })
     }
 
+    pub(crate) fn supports_feature(&self, feature: &str) -> bool {
+        self.broker.manifest().is_ok_and(|manifest| {
+            manifest.exports.iter().any(|export| {
+                export.slot == self.target.slot
+                    && export.module_id == self.target.module_id
+                    && export.module_features.iter().any(|value| value == feature)
+            })
+        })
+    }
+
     pub async fn invoke<P, R>(&self, method: &str, params: &P) -> Result<R>
     where
         P: Serialize,

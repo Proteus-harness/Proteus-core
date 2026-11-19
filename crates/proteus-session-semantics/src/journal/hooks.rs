@@ -35,6 +35,7 @@ use anyhow::{Result, bail};
 use proteus_contracts::contracts::{
     HookEvent, HookResponse, HookStepOutcome, HookTrace, apply_hook_response,
 };
+use std::borrow::Cow;
 
 /// Only recorded arguments whose secrets were destroyed bypass argument schema
 /// revalidation. The raw live trace was validated before redaction; the original
@@ -104,7 +105,7 @@ fn validate_trace_inner(record: &JournalRecord, trace: &HookTrace, redacted: boo
         &trace.input.event,
         HookEvent::TurnStarted { .. } | HookEvent::TurnSettled { .. }
     );
-    let mut event = trace.input.event.clone();
+    let mut event = Cow::Borrowed(&trace.input.event);
     let mut failed = false;
     let mut ids = std::collections::HashSet::new();
     let mut invocation_ids = std::collections::HashSet::new();
@@ -117,7 +118,7 @@ fn validate_trace_inner(record: &JournalRecord, trace: &HookTrace, redacted: boo
         }
         if failed
             || matches!(
-                &event,
+                event.as_ref(),
                 HookEvent::BeforeTool {
                     blocked: Some(_),
                     ..
@@ -131,18 +132,22 @@ fn validate_trace_inner(record: &JournalRecord, trace: &HookTrace, redacted: boo
         }
         match &step.outcome {
             HookStepOutcome::Accepted { response } => {
-                if matches!(
-                    response,
-                    proteus_contracts::contracts::HookResponse::ModelContext { .. }
-                        | HookResponse::ToolSelection { .. }
-                ) {
+                if matches!(response, HookResponse::Continue) {
+                    continue;
+                }
+                if matches!(&event, Cow::Owned(_))
+                    && matches!(
+                        response,
+                        HookResponse::ModelContext { .. } | HookResponse::ToolSelection { .. }
+                    )
+                {
                     apply_hook_response(&trace.input.event, response)?;
                 }
-                event = if redacted {
+                event = Cow::Owned(if redacted {
                     apply_recorded_hook_response(&event, response)?
                 } else {
                     apply_hook_response(&event, response)?
-                };
+                });
             }
             HookStepOutcome::Failed { message, .. } => {
                 if message.trim().is_empty() {
@@ -153,7 +158,7 @@ fn validate_trace_inner(record: &JournalRecord, trace: &HookTrace, redacted: boo
         }
     }
     match (&trace.output, failed) {
-        (Some(output), false) if output == &event => Ok(()),
+        (Some(output), false) if output == event.as_ref() => Ok(()),
         (None, true) => Ok(()),
         _ => bail!("hook trace output does not match its accepted decisions"),
     }

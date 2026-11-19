@@ -151,6 +151,23 @@ pub enum JournalKind {
     TurnSettled,
 }
 
+impl JournalKind {
+    pub fn is_display_record(self) -> bool {
+        matches!(
+            self,
+            Self::HistoryMutated
+                | Self::ModelMessageRecorded
+                | Self::ModelResponseRecorded
+                | Self::ToolCallRecorded
+                | Self::ToolResultRecorded
+                | Self::ToolEffectRecorded
+                | Self::SubagentSessionBoundRecorded
+                | Self::TurnOpened
+                | Self::TurnSettled
+        )
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(
     tag = "kind",

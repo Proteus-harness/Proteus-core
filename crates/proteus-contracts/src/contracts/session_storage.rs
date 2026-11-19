@@ -16,6 +16,8 @@ use crate::{
 
 pub const PROCESS_SESSION_STORAGE_CONTRACT_VERSION: &str = "v2";
 pub const PROCESS_SESSION_STORAGE_EXECUTE_METHOD: &str = "execute";
+pub const SESSION_STORAGE_DISPLAY_PROJECTION_FEATURE: &str = "display_projection";
+pub const SESSION_STORAGE_MAX_DISPLAY_STATE_BYTES: usize = 32 * 1024 * 1024;
 pub const SESSION_STORAGE_MAX_PAGE_RECORDS: u32 = 1024;
 pub const SESSION_STORAGE_PAGE_BYTE_BUDGET: usize = 4 * 1024 * 1024;
 /// A page normally fits PAGE_BYTE_BUDGET. One larger canonical record may be
@@ -169,6 +171,15 @@ pub struct StorageResumeState {
     pub interrupted_turns: Vec<WorkflowHistoryInterruption>,
 }
 
+/// Strictly folded state and a pinned cursor over display records. This read
+/// grants no execution or writer authority.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct StorageDisplaySnapshot {
+    pub snapshot: StorageSnapshot,
+    pub state: StorageResumeState,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct StorageCommittedTurn {
@@ -245,6 +256,9 @@ pub enum SessionStorageRequest {
     OpenSnapshot {
         session: SessionLocator,
     },
+    OpenDisplaySnapshot {
+        session: SessionLocator,
+    },
     ReleaseSnapshot {
         snapshot: StorageSnapshot,
     },
@@ -253,6 +267,11 @@ pub enum SessionStorageRequest {
         prefix: StorageSnapshot,
     },
     ReadRecords {
+        snapshot: StorageSnapshot,
+        after_seq: u64,
+        limit: u32,
+    },
+    ReadDisplayRecords {
         snapshot: StorageSnapshot,
         after_seq: u64,
         limit: u32,
@@ -357,6 +376,10 @@ pub enum SessionStorageResponse {
     Snapshot {
         snapshot: StorageSnapshot,
     },
+    DisplaySnapshot {
+        /// None means the projection could not be staged within its budget.
+        projection: Option<StorageDisplaySnapshot>,
+    },
     SnapshotPrefix {
         matches: bool,
     },
@@ -403,7 +426,7 @@ pub enum SessionStorageResponse {
 impl SessionStorageRequest {
     pub fn validate(&self) -> Result<()> {
         validation::validate_additional_request(self)?;
-        if let Self::ReadRecords { limit, .. } = self {
+        if let Self::ReadRecords { limit, .. } | Self::ReadDisplayRecords { limit, .. } = self {
             ensure!(
                 (1..=SESSION_STORAGE_MAX_PAGE_RECORDS).contains(limit),
                 "invalid storage record page limit"
@@ -457,6 +480,10 @@ impl SessionStorageRequest {
 
 #[async_trait]
 pub trait SessionStorage: Send + Sync {
+    fn supports_display_projection(&self) -> bool {
+        false
+    }
+
     async fn execute(&self, request: SessionStorageRequest) -> Result<SessionStorageResponse>;
     fn execute_blocking(&self, request: SessionStorageRequest) -> Result<SessionStorageResponse>;
 }

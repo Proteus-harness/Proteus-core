@@ -10,18 +10,7 @@ use std::{
 const MAX_STAGING_BYTES: u64 = 512 * 1024 * 1024;
 
 pub(crate) fn is_display_kind(kind: JournalKind) -> bool {
-    matches!(
-        kind,
-        JournalKind::HistoryMutated
-            | JournalKind::ModelMessageRecorded
-            | JournalKind::ModelResponseRecorded
-            | JournalKind::ToolCallRecorded
-            | JournalKind::ToolResultRecorded
-            | JournalKind::ToolEffectRecorded
-            | JournalKind::SubagentSessionBoundRecorded
-            | JournalKind::TurnOpened
-            | JournalKind::TurnSettled
-    )
+    kind.is_display_record()
 }
 
 pub(in crate::core::session_store::remote) struct DisplayRecordWriter {

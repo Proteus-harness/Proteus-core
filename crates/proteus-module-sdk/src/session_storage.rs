@@ -3,7 +3,7 @@ use anyhow::{Result, bail};
 use proteus_contracts::contracts::{
     PROCESS_SESSION_STORAGE_CONTRACT_VERSION, PROCESS_SESSION_STORAGE_EXECUTE_METHOD,
     ProcessComponentExportInitialize, ProcessComponentExportManifest, ProcessModuleComposition,
-    SessionStorageRequest, SessionStorageResponse,
+    SESSION_STORAGE_DISPLAY_PROJECTION_FEATURE, SessionStorageRequest, SessionStorageResponse,
 };
 use serde_json::Value;
 
@@ -13,6 +13,10 @@ use crate::{Export, hosts::HostBridge};
 /// operation id allows an ambiguous transport result to be reconciled later.
 /// No execution/model/tool callbacks are exposed to this implementation.
 pub trait SessionStorageModule: Send + Sync {
+    fn supports_display_projection(&self) -> bool {
+        false
+    }
+
     fn execute(&self, request: SessionStorageRequest) -> Result<SessionStorageResponse>;
 }
 
@@ -33,6 +37,15 @@ impl<T: SessionStorageModule> SessionStorageExport<T> {
         }
         Ok(Self { binding, storage })
     }
+
+    fn display_projection_enabled(&self) -> bool {
+        self.storage.supports_display_projection()
+            && self
+                .binding
+                .host_features
+                .iter()
+                .any(|feature| feature == SESSION_STORAGE_DISPLAY_PROJECTION_FEATURE)
+    }
 }
 
 impl<T: SessionStorageModule> Export for SessionStorageExport<T> {
@@ -42,7 +55,11 @@ impl<T: SessionStorageModule> Export for SessionStorageExport<T> {
             module_id: self.binding.module_id.clone(),
             contract_version: self.binding.contract_version.clone(),
             composition: self.binding.composition,
-            module_features: Vec::new(),
+            module_features: if self.display_projection_enabled() {
+                vec![SESSION_STORAGE_DISPLAY_PROJECTION_FEATURE.into()]
+            } else {
+                Vec::new()
+            },
             config_schema: None,
         }
     }
@@ -52,6 +69,14 @@ impl<T: SessionStorageModule> Export for SessionStorageExport<T> {
             bail!("unsupported session storage method: {method}");
         }
         let request: SessionStorageRequest = serde_json::from_value(params)?;
+        if matches!(
+            request,
+            SessionStorageRequest::OpenDisplaySnapshot { .. }
+                | SessionStorageRequest::ReadDisplayRecords { .. }
+        ) && !self.display_projection_enabled()
+        {
+            bail!("session storage display projection was not negotiated");
+        }
         request.validate()?;
         Ok(serde_json::to_value(self.storage.execute(request)?)?)
     }
