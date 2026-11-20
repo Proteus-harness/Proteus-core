@@ -72,6 +72,26 @@ async fn history_recovery_covers_empty_short_and_exact_page_boundaries() {
 }
 
 #[tokio::test]
+async fn cold_page_does_not_keep_the_archives_row_allocation() {
+    let (_root, _workspace, store, old, faults) = fixture(121).await;
+    // Exercise the verified in-memory fallback, not a read of a 50-row cache leaf.
+    faults.set("unwritable");
+    for before in [None, Some(71usize), Some(0)] {
+        let page = transcript_page(&store, before, Some(&old.revision)).unwrap();
+        let end = before.unwrap_or(121);
+        let start = end.saturating_sub(50);
+        assert_eq!(page.revision, old.revision);
+        assert!(page.base.is_none());
+        assert_eq!((page.start, page.total), (start, 121));
+        assert_eq!(page.messages.len(), end - start);
+        assert_eq!(page.messages.capacity(), end - start, "retained spare rows");
+        for (row, expected) in page.messages.iter().zip(start..end) {
+            assert_eq!(row.text, format!("row {expected}"));
+        }
+    }
+}
+
+#[tokio::test]
 async fn history_recovery_never_relabels_new_source_as_a_lost_revision() {
     let (_root, _workspace, store, old, faults) = fixture(121).await;
     store

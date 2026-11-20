@@ -19,10 +19,31 @@ pub struct ModelInputEstimateRequest {
 
 impl ModelInputEstimateRequest {
     pub fn validate(&self) -> Result<(), String> {
+        self.validation_context().map(drop)
+    }
+
+    /// Snapshot only opaque part identities before moving the request to a provider.
+    pub fn validation_context(&self) -> Result<ModelInputEstimateValidation, String> {
         let mut ids = HashSet::new();
         for part in &self.parts {
             if !ids.insert(part.part_id) || !matches!(part.payload, ContentPart::Opaque { .. }) {
                 return Err("input estimate requires unique canonical opaque parts".into());
+            }
+        }
+        Ok(ModelInputEstimateValidation { ids })
+    }
+}
+
+/// One validated request, one optional partial response. Never retains opaque payloads.
+pub struct ModelInputEstimateValidation {
+    ids: HashSet<PartId>,
+}
+
+impl ModelInputEstimateValidation {
+    pub fn validate_response(mut self, estimate: &ModelInputEstimate) -> Result<(), String> {
+        for part in &estimate.parts {
+            if !self.ids.remove(&part.part_id) {
+                return Err("input estimate contains an unknown or duplicate part id".into());
             }
         }
         Ok(())
@@ -44,15 +65,7 @@ pub struct ModelPartTokenEstimate {
 
 impl ModelInputEstimate {
     pub fn validate(&self, request: &ModelInputEstimateRequest) -> Result<(), String> {
-        request.validate()?;
-        let allowed: HashSet<_> = request.parts.iter().map(|part| part.part_id).collect();
-        let mut seen = HashSet::new();
-        for part in &self.parts {
-            if !allowed.contains(&part.part_id) || !seen.insert(part.part_id) {
-                return Err("input estimate contains an unknown or duplicate part id".into());
-            }
-        }
-        Ok(())
+        request.validation_context()?.validate_response(self)
     }
 
     pub fn tokens_for(&self, part: &CanonicalPart) -> Option<u32> {

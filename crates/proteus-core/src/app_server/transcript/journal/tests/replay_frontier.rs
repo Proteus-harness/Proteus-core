@@ -110,6 +110,80 @@ fn image(id: &str) -> ImageRef {
 }
 
 #[test]
+fn turn_lifecycles_replay_in_two_passes_until_a_visible_hard_reset() {
+    let mut fixture = Fixture::new();
+    let first = fixture.turn;
+    fixture.open();
+    let old = CanonicalMessage::text(MessageRole::User, "before");
+    fixture.history(HistoryMutationKind::Append, vec![old.clone()], false, true);
+    fixture.records.last_mut().unwrap().timestamp_ms = 42;
+    fixture.push(
+        JournalEntry::TurnSettled(TurnSettled {
+            status: TurnSettlementStatus::Error,
+            output: None,
+            error: Some("first failed".into()),
+        }),
+        false,
+        true,
+    );
+    fixture.turn = new_turn_id();
+    fixture.thread = new_thread_id();
+    fixture.execution = new_execution_id();
+    fixture.open();
+    let mut next = CanonicalMessage::text(MessageRole::Assistant, "follow-up");
+    next.parts.push(old.parts[0].clone());
+    fixture.history(HistoryMutationKind::Replace, vec![next.clone()], true, true);
+    fixture.records.last_mut().unwrap().timestamp_ms = 15;
+    let reset = fixture.records.len();
+    fixture.history(HistoryMutationKind::Replace, vec![next], false, true);
+    fixture.push(
+        JournalEntry::TurnSettled(TurnSettled {
+            status: TurnSettlementStatus::Canceled,
+            output: None,
+            error: None,
+        }),
+        false,
+        true,
+    );
+
+    for end in 0..=fixture.records.len() {
+        let projection = JournalProjection::build(fixture.session, fixture.records[..end].to_vec())
+            .expect("valid prefix");
+        for live in [None, Some(first), Some(fixture.turn)] {
+            let mut passes = 0;
+            let rows = source::transcript_from_scan(
+                |visit| {
+                    passes += 1;
+                    projection.records.iter().cloned().try_for_each(visit)
+                },
+                live,
+            )
+            .unwrap();
+            assert_eq!(
+                serde_json::to_value(&rows).unwrap(),
+                serde_json::to_value(replay_transcript(&projection, live, 0)).unwrap(),
+                "prefix {end}, live {live:?}"
+            );
+            assert_eq!(
+                passes,
+                if end > reset && live != Some(fixture.turn) {
+                    4
+                } else {
+                    2
+                }
+            );
+            if end == reset && live.is_none() {
+                assert_eq!(rows.len(), 3);
+                assert_eq!(rows[1].text, "AppServer error: first failed");
+                assert_eq!(rows[1].timestamp_ms, Some(3));
+                assert_eq!(rows[2].text, "follow-up");
+                assert_eq!(rows[2].timestamp_ms, Some(42));
+            }
+        }
+    }
+}
+
+#[test]
 fn reset_frontier_skips_discarded_rows_but_not_first_part_dates() {
     let mut fixture = Fixture::new();
     let old = CanonicalMessage::text(MessageRole::User, "retained part");
@@ -381,6 +455,58 @@ fn a_skipped_history_part_can_still_make_a_later_response_visible() {
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].text, "old committed identity");
     assert_eq!(rows[0].timestamp_ms, Some(first_date));
+}
+
+#[test]
+fn a_late_commit_reveals_sibling_output_only_until_the_next_reset() {
+    let mut fixture = Fixture::new();
+    fixture.history(HistoryMutationKind::Replace, vec![], false, false);
+    fixture.open();
+    let exchange_id = new_exchange_id();
+    let commit = CanonicalMessage::text(MessageRole::Assistant, "committed");
+    let sibling = CanonicalMessage::text(MessageRole::Assistant, "only in response");
+    fixture.push(
+        JournalEntry::ModelRequestRecorded(ModelRequestRecorded {
+            exchange_id,
+            origin: ModelCallOrigin::Direct,
+            owner: crate::contracts::OperationOwner::Workflow,
+            request: CanonicalModelRequest::new(ModelRef::new("fake", "model"), vec![]),
+        }),
+        true,
+        true,
+    );
+    fixture.push(
+        JournalEntry::ModelResponseRecorded(ModelResponseRecorded {
+            exchange_id,
+            outcome: ModelResponseOutcome::Response {
+                response: CanonicalModelResponse::from_messages(
+                    vec![sibling, commit.clone()],
+                    vec![],
+                    FinishReason::Stop,
+                ),
+            },
+        }),
+        true,
+        true,
+    );
+    assert!(
+        source::from_records(&fixture.projection().records, None)
+            .unwrap()
+            .is_empty()
+    );
+    fixture.history(HistoryMutationKind::Append, vec![commit], false, false);
+    let rows = source::from_records(&fixture.projection().records, None).unwrap();
+    assert_eq!(
+        rows.iter().map(|m| m.text.as_str()).collect::<Vec<_>>(),
+        ["only in response", "committed"]
+    );
+    fixture.history(HistoryMutationKind::Replace, vec![], false, false);
+    assert!(
+        source::from_records(&fixture.projection().records, None)
+            .unwrap()
+            .is_empty()
+    );
+    fixture.assert_prefixes(&[None, Some(fixture.turn)]);
 }
 
 #[test]

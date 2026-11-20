@@ -14,8 +14,8 @@ use crate::{
     core::{JournalEntry, ModelResponseOutcome, SessionStore},
     domain::{ExchangeId, ExecutionId, ModelRef, SessionId, ThreadId, ToolSurface, TurnId},
     model_standard::{
-        CanonicalModelRequest, CanonicalModelResponse, ContentPart, ModelStreamEvent, TokenUsage,
-        validate_model_response_against_request,
+        CanonicalModelRequest, CanonicalModelResponse, ContentPart, ModelResponseValidationContext,
+        ModelStreamEvent, TokenUsage,
     },
 };
 
@@ -265,12 +265,13 @@ async fn invoke_model(
     model: Arc<dyn Model>,
     request: CanonicalModelRequest,
 ) -> Result<CanonicalModelResponse> {
-    let validation_request = request.clone();
+    let validation = ModelResponseValidationContext::from_request(&request).into_owned();
     let mut stream = model.stream(request).await?;
     while let Some(event) = stream.next().await {
         match event? {
             ModelStreamEvent::Response { response } => {
-                validate_model_response_against_request(&validation_request, &response)
+                validation
+                    .validate_response(&response)
                     .map_err(|error| anyhow!("invalid replay model response: {error}"))?;
                 return Ok(response);
             }

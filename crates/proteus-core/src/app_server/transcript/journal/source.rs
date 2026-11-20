@@ -34,9 +34,9 @@ pub(super) fn transcript_from_scan(
     live_turn_id: Option<TurnId>,
 ) -> Result<Vec<AppTranscriptMessage>> {
     let mut start = 0;
-    let mut history_only = true;
+    let mut causal_history = true;
     let mut visibility = TranscriptVisibility::default();
-    let mut committed_parts = std::collections::HashSet::new();
+    let mut last_response_with_parts = None;
     let mut final_results = std::collections::HashSet::new();
     let mut subagent_bindings = std::collections::HashMap::new();
     scan(&mut |record| {
@@ -56,18 +56,26 @@ pub(super) fn transcript_from_scan(
         {
             visibility.root_threads.insert(turn, thread);
         }
-        history_only &= matches!(record.entry, JournalEntry::HistoryMutated(_));
+        causal_history &= matches!(
+            record.entry,
+            JournalEntry::HistoryMutated(_)
+                | JournalEntry::TurnOpened(_)
+                | JournalEntry::TurnSettled(_)
+        );
         match &record.entry {
-            JournalEntry::HistoryMutated(mutation) => {
-                for message in &mutation.messages {
-                    for part in &message.parts {
-                        committed_parts.insert(part.part_id);
-                        // A hosted card can take its date from a later tool call.
-                        if matches!(part.payload, ContentPart::HostedToolActivity { .. }) {
-                            history_only = false;
-                        }
-                    }
-                }
+            // A hosted card can take its date from a later tool call.
+            JournalEntry::HistoryMutated(mutation) if causal_history && start == 0 => {
+                causal_history = !mutation
+                    .messages
+                    .iter()
+                    .flat_map(|m| &m.parts)
+                    .any(|p| matches!(p.payload, ContentPart::HostedToolActivity { .. }));
+            }
+            JournalEntry::ModelResponseRecorded(item)
+                if let ModelResponseOutcome::Response { response } = &item.outcome
+                    && response.messages.iter().any(|m| !m.parts.is_empty()) =>
+            {
+                last_response_with_parts = Some(record.session_seq);
             }
             JournalEntry::SubagentSessionBoundRecorded(binding) => {
                 subagent_bindings.insert(binding.source_call_id.clone(), binding.clone());
@@ -80,13 +88,11 @@ pub(super) fn transcript_from_scan(
         Ok(())
     })?;
 
-    // History-only streams have no forward visibility dependencies. With no
-    // replay frontier every message and part is in scope, so collecting dates
-    // immediately before rendering each record yields the same first occurrence
-    // as collecting the full date index first. In particular the minimum is by
-    // sequence, not wall clock. Resets retain the scoped, bounded index below.
-    if history_only && start == 0 {
-        drop(committed_parts);
+    // Turn opens supply root bindings (already collected); settlements use
+    // their own date. Without a reset or hosted card, history dates are causal:
+    // collecting them before rendering each record gives the same first journal
+    // occurrence as a separate pass, even if the wall clock steps backwards.
+    if causal_history && start == 0 {
         let mut replay = TranscriptReplay {
             state: TranscriptProjectionState::default(),
             visibility,
@@ -104,6 +110,10 @@ pub(super) fn transcript_from_scan(
     // Workflow lifecycle calls, including those before the frontier, can make
     // a replayed model response visible. Nested calls only reveal their own
     // display rows. Timestamp keys only need replayed messages.
+    // Only a replayed model response can consume the committed-part index.
+    // Its evidence may precede a reset or follow the response itself.
+    let need_commits = last_response_with_parts.is_some_and(|seq| seq >= start);
+    let mut committed_parts = std::collections::HashSet::new();
     let mut timestamps = TranscriptTimestamps::default();
     scan(&mut |record| {
         if let JournalEntry::ToolCallRecorded(tool) = &record.entry
@@ -119,22 +129,27 @@ pub(super) fn transcript_from_scan(
                 visibility.workflow_root_calls.insert(tool.call.id.clone());
             }
         }
-        if record.session_seq >= start {
-            match &record.entry {
-                JournalEntry::HistoryMutated(mutation) => {
-                    for message in &mutation.messages {
+        match &record.entry {
+            JournalEntry::HistoryMutated(mutation) => {
+                for message in &mutation.messages {
+                    if need_commits {
+                        for part in &message.parts {
+                            committed_parts.insert(part.part_id);
+                        }
+                    }
+                    if record.session_seq >= start {
                         timestamps.require_message(message);
                     }
                 }
-                JournalEntry::ModelResponseRecorded(response) => {
-                    if let ModelResponseOutcome::Response { response } = &response.outcome {
-                        for message in &response.messages {
-                            timestamps.require_message(message);
-                        }
+            }
+            JournalEntry::ModelResponseRecorded(item) if record.session_seq >= start => {
+                if let ModelResponseOutcome::Response { response } = &item.outcome {
+                    for message in &response.messages {
+                        timestamps.require_message(message);
                     }
                 }
-                _ => {}
             }
+            _ => {}
         }
         Ok(())
     })?;

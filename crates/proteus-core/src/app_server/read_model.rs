@@ -53,11 +53,15 @@ pub(super) fn transcript_page(
         "history position is outside the requested revision"
     );
     let start = end.saturating_sub(50);
+    // Collecting the owned iterator directly can reuse the full archive allocation.
+    // Move only the requested rows into a separately sized response buffer.
+    let mut window = Vec::with_capacity(end - start);
+    window.extend(messages.into_iter().skip(start).take(end - start));
     Ok(proteus_contracts::app_protocol::AppTranscriptPage {
         revision,
         start,
         total,
-        messages: messages.into_iter().skip(start).take(end - start).collect(),
+        messages: window,
         // Rebuilding cannot prove a relationship to a lost display projection.
         base: None,
     })

@@ -263,6 +263,7 @@ fn cache_fingerprints_ignore_independent_worker_object_order() {
     assert!(store.fresh_read_model().is_some());
 }
 
+mod latest_page;
 mod packs;
 
 #[test]

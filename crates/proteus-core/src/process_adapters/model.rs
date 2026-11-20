@@ -251,13 +251,13 @@ impl Model for ProcessModel {
         &self,
         request: crate::contracts::ModelInputEstimateRequest,
     ) -> Result<Option<crate::contracts::ModelInputEstimate>> {
-        request.validate().map_err(anyhow::Error::msg)?;
+        let validation = request.validation_context().map_err(anyhow::Error::msg)?;
         let method = crate::contracts::PROCESS_MODEL_ESTIMATE_METHOD;
         let start = self
             .client
             .start(
                 method,
-                serde_json::to_value(&request)?,
+                serde_json::to_value(request)?,
                 Arc::new(proteus_module_protocol::v3::NoAsyncHostRequests),
             )
             .await;
@@ -274,7 +274,7 @@ impl Model for ProcessModel {
         let result: Option<crate::contracts::ModelInputEstimate> =
             self.client.decode(method, terminal)?;
         if let Some(estimate) = &result {
-            if let Err(error) = estimate.validate(&request) {
+            if let Err(error) = validation.validate_response(estimate) {
                 self.client.reset();
                 bail!("invalid model input estimate: {error}");
             }

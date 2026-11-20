@@ -31,6 +31,7 @@ pub(super) struct State {
     pub(super) cache_reads: Vec<String>,
     pub(super) record_reads: usize,
     pub(super) fail_head: bool,
+    pub(super) append_on_cache_read: Option<String>,
     pub(super) handles: u64,
 }
 
@@ -60,6 +61,7 @@ impl Backend {
             record_reads: 0,
             handles: 0,
             fail_head: false,
+            append_on_cache_read: None,
         })));
         let store =
             RemoteSessionStore::open(backend.clone(), PathBuf::from("/session-cache-fixture"))
@@ -176,6 +178,11 @@ impl SessionStorage for Backend {
                 } else {
                     None
                 };
+                if state.append_on_cache_read.as_ref() == Some(&key) {
+                    state.append_on_cache_read = None;
+                    drop(state);
+                    self.append(1);
+                }
                 Ok(Response::Metadata {
                     document: value.map(|value| StorageMetadataDocument {
                         etag: "test".into(),

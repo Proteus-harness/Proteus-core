@@ -316,28 +316,45 @@ pub(super) fn transcript_page(
     expected: Option<&str>,
     stale_display: bool,
 ) -> Option<AppTranscriptPage> {
-    let header = match expected {
-        Some(revision) => header_at_revision(store, revision)?,
-        None => header(store)?,
-    };
-    if expected.is_none()
-        && !stale_display
-        && RemoteCacheSource::read(store).as_ref() != Some(&header.source)
-    {
+    if let Some(revision) = expected {
+        // A retained, explicitly named revision can be older than the journal.
+        return page_from_header(store, header_at_revision(store, revision)?, before);
+    }
+    let head = header(store)?;
+    if stale_display {
+        return page_from_header(store, head, before);
+    }
+    // All page content is addressed by hash. Check the complete source identity
+    // AFTER the read: an earlier probe adds no proof to a successful final check.
+    let source = head.source.clone();
+    let page = page_from_header(store, head, before);
+    let current = RemoteCacheSource::read(store)?;
+    if source == current {
+        return page;
+    }
+    drop(page);
+    // A publisher stores the named index before HEAD. If the last write failed,
+    // a complete index for the current source may survive behind an older HEAD.
+    // This remains a latest-page request; recheck after reading that index too.
+    let saved = header_at_revision(store, &current.revision()?)?;
+    if saved.source != current {
         return None;
     }
+    let page = page_from_header(store, saved, before)?;
+    (RemoteCacheSource::read(store)? == current).then_some(page)
+}
+
+fn page_from_header(
+    store: &RemoteSessionStore,
+    header: Header,
+    before: Option<usize>,
+) -> Option<AppTranscriptPage> {
     let end = before.unwrap_or(header.transcript.rows);
     if end > header.transcript.rows {
         return None;
     }
     let start = end.saturating_sub(PAGE_ROWS);
     let messages = read_section(store, &header.transcript, start, end)?;
-    if expected.is_none()
-        && !stale_display
-        && RemoteCacheSource::read(store).as_ref() != Some(&header.source)
-    {
-        return None;
-    }
     Some(AppTranscriptPage {
         revision: header.source.revision()?,
         start,

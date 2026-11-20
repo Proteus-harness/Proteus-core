@@ -63,7 +63,15 @@ part и call identities и owned `ModelResponseValidationContext`, а не вт�
 request-based validator использует тот же
 context заимствованно, без копирования tools. При расширении request-specific
 правил меняются поля context и обе формы его construction, не фиктивный request.
-Provider DTO, полный journal request и failure reconciliation не меняются.
+Прямой ModelService и prompt replay также передают запрос адаптеру во владение,
+оставляя этот компактный context для terminal response. Provider DTO, полный
+journal request и failure reconciliation не меняются.
+
+Для optional input estimate одноразовый validation context хранит только ID
+непрозрачных частей. Typed request передаётся адаптеру без глубокой копии;
+сервис и process adapter независимо отклоняют неизвестные и повторные ID
+результата. Частичный результат, отсутствие оценки и нулевое число токенов
+сохраняют прежнюю семантику; opaque payload не удерживается ради проверки.
 
 ### Parts
 
