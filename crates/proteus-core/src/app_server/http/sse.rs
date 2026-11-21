@@ -1,4 +1,4 @@
-use std::{convert::Infallible, time::Duration};
+use std::{convert::Infallible, sync::LazyLock, time::Duration};
 
 use async_stream::stream;
 use bytes::Bytes;
@@ -39,9 +39,7 @@ pub(super) async fn sse_response(
         // remain pending for the watch select below.
         let catalog_was_refreshed = *catalog_updates.borrow_and_update() != 0;
         if catalog_was_refreshed {
-            yield Ok(Frame::data(encode_sse_output(&StdioOutput::Event {
-                event: Box::new(AppServerEvent::SessionCatalogUpdated),
-            })));
+            yield Ok(catalog_update_frame());
         }
 
         let mut heartbeat = tokio::time::interval(Duration::from_secs(SSE_HEARTBEAT_SECS));
@@ -53,9 +51,7 @@ pub(super) async fn sse_response(
                         catalog_open = false;
                         continue;
                     }
-                    yield Ok(Frame::data(encode_sse_output(&StdioOutput::Event {
-                        event: Box::new(AppServerEvent::SessionCatalogUpdated),
-                    })));
+                    yield Ok(catalog_update_frame());
                 }
                 _ = heartbeat.tick() => {
                     yield Ok(Frame::data(Bytes::from_static(b": keep-alive\n\n")));
@@ -105,6 +101,17 @@ pub(super) async fn sse_response(
         .header(CONNECTION, "keep-alive")
         .body(body)
         .expect("sse response is valid")
+}
+
+fn catalog_update_frame() -> Frame<Bytes> {
+    // This notification has no request, session or user fields. Use the
+    // ordinary serializer once, then share the immutable framed bytes.
+    static UPDATE: LazyLock<Bytes> = LazyLock::new(|| {
+        encode_sse_output(&StdioOutput::Event {
+            event: Box::new(AppServerEvent::SessionCatalogUpdated),
+        })
+    });
+    Frame::data((*UPDATE).clone())
 }
 
 pub(super) fn encode_sse_output(output: &StdioOutput) -> Bytes {

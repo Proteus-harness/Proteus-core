@@ -630,8 +630,6 @@ impl AgentAppServer {
         }
 
         let selection_is_new = resumed_session.is_none();
-        let selection_config = config.clone();
-        let config_snapshot = Arc::new(RwLock::new(config.clone()));
         let config_path_snapshot = config_path.map(Path::to_path_buf);
         let cwd_snapshot = cwd.clone();
         let runtime_events = Arc::new(RuntimeEventSink::default());
@@ -653,7 +651,7 @@ impl AgentAppServer {
         let approval_timeout = Duration::from_millis(config.app_server.approval_timeout_ms);
         let (approval_transport, approval_rx) = ChannelApprovalTransport::new(32);
         let (user_input_transport, user_input_rx) = ChannelUserInputTransport::new(32);
-        let mut builder = AgentRuntime::builder(config, cwd)
+        let mut builder = AgentRuntime::builder(config.clone(), cwd)
             .with_config_path(config_path)
             .with_event_sink(event_sink)
             .with_approval(Arc::new(approval_transport))
@@ -692,8 +690,7 @@ impl AgentAppServer {
             builder = builder.with_module_catalog(module_catalog);
         }
         let runtime = Arc::new(builder.build_async().await?);
-        session_selection::restore(&runtime, &selection_config, config_path, selection_is_new)
-            .await?;
+        session_selection::restore(&runtime, &config, config_path, selection_is_new).await?;
         let events = AppEventPublisher::new(
             1024,
             runtime.session_id(),
@@ -725,7 +722,9 @@ impl AgentAppServer {
             inner: Arc::new(AppServerState {
                 runtime,
                 storage,
-                config: config_snapshot,
+                // Publish the same original profile used for startup selection;
+                // only the runtime builder needs an independent owned copy.
+                config: Arc::new(RwLock::new(config)),
                 config_path: config_path_snapshot,
                 cwd: cwd_snapshot,
                 events,

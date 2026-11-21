@@ -92,7 +92,7 @@ impl ModelInputEstimate {
 
     pub fn from_metadata(metadata: &Value) -> Option<Self> {
         let value = metadata.get(INPUT_TOKEN_ESTIMATES_METADATA_KEY)?;
-        let estimate: Self = serde_json::from_value(value.clone()).ok()?;
+        let estimate = Self::deserialize(value).ok()?;
         let mut seen = HashSet::new();
         estimate
             .parts

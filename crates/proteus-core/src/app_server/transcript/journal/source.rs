@@ -26,6 +26,17 @@ pub(crate) fn journal_transcript_from_source(
     source: &mut JournalReadSnapshot,
     live_turn_id: Option<TurnId>,
 ) -> Result<Vec<AppTranscriptMessage>> {
+    if let Some(root_threads) = source.take_staged_causal_roots() {
+        return render_causal(
+            &mut |visit| source.scan_display(visit),
+            live_turn_id,
+            TranscriptVisibility {
+                root_threads,
+                certified_text_responses: true,
+                ..Default::default()
+            },
+        );
+    }
     transcript_from_scan(|visit| source.scan_display(visit), live_turn_id)
 }
 
@@ -62,7 +73,7 @@ pub(super) fn transcript_from_scan(
                 | JournalEntry::TurnOpened(_)
                 | JournalEntry::TurnSettled(_)
         );
-        match &record.entry {
+        match record.entry {
             // A hosted card can take its date from a later tool call.
             JournalEntry::HistoryMutated(mutation) if causal_history && start == 0 => {
                 causal_history = !mutation
@@ -78,10 +89,10 @@ pub(super) fn transcript_from_scan(
                 last_response_with_parts = Some(record.session_seq);
             }
             JournalEntry::SubagentSessionBoundRecorded(binding) => {
-                subagent_bindings.insert(binding.source_call_id.clone(), binding.clone());
+                subagent_bindings.insert(binding.source_call_id.clone(), binding);
             }
             JournalEntry::ToolResultRecorded(tool) => {
-                final_results.insert(tool.result.call_id.clone());
+                final_results.insert(tool.result.call_id);
             }
             _ => {}
         }
@@ -116,20 +127,21 @@ pub(super) fn transcript_from_scan(
     let mut committed_parts = std::collections::HashSet::new();
     let mut timestamps = TranscriptTimestamps::default();
     scan(&mut |record| {
-        if let JournalEntry::ToolCallRecorded(tool) = &record.entry
-            && let ToolCallRecordPhase::Requested { owner } = &tool.phase
-            && visibility.is_root_record(record.thread_id, record.turn_id)
-        {
-            visibility
-                .display_tool_calls
-                .entry(record.turn_id.expect("root record has a turn"))
-                .or_default()
-                .insert(tool.call.id.clone());
-            if matches!(owner, OperationOwner::Workflow) {
-                visibility.workflow_root_calls.insert(tool.call.id.clone());
+        match record.entry {
+            JournalEntry::ToolCallRecorded(tool) => {
+                if let ToolCallRecordPhase::Requested { owner } = tool.phase
+                    && visibility.is_root_record(record.thread_id, record.turn_id)
+                {
+                    if matches!(owner, OperationOwner::Workflow) {
+                        visibility.workflow_root_calls.insert(tool.call.id.clone());
+                    }
+                    visibility
+                        .display_tool_calls
+                        .entry(record.turn_id.expect("root record has a turn"))
+                        .or_default()
+                        .insert(tool.call.id);
+                }
             }
-        }
-        match &record.entry {
             JournalEntry::HistoryMutated(mutation) => {
                 for message in &mutation.messages {
                     if need_commits {
@@ -200,6 +212,25 @@ pub(super) fn transcript_from_scan(
     Ok(replay.finish())
 }
 
+fn render_causal(
+    scan: &mut impl FnMut(&mut dyn FnMut(JournalRecord) -> Result<()>) -> Result<()>,
+    live_turn_id: Option<TurnId>,
+    visibility: TranscriptVisibility,
+) -> Result<Vec<AppTranscriptMessage>> {
+    let mut replay = TranscriptReplay {
+        state: TranscriptProjectionState::default(),
+        visibility,
+        final_results: Default::default(),
+        subagent_bindings: Default::default(),
+    };
+    scan(&mut |record| {
+        replay.state.timestamps.collect_record::<false>(&record);
+        replay.render_record(&record, live_turn_id);
+        Ok(())
+    })?;
+    Ok(replay.finish())
+}
+
 #[cfg(test)]
 pub(super) fn from_records(
     records: &[JournalRecord],
@@ -226,6 +257,8 @@ mod tests {
         domain::{new_record_id, new_session_id},
         model_standard::{CanonicalMessage, MessageRole},
     };
+
+    mod staged_text;
 
     fn history(kind: HistoryMutationKind, messages: Vec<CanonicalMessage>) -> JournalRecord {
         JournalRecord {

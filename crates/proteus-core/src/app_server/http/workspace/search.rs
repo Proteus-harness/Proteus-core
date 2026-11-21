@@ -44,11 +44,12 @@ pub(crate) fn query_text(query: Option<&str>) -> Result<String> {
     Ok(text)
 }
 
+fn terms(query: &str) -> Vec<String> {
+    query.split_whitespace().map(str::to_lowercase).collect()
+}
+
 pub(crate) fn search(root: &Path, query: String) -> Result<WorkspaceSearch> {
-    let terms: Vec<Vec<char>> = query
-        .split_whitespace()
-        .map(|term| term.to_lowercase().chars().collect())
-        .collect();
+    let terms = terms(&query);
     let (candidates, mut truncated) = candidates(root)?;
     let mut scored: Vec<(i64, &Candidate)> = candidates
         .iter()
@@ -158,20 +159,19 @@ fn walk(root: &Path) -> (Vec<String>, bool) {
 /// Every term must match the path; `None` otherwise. Higher is better:
 /// a match in the file name beats one spread over directories, a
 /// contiguous match beats a scattered subsequence.
-fn score(terms: &[Vec<char>], path: &str) -> Option<i64> {
+fn score(terms: &[String], path: &str) -> Option<i64> {
     let lower = path.to_lowercase();
     let name_start = lower.rfind('/').map_or(0, |index| index + 1);
     let name = &lower[name_start..];
     let mut total = 0;
     for term in terms {
-        let text: String = term.iter().collect();
-        total += if name == text {
+        total += if name == term {
             4000
-        } else if name.starts_with(&text) {
+        } else if name.starts_with(term) {
             3000
-        } else if name.contains(&text) {
+        } else if name.contains(term) {
             2000
-        } else if lower.contains(&text) {
+        } else if lower.contains(term) {
             1000
         } else {
             subsequence(term, &lower, name_start)?
@@ -182,12 +182,12 @@ fn score(terms: &[Vec<char>], path: &str) -> Option<i64> {
 
 /// Scattered match: points for characters that start a segment or fall in
 /// the file name, penalties for gaps.
-fn subsequence(term: &[char], path: &str, name_start: usize) -> Option<i64> {
+fn subsequence(term: &str, path: &str, name_start: usize) -> Option<i64> {
     let mut score = 0;
-    let mut chars = path.char_indices().peekable();
+    let mut chars = path.char_indices();
     let mut previous: Option<char> = None;
     let mut next: Option<usize> = None;
-    for &wanted in term {
+    for wanted in term.chars() {
         loop {
             let (index, current) = chars.next()?;
             let before = previous;
@@ -217,13 +217,6 @@ fn subsequence(term: &[char], path: &str, name_start: usize) -> Option<i64> {
 mod tests {
     use super::*;
 
-    fn terms(query: &str) -> Vec<Vec<char>> {
-        query
-            .split_whitespace()
-            .map(|term| term.to_lowercase().chars().collect())
-            .collect()
-    }
-
     #[test]
     fn name_matches_rank_above_scattered_ones() {
         let query = terms("tree");
@@ -235,6 +228,14 @@ mod tests {
         assert!(exact > prefix && prefix > inside && inside > directory);
         assert!(directory > scattered);
         assert_eq!(score(&query, "src/main.rs"), None);
+    }
+
+    #[test]
+    fn unicode_terms_keep_lowercase_expansions_and_scattered_matches() {
+        // U+0130 lowercases to two scalars: i + combining dot above.
+        assert_eq!(score(&terms("İ"), "путь/i\u{307}"), Some(3999));
+        assert_eq!(score(&terms("ЖЯ"), "Я/Ж_Я"), Some(76));
+        assert_eq!(score(&terms("ЖЯ İ"), "Я/Ж_Я"), None);
     }
 
     #[test]

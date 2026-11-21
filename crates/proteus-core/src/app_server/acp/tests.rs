@@ -188,6 +188,16 @@ fn readable_reasoning_uses_thought_chunks_without_duplicate_completion_or_answer
 }
 
 #[test]
+fn single_text_prompt_does_not_retain_oversized_input_capacity() {
+    let mut text = String::with_capacity(65536);
+    text.push_str("ok");
+    let source_capacity = text.capacity();
+    let prompt = input::prompt_text(vec![ContentBlock::Text(TextContent::new(text))]).unwrap();
+    assert_eq!(prompt, "ok");
+    assert!(prompt.capacity() < source_capacity);
+}
+
+#[test]
 fn unsupported_inputs_and_duplicate_mcp_names_are_rejected() {
     let image = serde_json::from_value(serde_json::json!({
         "type":"image", "data":"aGVsbG8=", "mimeType":"image/png"

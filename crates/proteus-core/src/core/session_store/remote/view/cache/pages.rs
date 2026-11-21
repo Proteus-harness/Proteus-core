@@ -1,10 +1,9 @@
 //! Content-addressed pages have both row and byte budgets.
-use std::io::Write;
-
 use proteus_contracts::contracts::SESSION_STORAGE_MAX_CACHE_BYTES;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use super::{PAGE_ROWS, RemoteCacheSource, RemoteSessionStore, read_content};
+use crate::core::session_store::json_size::encoded_len;
 
 mod packs;
 use packs::{PackRef, PendingPack};
@@ -27,30 +26,6 @@ pub(in crate::core::session_store::remote::view) struct Section {
     pub(in crate::core::session_store::remote::view) pages: Vec<PageRef>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     packs: Vec<PackRef>,
-}
-
-fn encoded_len<T: Serialize>(value: &T, limit: usize) -> Option<usize> {
-    struct Counter {
-        used: usize,
-        limit: usize,
-    }
-    impl Write for Counter {
-        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-            if bytes.len() > self.limit.saturating_sub(self.used) {
-                return Err(std::io::Error::other(
-                    "display cache row exceeds byte budget",
-                ));
-            }
-            self.used += bytes.len();
-            Ok(bytes.len())
-        }
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-    let mut counter = Counter { used: 0, limit };
-    serde_json::to_writer(&mut counter, value).ok()?;
-    Some(counter.used)
 }
 
 fn write_pages<'a, T: Serialize + 'a>(

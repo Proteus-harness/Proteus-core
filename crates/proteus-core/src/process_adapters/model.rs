@@ -89,10 +89,14 @@ impl ProcessModel {
         })
     }
 
-    fn describe_model(&self, model: &ModelRef) -> Result<ProcessModelDescriptor> {
+    fn describe_model<T>(
+        &self,
+        model: &ModelRef,
+        select: impl FnOnce(&ProcessModelDescriptor) -> T,
+    ) -> Result<T> {
         let key = (model.provider.clone(), model.model.clone());
         if let Some(descriptor) = self.descriptions.lock().unwrap().get(&key) {
-            return Ok(descriptor.clone());
+            return Ok(select(descriptor));
         }
         // Never hold the cache lock across a broker call: another export of the
         // same component can be the active parent of this callback-free probe.
@@ -106,11 +110,9 @@ impl ProcessModel {
             self.client.reset();
             bail!("model describe changed adapter_id for the same export");
         }
-        self.descriptions
-            .lock()
-            .unwrap()
-            .insert(key, descriptor.clone());
-        Ok(descriptor)
+        let selected = select(&descriptor);
+        self.descriptions.lock().unwrap().insert(key, descriptor);
+        Ok(selected)
     }
 }
 
@@ -198,10 +200,10 @@ impl Model for ProcessModel {
         Cow::Owned(self.adapter_id.clone())
     }
     fn capabilities(&self, model: &ModelRef) -> anyhow::Result<ModelCapabilities> {
-        Ok(self.describe_model(model)?.capabilities)
+        self.describe_model(model, |descriptor| descriptor.capabilities.clone())
     }
     fn provider_hosted_tools(&self, model: &ModelRef) -> anyhow::Result<Vec<ToolSpec>> {
-        Ok(self.describe_model(model)?.hosted_tools)
+        self.describe_model(model, |descriptor| descriptor.hosted_tools.clone())
     }
 
     async fn catalog(&self) -> Result<Option<crate::contracts::ModelCatalog>> {

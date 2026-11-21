@@ -11,7 +11,13 @@ pub(super) struct ImageStore {
 
 pub(super) struct PreparedImageInput {
     text: String,
-    decoded: Vec<(crate::domain::ImageAttachment, Vec<u8>)>,
+    decoded: Vec<DecodedImage>,
+}
+
+struct DecodedImage {
+    name: String,
+    mime_type: String,
+    bytes: Vec<u8>,
 }
 
 impl ImageStore {
@@ -41,7 +47,11 @@ impl ImageStore {
                 total <= MAX_IMAGE_BYTES,
                 "attached images exceed 5 MiB in total"
             );
-            decoded.push((image, bytes));
+            decoded.push(DecodedImage {
+                name: image.name,
+                mime_type: image.mime_type,
+                bytes,
+            });
         }
         Ok(PreparedImageInput {
             text: input.text,
@@ -54,8 +64,8 @@ impl ImageStore {
         if !input.decoded.is_empty() {
             std::fs::create_dir_all(&self.root)?;
         }
-        for (image, bytes) in input.decoded {
-            let digest = ring::digest::digest(&ring::digest::SHA256, &bytes);
+        for image in input.decoded {
+            let digest = ring::digest::digest(&ring::digest::SHA256, &image.bytes);
             let id = digest
                 .as_ref()
                 .iter()
@@ -65,7 +75,7 @@ impl ImageStore {
             if !path.exists() {
                 let temporary = self.root.join(format!(".{id}-{}", uuid::Uuid::new_v4()));
                 let mut file = std::fs::File::create(&temporary)?;
-                file.write_all(&bytes)?;
+                file.write_all(&image.bytes)?;
                 file.sync_all()?;
                 std::fs::rename(temporary, &path)?;
                 std::fs::File::open(&self.root)?.sync_all()?;
@@ -91,8 +101,8 @@ impl ImageStore {
         store: &crate::core::SessionStore,
     ) -> Result<CanonicalMessage> {
         let mut parts = Vec::new();
-        for (image, bytes) in input.decoded {
-            let (id, path) = store.put_blob(bytes).await?;
+        for image in input.decoded {
+            let (id, path) = store.put_blob(image.bytes).await?;
             parts.push(ContentPart::Image {
                 image: ImageRef {
                     id,

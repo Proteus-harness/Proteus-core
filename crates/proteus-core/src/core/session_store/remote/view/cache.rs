@@ -1,5 +1,5 @@
 //! Immutable content pages with a source-bound header published last.
-use std::{collections::BTreeMap, io::Write};
+use std::collections::BTreeMap;
 
 use anyhow::{Result, bail, ensure};
 use proteus_contracts::{
@@ -7,7 +7,7 @@ use proteus_contracts::{
     contracts::{
         SessionStorageRequest as Request, SessionStorageResponse as Response, StorageSnapshot,
     },
-    model_standard::{CanonicalMessage, ContentPart, MessageRole},
+    model_standard::CanonicalMessage,
 };
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
@@ -21,6 +21,7 @@ const HEAD: &str = "display-view-v1-head";
 const PREFIX: &str = "display-view-v1-prefix";
 
 mod pages;
+mod preview;
 use pages::valid_section;
 pub(super) use pages::{
     Section, append_section, extend_known_section, read_section, visit_section, write_section,
@@ -162,25 +163,10 @@ pub(super) fn write_prefix(
 fn bounded_value(value: &impl Serialize) -> Option<Value> {
     // Reject oversized groups before building an owned Value copy. The common
     // path serializes at most one display page; larger caches remain misses.
-    struct Limit(usize);
-    impl Write for Limit {
-        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-            if bytes.len()
-                > proteus_contracts::contracts::SESSION_STORAGE_MAX_CACHE_BYTES
-                    .saturating_sub(self.0)
-            {
-                return Err(std::io::Error::other(
-                    "display cache page exceeds byte budget",
-                ));
-            }
-            self.0 += bytes.len();
-            Ok(bytes.len())
-        }
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-    serde_json::to_writer(&mut Limit(0), value).ok()?;
+    crate::core::session_store::json_size::encoded_len(
+        value,
+        proteus_contracts::contracts::SESSION_STORAGE_MAX_CACHE_BYTES,
+    )?;
     serde_json::to_value(value).ok()
 }
 
@@ -561,37 +547,13 @@ pub(super) fn summary(
         descriptor.session == store.descriptor.session,
         "storage summary belongs to another session"
     );
-    let preview = messages
-        .iter()
-        .filter(|message| message.role == MessageRole::User)
-        .chain(messages.iter())
-        .find_map(|message| {
-            message.parts.iter().find_map(|part| {
-                let text = match &part.payload {
-                    ContentPart::Text { text }
-                    | ContentPart::Reasoning { text, .. }
-                    | ContentPart::ReasoningSummary { text } => text.trim().to_owned(),
-                    ContentPart::ToolResult { result } => result.text_or_status().trim().to_owned(),
-                    _ => return None,
-                };
-                if text.is_empty() {
-                    None
-                } else {
-                    Some(if text.chars().count() > 160 {
-                        format!("{}...", text.chars().take(160).collect::<String>())
-                    } else {
-                        text
-                    })
-                }
-            })
-        });
     let mut summary = AppSessionSummary::new(
         store.session_dir().to_owned(),
         store.session_id(),
         descriptor.workspace_path,
         messages.len(),
         u64::try_from(descriptor.updated_at_ms).ok(),
-        preview,
+        preview::session_preview(messages),
     );
     summary.parent_session_id = store.parent_session_id();
     Ok(summary)

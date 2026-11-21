@@ -109,6 +109,31 @@ fn workspace_git_log_pages_graph_parents_and_refs() {
 }
 
 #[test]
+fn workspace_git_log_all_refs_without_a_current_commit() {
+    let repo = tempfile::tempdir().unwrap();
+    let root = repo.path();
+    init(root);
+    let empty = json!({"head": null, "entries": [], "has_more": false});
+    assert_eq!(log(root, 1, 0, true), empty);
+
+    git(root, &["commit", "--allow-empty", "-qm", "base"]);
+    git(root, &["tag", "v1"]);
+    git(root, &["commit", "--allow-empty", "-qm", "latest"]);
+    git(root, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    git(root, &["switch", "--orphan", "docs"]);
+    git(root, &["branch", "-D", "main"]);
+
+    assert_eq!(log(root, 1, 0, false), empty);
+    let first = log(root, 1, 0, true);
+    assert_eq!(first["head"], Value::Null);
+    assert_eq!(first["entries"][0]["summary"], "latest");
+    assert_eq!(first["has_more"], true);
+    let last = log(root, 1, 1, true);
+    assert_eq!(last["entries"][0]["summary"], "base");
+    assert_eq!(last["has_more"], false);
+}
+
+#[test]
 fn workspace_git_commit_details_and_file_diff() {
     let repo = tempfile::tempdir().unwrap();
     init(repo.path());

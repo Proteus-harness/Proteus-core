@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use proteus_contracts::app_protocol::config::ConfigTool;
 use serde_json::Value;
 
 use crate::{
@@ -74,14 +75,31 @@ pub(super) fn render_config_summary(
     lines.join("\n")
 }
 
+fn registered_tool_summaries(tools: Vec<(ToolSource, crate::domain::ToolSpec)>) -> Vec<ConfigTool> {
+    let mut summaries = Vec::with_capacity(tools.len());
+    for (source, mut spec) in tools {
+        // A Tool can return spare capacity; don't retain it in the summary.
+        spec.name.shrink_to_fit();
+        spec.description.shrink_to_fit();
+        summaries.push(ConfigTool {
+            name: spec.name,
+            source: source.label(),
+            safety: format!("{:?}", spec.safety),
+            supports_parallel_tool_calls: spec.supports_parallel_tool_calls,
+            description: spec.description,
+        });
+    }
+    summaries
+}
+
 pub(super) fn configured_model_options(config: &AppConfig) -> Vec<crate::domain::ModelRef> {
     let mut options = Vec::new();
     if let Ok(model) = config.active_model_config() {
-        options.push(model.model_ref());
+        options.push(crate::domain::ModelRef::new(model.provider, model.model));
     }
     for profile in config.providers.values() {
         if let Ok(model) = profile.to_model_config() {
-            let model_ref = model.model_ref();
+            let model_ref = crate::domain::ModelRef::new(model.provider, model.model);
             if !options.iter().any(|item| item == &model_ref) {
                 options.push(model_ref);
             }
@@ -216,16 +234,7 @@ impl super::AppServerHandle {
                 })
                 .collect(),
             tools_enabled: config.tools.enabled.clone(),
-            registered_tools: tools
-                .iter()
-                .map(|(source, spec)| ConfigTool {
-                    name: spec.name.clone(),
-                    source: source.label(),
-                    safety: format!("{:?}", spec.safety),
-                    supports_parallel_tool_calls: spec.supports_parallel_tool_calls,
-                    description: spec.description.clone(),
-                })
-                .collect(),
+            registered_tools: registered_tool_summaries(tools),
             components: config
                 .components
                 .iter()

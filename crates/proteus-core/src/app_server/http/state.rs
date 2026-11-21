@@ -56,7 +56,6 @@ impl HttpAppState {
         shutdown: broadcast::Sender<()>,
         security: HttpSecurity,
     ) -> Self {
-        let initial_server = server.clone();
         let launch = HttpLaunchContext {
             config: server.config.read().await.clone(),
             cwd,
@@ -67,9 +66,10 @@ impl HttpAppState {
                 .is_some_and(|path| path.exists()),
             initial_session_dir: server.session_dir_path(),
         };
+        let key = launch.initial_session_dir.clone().map(session_key);
         let mut session_servers = HashMap::new();
-        if let Some(session_dir) = server.session_dir_path() {
-            session_servers.insert(session_key(session_dir), server.clone());
+        if let Some(key) = &key {
+            session_servers.insert(key.clone(), server.clone());
         }
         let (activity_events, _) = broadcast::channel(1024);
         let state = Self {
@@ -82,7 +82,9 @@ impl HttpAppState {
             shutdown,
             security,
         };
-        state.watch_server(initial_server);
+        if let Some(key) = key {
+            state.watch_server(&server, key);
+        }
         state
     }
 
@@ -119,7 +121,7 @@ impl HttpAppState {
                 .lock()
                 .await
                 .insert(key.clone(), server.clone());
-            self.watch_server(server);
+            self.watch_server(&server, key.clone());
             self.emit_session_activity_for_dir(&key).await;
         }
     }
@@ -222,11 +224,9 @@ impl HttpAppState {
         }
     }
 
-    fn watch_server(&self, server: AppServerHandle) {
-        let Some(session_dir) = server.session_dir_path() else {
-            return;
-        };
-        let session_dir = session_key(session_dir);
+    // The watcher follows the registered key, not a new resolution of the
+    // caller's locator. Activity and retirement use this same registry entry.
+    fn watch_server(&self, server: &AppServerHandle, session_dir: PathBuf) {
         {
             let mut watched = self
                 .watched_sessions

@@ -148,7 +148,7 @@ fn render_runtime_slot(snapshot: &TopologySnapshot, slot_id: &str, label: &str, 
     };
     let active = slot.active_module.as_deref().unwrap_or("-");
     let source = if active == "-" {
-        "-".to_owned()
+        "-"
     } else {
         active_module_source(snapshot, slot_id, active)
     };
@@ -174,7 +174,7 @@ fn runtime_mermaid_slot_label(snapshot: &TopologySnapshot, slot_id: &str) -> Str
         .and_then(|slot| slot.active_module.as_deref())
         .unwrap_or("missing");
     let source = if active == "missing" {
-        "-".to_owned()
+        "-"
     } else {
         active_module_source(snapshot, slot_id, active)
     };

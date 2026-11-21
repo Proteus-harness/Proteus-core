@@ -77,9 +77,55 @@ pub(crate) fn callback_error(id: &str, error: &ProcessModuleRpcError) -> Value {
 }
 
 fn request(id: &str, method: &str, params: Value) -> Value {
-    json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params})
+    // The caller already serialized the typed initialize/invocation DTO. Move
+    // that tree into the envelope instead of serializing it into another Value.
+    let mut frame = json!({"jsonrpc": "2.0", "id": id, "method": method});
+    frame["params"] = params;
+    frame
 }
 
 fn notification(method: &str, params: Value) -> Value {
     json!({"jsonrpc": "2.0", "method": method, "params": params})
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn request_moves_serialized_params_without_changing_the_envelope() {
+        let params = json!({"z": [{"s": "текст с кавычкой: \""}], "a": null});
+        let expected = serde_json::to_vec(&json!({
+            "jsonrpc": "2.0", "id": "h:1:3", "method": "fixture.echo", "params": params,
+        }))
+        .unwrap();
+        let text = params["z"][0]["s"].as_str().unwrap().as_ptr();
+        let actual = request("h:1:3", "fixture.echo", params);
+        assert_eq!(serde_json::to_vec(&actual).unwrap(), expected);
+        assert_eq!(
+            actual["params"]["z"][0]["s"].as_str().unwrap().as_ptr(),
+            text
+        );
+    }
+
+    #[test]
+    fn invocation_does_not_queue_spare_capacity_from_the_caller() {
+        let mut input = String::with_capacity(64 * 1024);
+        input.push('a');
+        let frame = invocation_request(
+            "h:1:3",
+            "fixture.echo",
+            &ProcessComponentExportRef::new("tool", "fixture"),
+            "h:1:1",
+            Some("h:1:2"),
+            2,
+            Value::String(input),
+        )
+        .unwrap();
+        let Value::String(stored) = &frame["params"]["params"] else {
+            panic!("expected string")
+        };
+        assert_eq!(stored, "a");
+        assert!(stored.capacity() < 64 * 1024);
+    }
 }

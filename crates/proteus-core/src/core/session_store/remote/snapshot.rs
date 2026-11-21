@@ -74,6 +74,12 @@ impl RemoteJournalSnapshot {
         ensure!(!self.display_only, "cannot replay a display snapshot");
         self.scan_from(0, |_| true, consume)
     }
+    pub(crate) fn take_staged_causal_roots(
+        &mut self,
+    ) -> Option<std::collections::HashMap<TurnId, crate::domain::ThreadId>> {
+        self.display_records.as_mut()?.take_causal_roots()
+    }
+
     pub(crate) fn scan_display(
         &mut self,
         consume: impl FnMut(JournalRecord) -> Result<()>,
@@ -216,7 +222,7 @@ impl RemoteValidatedRead {
         if let Some(read) = Self::open_projected_display(&store)? {
             return Ok(read);
         }
-        Self::validate(store, None, DisplayRecordWriter::new()).map(|(read, _)| read)
+        Self::validate(store, None, DisplayRecordWriter::new_for_replay()).map(|(read, _)| read)
     }
 
     fn open_projected_display(store: &RemoteSessionStore) -> Result<Option<Self>> {
@@ -239,7 +245,7 @@ impl RemoteValidatedRead {
             display_records: None,
             display_only: true,
         };
-        if let Some(mut display) = DisplayRecordWriter::new() {
+        if let Some(mut display) = DisplayRecordWriter::new_for_replay() {
             source.scan_display(|record| {
                 display.push(&record);
                 Ok(())
@@ -264,7 +270,7 @@ impl RemoteValidatedRead {
         if let Some(read) = Self::open_projected_display(&store)? {
             return Ok(Some(read));
         }
-        Self::validate_snapshot(store, source, None, DisplayRecordWriter::new())
+        Self::validate_snapshot(store, source, None, DisplayRecordWriter::new_for_replay())
             .map(|(read, _)| Some(read))
     }
 

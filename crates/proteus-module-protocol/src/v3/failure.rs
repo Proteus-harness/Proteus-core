@@ -247,24 +247,25 @@ impl LoopState {
     }
 
     pub(super) fn reader_failed(&mut self, error: ReceiveFrameError) {
-        let process_exited = self.worker.as_ref().is_some_and(|worker| {
+        let observed = self.worker.as_ref().map(|worker| {
             worker
                 .transport
                 .lifecycle()
                 .wait_for_exit(Duration::from_millis(50))
-                .map_or(true, |exit| exit.is_some())
         });
-        let failure = if process_exited {
-            ComponentFailure::ProcessExit
-        } else {
-            let message = error.to_string();
-            if message.contains("exceeded") || message.contains("too large") {
-                ComponentFailure::Resource
-            } else {
-                ComponentFailure::Protocol
+        let message = error.to_string();
+        let (failure, reason) = match observed {
+            Some(Ok(Some(_))) => (ComponentFailure::ProcessExit, message),
+            Some(Err(error)) => (
+                ComponentFailure::Resource,
+                format!("failed to observe component exit: {error}; reader: {message}"),
+            ),
+            _ if message.contains("exceeded") || message.contains("too large") => {
+                (ComponentFailure::Resource, message)
             }
+            _ => (ComponentFailure::Protocol, message),
         };
-        self.reset_generation_with_reason(failure, Some(error.to_string()));
+        self.reset_generation_with_reason(failure, Some(reason));
     }
 
     pub(super) fn reset_generation(&mut self, failure: ComponentFailure) {

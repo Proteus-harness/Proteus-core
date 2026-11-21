@@ -38,8 +38,8 @@ fn append_transcript_parts<'a>(
     message: &CanonicalMessage,
     parts: impl IntoIterator<Item = &'a CanonicalPart>,
 ) {
-    let role = transcript_role(&message.role).to_owned();
-    let mut text_parts = Vec::new();
+    let role = transcript_role(&message.role);
+    let mut text_parts = PendingText::default();
     let mut images = Vec::new();
     for part in parts {
         match &part.payload {
@@ -53,15 +53,15 @@ fn append_transcript_parts<'a>(
                 text_parts.push(text.as_str());
             }
             ContentPart::ToolCall { call } => {
-                flush_transcript_text(transcript, &role, message, &mut text_parts);
+                flush_transcript_text(transcript, role, message, &mut text_parts);
                 append_transcript_tool_call(transcript, call);
             }
             ContentPart::ToolResult { result } => {
-                flush_transcript_text(transcript, &role, message, &mut text_parts);
+                flush_transcript_text(transcript, role, message, &mut text_parts);
                 append_transcript_tool_result(transcript, result);
             }
             ContentPart::HostedToolActivity { activity } => {
-                flush_transcript_text(transcript, &role, message, &mut text_parts);
+                flush_transcript_text(transcript, role, message, &mut text_parts);
                 append_hosted_tool_activity(transcript, activity);
             }
             ContentPart::Citation { citation } => {
@@ -70,7 +70,7 @@ fn append_transcript_parts<'a>(
             _ => {}
         }
     }
-    flush_transcript_text(transcript, &role, message, &mut text_parts);
+    flush_transcript_text(transcript, role, message, &mut text_parts);
     if !images.is_empty() {
         if let Some(item) = transcript
             .rows
@@ -83,7 +83,7 @@ fn append_transcript_parts<'a>(
                 timestamp_ms: None,
                 message_id: Some(message.id),
                 phase: message.phase,
-                role,
+                role: role.to_owned(),
                 text: String::new(),
                 images,
                 tool: None,
@@ -236,37 +236,65 @@ fn append_citation_metadata(transcript: &mut [AppTranscriptMessage], citation: &
     }
 }
 
+/// The common single-part segment needs no heap allocation before the final
+/// row string. Keep the same joined allocation and reuse scratch for longer
+/// segments within the same message.
+#[derive(Default)]
+struct PendingText<'a> {
+    last: Option<&'a str>,
+    earlier: Vec<&'a str>,
+}
+
+impl<'a> PendingText<'a> {
+    fn push(&mut self, text: &'a str) {
+        if let Some(previous) = self.last.replace(text) {
+            self.earlier.push(previous);
+        }
+    }
+
+    fn take_joined(&mut self) -> Option<String> {
+        let last = self.last.take()?;
+        if self.earlier.is_empty() {
+            return Some(last.to_owned());
+        }
+        self.earlier.push(last);
+        let text = self.earlier.join("\n");
+        self.earlier.clear();
+        Some(text)
+    }
+}
+
 fn flush_transcript_text(
     transcript: &mut TranscriptRows,
     role: &str,
     message: &CanonicalMessage,
-    text_parts: &mut Vec<&str>,
+    text_parts: &mut PendingText<'_>,
 ) {
-    if text_parts.is_empty() {
+    let Some(text) = text_parts.take_joined() else {
         return;
-    }
+    };
     transcript.push(AppTranscriptMessage {
         timestamp_ms: None,
         images: Vec::new(),
         message_id: Some(message.id),
         phase: message.phase,
         role: role.to_owned(),
-        text: text_parts.join("\n"),
+        text,
         tool: None,
         subagent: None,
         streaming: false,
     });
-    text_parts.clear();
 }
 
 fn append_transcript_tool_result(transcript: &mut TranscriptRows, result: &ToolResult) {
     let status = if result.ok { "done" } else { "failed" }.to_owned();
     let result_text = result.text_or_status();
+    let terminal = result
+        .metadata
+        .get("tool_terminal")
+        .and_then(|value| serde::Deserialize::deserialize(value).ok());
     if let Some(tool) = transcript.tool_mut(&result.call_id) {
-        tool.terminal = result
-            .metadata
-            .get("tool_terminal")
-            .and_then(|value| serde_json::from_value(value.clone()).ok());
+        tool.terminal = terminal;
         tool.status = status;
         tool.result = Some(result_text);
         tool.metadata = result.metadata.clone();
@@ -281,10 +309,7 @@ fn append_transcript_tool_result(transcript: &mut TranscriptRows, result: &ToolR
         role: "system".to_owned(),
         text: String::new(),
         tool: Some(AppTranscriptTool {
-            terminal: result
-                .metadata
-                .get("tool_terminal")
-                .and_then(|value| serde_json::from_value(value.clone()).ok()),
+            terminal,
             effective_args: None,
             call_id: result.call_id.clone(),
             name: "tool".to_owned(),
@@ -380,6 +405,33 @@ mod tests {
     }
 
     #[test]
+    fn visible_text_keeps_segments_between_tool_cards() {
+        let text = |s: &str| ContentPart::Text { text: s.to_owned() };
+        let call = |id: &str| ContentPart::ToolCall {
+            call: ToolCall::new(id, "read", json!({})),
+        };
+        let message = CanonicalMessage::new(
+            MessageRole::Assistant,
+            vec![
+                text(" first "),
+                call("1"),
+                text("\u{2002}"),
+                text("two"),
+                text("三"),
+                call("2"),
+                text("🌊 trailing "),
+            ],
+        );
+        let rows = transcript_messages(&[message]);
+        assert_eq!(rows.len(), 5);
+        assert_eq!(rows[0].text, " first ");
+        assert_eq!(rows[1].tool.as_ref().unwrap().call_id, "1");
+        assert_eq!(rows[2].text, "two\n三");
+        assert_eq!(rows[3].tool.as_ref().unwrap().call_id, "2");
+        assert_eq!(rows[4].text, "🌊 trailing ");
+    }
+
+    #[test]
     fn committed_tool_call_without_result_becomes_interrupted() {
         // Закоммиченная история пишется в конце хода: вызов без результата —
         // прерванный, а не бегущий; "running" дал бы вечный спиннер в UI.
@@ -424,6 +476,61 @@ mod tests {
         // по ней карточку субагента, core имён tools не знает.
         assert_eq!(tool.metadata["child_thread_id"], "child-thread");
         assert_eq!(tool.metadata["status"], "completed");
+    }
+
+    #[test]
+    fn terminal_metadata_is_projected_without_changing_the_raw_result() {
+        let call = ToolCall::new("terminal-call", "fixture", json!({}));
+        let terminal = crate::contracts::ToolTerminalRef {
+            id: uuid::Uuid::from_u128(42),
+            title: "terminal 🌱".into(),
+            tty: true,
+        };
+        let valid = json!(terminal);
+        let mut unknown_field = valid.clone();
+        unknown_field["extra"] = json!({"ignored": [1,2,3]});
+        let mut bad_id = valid.clone();
+        bad_id["id"] = json!("not a UUID");
+        let mut missing_tty = valid.clone();
+        missing_tty.as_object_mut().unwrap().remove("tty");
+        let mut bad_title = valid.clone();
+        bad_title["title"] = json!(["not a string"]);
+
+        let cases = [
+            Some(valid),
+            Some(json!([terminal.id, terminal.title, terminal.tty])),
+            Some(unknown_field),
+            Some(bad_id),
+            Some(missing_tty),
+            Some(bad_title),
+            Some(Value::Null),
+            None,
+        ];
+        for preexisting in [false, true] {
+            for value in &cases {
+                let expected: Option<crate::contracts::ToolTerminalRef> = value
+                    .as_ref()
+                    .and_then(|value| serde_json::from_value(value.clone()).ok());
+                let mut rows = TranscriptRows::default();
+                if preexisting {
+                    append_transcript_tool_call(&mut rows, &call);
+                    // Invalid or absent metadata still clears an existing terminal.
+                    rows.rows[0].tool.as_mut().unwrap().terminal = Some(terminal.clone());
+                }
+                let mut metadata = json!({"fixture": "keep"});
+                if let Some(value) = value {
+                    metadata["tool_terminal"] = value.clone();
+                }
+                let result =
+                    ToolResult::ok(call.id.clone(), "synthetic").with_metadata(metadata.clone());
+                append_transcript_tool_result(&mut rows, &result);
+                assert_eq!(rows.rows.len(), 1);
+                let tool = rows.rows[0].tool.as_ref().unwrap();
+                assert_eq!(tool.terminal, expected);
+                assert_eq!(tool.metadata, metadata);
+                assert_eq!(tool.status, "done");
+            }
+        }
     }
 
     #[test]

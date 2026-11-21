@@ -3,20 +3,27 @@ use super::invalid;
 use crate::{core::AppConfig, domain::PermissionMode};
 use agent_client_protocol::{Result, schema::v1::*};
 
-pub(super) fn prompt_text(blocks: Vec<ContentBlock>) -> Result<String> {
-    let mut parts = Vec::with_capacity(blocks.len());
-    for block in blocks {
-        parts.push(match block {
-            ContentBlock::Text(text) => text.text,
-            ContentBlock::ResourceLink(link) => format!("{} ({})", link.name, link.uri),
-            _ => {
-                return Err(invalid(
-                    "unsupported prompt content; use text or resource_link",
-                ));
-            }
-        });
-    }
-    let text = parts.join("\n");
+pub(super) fn prompt_text(mut blocks: Vec<ContentBlock>) -> Result<String> {
+    // Keep an oversized source buffer out of the admitted prompt.
+    let text = if let [ContentBlock::Text(text)] = blocks.as_mut_slice()
+        && text.text.capacity() == text.text.len()
+    {
+        std::mem::take(&mut text.text)
+    } else {
+        let mut parts = Vec::with_capacity(blocks.len());
+        for block in blocks {
+            parts.push(match block {
+                ContentBlock::Text(text) => text.text,
+                ContentBlock::ResourceLink(link) => format!("{} ({})", link.name, link.uri),
+                _ => {
+                    return Err(invalid(
+                        "unsupported prompt content; use text or resource_link",
+                    ));
+                }
+            });
+        }
+        parts.join("\n")
+    };
     if text.trim().is_empty() {
         return Err(invalid("prompt must not be empty"));
     }

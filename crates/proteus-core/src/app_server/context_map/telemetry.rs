@@ -15,7 +15,7 @@ use crate::{
         AppContextBuildSnapshot, AppContextCompactionSnapshot, AppContextToolSummary,
         AppContextUsageCategory, AppContextUsageSnapshot, paths_equal,
     },
-    domain::{Event, EventEnvelope, SessionId, TokenUsageSource},
+    domain::{Event, EventEnvelope, SessionId, TokenUsageSnapshot, TokenUsageSource, TurnId},
 };
 
 mod cache;
@@ -79,13 +79,14 @@ fn parse(
 ) -> Result<Telemetry> {
     let mut telemetry = Telemetry::default();
     let mut names = BTreeSet::new();
+    let mut latest_usage = None;
     let mut skipped = 0usize;
     let mut line = String::new();
     while reader.read_line(&mut line)? != 0 {
         if !line.trim().is_empty() {
             match serde_json::from_str::<EventEnvelope>(&line) {
                 Ok(envelope) if matches_session(&envelope, session_id, session_dir) => {
-                    telemetry.apply(envelope, &mut names);
+                    telemetry.apply(envelope, &mut names, &mut latest_usage);
                 }
                 Ok(_) => {}
                 Err(_) => skipped += 1,
@@ -93,6 +94,8 @@ fn parse(
         }
         line.clear();
     }
+    // Only the last matching usage event contributes categories to the response.
+    telemetry.latest_usage = latest_usage.map(UsageSample::into_snapshot);
     telemetry.tools.names = names.into_iter().collect();
     if skipped > 0 {
         telemetry
@@ -123,7 +126,12 @@ fn matches_session(
 }
 
 impl Telemetry {
-    fn apply(&mut self, envelope: EventEnvelope, names: &mut BTreeSet<String>) {
+    fn apply(
+        &mut self,
+        envelope: EventEnvelope,
+        names: &mut BTreeSet<String>,
+        latest_usage: &mut Option<UsageSample>,
+    ) {
         match envelope.event {
             Event::ToolCallRequested { call } => {
                 self.tools.requested += 1;
@@ -146,27 +154,11 @@ impl Telemetry {
                 self.latest_context = Some(context);
             }
             Event::TokenUsageUpdated { usage } => {
-                let mut snapshot = AppContextUsageSnapshot::new(
-                    usage.model.provider,
-                    usage.model.model,
-                    usage.estimated_input_tokens,
-                    source_label(usage.source),
-                );
-                snapshot.phase = usage.phase;
-                snapshot.max_input_tokens = usage.max_input_tokens;
-                snapshot.compaction_trigger_tokens = usage.compaction_trigger_tokens;
-                snapshot.categories = usage
-                    .categories
-                    .into_iter()
-                    .map(|category| {
-                        AppContextUsageCategory::new(category.name, category.tokens)
-                            .with_source(source_label(category.source))
-                    })
-                    .collect();
-                snapshot.actual = usage.actual;
-                snapshot.turn_id = envelope.turn_id;
-                snapshot.timestamp_ms = Some(envelope.timestamp_ms);
-                self.latest_usage = Some(snapshot);
+                *latest_usage = Some(UsageSample {
+                    usage,
+                    turn_id: envelope.turn_id,
+                    timestamp_ms: envelope.timestamp_ms,
+                });
             }
             Event::HistoryCompactionStarted { .. } => {
                 self.compaction("started", envelope.turn_id, envelope.timestamp_ms);
@@ -192,6 +184,43 @@ impl Telemetry {
         snapshot.turn_id = turn_id;
         snapshot.timestamp_ms = Some(timestamp);
         self.latest_compaction = Some(snapshot);
+    }
+}
+
+struct UsageSample {
+    usage: TokenUsageSnapshot,
+    turn_id: Option<TurnId>,
+    timestamp_ms: i64,
+}
+
+impl UsageSample {
+    fn into_snapshot(self) -> AppContextUsageSnapshot {
+        let Self {
+            usage,
+            turn_id,
+            timestamp_ms,
+        } = self;
+        let mut snapshot = AppContextUsageSnapshot::new(
+            usage.model.provider,
+            usage.model.model,
+            usage.estimated_input_tokens,
+            source_label(usage.source),
+        );
+        snapshot.phase = usage.phase;
+        snapshot.max_input_tokens = usage.max_input_tokens;
+        snapshot.compaction_trigger_tokens = usage.compaction_trigger_tokens;
+        snapshot.categories = usage
+            .categories
+            .into_iter()
+            .map(|category| {
+                AppContextUsageCategory::new(category.name, category.tokens)
+                    .with_source(source_label(category.source))
+            })
+            .collect();
+        snapshot.actual = usage.actual;
+        snapshot.turn_id = turn_id;
+        snapshot.timestamp_ms = Some(timestamp_ms);
+        snapshot
     }
 }
 

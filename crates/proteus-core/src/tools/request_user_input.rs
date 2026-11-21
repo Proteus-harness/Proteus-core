@@ -313,15 +313,33 @@ fn format_user_input_response(answers: &HashMap<String, UserInputAnswer>) -> Str
     }
     let mut entries = answers.iter().collect::<Vec<_>>();
     entries.sort_by_key(|(key, _)| *key);
-    let summary = entries
-        .into_iter()
-        .map(|(question_id, answer)| {
-            let answer = answer.answers.join(", ");
-            format!("{question_id}: {answer}")
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-    format!("User answered:\n{summary}")
+    const HEADER: &str = "User answered:";
+    const KEY_SEPARATOR: &str = ": ";
+    const ANSWER_SEPARATOR: &str = ", ";
+    let size = HEADER.len()
+        + entries
+            .iter()
+            .map(|(question_id, answer)| {
+                1 + question_id.len()
+                    + KEY_SEPARATOR.len()
+                    + answer.answers.iter().map(String::len).sum::<usize>()
+                    + answer.answers.len().saturating_sub(1) * ANSWER_SEPARATOR.len()
+            })
+            .sum::<usize>();
+    let mut summary = String::with_capacity(size);
+    summary.push_str(HEADER);
+    for (question_id, answer) in entries {
+        summary.push('\n');
+        summary.push_str(question_id);
+        summary.push_str(KEY_SEPARATOR);
+        for (index, value) in answer.answers.iter().enumerate() {
+            if index != 0 {
+                summary.push_str(ANSWER_SEPARATOR);
+            }
+            summary.push_str(value);
+        }
+    }
+    summary
 }
 
 #[cfg(test)]

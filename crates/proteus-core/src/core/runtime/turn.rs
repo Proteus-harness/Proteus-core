@@ -181,7 +181,8 @@ impl AgentRuntime {
             None => self.capture_execution_snapshot().await,
         };
         let execution_scope = ExecutionScope::fresh(cancellation.clone());
-        self.ensure_session_started_with_snapshot(&snapshot).await?;
+        self.ensure_session_started_with_model(|| snapshot.model_ref.clone())
+            .await?;
         let turn_id = reserved.turn_id;
         let execution_attribution = ExecutionAttribution::for_turn(
             execution_scope.execution_id,

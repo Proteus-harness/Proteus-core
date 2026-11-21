@@ -17,13 +17,13 @@ pub(super) fn build_tools(
         .tools
         .enabled
         .iter()
-        .cloned()
+        .map(String::as_str)
         .collect::<BTreeSet<_>>();
     let mut registered_names = BTreeSet::new();
     let mut tools = registered_tools
         .iter()
         .map(|(source, spec)| {
-            registered_names.insert(spec.name.clone());
+            registered_names.insert(spec.name.as_str());
             ToolTopology {
                 name: spec.name.clone(),
                 description: spec.description.clone(),
@@ -39,7 +39,7 @@ pub(super) fn build_tools(
         .collect::<Vec<_>>();
 
     for name in enabled_names {
-        if !registered_names.contains(&name) {
+        if !registered_names.contains(name) {
             warnings.push(TopologyWarning::warn(format!(
                 "tools.enabled contains {name}, but no registered tool provides it"
             )));

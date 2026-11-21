@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use serde::{Deserialize, Serialize};
 
 use crate::domain::{HostedToolConfig, HostedToolKind, ids::CallId};
@@ -161,17 +163,18 @@ impl ToolResult {
 
         let mut content_text = Vec::new();
         for content in &self.content {
-            match content {
-                ToolContent::Text { text } if !text.is_empty() => content_text.push(text.clone()),
-                ToolContent::Json { value } => content_text.push(value.to_string()),
+            let text = match content {
+                ToolContent::Text { text } if !text.is_empty() => Cow::Borrowed(text.as_str()),
+                ToolContent::Json { value } => Cow::Owned(value.to_string()),
                 ToolContent::Image { mime_type, .. } => {
-                    content_text.push(format!("[image tool content: {mime_type}]"));
+                    Cow::Owned(format!("[image tool content: {mime_type}]"))
                 }
                 ToolContent::Binary { mime_type, .. } => {
-                    content_text.push(format!("[binary tool content: {mime_type}]"));
+                    Cow::Owned(format!("[binary tool content: {mime_type}]"))
                 }
-                _ => {}
-            }
+                _ => continue,
+            };
+            content_text.push(text);
         }
 
         if !content_text.is_empty() {

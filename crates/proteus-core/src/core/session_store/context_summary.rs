@@ -2,12 +2,16 @@
 use crate::model_standard::{CanonicalMessage, ContentPart, MessageRole};
 use proteus_contracts::app_protocol::AppContextHistorySummary;
 
+fn json_bytes(value: &impl serde::Serialize) -> usize {
+    super::json_size::encoded_len(value, usize::MAX).unwrap_or_default()
+}
+
 pub(crate) fn summarize_context_history(messages: &[CanonicalMessage]) -> AppContextHistorySummary {
     let mut summary = AppContextHistorySummary::default();
     summary.messages = messages.len();
     let mut bytes = 0usize;
     for message in messages {
-        bytes += message.metadata.to_string().len() + 4;
+        bytes += json_bytes(&message.metadata) + 4;
         match message.role {
             MessageRole::User => summary.user_messages += 1,
             MessageRole::Assistant => summary.assistant_messages += 1,
@@ -30,42 +34,30 @@ pub(crate) fn summarize_context_history(messages: &[CanonicalMessage]) -> AppCon
                             .map(|path| path.display().to_string().len())
                             .unwrap_or_default()
                         + chunk.content.len()
-                        + chunk.metadata.to_string().len();
+                        + json_bytes(&chunk.metadata);
                 }
                 ContentPart::FileRef { path, content } => {
                     bytes += path.display().to_string().len()
                         + content.as_deref().unwrap_or_default().len();
                 }
                 ContentPart::ToolCall { call } => {
-                    bytes += call.name.len() + call.args.to_string().len();
+                    bytes += call.name.len() + json_bytes(&call.args);
                 }
                 ContentPart::ToolResult { result } => {
                     summary.tool_results += 1;
                     bytes += result.output.len()
                         + result.error.as_deref().unwrap_or_default().len()
-                        + result.metadata.to_string().len()
-                        + result
-                            .content
-                            .iter()
-                            .map(|content| {
-                                serde_json::to_string(content)
-                                    .map(|text| text.len())
-                                    .unwrap_or(0)
-                            })
-                            .sum::<usize>();
+                        + json_bytes(&result.metadata)
+                        + result.content.iter().map(json_bytes).sum::<usize>();
                 }
                 ContentPart::Patch { patch } => {
                     bytes += patch.content.len();
                 }
                 ContentPart::HostedToolActivity { activity } => {
-                    bytes += serde_json::to_string(activity)
-                        .map(|value| value.len())
-                        .unwrap_or_default();
+                    bytes += json_bytes(activity);
                 }
                 ContentPart::Citation { citation } => {
-                    bytes += serde_json::to_string(citation)
-                        .map(|value| value.len())
-                        .unwrap_or_default();
+                    bytes += json_bytes(citation);
                 }
                 _ => {}
             }

@@ -31,12 +31,15 @@ pub(super) fn build_context_map_snapshot_with_summary(
     summary: Option<AppContextHistorySummary>,
 ) -> Result<AppContextMapSnapshot> {
     let mut diagnostics = input.diagnostics;
+    let history = summary.unwrap_or_else(|| summarize_context_history(&input.history));
+    // Only the counts survive in the response. Do not hold the canonical messages
+    // while the telemetry reader is decoding potentially large event payloads.
+    drop(input.history);
     let telemetry = telemetry::read(
         &input.event_log_path,
         input.session_id,
         input.session_dir.as_deref(),
     )?;
-    let history = summary.unwrap_or_else(|| summarize_context_history(&input.history));
     diagnostics.extend(telemetry.diagnostics.iter().cloned());
     let mut snapshot = AppContextMapSnapshot::new(
         input.session_dir,

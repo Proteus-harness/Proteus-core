@@ -287,6 +287,14 @@ fn telemetry_preserves_log_order_compaction_transitions_and_path_only_matching()
     let events = vec![
         event(
             session,
+            100,
+            Event::TokenUsageUpdated {
+                usage: TokenUsageSnapshot::new(ModelRef::new("p", "old"), 400, vec![])
+                    .with_phase("old phase"),
+            },
+        ),
+        event(
+            session,
             90,
             Event::SessionStarted {
                 session_id: session,
@@ -339,6 +347,20 @@ fn telemetry_preserves_log_order_compaction_transitions_and_path_only_matching()
                 token_estimate: None,
             },
         ),
+        event(
+            session,
+            30,
+            Event::TokenUsageUpdated {
+                usage: TokenUsageSnapshot::new(ModelRef::new("p", "latest"), 12, vec![]),
+            },
+        ),
+        event(
+            new_session_id(),
+            20,
+            Event::TokenUsageUpdated {
+                usage: TokenUsageSnapshot::new(ModelRef::new("p", "foreign"), 999, vec![]),
+            },
+        ),
     ];
     write_events(&path, &events, false);
     // Valid JSON at EOF without a trailing newline remains a complete event.
@@ -351,6 +373,10 @@ fn telemetry_preserves_log_order_compaction_transitions_and_path_only_matching()
         "failed"
     );
     assert_eq!(telemetry.tools.finished, 1);
+    let usage = telemetry.latest_usage.as_ref().unwrap();
+    assert_eq!(usage.model_name, "latest");
+    assert_eq!(usage.phase, None);
+    assert_eq!(usage.timestamp_ms, Some(30));
     assert_eq!(telemetry.tools.failed, 1);
     assert!(telemetry.diagnostics.is_empty());
     // The pre-existing path-only fallback matches SessionStarted itself; it must

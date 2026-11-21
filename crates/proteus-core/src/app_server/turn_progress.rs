@@ -337,14 +337,20 @@ impl TurnProgress {
 
     /// Снимок прогресса для /history с теми же item ids и состоянием завершения.
     pub(super) fn snapshot(&self) -> Vec<AppTranscriptMessage> {
-        let mut messages = self.messages.clone();
+        let mut messages = Vec::with_capacity(
+            self.messages.len()
+                + usize::from(self.submitted.is_some())
+                + self.failed_queued_inputs.len()
+                + self.background_subagents.len(),
+        );
+        messages.extend_from_slice(&self.messages);
         if let Some(text) = &self.submitted {
             let mut message = Self::user_message(text.clone(), self.submitted_at);
             message.images = self.submitted_images.clone();
             messages.push(message);
         }
-        messages.extend(self.failed_queued_inputs.clone());
-        messages.extend(self.background_subagents.clone());
+        messages.extend_from_slice(&self.failed_queued_inputs);
+        messages.extend_from_slice(&self.background_subagents);
         messages
     }
 
@@ -556,14 +562,21 @@ fn truncate_utf8(value: &str, max_bytes: usize) -> &str {
 }
 
 fn compact_json(value: &serde_json::Value, max_bytes: usize) -> serde_json::Value {
-    let encoded = value.to_string();
-    if encoded.len() <= max_bytes {
-        return value.clone();
+    use bytes::BufMut;
+    let mut prefix = Vec::new();
+    let writer = (&mut prefix).limit(max_bytes).writer();
+    match serde_json::to_writer(writer, value) {
+        Ok(()) => value.clone(),
+        Err(error) if error.io_error_kind() == Some(std::io::ErrorKind::WriteZero) => {
+            // Serde writes valid UTF-8. Only the last scalar can be split by the limit.
+            let preview = prefix
+                .utf8_chunks()
+                .next()
+                .map_or("", |chunk| chunk.valid());
+            serde_json::json!({"truncated": true, "preview": preview})
+        }
+        Err(error) => panic!("failed to serialize JSON value: {error}"),
     }
-    serde_json::json!({
-        "truncated": true,
-        "preview": truncate_utf8(&encoded, max_bytes),
-    })
 }
 
 fn set_subagent_status_in(

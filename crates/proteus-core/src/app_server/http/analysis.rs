@@ -9,7 +9,7 @@ use super::{
     sessions::{percent_decode_query_value, required_session_query},
 };
 use crate::core::{
-    JournalEntry, JournalProjection, ModelResponseOutcome, SessionStore, ToolCallRecordPhase,
+    JournalEntry, JournalRecord, ModelResponseOutcome, SessionStore, ToolCallRecordPhase,
     TurnSettlementStatus, canonicalize_session_dir_path,
 };
 
@@ -23,7 +23,8 @@ pub(super) async fn read(state: &HttpAppState, query: Option<&str>) -> Result<Ap
             .cloned()
             .ok_or_else(|| anyhow!("session has no storage"))?;
         return tokio::task::spawn_blocking(move || {
-            project(store.session_id(), &store.load_projection()?, requested)
+            let records = store.load_projection()?.records;
+            project(store.session_id(), records, requested)
         })
         .await?;
     }
@@ -52,20 +53,20 @@ async fn read_stored(
 ) -> Result<AppSessionAnalysis> {
     tokio::task::spawn_blocking(move || {
         let store = SessionStore::open(storage, session_dir)?;
-        let projection = store.load_projection()?;
-        project(store.session_id(), &projection, requested)
+        let records = store.load_projection()?.records;
+        project(store.session_id(), records, requested)
     })
     .await?
 }
 
 fn project(
     session_id: proteus_contracts::domain::SessionId,
-    projection: &JournalProjection,
+    records: Vec<JournalRecord>,
     requested: Option<TurnId>,
 ) -> Result<AppSessionAnalysis> {
     let mut turns: Vec<AppAnalysisTurn> = Vec::new();
     let mut indices = HashMap::new();
-    for record in &projection.records {
+    for record in &records {
         let Some(turn_id) = record.turn_id else {
             continue;
         };
@@ -100,30 +101,27 @@ fn project(
         return Err(anyhow!("requested turn does not belong to this session"));
     }
     let selected_id = requested.or_else(|| turns.last().map(|turn| turn.turn_id));
+    let revision = records.last().map_or(0, |record| record.session_seq);
     let selected = selected_id
-        .map(|id| turn_details(projection, id))
+        .map(|id| turn_details(records, id))
         .transpose()?;
     Ok(AppSessionAnalysis {
         session_id,
-        revision: projection
-            .records
-            .last()
-            .map_or(0, |record| record.session_seq),
+        revision,
         turns,
         selected,
     })
 }
 
-fn turn_details(projection: &JournalProjection, turn_id: TurnId) -> Result<AppTurnAnalysis> {
+fn turn_details(mut records: Vec<JournalRecord>, turn_id: TurnId) -> Result<AppTurnAnalysis> {
     let mut detail = None;
     let mut steps: Vec<AppAnalysisStep> = Vec::new();
     let mut models = HashMap::new();
     let mut tools = HashMap::new();
-    for record in projection
-        .records
-        .iter()
-        .filter(|r| r.turn_id == Some(turn_id))
-    {
+    // Drop unrelated payloads in place, without moving every large journal
+    // entry through the selected turn's detail loop.
+    records.retain(|record| record.turn_id == Some(turn_id));
+    for record in records {
         let new_step = |data| AppAnalysisStep {
             sequence: record.session_seq,
             execution_id: record.execution_id,
@@ -132,21 +130,20 @@ fn turn_details(projection: &JournalProjection, turn_id: TurnId) -> Result<AppTu
             finished_at_ms: None,
             data,
         };
-        match &record.entry {
+        match record.entry {
             JournalEntry::ContextRequestRecorded(_) | JournalEntry::ContextResponseRecorded(_) => {}
             JournalEntry::TurnOpened(opened) => {
                 detail = Some(AppTurnAnalysis {
                     turn_id,
-                    task: opened.task.clone(),
+                    task: opened.task,
                     module_epoch: opened.module_epoch,
-                    config_snapshot: opened.config_snapshot.clone(),
+                    config_snapshot: opened.config_snapshot,
                     steps: Vec::new(),
                     output: None,
                     error: None,
                 });
             }
-            JournalEntry::HookInvoked(trace) => {
-                let mut trace = trace.clone();
+            JournalEntry::HookInvoked(mut trace) => {
                 if matches!(
                     trace.input.event,
                     crate::contracts::HookEvent::BeforeContext { .. }
@@ -183,7 +180,7 @@ fn turn_details(projection: &JournalProjection, turn_id: TurnId) -> Result<AppTu
                 steps.push(new_step(AppAnalysisStepData::Model {
                     exchange_id: model.exchange_id,
                     origin: model.origin,
-                    request: Box::new(model.request.clone()),
+                    request: Box::new(model.request),
                     response: None,
                     failure: None,
                     messages: Vec::new(),
@@ -193,7 +190,7 @@ fn turn_details(projection: &JournalProjection, turn_id: TurnId) -> Result<AppTu
                 if let Some(&index) = models.get(&message.exchange_id)
                     && let AppAnalysisStepData::Model { messages, .. } = &mut steps[index].data
                 {
-                    messages.push(message.message.clone());
+                    messages.push(message.message);
                 }
             }
             JournalEntry::ModelResponseRecorded(model) => {
@@ -204,12 +201,12 @@ fn turn_details(projection: &JournalProjection, turn_id: TurnId) -> Result<AppTu
                         response, failure, ..
                     } = &mut step.data
                     {
-                        match &model.outcome {
+                        match model.outcome {
                             ModelResponseOutcome::Response { response: value } => {
-                                *response = Some(Box::new(value.clone()))
+                                *response = Some(Box::new(value))
                             }
                             ModelResponseOutcome::Error { failure: value } => {
-                                *failure = Some(value.clone())
+                                *failure = Some(value)
                             }
                         }
                     }
@@ -219,7 +216,7 @@ fn turn_details(projection: &JournalProjection, turn_id: TurnId) -> Result<AppTu
                 let key = (record.execution_id, tool.call.id.clone());
                 let index = *tools.entry(key).or_insert_with(|| {
                     steps.push(new_step(AppAnalysisStepData::Tool {
-                        call: tool.call.clone(),
+                        call: tool.call,
                         approval_reason: None,
                         resolution: None,
                         result: None,
@@ -232,13 +229,13 @@ fn turn_details(projection: &JournalProjection, turn_id: TurnId) -> Result<AppTu
                     ..
                 } = &mut steps[index].data
                 {
-                    match &tool.phase {
+                    match tool.phase {
                         ToolCallRecordPhase::Requested { .. } => {}
                         ToolCallRecordPhase::ApprovalRequested { reason } => {
-                            *approval_reason = Some(reason.clone())
+                            *approval_reason = Some(reason)
                         }
                         ToolCallRecordPhase::Resolved { resolution: value } => {
-                            *resolution = Some(value.clone())
+                            *resolution = Some(value)
                         }
                     }
                 }
@@ -248,14 +245,14 @@ fn turn_details(projection: &JournalProjection, turn_id: TurnId) -> Result<AppTu
                 {
                     steps[index].finished_at_ms = Some(record.timestamp_ms);
                     if let AppAnalysisStepData::Tool { result, .. } = &mut steps[index].data {
-                        *result = Some(tool.result.clone());
+                        *result = Some(tool.result);
                     }
                 }
             }
             JournalEntry::HistoryMutated(history) => {
-                if let Some(report) = &history.compaction {
+                if let Some(report) = history.compaction {
                     let mut step = new_step(AppAnalysisStepData::Compaction {
-                        report: report.clone(),
+                        report,
                         history_revision: history.new_revision,
                     });
                     step.finished_at_ms = Some(record.timestamp_ms);
@@ -264,8 +261,8 @@ fn turn_details(projection: &JournalProjection, turn_id: TurnId) -> Result<AppTu
             }
             JournalEntry::TurnSettled(settled) => {
                 if let Some(detail) = &mut detail {
-                    detail.output = settled.output.clone();
-                    detail.error = settled.error.clone();
+                    detail.output = settled.output;
+                    detail.error = settled.error;
                 }
             }
             JournalEntry::SubagentSessionBoundRecorded(_) => {}

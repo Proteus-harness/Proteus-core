@@ -118,11 +118,7 @@ impl AppServerHandle {
             ensure!(args.is_empty(), "/{name} does not accept arguments");
         }
         let text = match name {
-            "help" => catalog
-                .iter()
-                .map(|c| format!("/{} {} — {}", c.name, c.arguments, c.description))
-                .collect::<Vec<_>>()
-                .join("\n"),
+            "help" => render_command_help(&catalog),
             "status" => serde_json::to_string_pretty(&self.config_summary().await)?,
             "history" => format!("messages: {}", self.history_summary().await.messages),
             "clear" => {
@@ -167,4 +163,31 @@ impl AppServerHandle {
         };
         Ok(CommandOutput::Display { text })
     }
+}
+
+fn render_command_help(catalog: &[UserCommand]) -> String {
+    const DESCRIPTION_SEPARATOR: &str = " — ";
+    let line_bytes = catalog
+        .iter()
+        .map(|command| {
+            command.name.len()
+                + command.arguments.len()
+                + command.description.len()
+                + "/ ".len()
+                + DESCRIPTION_SEPARATOR.len()
+        })
+        .sum::<usize>();
+    let mut text = String::with_capacity(line_bytes + catalog.len().saturating_sub(1));
+    for (index, command) in catalog.iter().enumerate() {
+        if index > 0 {
+            text.push('\n');
+        }
+        text.push('/');
+        text.push_str(&command.name);
+        text.push(' ');
+        text.push_str(&command.arguments);
+        text.push_str(DESCRIPTION_SEPARATOR);
+        text.push_str(&command.description);
+    }
+    text
 }

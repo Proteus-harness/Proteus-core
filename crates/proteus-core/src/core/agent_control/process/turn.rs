@@ -404,13 +404,13 @@ async fn handle_output(
         StdioOutput::Response {
             id: Some(id),
             ok,
-            output,
+            mut output,
             error,
         } => {
             if let Some(response) =
                 tracker
                     .message_delivery
-                    .confirm(&id, ok, output.as_ref(), error.as_deref())?
+                    .confirm(&id, ok, &mut output, error.as_deref())?
             {
                 return Ok(match response {
                     PeerMessageResponse::Queued => {

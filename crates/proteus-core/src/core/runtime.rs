@@ -302,17 +302,15 @@ impl AgentRuntime {
     }
 
     pub async fn start_session(&self) -> Result<()> {
-        self.ensure_session_started().await
+        // Opening an event stream is not execution admission. Snapshot only
+        // the model carried by SessionStarted, before acquiring the start gate.
+        let model = self.model_ref().await;
+        self.ensure_session_started_with_model(move || model).await
     }
 
-    async fn ensure_session_started(&self) -> Result<()> {
-        let snapshot = self.capture_execution_snapshot().await;
-        self.ensure_session_started_with_snapshot(&snapshot).await
-    }
-
-    async fn ensure_session_started_with_snapshot(
+    async fn ensure_session_started_with_model(
         &self,
-        snapshot: &ExecutionAdmissionSnapshot,
+        model: impl FnOnce() -> Option<ModelRef>,
     ) -> Result<()> {
         let mut started = self.session.session_started.lock().await;
         if *started {
@@ -326,7 +324,7 @@ impl AgentRuntime {
                 Event::SessionStarted {
                     session_id: self.session.session_id,
                     cwd: self.services.cwd.clone(),
-                    model: snapshot.model_ref.clone(),
+                    model: model(),
                     session_dir: self.session_dir().map(|path| path.to_path_buf()),
                 },
             )

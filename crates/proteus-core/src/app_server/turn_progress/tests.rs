@@ -300,6 +300,20 @@ fn preview_prefix_respects_utf8_byte_boundaries() {
 }
 
 #[test]
+fn compact_tool_json_keeps_the_escaped_prefix_or_the_original_value() {
+    let value = json!({"nested": [null, "я😀\n\""]});
+    let encoded = value.to_string();
+    for limit in 0..=encoded.len() + 1 {
+        let expected = if limit < encoded.len() {
+            json!({"truncated": true, "preview": truncate_utf8(&encoded, limit)})
+        } else {
+            value.clone()
+        };
+        assert_eq!(compact_json(&value, limit), expected, "limit={limit}");
+    }
+}
+
+#[test]
 fn collaboration_subagent_survives_parent_turn_and_keeps_late_tools_nested() {
     let mut progress = TurnProgress::default();
     let child_thread_id = child_thread_id();

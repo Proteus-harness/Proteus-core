@@ -2,7 +2,7 @@ use std::fmt::Write as _;
 
 use crate::core::TopologySnapshot;
 
-use super::helpers::{module_source_label, ordered_slots, yes_no};
+use super::helpers::{ordered_slots, yes_no};
 
 pub fn render_topology_table(snapshot: &TopologySnapshot) -> String {
     let mut lines = Vec::new();
@@ -26,9 +26,9 @@ pub fn render_topology_table(snapshot: &TopologySnapshot) -> String {
                     .modules
                     .iter()
                     .find(|module| module.slot == slot.id && module.id == *active)
-                    .map(|module| module_source_label(&module.source))
-                    .unwrap_or_else(|| "-".to_owned());
-                Some([slot.id.clone(), active.clone(), source])
+                    .map(|module| module.source.kind())
+                    .unwrap_or("-");
+                Some([slot.id.as_str(), active.as_str(), source])
             })
             .collect::<Vec<_>>(),
     ));
@@ -41,11 +41,11 @@ pub fn render_topology_table(snapshot: &TopologySnapshot) -> String {
             .iter()
             .map(|tool| {
                 [
-                    tool.name.clone(),
-                    tool.safety.clone(),
-                    tool.source.clone(),
-                    yes_no(tool.enabled).to_owned(),
-                    yes_no(tool.registered).to_owned(),
+                    tool.name.as_str(),
+                    tool.safety.as_str(),
+                    tool.source.as_str(),
+                    yes_no(tool.enabled),
+                    yes_no(tool.registered),
                 ]
             })
             .collect::<Vec<_>>(),
@@ -60,7 +60,7 @@ pub fn render_topology_table(snapshot: &TopologySnapshot) -> String {
     lines.join("\n")
 }
 
-fn render_table<const N: usize>(headers: [&str; N], rows: &[[String; N]]) -> String {
+fn render_table<const N: usize>(headers: [&str; N], rows: &[[&str; N]]) -> String {
     let mut widths = headers.map(|header| header.chars().count());
     for row in rows {
         for (index, cell) in row.iter().enumerate() {
@@ -84,16 +84,11 @@ fn render_table<const N: usize>(headers: [&str; N], rows: &[[String; N]]) -> Str
     rendered
 }
 
-fn push_table_row<const N: usize>(
-    out: &mut String,
-    row: &[impl AsRef<str>; N],
-    widths: &[usize; N],
-) {
-    for (index, (cell, &width)) in row.iter().zip(widths).enumerate() {
+fn push_table_row<const N: usize>(out: &mut String, row: &[&str; N], widths: &[usize; N]) {
+    for (index, (&cell, &width)) in row.iter().zip(widths).enumerate() {
         if index != 0 {
             out.push_str("  ");
         }
-        let cell = cell.as_ref();
         write!(out, "{cell:width$}").expect("writing to a String cannot fail");
     }
 }

@@ -64,7 +64,7 @@ pub(crate) fn log(root: &Path, query: LogQuery) -> Result<Log> {
         return Ok(result);
     }
     result.head = head_hash(root)?;
-    if result.head.is_none() {
+    if result.head.is_none() && !query.all {
         return Ok(result);
     }
     let count = format!("--max-count={}", query.limit + 1);
@@ -81,7 +81,10 @@ pub(crate) fn log(root: &Path, query: LogQuery) -> Result<Log> {
     if query.all {
         args.extend(["--date-order", "--branches", "--remotes", "--tags"]);
     }
-    args.extend(["HEAD", "--"]);
+    if result.head.is_some() {
+        args.push("HEAD");
+    }
+    args.push("--");
     let output = run(root, &args)?.checked_or_truncated("log")?;
     // Stopped at the output cap: whatever was not read is still to come.
     result.has_more = output.truncated;

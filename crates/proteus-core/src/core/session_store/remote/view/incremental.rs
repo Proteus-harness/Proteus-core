@@ -24,7 +24,7 @@ impl RemoteSessionStore {
         let baseline = read.take_prefix_history_fingerprints();
         let (mut snapshot, state) = read.into_parts();
         if let (true, Some(previous), Some(baseline)) =
-            (prefix_matches, previous.as_ref(), baseline.as_deref())
+            (prefix_matches, previous, baseline.as_deref())
             && baseline.len() == previous.conversation.rows
             && let Some(suffix) = append_renderer(
                 &mut snapshot,
@@ -35,9 +35,12 @@ impl RemoteSessionStore {
             && state.history.len().checked_sub(previous.conversation.rows)
                 == Some(suffix.conversation_appended)
         {
-            let mut publish = || {
-                let mut next = previous.clone();
-                next.source = source.clone();
+            let publish = || {
+                // This decoded header is local to publication; fallback reloads
+                // the current HEAD instead of reusing the previous value.
+                let mut next = previous;
+                let previous_source = std::mem::replace(&mut next.source, source.clone());
+                let common_prefix = next.transcript.rows;
                 next.summary = cache::summary(self, &state.history).ok()?;
                 next.prefix = display_prefix(&mut snapshot, &state.history)
                     .ok()
@@ -45,20 +48,16 @@ impl RemoteSessionStore {
                 next.revision = state.history_revision;
                 next.usage = state.usage.clone();
                 next.context_summary = crate::core::summarize_context_history(&state.history);
-                next.conversation = cache::extend_known_section(
-                    self,
-                    &source,
-                    &previous.conversation,
-                    &state.history,
-                )?;
+                next.conversation =
+                    cache::extend_known_section(self, &source, &next.conversation, &state.history)?;
                 next.transcript =
-                    cache::append_section(self, &source, &previous.transcript, &suffix.transcript)?;
+                    cache::append_section(self, &source, &next.transcript, &suffix.transcript)?;
                 next.context =
                     cache::write_section(self, &source, &state.model_context.snapshot())?;
                 next.cursor = Some(cursor.clone());
                 next.base = Some(AppTranscriptBase {
-                    revision: previous.source.revision()?,
-                    common_prefix: previous.transcript.rows,
+                    revision: previous_source.revision()?,
+                    common_prefix,
                 });
                 cache::update_tools(self, &source, &mut next.tools, &suffix.transcript)?;
                 cache::publish(self, &next)?;

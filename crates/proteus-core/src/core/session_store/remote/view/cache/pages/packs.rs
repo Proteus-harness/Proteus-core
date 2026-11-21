@@ -135,7 +135,9 @@ impl PendingPack {
             self.flush(store, source, section)?;
             return write_content_value(store, source, &section.pages[index].hash, value);
         }
-        let raw = serde_json::to_vec(&value).ok()?;
+        // write_pages already counted this local leaf, and the guard above caps the reservation.
+        let mut raw = Vec::with_capacity(bytes);
+        serde_json::to_writer(&mut raw, &value).ok()?;
         // A custom Serialize impl need not emit identical bytes on both paths.
         // Keep the original representation when the manifest's byte count differs.
         if raw.len() != bytes {

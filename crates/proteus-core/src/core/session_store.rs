@@ -9,6 +9,7 @@ use std::{
     sync::Arc,
 };
 mod context_summary;
+mod json_size;
 mod path_identity;
 pub(crate) mod remote;
 mod workspace_dir;

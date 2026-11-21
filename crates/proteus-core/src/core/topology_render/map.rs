@@ -47,7 +47,7 @@ pub fn render_topology_map(snapshot: &TopologySnapshot) -> String {
             .active_module
             .as_deref()
             .map(|active| active_module_source(snapshot, &slot.id, active))
-            .unwrap_or_else(|| "-".to_owned());
+            .unwrap_or("-");
         let modules = modules_for_slot(snapshot, &slot.id);
         let alternatives = module_alternatives(&modules, active);
         let requirement = if slot.required {

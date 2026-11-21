@@ -803,6 +803,12 @@ process.
 сохраняют `anyhow::Result`, но Core может различить module failure, cancel,
 timeout и конкретный класс component loss без парсинга display text.
 
+Если при остановке reader монитор не смог узнать статус дочернего процесса,
+broker сообщает `ComponentLost(Resource)` и записывает ошибку наблюдения в
+`last_failure_reason`. Для `ProcessExit` нужен полученный статус выхода этого
+поколения. Сам по себе этот статус не подтверждает корректность входных
+данных и не служит разрешением на повтор запроса.
+
 До постановки invocation в writer host повторно проверяет наблюдаемые
 отмену, потерю async terminal receiver и deadline; эта проверка действует
 также при продвижении queued roots. После блокирующего handshake потеря

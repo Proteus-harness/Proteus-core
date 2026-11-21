@@ -187,6 +187,22 @@ fn failed_turn_recovers_model_text_tool_card_and_terminal_error_from_journal() {
             ),
         ),
     );
+    let child = crate::domain::SubagentSessionBinding {
+        source_call_id: "call-1".into(),
+        child_thread_id: new_thread_id(),
+        session_id: new_session_id(),
+        session_dir: "/fixture/child".into(),
+    };
+    // A durable link may arrive after the source turn has settled. Its info
+    // still attaches to the original completed tool row.
+    records.push(record(
+        session_id,
+        Some(execution_id),
+        thread_id,
+        turn_id,
+        0, // Sequence set below.
+        JournalEntry::SubagentSessionBoundRecorded(child.clone()),
+    ));
     for (index, item) in records.iter_mut().enumerate() {
         item.session_seq = index as u64 + 1;
         item.timestamp_ms = item.session_seq as i64;
@@ -253,6 +269,14 @@ fn failed_turn_recovers_model_text_tool_card_and_terminal_error_from_journal() {
     assert_eq!(tool.call_id, "call-1");
     assert_eq!(tool.status, "done");
     assert_eq!(tool.result.as_deref(), Some("listing"));
+    assert_eq!(
+        tool.metadata["child_thread_id"],
+        json!(child.child_thread_id)
+    );
+    assert_eq!(
+        tool.metadata["subagent_session"],
+        json!({"session_id": child.session_id, "session_dir": child.session_dir})
+    );
     let terminal = transcript.last().expect("terminal failure message");
     assert_eq!(terminal.role, "system");
     assert_eq!(

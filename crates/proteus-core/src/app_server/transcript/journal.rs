@@ -163,9 +163,10 @@ impl TranscriptReplay {
             JournalEntry::ModelResponseRecorded(response)
                 if record.turn_id != live_turn_id
                     && visibility.is_root_record(record.thread_id, record.turn_id)
-                    && visibility
-                        .visible_model_responses
-                        .contains(&response.exchange_id) =>
+                    && (visibility.certified_text_responses
+                        || visibility
+                            .visible_model_responses
+                            .contains(&response.exchange_id)) =>
             {
                 if let ModelResponseOutcome::Response { response } = &response.outcome {
                     for message in &response.messages {
@@ -245,6 +246,7 @@ struct TranscriptVisibility {
     workflow_root_calls: HashSet<CallId>,
     display_tool_calls: HashMap<TurnId, HashSet<CallId>>,
     visible_model_responses: HashSet<crate::domain::ExchangeId>,
+    certified_text_responses: bool,
 }
 
 impl TranscriptVisibility {
@@ -316,6 +318,7 @@ impl TranscriptVisibility {
             workflow_root_calls,
             display_tool_calls,
             visible_model_responses,
+            certified_text_responses: false,
         }
     }
 

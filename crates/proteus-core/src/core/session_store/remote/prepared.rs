@@ -2,7 +2,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
-use proteus_contracts::app_protocol::AppTranscriptMessage;
+use proteus_contracts::{app_protocol::AppTranscriptMessage, contracts::StorageSessionDescriptor};
 
 use super::{
     RemoteSessionStore, StorageService, catalog,
@@ -72,6 +72,26 @@ impl PreparedSession {
     }
 }
 
+fn order_startup_candidates(candidates: &mut [StorageSessionDescriptor]) {
+    use std::cmp::Ordering;
+
+    let order = |left: &StorageSessionDescriptor, right: &StorageSessionDescriptor| {
+        right
+            .updated_at_ms
+            .cmp(&left.updated_at_ms)
+            .then_with(|| right.local_path.cmp(&left.local_path))
+    };
+    // A provider can already emit the required order. Verify that with the
+    // Core comparator (including path ties), never trust provider ordering.
+    // For small catalogs, keep the original sort without another pass.
+    if candidates.len() >= 32
+        && candidates.is_sorted_by(|left, right| order(left, right) != Ordering::Greater)
+    {
+        return;
+    }
+    candidates.sort_by(order);
+}
+
 pub(crate) fn prepare_latest_workspace_session(
     service: StorageService,
     config_root: &Path,
@@ -79,12 +99,7 @@ pub(crate) fn prepare_latest_workspace_session(
 ) -> Result<Option<PreparedSession>> {
     let mut candidates = catalog::candidates(service.clone(), config_root, Some(workspace_path))?;
     candidates.retain(|entry| entry.parent_session_id.is_none());
-    candidates.sort_by(|left, right| {
-        right
-            .updated_at_ms
-            .cmp(&left.updated_at_ms)
-            .then_with(|| right.local_path.cmp(&left.local_path))
-    });
+    order_startup_candidates(&mut candidates);
     for entry in candidates {
         let Some(path) = entry.local_path else {
             continue;

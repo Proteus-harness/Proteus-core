@@ -55,8 +55,7 @@ impl Projection {
                         "assistant stream changed already published text",
                     ));
                 }
-                let suffix = text[shared..].to_owned();
-                current.push_str(&suffix);
+                let suffix = append_delta(current, text, shared);
                 self.message_chunk(message_id, suffix)
             }
             Event::AssistantMessageCompleted {
@@ -154,9 +153,7 @@ impl Projection {
             {
                 return Err(super::internal("reasoning stream changed published text"));
             }
-            let suffix = text[overlap..].to_owned();
-            current.push_str(&suffix);
-            suffix
+            append_delta(current, text, overlap)
         } else {
             let Some(suffix) = text.strip_prefix(current.as_str()) else {
                 return Err(super::internal(
@@ -206,10 +203,42 @@ impl Projection {
     }
 }
 
+/// Append the verified new bytes and return just those bytes for the ACP update.
+fn append_delta(current: &mut String, text: String, shared: usize) -> String {
+    let suffix = &text[shared..];
+    current.push_str(suffix);
+    // Do not keep an oversized input buffer alive for a small notification.
+    if shared == 0 && text.len() == text.capacity() {
+        text
+    } else {
+        suffix.to_owned()
+    }
+}
+
 pub(super) fn message(text: String) -> Option<SessionUpdate> {
     (!text.is_empty()).then(|| {
         SessionUpdate::AgentMessageChunk(ContentChunk::new(ContentBlock::Text(TextContent::new(
             text,
         ))))
     })
+}
+
+#[cfg(test)]
+#[test]
+fn verified_delta_reuses_only_a_tight_whole_chunk() {
+    let mut current = String::new();
+    let whole = Box::<str>::from("é").into_string();
+    let ptr = whole.as_ptr();
+    let first = append_delta(&mut current, whole, 0);
+    assert_eq!(first.as_ptr(), ptr);
+
+    let mut spare = String::with_capacity(1024);
+    spare.push('界');
+    let next = append_delta(&mut current, spare, 0);
+    assert_eq!(next, "界");
+    assert!(next.capacity() < 1024);
+
+    let tail = append_delta(&mut current, "界!".to_owned(), "界".len());
+    assert_eq!(tail, "!");
+    assert_eq!(current, "é界!");
 }

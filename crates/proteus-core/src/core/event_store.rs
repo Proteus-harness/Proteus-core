@@ -130,17 +130,17 @@ impl FanoutEventSink {
 #[async_trait::async_trait]
 impl EventSink for FanoutEventSink {
     async fn append(&self, envelope: EventEnvelope) -> Result<()> {
-        let mut first_err: Option<anyhow::Error> = None;
-        for sink in &self.sinks {
-            if let Err(err) = sink.append(envelope.clone()).await
-                && first_err.is_none()
-            {
-                first_err = Some(err);
-            }
+        let Some((last, others)) = self.sinks.split_last() else {
+            return Ok(());
+        };
+        let mut result = Ok(());
+        for sink in others {
+            // Keep the first failure without skipping any later deliveries.
+            result = result.and(sink.append(envelope.clone()).await);
         }
-        match first_err {
-            Some(err) => Err(err),
-            None => Ok(()),
-        }
+        result.and(last.append(envelope).await)
     }
 }
+
+#[cfg(test)]
+mod tests;

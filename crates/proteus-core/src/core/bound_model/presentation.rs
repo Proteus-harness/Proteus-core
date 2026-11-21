@@ -121,27 +121,28 @@ impl ModelExecutionBinding {
         cancellation: &crate::contracts::CancellationToken,
     ) -> bool {
         let state = completed.entry(message.id).or_default();
-        let reasoning = message.reasoning_text();
         // Anonymous summaries have already been published as progress, but cannot
         // be associated honestly with any canonical item. Identified reasoning
         // still owns its completion; terminal-only reasoning has no prior progress.
-        if (!anonymous_summary_published || state.reasoning_streamed)
-            && (!reasoning.is_empty() || state.reasoning_streamed || state.reasoning.is_some())
-            && state.reasoning.as_ref() != Some(&reasoning)
-        {
-            state.reasoning = Some(reasoning.clone());
-            if !self
-                .emit_delta_before_deadline(
-                    Event::AssistantReasoningMessageCompleted {
-                        message_id: message.id,
-                        text: reasoning,
-                    },
-                    deadline,
-                    cancellation,
-                )
-                .await
+        if !anonymous_summary_published || state.reasoning_streamed {
+            let reasoning = message.reasoning_text();
+            if (!reasoning.is_empty() || state.reasoning_streamed || state.reasoning.is_some())
+                && state.reasoning.as_ref() != Some(&reasoning)
             {
-                return false;
+                state.reasoning = Some(reasoning.clone());
+                if !self
+                    .emit_delta_before_deadline(
+                        Event::AssistantReasoningMessageCompleted {
+                            message_id: message.id,
+                            text: reasoning,
+                        },
+                        deadline,
+                        cancellation,
+                    )
+                    .await
+                {
+                    return false;
+                }
             }
         }
         let text = message.display_text();

@@ -1076,6 +1076,61 @@ async fn crash_and_resource_fault_fan_out() -> Result<()> {
     Ok(())
 }
 
+// Linux auto-reaps a child when SIGCHLD is explicitly ignored: even though the
+// pipes close normally, waitid has no exit status to give the generation owner.
+// Change the disposition only in an isolated copy of this test process.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn unobservable_child_exit_is_not_reported_as_a_confirmed_exit() -> Result<()> {
+    const CHILD: &str = "PROTEUS_TEST_AUTOREAP_CHILD";
+    if std::env::var_os(CHILD).is_none() {
+        let status = std::process::Command::new("python3")
+            .args([
+                "-c",
+                concat!(
+                    "import os, signal, sys\n",
+                    "signal.signal(signal.SIGCHLD, signal.SIG_IGN)\n",
+                    "os.execv(sys.argv[1], sys.argv[1:])",
+                ),
+            ])
+            .arg(std::env::current_exe()?)
+            .args([
+                "--exact",
+                stringify!(unobservable_child_exit_is_not_reported_as_a_confirmed_exit),
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .status()?;
+        ensure!(status.success(), "auto-reap subprocess failed: {status}");
+        return Ok(());
+    }
+
+    let broker = broker(ComponentBrokerOptions::default())?;
+    let mut invocation = broker
+        .start_invocation(
+            &export("workflow", "fixture.workflow"),
+            PROCESS_WORKFLOW_METHOD,
+            json!({"op":"exit_process"}),
+            INVOCATION_TIMEOUT,
+        )
+        .await?;
+    let terminal = invocation.result().await?;
+    ensure!(
+        terminal == InvocationTerminal::ComponentLost(ComponentFailure::Resource),
+        "unobservable child status: {terminal:?}"
+    );
+    let snapshot = broker.snapshot()?;
+    ensure!(
+        snapshot.last_failure == Some(ComponentFailure::Resource)
+            && snapshot
+                .last_failure_reason
+                .as_deref()
+                .is_some_and(|reason| reason.contains("failed to observe component exit")),
+        "missing host observation failure: {snapshot:?}"
+    );
+    Ok(())
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn bootstrap_closes_after_runtime_traffic() -> Result<()> {
     let broker = broker(ComponentBrokerOptions::default())?;

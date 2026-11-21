@@ -1,7 +1,7 @@
 use crate::core::TopologySnapshot;
 
 use super::{
-    helpers::{module_source_label, ordered_slots, yes_no},
+    helpers::{ordered_slots, yes_no},
     map::render_topology_map,
     runtime::render_topology_runtime_path,
 };
@@ -54,13 +54,13 @@ pub fn render_topology_markdown(snapshot: &TopologySnapshot) -> String {
                     .iter()
                     .find(|module| module.slot == slot.id && module.id == *active)
             })
-            .map(|module| module_source_label(&module.source))
-            .unwrap_or_else(|| "-".to_owned());
+            .map(|module| module.source.kind())
+            .unwrap_or("-");
         out.push_str(&format!(
             "| {} | {} | {} | {} |\n",
             md_cell(&slot.id),
             md_cell(active),
-            md_cell(&source),
+            md_cell(source),
             md_cell(&slot.responsibility)
         ));
     }

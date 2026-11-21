@@ -148,31 +148,21 @@ impl CanonicalMessage {
 
     /// Presentation text preserves ordered text parts without exposing reasoning.
     pub fn display_text(&self) -> String {
-        self.parts
-            .iter()
-            .filter_map(|part| match &part.payload {
-                ContentPart::Text { text } if !text.trim().is_empty() => Some(text.as_str()),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
+        join_visible_parts(self.parts.iter().filter_map(|part| match &part.payload {
+            ContentPart::Text { text } => Some(text.as_str()),
+            _ => None,
+        }))
     }
 
     /// Readable reasoning for a separate presentation channel. Opaque provider
     /// records and signatures are deliberately absent from this projection.
     pub fn reasoning_text(&self) -> String {
-        self.parts
-            .iter()
-            .filter_map(|part| match &part.payload {
-                ContentPart::Reasoning { text, .. } | ContentPart::ReasoningSummary { text }
-                    if !text.trim().is_empty() =>
-                {
-                    Some(text.as_str())
-                }
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
+        join_visible_parts(self.parts.iter().filter_map(|part| match &part.payload {
+            ContentPart::Reasoning { text, .. } | ContentPart::ReasoningSummary { text } => {
+                Some(text.as_str())
+            }
+            _ => None,
+        }))
     }
 
     pub fn text(role: MessageRole, text: impl Into<String>) -> Self {
@@ -230,6 +220,22 @@ impl CanonicalMessage {
         self.metadata = metadata;
         self
     }
+}
+
+fn join_visible_parts<'a>(parts: impl Iterator<Item = &'a str>) -> String {
+    let mut parts = parts.filter(|text| !text.trim().is_empty());
+    let Some(first) = parts.next() else {
+        return String::new();
+    };
+    let Some(second) = parts.next() else {
+        return first.to_owned();
+    };
+    // Keep the single copy into an exactly sized output for multipart messages.
+    [first, second]
+        .into_iter()
+        .chain(parts)
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn default_part_semantics(

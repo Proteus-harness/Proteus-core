@@ -83,7 +83,7 @@ impl PeerMessageDelivery {
         &mut self,
         id: &str,
         ok: bool,
-        output: Option<&Value>,
+        output: &mut Option<Value>,
         error: Option<&str>,
     ) -> Result<Option<PeerMessageResponse>> {
         if !self.pending_receipts.remove(id) {
@@ -95,7 +95,8 @@ impl PeerMessageDelivery {
                 error.unwrap_or("unknown error")
             );
         }
-        let output = output.ok_or_else(|| {
+        // An unrelated response still belongs to the caller's primary Send path.
+        let output = output.take().ok_or_else(|| {
             anyhow::anyhow!("subagent child returned an empty agent-control response")
         })?;
         if output.get("queued").and_then(Value::as_bool) == Some(true) {
@@ -104,7 +105,7 @@ impl PeerMessageDelivery {
             }
             return Ok(Some(PeerMessageResponse::Queued));
         }
-        let output = serde_json::from_value::<AgentOutput>(output.clone())
+        let output = serde_json::from_value::<AgentOutput>(output)
             .context("subagent child returned an invalid agent-control turn output")?;
         Ok(Some(PeerMessageResponse::TurnCompleted(output)))
     }
