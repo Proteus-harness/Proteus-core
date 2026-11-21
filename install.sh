@@ -115,6 +115,7 @@ install_config() {
 }
 
 install_config "config.toml" "configs/config.toml"
+install_config "agent.toml" "configs/agent.toml"
 install_config "codex.config.toml" "configs/codex.config.toml"
 install_config "restricted.config.toml" "configs/restricted.config.toml"
 install_config "context-search-chatgpt.config.toml" "configs/context-search-chatgpt.config.toml"
@@ -141,6 +142,7 @@ install_managed_config_asset() {
   cp "${source_path}" "${dest_path}"
 }
 install_managed_config_asset "fragments/openai-chatgpt.toml"
+install_managed_config_asset "fragments/opencode-go.toml"
 install_managed_config_asset "fragments/codex-runtime.toml"
 install_managed_config_asset "fragments/codex-behavior.toml"
 install_managed_config_asset "fragments/codex-components.toml"

@@ -147,6 +147,10 @@ impl Tool for SpawnAgentTool {
             ));
         }
 
+        let model_options = match super::model_options::parse(call) {
+            Ok(options) => options,
+            Err(error) => return Ok(tool_error(call, "spawn_agent", error)),
+        };
         let reservation = match self.control.reserve(session_id, task_name, agent_type) {
             Ok(reservation) => reservation,
             Err(error) => return Ok(tool_error(call, "spawn_agent", error.to_string())),
@@ -157,13 +161,18 @@ impl Tool for SpawnAgentTool {
             reservation.path.clone(),
             None,
         );
-        let request = AgentControlRequest::new(agent_type, message, parent_task)
+        let mut request = AgentControlRequest::new(agent_type, message, parent_task)
             .with_description(task_name.to_owned())
             .with_metadata(json!({
                 "control_plane_owned": true,
                 "agent_control_target": reservation.path,
                 "source_call_id": call.id,
             }));
+        request
+            .metadata
+            .as_object_mut()
+            .expect("request metadata object")
+            .extend(model_options);
         let handle = match host.spawn_agent(request).await {
             Ok(handle) => handle,
             Err(error) => {
@@ -274,10 +283,9 @@ impl Tool for WaitAgentTool {
             ));
         }
         let notify = self.control.session_notify(session_id)?;
-        let completed = if self.control.has_completions(session_id)? {
-            self.control.drain_completions(session_id)?
-        } else if timeout_ms == 0 {
-            Vec::new()
+        let completed = self.control.drain_completions(session_id)?;
+        let completed = if !completed.is_empty() || timeout_ms == 0 {
+            completed
         } else {
             let control = self.control.clone();
             tokio::time::timeout(Duration::from_millis(timeout_ms), async move {
@@ -285,8 +293,9 @@ impl Tool for WaitAgentTool {
                     let notified = notify.notified();
                     tokio::pin!(notified);
                     notified.as_mut().enable();
-                    if control.has_completions(session_id)? {
-                        return control.drain_completions(session_id);
+                    let completed = control.drain_completions(session_id)?;
+                    if !completed.is_empty() {
+                        return Ok::<_, anyhow::Error>(completed);
                     }
                     notified.as_mut().await;
                     // Another concurrent waiter can drain the queue after the

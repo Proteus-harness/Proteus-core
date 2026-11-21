@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from statistics import median
 
+from usage_report import project_usage, summarize_usage
+
 
 def read_rows(directories, excluded):
     rows = []
@@ -25,15 +27,18 @@ def read_rows(directories, excluded):
             identities.add(key)
             grade = json.loads((file.parent/'grading.json').read_text())
             metrics = result['metrics']
-            rows.append({'model':result['model'], 'effort':result['reasoning'], 'case':case,
+            row = {'model':result['model'], 'effort':result['reasoning'], 'case':case,
                          'attempt':int(repeat), 'arm':arm, 'source':str(file.resolve()),
                          'prompt_sha256':result['prompt_sha256'],
                          'repo_sha256':hashlib.sha256(json.dumps(result['fixture_files_sha256'],sort_keys=True).encode()).hexdigest(),
                          'pipeline_ok':result['pipeline_ok'], 'grade':grade['passed'],
                          'pass':result['pipeline_ok'] and grade['passed'], 'seconds':result['wall_seconds'],
+                         'returncode':result.get('returncode'), 'timed_out':result.get('timed_out', False),
                          'failures':metrics.get('failures', metrics.get('errors', [])),
                          'actions':metrics.get('all_tool_calls'), 'tools':metrics.get('tool_names', {}),
-                         'requests':metrics.get('model_requests'), 'tokens':metrics.get('provider_usage', {})})
+                         'requests':metrics.get('model_requests')}
+            row.update(project_usage(file.parent, result, metrics))
+            rows.append(row)
     return rows
 
 
@@ -52,15 +57,18 @@ def summarize(rows):
     stats = []
     for (model,effort,arm),runs in sorted(by_config.items()):
         primary = [r for r in runs if r['attempt']==1]
+        usage = summarize_usage(primary)
         tools = Counter()
         for r in primary:
             tools.update(r['tools'])
         stats.append({'model':model,'effort':effort,'arm':arm,
                       'primary_attempts':len(primary),'primary_passed':sum(r['pass'] for r in primary),
                       'repeat_attempts':len(runs)-len(primary),'repeat_passed':sum(r['pass'] for r in runs if r['attempt']>1),
-                      'input':complete_sum([r['tokens'].get('input_tokens') for r in primary]),
-                      'cached':complete_sum([r['tokens'].get('cached_input_tokens') for r in primary]),
-                      'output':complete_sum([r['tokens'].get('output_tokens') for r in primary]),
+                      'input':usage['tokens']['input_tokens'],
+                      'cached':usage['tokens']['cached_input_tokens'],
+                      'output':usage['tokens']['output_tokens'],
+                      'known_token_runs':usage['known_token_runs'],
+                      'observed_token_sums':usage['observed_token_sums'],
                       'requests':complete_sum([r['requests'] for r in primary]),
                       'actions':complete_sum([r['actions'] for r in primary]),'tools':dict(tools),
                       'median_wall_seconds':round(median(r['seconds'] for r in primary),2)})

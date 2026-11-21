@@ -7,9 +7,10 @@ use std::{
 use anyhow::{Context, Result, bail};
 use serde_json::{Map, Value};
 
-use crate::core::core_slots::{CoreSlotSelection, core_slot_descriptor_by_id};
-
-use super::{AppConfig, ConfigInputs};
+use super::{
+    AppConfig, ConfigInputs, config_reference, config_selection, physical_config_path,
+    selected_config_value_mut,
+};
 
 impl AppConfig {
     pub async fn load(path: Option<&Path>) -> Result<Self> {
@@ -22,6 +23,7 @@ impl AppConfig {
     ) -> Result<Self> {
         if let Some(path) = path {
             let path = expand_user_path(path);
+            let path = physical_config_path(&path);
             inputs.observe(&path);
             if let Some(name) = config_name_ref(&path) {
                 for candidate in named_config_candidates(name, default_config_dir().as_deref()) {
@@ -31,10 +33,13 @@ impl AppConfig {
         }
         let config_path = Self::resolve_config_path(path).await?;
         if let Some(path) = &config_path {
-            inputs.observe(path);
+            inputs.observe(&physical_config_path(path));
         }
         let should_load = match (path, config_path.as_deref()) {
-            (None, Some(path)) => tokio::fs::try_exists(path).await?,
+            (None, Some(path)) => {
+                !config_selection(path)?.is_empty()
+                    || tokio::fs::try_exists(physical_config_path(path)).await?
+            }
             (_, Some(_)) => true,
             (_, None) => false,
         };
@@ -52,11 +57,21 @@ impl AppConfig {
     pub async fn resolve_config_path(path: Option<&Path>) -> Result<Option<PathBuf>> {
         match path {
             Some(path) => Ok(Some(resolve_explicit_config_path(path).await?)),
-            None => Ok(default_config_path()),
+            None => {
+                if let Some(path) = default_config_path() {
+                    config_selection(&path)?;
+                    Ok(Some(path))
+                } else {
+                    Ok(None)
+                }
+            }
         }
     }
 
     pub fn named_config_destination_path(path: &Path) -> Option<PathBuf> {
+        if !config_selection(path).ok()?.is_empty() {
+            return None;
+        }
         config_name_ref(path).map(|name| {
             default_config_dir()
                 .map(|dir| dir.join(named_config_file(name)))
@@ -65,39 +80,36 @@ impl AppConfig {
     }
 
     async fn load_path(path: &Path, inputs: &mut ConfigInputs) -> Result<Self> {
-        let metadata = tokio::fs::metadata(path)
+        let selection = config_selection(path)?;
+        let physical = physical_config_path(path);
+        let metadata = tokio::fs::metadata(&physical)
             .await
-            .with_context(|| format!("failed to inspect config path {}", path.display()))?;
+            .with_context(|| format!("failed to inspect config path {}", physical.display()))?;
         let source_kind = if metadata.is_dir() { "dir" } else { "file" };
-        let value = load_config_path_value(path, &mut BTreeSet::new(), inputs)?;
+        if metadata.is_dir() && !selection.is_empty() {
+            bail!("inline agent selection requires a single config file");
+        }
+        let mut value = load_config_path_value(&physical, &mut BTreeSet::new(), inputs)?;
+        // Resolve model names and shared model-only bindings before selecting a
+        // child, so a source-local name has the same meaning in every role.
+        super::models::normalize_model_sources(&mut value)?;
+        if !selection.is_empty() {
+            value = selected_config_value_mut(&mut value, &selection)?.take();
+        }
+        let mut source = std::path::absolute(&physical)
+            .context("failed to make inline agent source path absolute")?;
+        for role in &selection {
+            source = config_reference(&source, role)?;
+        }
+        normalize_inline_configs(&mut value, &source, metadata.is_file(), inputs).await?;
         let config: Self = serde_json::from_value(value).with_context(|| {
             format!(
                 "failed to build config from {source_kind} {}",
                 path.display()
             )
         })?;
-        config.selected_model_config()?;
-        config.validate_module_config_slots()?;
-        config.modules.validate_hooks()?;
-        config.validate_commands()?;
+        config.validate_semantics()?;
         Ok(config)
-    }
-
-    fn validate_module_config_slots(&self) -> Result<()> {
-        for slot in self.module_config.keys() {
-            if matches!(
-                slot.as_str(),
-                "tool" | "context_provider" | "model" | "hook"
-            ) {
-                continue;
-            }
-            match core_slot_descriptor_by_id(slot) {
-                Some(descriptor) if descriptor.selection == CoreSlotSelection::ModulesConfig => {}
-                Some(_) => bail!("module_config is not supported for slot {slot:?}"),
-                None => bail!("unknown module_config slot {slot:?}"),
-            }
-        }
-        Ok(())
     }
 
     pub fn default_user_config_path() -> Option<PathBuf> {
@@ -113,8 +125,9 @@ impl AppConfig {
         inputs: &mut ConfigInputs,
     ) -> Result<Self> {
         let base_dir = config_path.map(|path| {
+            let path = physical_config_path(path);
             if path.is_dir() {
-                path.to_path_buf()
+                path
             } else {
                 path.parent()
                     .unwrap_or_else(|| Path::new("."))
@@ -146,6 +159,54 @@ impl AppConfig {
         }
         Ok(self)
     }
+}
+
+/// Inline children own independent complete configs. Their process reference
+/// points back to the same source rather than serializing transient files or
+/// inheriting the parent's model, tools, or permissions.
+async fn normalize_inline_configs(
+    value: &mut Value,
+    source: &Path,
+    file_source: bool,
+    inputs: &mut ConfigInputs,
+) -> Result<()> {
+    let Some(roles) = value
+        .get_mut("agent_control")
+        .and_then(|control| control.get_mut("roles"))
+        .and_then(Value::as_array_mut)
+    else {
+        return Ok(());
+    };
+    let mut names = BTreeSet::new();
+    for role in roles {
+        let name = role
+            .get("name")
+            .and_then(Value::as_str)
+            .context("agent role must have a string name")?
+            .to_owned();
+        if name.trim().is_empty() || !names.insert(name.clone()) {
+            bail!("agent role names must be nonempty and unique: {name:?}");
+        }
+        let Some(child) = role.get_mut("config").filter(|config| config.is_object()) else {
+            continue;
+        };
+        if !file_source {
+            bail!("inline agent configs require a single config file");
+        }
+        let reference = config_reference(source, &name)?;
+        Box::pin(normalize_inline_configs(child, &reference, true, inputs)).await?;
+        let config: AppConfig = serde_json::from_value(child.take())
+            .with_context(|| format!("invalid inline config for agent role {name:?}"))?;
+        config
+            .validate_semantics()
+            .with_context(|| format!("invalid inline config for agent role {name:?}"))?;
+        config
+            .with_resolved_instructions(Some(&reference), inputs)
+            .await
+            .with_context(|| format!("invalid instructions for inline agent role {name:?}"))?;
+        *child = Value::String(reference.to_string_lossy().into_owned());
+    }
+    Ok(())
 }
 
 fn load_config_path_value(
@@ -202,7 +263,7 @@ fn load_config_dir_value(
         // Builder selections replace these complete managed objects, including
         // removal of optional slots and active_provider. Other fields still merge.
         let object = merged.as_object_mut().expect("config merge is an object");
-        for key in ["modules", "module_config", "active_provider"] {
+        for key in ["modules", "module_config", "active_provider", "model"] {
             object.remove(key);
         }
         merge_config_value(&mut merged, value);
@@ -282,17 +343,26 @@ fn default_config_path() -> Option<PathBuf> {
 }
 
 pub(super) fn default_config_dir() -> Option<PathBuf> {
-    default_config_path().and_then(|path| path.parent().map(Path::to_path_buf))
+    default_config_path()
+        .map(|path| physical_config_path(&path))
+        .and_then(|path| path.parent().map(Path::to_path_buf))
 }
 
 async fn resolve_explicit_config_path(path: &Path) -> Result<PathBuf> {
     let path = expand_user_path(path);
-    let Some(name) = config_name_ref(&path) else {
-        return Ok(path);
+    let selection = config_selection(&path)?;
+    let physical = physical_config_path(&path);
+    let mut resolved = match config_name_ref(&physical) {
+        Some(name) => {
+            let config_dir = default_config_dir();
+            resolve_config_name_path(name, config_dir.as_deref()).await?
+        }
+        None => physical,
     };
-
-    let config_dir = default_config_dir();
-    resolve_config_name_path(name, config_dir.as_deref()).await
+    for role in selection {
+        resolved = config_reference(&resolved, &role)?;
+    }
+    Ok(resolved)
 }
 
 pub(super) async fn resolve_config_name_path(

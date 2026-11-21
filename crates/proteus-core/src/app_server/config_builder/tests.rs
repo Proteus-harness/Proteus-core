@@ -1,3 +1,7 @@
+mod inline_roles;
+mod model_names;
+mod validation;
+
 use super::super::AgentAppServer;
 use super::*;
 
@@ -5,7 +9,9 @@ use super::*;
 async fn directory_save_has_explicit_precedence_over_late_fragments() {
     let dir = tempfile::tempdir().unwrap();
     tokio::fs::write(dir.path().join("z-settings.toml"), "[permissions]\nmode='normal'\n[modules]\nworkflow='old'\n[module_config.workflow.old]\nvalue=1\n[tools]\nenabled=['old']\n").await.unwrap();
-    let mut config = AppConfig::default();
+    let mut config = AppConfig::load(Some(dir.path())).await.unwrap();
+    config.modules.workflow = None;
+    config.module_config.clear();
     config.permissions.mode = PermissionMode::Plan;
     config.tools.enabled = vec!["new".into()];
     let target = config_builder_target_path(Some(dir.path())).unwrap();
@@ -83,7 +89,7 @@ async fn atomic_save_preserves_the_profile_symlink() {
         .await
         .unwrap();
     std::os::unix::fs::symlink(&source, &alias).unwrap();
-    let mut config = AppConfig::default();
+    let mut config = AppConfig::load(Some(&alias)).await.unwrap();
     config.permissions.mode = PermissionMode::Plan;
     let target = config_builder_target_path(Some(&alias)).unwrap();
     persist_config_builder(&target, &config).await.unwrap();
@@ -166,6 +172,8 @@ async fn json_save_preserves_unmanaged_fields_and_updates_managed_profile() {
     assert_eq!(saved["agent_control"]["max_depth"], 3);
 }
 
+mod instruction_bootstrap;
+
 #[tokio::test]
 async fn json_profile_save_does_not_apply_toml_value_restrictions() {
     let dir = tempfile::tempdir().unwrap();
@@ -201,3 +209,5 @@ async fn json_profile_save_does_not_apply_toml_value_restrictions() {
     );
     server.shutdown().await;
 }
+
+mod provider_inheritance;

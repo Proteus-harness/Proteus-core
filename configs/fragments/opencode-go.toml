@@ -1,3 +1,4 @@
+# Явный каталог и OpenAI-compatible gateway из локального профиля.
 # Каталог OpenCode Go: обновлён 2026-11-15.
 # Источник: https://opencode.ai/inference/go/v1/models
 
@@ -233,3 +234,23 @@ supports_parallel_tool_calls = false
 supports_freeform_tools = false
 supports_json_schema = false
 supports_reasoning_config = true
+
+# Нативное подключение OpenCode Go; каталог предоставляет model export.
+[components.opencode-model]
+command = "proteus-opencode-module"
+env_allowlist = ["HOME", "XDG_DATA_HOME", "PATH", "OPENCODE_API_KEY", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy"]
+[components.opencode-model.exports.model.opencode]
+
+[module_config.model.opencode]
+provider = "opencode-go"
+
+# Модель и effort выбирает личный overlay; доступные варианты приходят из SDK.
+[providers.opencode-go]
+provider = "opencode"
+stream = true
+[providers.opencode-go.reasoning]
+summary = true
+
+# Этот transport использует JSON arguments вместо freeform patch surface.
+[module_config.tool.codex_patch]
+freeform = false

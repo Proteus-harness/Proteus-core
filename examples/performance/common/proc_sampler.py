@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 from pathlib import Path
 import time
@@ -17,6 +18,7 @@ MEMORY_KEYS = ("Rss", "Pss", "SwapPss", "Private_Clean", "Private_Dirty")
 IO_KEYS = ("rchar", "wchar", "syscr", "syscw", "read_bytes", "write_bytes", "cancelled_write_bytes")
 COUNTERS = ("cpu_ticks", "minor_faults", "major_faults") + IO_KEYS
 GROUPS = ("gui", "backend", "modules", "extensions", "other")
+PHASE_INTERVAL_POLICY = "whole-observed-interval/v1"
 
 
 def read_stat(path: Path) -> dict:
@@ -200,6 +202,7 @@ class Tree:
             "root_pid": self.root, "root_start_ticks": self.root_start,
             "processes": processes, "groups": groups,
             **self._memory_totals(processes), "process_count": len(processes),
+            "interval_start_monotonic_ns": self.previous_ns,
             "interval_seconds": elapsed, "interval_cpu_percent_one_core": cpu_percent,
             "interval_counters": deltas if elapsed is not None else None,
             "cpu_missing_baseline_pids": cpu_missing_baselines,
@@ -244,14 +247,40 @@ class Tree:
         }
 
 
+class PhaseIntervals:
+    """Attribute only intervals wholly after the latest observed phase marker."""
+    def __init__(self):
+        self.phase = None
+        self.started_ns = None
+
+    def observe(self, event):
+        if event.get("type") == "phase":
+            self.phase = event.get("phase")
+            self.started_ns = event.get("monotonic_ns")
+            return False
+        if event.get("type") != "sample":
+            return False
+        start = event.get("interval_start_monotonic_ns")
+        end = event.get("monotonic_ns")
+        elapsed = event.get("interval_seconds")
+        return (self.phase is not None and event.get("phase") == self.phase
+                and type(self.started_ns) is int and type(start) is int and type(end) is int
+                and self.started_ns <= start < end
+                and type(elapsed) in (int, float) and math.isfinite(elapsed) and elapsed > 0)
+
+
 class Recorder:
     """Flush each JSONL event so a failed benchmark retains its partial evidence."""
     def __init__(self, tree: Tree, path: Path | str):
         self.tree = tree
         self.file = open(path, "w", encoding="utf-8")
         self.phase: str | None = None
+        self.phase_intervals = PhaseIntervals()
 
     def write(self, event: dict) -> dict:
+        eligible = self.phase_intervals.observe(event)
+        if event.get("type") == "sample":
+            event["phase_interval_eligible"] = eligible
         self.file.write(json.dumps(event, ensure_ascii=False) + "\n")
         self.file.flush()
         return event

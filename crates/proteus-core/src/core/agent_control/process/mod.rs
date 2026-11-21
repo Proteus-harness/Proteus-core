@@ -22,10 +22,12 @@
 mod child;
 mod config;
 mod messaging;
+mod model_selection;
 mod outcome;
 mod output;
 mod pool;
 mod reservation;
+mod run_turn;
 #[cfg(test)]
 mod tests;
 mod turn;
@@ -39,19 +41,15 @@ use std::{
 
 use anyhow::{Context, Result, anyhow, bail};
 use async_trait::async_trait;
-use proteus_contracts::app_protocol::StdioRequest;
 use serde_json::{Value, json};
-use tokio::{
-    sync::Semaphore,
-    time::{Instant, timeout_at},
-};
+use tokio::sync::Semaphore;
 
 use crate::{
     contracts::{
         AgentControl, AgentControlHandle, AgentControlMessage, AgentControlRequest,
         AgentControlResult, AgentLifecycleStatus, AgentProfile, AgentWorkflowContext,
     },
-    core::AgentControlConfig,
+    core::{AgentControlConfig, ModelConfig},
     domain::{Event, ThreadId, new_call_id, new_thread_id},
 };
 
@@ -63,11 +61,12 @@ use super::{
     requested_agent_target,
 };
 use config::{ProcessRoleConfig, build_agent_profiles};
+use model_selection::ModelChoices;
 use outcome::{status_label, truncate_summary};
 use pool::{PooledChild, ProcessPool, ReleaseOutcome, ResumeReservation};
 #[cfg(test)]
 use turn::should_forward_child_event;
-use turn::{ChildEventForwarder, TurnEnd, TurnTracker, drive_turn};
+use turn::{ChildEventForwarder, TurnEnd, TurnTracker};
 
 pub(super) struct ProcessAgentControl {
     inner: Arc<RunnerInner>,
@@ -83,6 +82,7 @@ struct RunnerInner {
     pool: StdMutex<ProcessPool>,
     pending: StdMutex<PendingChildren>,
     history_notifier: HistoryNotifier,
+    models: ModelChoices,
 }
 
 struct RoleState {
@@ -99,6 +99,7 @@ struct PreparedProcess {
     child_thread_id: ThreadId,
     resume: Option<ResumeReservation>,
     history: HistoryRetention,
+    model: Option<ModelConfig>,
 }
 
 impl ProcessAgentControl {
@@ -139,6 +140,10 @@ impl ProcessAgentControl {
                 pool: StdMutex::new(ProcessPool::new(parsed.max_idle_processes)),
                 pending: StdMutex::new(PendingChildren::default()),
                 history_notifier,
+                models: ModelChoices {
+                    presets: parsed.model_presets,
+                    defaults: parsed.model_defaults,
+                },
             }),
         })
     }
@@ -187,6 +192,10 @@ impl RunnerInner {
             "agent-control depth limit reached (remaining budget 0)"
         );
 
+        let model = self
+            .models
+            .resolve(&self.roles[&request.role].config, request, ctx)?;
+
         let (child_thread_id, resume) =
             match request.metadata.get("task_id").and_then(Value::as_str) {
                 Some(task_id) => {
@@ -213,6 +222,7 @@ impl RunnerInner {
             child_thread_id,
             resume,
             history,
+            model,
         })
     }
 
@@ -267,83 +277,6 @@ impl RunnerInner {
         Ok(())
     }
 
-    /// Turn на арендованном процессе: durable session bootstrap/rotation, `Send`,
-    /// затем drive до терминального Response с уважением role-таймаута.
-    async fn run_leased_turn(
-        &self,
-        profile: &AgentProfile,
-        request: &AgentControlRequest,
-        forwarder: &ChildEventForwarder<'_>,
-        tracker: &mut TurnTracker,
-        leased: &mut PooledChild,
-        mailbox: &ChildMailbox,
-        is_resume: bool,
-    ) -> Result<TurnEnd> {
-        let deadline = self
-            .roles
-            .get(&profile.name)
-            .and_then(|role| role.config.timeout_ms)
-            .map(|millis| Instant::now() + Duration::from_millis(millis));
-        leased.child.set_write_budget(
-            deadline,
-            Some(forwarder.ctx.execution.scope.cancellation.clone()),
-        );
-        let send_id = new_call_id();
-        let active_send_id = StdMutex::new(send_id.clone());
-        let body = async {
-            leased.child.drain_stale_outputs()?;
-            if !is_resume && leased.used {
-                leased.child.new_session().await?
-            } else {
-                leased.child.ensure_session().await?
-            };
-            leased
-                .child
-                .send(&StdioRequest::Send {
-                    images: Vec::new(),
-                    options: Default::default(),
-                    id: Some(send_id.clone()),
-                    text: request.prompt.clone(),
-                })
-                .await?;
-            drive_turn(
-                &mut leased.child,
-                forwarder,
-                &send_id,
-                tracker,
-                self.cancel_grace,
-                mailbox,
-                &active_send_id,
-            )
-            .await
-        };
-        let result = match deadline {
-            Some(deadline) => timeout_at(deadline, body)
-                .await
-                .unwrap_or_else(|_| Err(anyhow!("subagent role deadline exceeded"))),
-            None => body.await,
-        };
-        let interrupted = if forwarder.ctx.execution.scope.cancellation.is_cancelled() {
-            Some(AgentLifecycleStatus::Cancelled)
-        } else if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
-            Some(AgentLifecycleStatus::TimedOut)
-        } else {
-            None
-        };
-        if result.is_err() {
-            // Setup or an in-flight write may have stopped midway through a
-            // frame. Invalidate the connection instead of appending Cancel.
-            leased.child.kill().await;
-        }
-        leased.child.set_write_budget(None, None);
-        if result.is_err()
-            && let Some(status) = interrupted
-        {
-            return Ok(TurnEnd::Interrupted(status));
-        }
-        result
-    }
-
     /// Терминальный исход без запуска turn-а (отмена до аренды процесса).
     async fn finish_interrupted(
         &self,
@@ -377,6 +310,7 @@ impl RunnerInner {
         child_thread_id: ThreadId,
         resume: Option<ResumeReservation>,
         history: HistoryRetention,
+        model: Option<ModelConfig>,
         mailbox: Arc<ChildMailbox>,
     ) -> Result<AgentControlResult> {
         let role = self
@@ -464,6 +398,7 @@ impl RunnerInner {
                 &mut leased,
                 &mailbox,
                 is_resume,
+                model.as_ref(),
             )
             .await;
 
@@ -621,6 +556,7 @@ impl AgentControl for ProcessAgentControl {
             prepared.child_thread_id,
             prepared.resume,
             prepared.history,
+            prepared.model,
             mailbox,
         ));
         self.inner.lock_pending()?.attach(&spawn_id, join);

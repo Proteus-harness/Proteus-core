@@ -19,13 +19,31 @@ impl AppServerHandle {
         Fut: std::future::Future<Output = Result<()>>,
     {
         let previous = self.config.read().await.clone();
+        let scoped = super::session_model::stored(self, &config).await?;
+        let invalidated = matches!(scoped, super::session_model::Stored::Invalidated);
+        let scoped_model = match &scoped {
+            super::session_model::Stored::Current(selected) => Some(selected.model.clone()),
+            _ => None,
+        };
+        let scoped_reasoning = match &scoped {
+            super::session_model::Stored::Current(selected) => Some(selected.reasoning.clone()),
+            _ => None,
+        };
+        let (effective, assembly) = match &scoped {
+            super::session_model::Stored::Current(selected) => {
+                super::session_model::prepare(self, &config, selected).await?
+            }
+            _ => (config.clone(), assembly),
+        };
         let old_model = previous.selected_model_config()?;
         let next_model = config.selected_model_config()?;
         let provider_changed = config.active_provider != previous.active_provider;
         let model_changed = provider_changed
             || old_model.as_ref().map(|model| model.model_ref())
                 != next_model.as_ref().map(|model| model.model_ref());
-        let model_ref = if model_changed {
+        let model_ref = if scoped_model.is_some() {
+            scoped_model
+        } else if model_changed || invalidated {
             next_model.as_ref().map(|model| model.model_ref())
         } else {
             None
@@ -33,7 +51,9 @@ impl AppServerHandle {
         let reasoning_changed = provider_changed
             || old_model.as_ref().map(|model| &model.reasoning)
                 != next_model.as_ref().map(|model| &model.reasoning);
-        let reasoning = if reasoning_changed {
+        let reasoning = if scoped_reasoning.is_some() {
+            scoped_reasoning
+        } else if reasoning_changed || invalidated {
             next_model.as_ref().map(|model| model.reasoning.clone())
         } else {
             None
@@ -43,9 +63,9 @@ impl AppServerHandle {
                 .then_some(config.permissions.mode)
         });
         let snapshot = SessionConfigSnapshot::from_runtime_config(
-            &config,
+            &effective,
             assembly.registry(),
-            config.permissions.mode,
+            mode.unwrap_or(self.permission_mode().await),
             self.runtime.approval_available(),
         );
         let report = self

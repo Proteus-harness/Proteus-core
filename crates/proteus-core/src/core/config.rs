@@ -17,12 +17,18 @@ mod commands;
 mod files;
 mod inputs;
 mod loading;
+mod models;
+mod reference;
+mod validation;
 pub use commands::PromptCommandConfig;
 pub(crate) use files::config_files;
 pub(crate) use inputs::ConfigInputs;
 
 pub use crate::domain::{ConfiguredMcpServerConfig, ProcessEnvironmentConfig};
 pub use loading::expand_user_path;
+pub use reference::{
+    config_reference, config_selection, physical_config_path, selected_config_value_mut,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -113,6 +119,13 @@ pub struct AgentControlConfig {
     pub surface: AgentControlSurface,
     #[serde(default)]
     pub roles: Vec<AgentProfileConfig>,
+    /// Resolved model presets in this source scope, available to agent calls.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub model_presets: BTreeMap<String, ProviderProfileConfig>,
+    /// Baseline supplies transport options; the admitted turn supplies the
+    /// current model and reasoning when a child inherits its parent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_defaults: Option<ModelConfig>,
     /// Бинарь process peer. По умолчанию используется текущий executable.
     #[serde(default)]
     pub binary: Option<PathBuf>,
@@ -131,6 +144,8 @@ impl Default for AgentControlConfig {
         Self {
             surface: AgentControlSurface::default(),
             roles: Vec::new(),
+            model_presets: BTreeMap::new(),
+            model_defaults: None,
             binary: None,
             max_depth: default_agent_max_depth(),
             cancel_grace_ms: default_agent_cancel_grace_ms(),
@@ -145,8 +160,14 @@ impl Default for AgentControlConfig {
 pub struct AgentProfileConfig {
     pub name: String,
     pub description: String,
-    /// Named child config (или путь), передаваемый в `--config`.
+    /// Named child config, путь или нормализованная ссылка на inline-role.
+    /// Source loader принимает также объект полного child AppConfig и заменяет
+    /// его ссылкой на ту же секцию исходного файла перед десериализацией.
     pub config: String,
+    /// An explicit source choice. None means inherit the parent's current
+    /// model at fresh-task admission, even if loading supplied a boot route.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<ModelConfig>,
     #[serde(default)]
     pub args: Vec<String>,
     #[serde(default)]
@@ -556,5 +577,7 @@ fn default_workflow_timeout_ms() -> u64 {
     14_400_000
 }
 
+#[cfg(test)]
+mod inline_tests;
 #[cfg(test)]
 mod tests;

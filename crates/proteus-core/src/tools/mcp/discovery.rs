@@ -3,7 +3,7 @@ use serde_json::{Value, json};
 
 use crate::{
     core::ConfiguredMcpServerConfig,
-    domain::{ToolSafety, ToolSpec, ToolSurface},
+    domain::{ToolSafety, ToolSpec, ToolSurface, tool_validation::validate_tool_input_schema},
 };
 
 #[derive(Debug)]
@@ -58,6 +58,7 @@ pub(super) fn mcp_tools_from_list(
             } else {
                 spec
             };
+            validate_tool_input_schema(&spec).map_err(anyhow::Error::msg)?;
             Ok(DiscoveredMcpTool { remote_tool, spec })
         })
         .collect()

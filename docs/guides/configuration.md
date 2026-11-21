@@ -10,6 +10,89 @@ Proteus принимает TOML и JSON; init и Config Builder сохраняю
 Минимальный fake-model профиль:
 [proteus.example.toml](../../examples/configs/proteus.example.toml).
 
+## Самодостаточный Конфиг Агента
+
+[configs/agent.toml](../../configs/agent.toml) — один файл рабочей сборки
+с поведением Codex и моделью через OpenCode Go. В нём явно описаны provider,
+слоты, настройки tools/policy/context, process components и обе дочерние роли.
+`include`, внешних child configs и файлов prompts для этой сборки не требуется:
+тексты инструкций находятся в `instructions.text`. Поле `profile.name` не
+требуется и не выбирает поведение: реализации выбирают `modules` и `components`.
+
+```sh
+/path/to/Proteus/bin/proteus --config /path/to/agent.toml --cwd /path/to/project
+```
+
+Переносятся готовая поставка и этот файл. Process workers и их SDK принадлежат
+поставке, а не встраиваются в TOML. Авторизация OpenCode подключается на новом
+компьютере отдельно. Настройки Desktop, виджетов и расширений хранятся отдельно
+от агента в `~/.config/dev.proteus.native/preferences.json`.
+
+Каждая запись `[[agent_control.roles]]` принимает `config` как путь/named config
+или как вложенную конфигурацию. Tools, policy, context и permissions роли
+задаются независимо. Для модели действует отдельное правило: inline-роль без
+своего выбора получает текущие model и reasoning родительского turn, включая
+выбор через интерфейс. Например, слоты роли задаются в
+`[agent_control.roles.config.modules]`, а её явный выбор модели — строкой
+`model = "cheap"` в `agent_control.roles.config` или на самой записи роли.
+Оба способа одновременно задавать нельзя. Полный пример — в `agent.toml`.
+
+При загрузке внутренний reference роли указывает на ту же секцию исходного
+файла: `agent.toml#agent=/explore`. Имя роли кодируется как JSON pointer token
+(`~0` для `~`, `~1` для `/`); несколько токенов выбирают вложенные роли. Такие
+references создаёт loader; вручную перечислять их в самодостаточном конфиге
+не нужно. Дочерние процессы читают свою секцию и следят за изменениями исходного
+файла, без временных копий конфигурации. История остаётся в общем config store;
+выбор модели и история правок конфигурации разделены по роли. Сохранение настроек
+роли меняет её секцию, сохраняя родителя и соседей. Ошибки вложенных конфигов
+проверяются уже при загрузке родителя. Inline-роли требуют одного исходного
+файла, а не directory mode.
+
+## Именованные Настройки Моделей
+
+Имена произвольные: `cheap`, `main`, `fast-check` и другие непустые строки.
+Это ссылки на полный набор настроек модели, а не подстановка текста в TOML:
+
+```toml
+model = "cheap"
+
+[models.cheap]
+provider = "opencode"
+model = "deepseek-v4.1-flash"
+effort = "high"
+summary = true
+stream = true
+```
+
+`provider` — ID реализации model slot. Настройки её соединения и авторизации
+остаются в `components` и `module_config.model`. Определение поддерживает
+`reasoning_efforts`, а также `effort`, `summary`, `budget_tokens`; reasoning
+можно записать вложенной таблицей, не дублируя те же поля на верхнем уровне.
+Неподдержанные параметры и неизвестное имя ссылки вызывают ошибку. Нельзя
+одновременно задавать `model` и `active_provider`, а также `models` и `providers`.
+
+Inline-роли видят именованные модели родителя и могут определить локальные.
+Им передаются только модельные presets, bindings и `module_config.model`;
+права инструментов и остальные behavior slots не наследуются. Поэтому модель
+можно описать один раз в начале файла. Если выбор роли отсутствует, bootstrap
+получает готовое подключение, а перед новой задачей устанавливается текущая
+модель родителя с его effort/summary/budget. Полные внешние child configs
+сохраняют собственный выбор модели; их можно переопределить при вызове.
+
+`spawn_agent` и `task` принимают optional `model` и `effort`. `model` выбирает
+именованный preset или точный ID модели в используемом model route; preset
+может выбрать другой заранее настроенный adapter. Приоритет: выбор вызова,
+явная модель роли, текущая модель родительского turn. `effort` переопределяет
+effort выбранного набора. Модель, effort и route проверяются до генерации,
+неподдержанный effort не заменяется другим значением.
+
+Для каждой fresh-задачи выбор применяется после создания её session, в том
+числе при повторном использовании процесса. Он сохраняется в session для
+продолжения и не меняет исходный конфиг или общий last-selection роли.
+Resume/followup продолжают с уже выбранной моделью; передача нового `model`
+или `effort` вместе с `task_id` отклоняется. Явное изменение конфигурации route
+может инвалидировать сохранённое session-переопределение при reload.
+
 ## Resolution
 
 Без `--config` путь выбирается в таком порядке:
@@ -43,19 +126,20 @@ config file. Includes merge-ятся слева направо, затем те�
 Поставляемая подписочная сборка `codex` использует явные fragments:
 
 ```text
-configs/config.toml                 основной профиль на базе codex.config.toml
-configs/codex.config.toml           подписочная сборка
+configs/config.toml                 основная подписочная сборка с расширенными tools
+configs/codex.config.toml           строгая Codex-shaped подписочная сборка
 configs/restricted.config.toml      рабочая Linux-сборка с частичной изоляцией
 configs/fragments/codex-behavior.toml общий выбор modules/tools и peer routing
-configs/fragments/codex-components.toml доверенная process-композиция
+configs/fragments/codex-components.toml единая доверенная process-композиция root и peers
 configs/fragments/restricted-components.toml частично ограниченная композиция
 configs/fragments/openai-chatgpt.toml OAuth provider launch/capabilities
 configs/fragments/codex-runtime.toml behavior + trusted components
 configs/fragments/codex-profile.toml strict Codex policy/context overlay
-configs/fragments/codex-subscription.toml общие provider/policy/roles подписки
-configs/fragments/codex-peer-runtime.toml общий workflow/components/runtime peers
+configs/fragments/codex-subscription.toml только отличия ролей, context и порядка tools подписки
+configs/fragments/codex-peer-runtime.toml workflow/runtime peers с include общих components
 configs/fragments/codex-{explore,coder}-peer.toml prompt/tools/policy конкретного peer
 configs/codex-{explore,coder}.config.toml подписочные named child configs
+configs/fragments/opencode-go.toml нативное подключение Go и автоматический каталог OpenCode
 ```
 
 Fragment не является profile, module pack или неявным default: он не
@@ -66,6 +150,57 @@ merge-ится рекурсивно: например, profile может доб
 
 Root `codex` и основной `config.toml` используют подписочные child configs.
 Отдельные API/proxy-профили не поставляются.
+
+Базовые параметры OAuth model export задаются в `openai-chatgpt.toml`,
+а process-композиция root и peers — в `codex-components.toml`.
+`codex-subscription.toml` сохраняет только отличающиеся значения, включая
+полные массивы ролей и tools: их порядок и role descriptions входят в сборку.
+`codex-peer-runtime.toml` включает общий список components, а параметры
+конкретного peer задаются его собственным фрагментом.
+
+Основная и строгая сборки различаются намеренно. `config.toml` сохраняет
+расширенный набор из 19 tools и context providers с `repo_tree`.
+`codex.config.toml` дополнительно включает `codex-upstream.toml`: пять tools,
+hook `codex_base_instructions` и context providers
+`project_instructions`, `skills`, `environment`. Общие фрагменты не делают
+эти profiles взаимозаменяемыми. `codex-profile.toml` и общий runtime также
+используются `proteus init codex` с его явно выбранным API-подключением.
+
+Личное подключение Go разделяет ответственности: сборка `codex` задаёт
+поведение и роли, `fragments/opencode-go.toml` — запуск нативного OpenCode
+model component, export и его настройки. Каталог моделей и точные варианты
+effort предоставляет SDK OpenCode через `model.catalog.v1`; статический TOML
+с записью каждой модели не нужен. Каталог обновляется по запросу с кешем на
+пять минут и не выбирает workflow, context или policy. Личный overlay:
+
+```toml
+include = ["/путь/к/Proteus/share/configs/fragments/opencode-go.toml"]
+active_provider = "opencode-go"
+
+[providers.opencode-go]
+model = "deepseek-v4.1-flash"
+[providers.opencode-go.reasoning]
+effort = "high"
+```
+
+В Modules установите Node runtime командой
+`python3 workflow/opencode-runtime/install.py --prefix /путь/к/Proteus`.
+Авторизация читается без изменений из штатной базы OpenCode 2
+`$XDG_DATA_HOME/opencode/opencode.db` (по умолчанию
+`~/.local/share/opencode/opencode.db`). Нужен сохранённый API key; OAuth refresh
+этот отдельный model export не выполняет. При отсутствии сохранённого ключа
+доступны переменные окружения, объявленные каталогом провайдера и разрешённые
+`env_allowlist` компонента. Базу авторизации не включайте в публикуемый config.
+Пути `database_path`, `models_file` и `models_url` при необходимости задаются
+в `[module_config.model.opencode]`. Запуск полного агента OpenCode не требуется.
+
+Общий model overlay может подключаться и родителем, и дочерними profiles;
+при этом роль продолжает владеть своими tools, permissions и instructions.
+
+Пути `instructions.file` разрешаются относительно корневого файла profile,
+а не вложенного include. Если личный wrapper включает поставляемый child
+profile, его `prompts/` должен указывать на общую папку промптов поставки
+либо содержать рабочие копии этих файлов. Сам `include` базу путей не меняет.
 
 `~`, `$HOME` и `${HOME}` раскрываются в path fields.
 
@@ -981,6 +1116,13 @@ Entry задаёт ровно одно из `file` и `text`. Relative file path
 от config file. Runtime превращает entries в ordered canonical
 `InstructionBlock` list.
 
+Если Config Builder восстанавливает отсутствующий standalone profile из
+загруженной конфигурации, file-backed entries сохраняют `file`, а не копию
+уже прочитанного `text`. Inline entries сохраняют свой текст и порядок.
+Это восстановление по прежнему пути: оно не переносит relative references
+и не восстанавливает отсутствующие prompt assets. Существующие source entries
+и directory overlays при обычном Save не переписываются этим преобразованием.
+
 Packaged `opencode-default.md` сохраняется как настраиваемый пример, но профиль
 `opencode` его не использует. `proteus-opencode-module` импортирует pinned
 `@opencode/core@2.0.22`: native system template и model plugins выполняются
@@ -1213,7 +1355,12 @@ MCP client использует официальный Rust SDK `rmcp` 3.3.0 п�
 задаёт рабочий каталог процесса; относительный путь отсчитывается от workspace.
 Неудачный start/handshake/list изолируется на этом сервере: его tools не
 регистрируются, остальные подключения работают, ошибка видна в `/addons`.
-Name collision остаётся блокирующей ошибкой сборки. Список `tools` в MCP status
+Весь discovered list сначала проверяется, включая input schemas; ошибка любого
+элемента отклоняет весь список до регистрации, без сохранения valid prefix.
+Только успешно подготовленный список участвует в общей регистрации, где name
+collision остаётся блокирующей ошибкой сборки. Если список содержит и invalid
+schema, и потенциальную collision, сначала отклоняется discovery этого сервера:
+collision из уже отклонённого списка не проверяется. Список `tools` в MCP status
 отражает discovery при подготовке epoch, а не непрерывную проверку live health.
 
 Текущий MCP scope — stdio tool discovery/invocation. HTTP, OAuth, resources,
@@ -1577,6 +1724,14 @@ runtime snapshot меняется одним обновлением. Он не �
 из воздуха: selection доступен только для entries текущего catalog. Existing
 `components` и opaque `module_config` сохраняются.
 
+Выбор `active_provider` не редактирует определения `providers`. В существующем
+TOML/JSON-профиле и directory overlay конструктор сохраняет как явные
+определения, так и отсутствие этой секции: провайдеры из includes/fragments
+не копируются в верхний файл при сохранении других настроек. Явные локальные
+переопределения остаются приоритетными. При первом сохранении отсутствующего
+standalone-файла записывается полная конфигурация, включая определения
+провайдеров, нужные её выбору модели.
+
 `GET /config/builder` возвращает для каждого модуля nullable `config_schema`.
 Модельные exports находятся в `model_modules`, обработчики — в
 `hook_modules`, остальные выбираемые реализации — в `slots[].modules`.
@@ -1645,6 +1800,12 @@ host, клиент не редактирует его напрямую.
 
 Save сериализует read/prepare/persist/publish по каноническому пути профиля;
 повторное сохранение читает актуальный source, а файл заменяется atomic rename.
+После применения request итоговый config проходит те же semantic checks,
+что загрузка с диска: выбор provider, допустимые `module_config` slots, hooks
+и prompt commands. Неизвестный slot отвергается до подготовки сборки, записи
+истории и файла; live config и epoch остаются прежними. Разрешение instruction
+files остаётся в reader: уже загруженный текст не проверяется как новый source.
+TOML-представимость значений и подготовка runtime остаются отдельными проверками.
 Все fallible проверки runtime проходят до persistence. Выбор модели и reload
 используют один lock, поэтому изменение selection не может сорвать publication
 уже записанного config. Принятый save завершается и при отключении HTTP caller.

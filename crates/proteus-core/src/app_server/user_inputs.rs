@@ -26,7 +26,7 @@ pub(super) struct PendingUserInputEntry {
 pub(super) type PendingUserInputResponders =
     Arc<Mutex<HashMap<AppUserInputRequestId, PendingUserInputEntry>>>;
 
-/// Принимает user inputs из `ChannelUserInputTransport`, присваивает
+/// Принимает user inputs из `ChannelUserInputTransport`, присваивает id и
 /// монотонный `seq` (attribution — `origin` — уже проставлен orchestrator-ом)
 /// и регистрирует запись с watcher-таской.
 pub(super) fn spawn_user_input_forwarder(
@@ -39,8 +39,12 @@ pub(super) fn spawn_user_input_forwarder(
         let mut next_seq: u64 = 0;
         while let Some(PendingUserInput { request, responder }) = user_input_rx.recv().await {
             next_seq += 1;
-            let request = request.with_seq(next_seq);
-            let request_id = request.request_id.clone();
+            let mut request = request.with_seq(next_seq);
+            // The caller's request ID is not an app-server queue identity:
+            // independent peers can share local call IDs. As with approvals,
+            // bind the reply to this invocation's responder, not its local ID.
+            let request_id = uuid::Uuid::new_v4().to_string();
+            request.request_id = request_id.clone();
 
             register_pending_user_input(&pending_user_inputs, &events, request, responder).await;
 
@@ -168,3 +172,6 @@ async fn watch_pending_user_input(
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

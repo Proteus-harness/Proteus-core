@@ -35,9 +35,10 @@ def build(profile="dev", target_dir=None, env=None):
 
 
 def build_packages(profile="dev", target_dir=None, env=None, destination=None, reuse=False):
+    """Resolve caller-owned output paths before changing the child working directory."""
     source = resolve("modules")
     command = [sys.executable, str(source / "package.py"), "--profile", profile]
-    command += ["--bundle", str(destination)] if destination else ["--print-artifacts"]
+    command += ["--bundle", str(Path(destination).resolve())] if destination else ["--print-artifacts"]
     if target_dir:
         command += ["--target-dir", str(Path(target_dir).resolve())]
     if reuse:

@@ -597,6 +597,15 @@ Collaboration child может жить дольше родительского 
 остаётся обычным `ToolResult` вызова `task`. Collaboration completion приходит
 через `wait_agent`, а `list_agents` хранит retained status без terminal payload.
 
+`task` возвращает успешный `ToolResult` только для lifecycle `completed`.
+Любой другой статус, включая `unknown`, виден в error-тексте вместе с
+предупреждением о возможной неполноте summary и уже выполненных действиях.
+Partial summary, доступный `task_id` и сведения о worktree остаются в том же
+error-поле, чтобы model-facing `text_or_status()` не скрыл их при выборе error.
+Это не утверждение об откате действий и не команда автоматически повторять
+задачу. Typed status и ссылки на child session сохраняются в metadata.
+Общий output/error budget продолжает действовать и может усечь этот текст.
+
 Вызовы `send_message` и running `followup_task` попадают в bounded адресный
 mailbox process peer-а. Runner передаёт typed envelope persistent peer-у через
 stdio на границе app-server turn-а. Если успешный terminal response обогнал
@@ -2181,8 +2190,12 @@ MathJax запускается только после
 пользователя до cancel или shutdown. Как и approvals, pending user inputs
 атрибуцированы и per-request scoped: `UserInputRequest.origin` несёт
 `RequestOrigin` (`ExecutionId` + optional thread/turn + метка роли субагента),
-`UserInputRequest.seq` —
-порядок очереди, а watcher app-server-а убирает запись, когда запросивший
+`UserInputRequest.seq` — порядок очереди. App-server назначает собственный
+непрозрачный `request_id` каждой записи, независимо от локального tool call ID.
+Клиент отвечает по ID из `UserInputRequested`, не вычисляет его из call ID и
+не переиспользует его в следующем turn. Process bridge возвращает ответ по
+исходному ID дочернего app-server-а; совпадающие локальные IDs разных peers
+не объединяют их pending requests. Watcher app-server-а убирает запись, когда запросивший
 умирает (cancel turn-а), не трогая pending user inputs других turn-ов;
 blanket-resolve остаётся только на shutdown (см.
 `docs/guides/security-and-policy.md`).
@@ -2241,7 +2254,7 @@ permission mode одной записью runtime state. Уже admitted Turn п
   "event": {
     "type": "user_input_requested",
     "request": {
-      "request_id": "call_1",
+      "request_id": "f4e9ccda-57c6-4a7f-b104-ed0135286ecb",
       "title": "Telegram bot",
       "questions": [
         {

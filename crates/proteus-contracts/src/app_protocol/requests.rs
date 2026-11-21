@@ -1,6 +1,6 @@
 use crate::{
     contracts::{ApprovalCacheScope, UserInputResponse},
-    domain::{MessageId, PermissionMode, RunOptions},
+    domain::{MessageId, ModelRef, PermissionMode, ReasoningConfig, RunOptions},
 };
 use serde::{Deserialize, Serialize};
 
@@ -74,6 +74,14 @@ pub enum StdioRequest {
         id: Option<String>,
         model: String,
     },
+    /// Exact session-only routing for a fresh delegated task. Unlike user
+    /// defaults, this never updates a role's shared last-model preference.
+    SetModelConfiguration {
+        id: Option<String>,
+        model: ModelRef,
+        reasoning: ReasoningConfig,
+        stream: bool,
+    },
     SetReasoningEffort {
         id: Option<String>,
         effort: Option<String>,
@@ -110,6 +118,7 @@ impl StdioRequest {
             | Self::Cancel { id, .. }
             | Self::SetPermissionMode { id, .. }
             | Self::SetModel { id, .. }
+            | Self::SetModelConfiguration { id, .. }
             | Self::SetReasoningEffort { id, .. }
             | Self::SetReasoningEnabled { id, .. }
             | Self::ConfigSummary { id }

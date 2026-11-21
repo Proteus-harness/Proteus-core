@@ -14,6 +14,8 @@ use proteus_core::core::{
 };
 use serde_json::{Value, json};
 
+#[path = "mcp_client/discovery.rs"]
+mod discovery;
 #[cfg(target_os = "linux")]
 #[path = "mcp_client/sandbox.rs"]
 mod sandbox;

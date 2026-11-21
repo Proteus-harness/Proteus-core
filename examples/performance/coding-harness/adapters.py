@@ -6,6 +6,8 @@ import shutil
 import tomllib
 from collections import Counter
 
+from pi_terminal import pi_outcome
+
 HERE = Path(__file__).resolve().parent
 CORE = HERE.parents[2]
 
@@ -141,7 +143,7 @@ def prepare(args, runtime):
         else:
             copy_auth(args.auth_file or Path.home()/'.config/Proteus-agent/secrets/chatgpt.json',
                       home/'.config/Proteus-agent/secrets/chatgpt.json')
-        return ['/runtime/bin/proteus', '--config', '/runtime/configs/eval.json',
+        return ['/runtime/bin/' + args.binary.name, '--config', '/runtime/configs/eval.json',
                 '--cwd', '/workspace', prompt], mounts
     if args.agent == 'codex':
         copy_auth(args.auth_file or Path.home()/'.codex/auth.json', home/'.codex/auth.json')
@@ -249,32 +251,34 @@ def metrics(agent, output):
                 'all_tool_calls': len(actions),
                 'models': sorted({c['model'] for c in contexts}),
                 'reasoning_efforts': sorted({c['effort'] for c in contexts if c.get('effort')}),
-                'provider_usage': sum_usage(rows, {'input_tokens': 'input_tokens',
-                                                  'cached_input_tokens': 'cached_input_tokens',
-                                                  'output_tokens': 'output_tokens'}),
+                **usage_evidence(rows, {'input_tokens': 'input_tokens',
+                                        'cached_input_tokens': 'cached_input_tokens',
+                                        'output_tokens': 'output_tokens'}, len(completed)),
                 'settled': bool(completed), 'events': len(events),
                 'errors': [e for e in events if e.get('type') in ('error', 'turn.failed')]}
     if agent == 'pi':
         messages = [e['message'] for e in events if e.get('type') == 'message_end'
                     and isinstance(e.get('message'), dict) and e['message'].get('role') == 'assistant']
+        outcome = pi_outcome(events)
         rows = [m['usage'] for m in messages if isinstance(m.get('usage'), dict)]
         levels = [row['thinkingLevel'] for path in (output/'runtime/pi-sessions').glob('*.jsonl')
                   for row in json_lines(path) if row.get('type') == 'thinking_level_change']
-        totals = sum_usage(rows, {'uncached_input_tokens': 'input', 'cached_input_tokens': 'cacheRead',
-                                  'cache_creation_input_tokens': 'cacheWrite', 'output_tokens': 'output',
-                                  'reasoning_output_tokens': 'reasoning'})
-        parts = [totals.get(k) for k in ['uncached_input_tokens', 'cached_input_tokens',
-                                       'cache_creation_input_tokens']]
-        totals['input_tokens'] = sum(parts) if all(p is not None for p in parts) else None
-        return {'native_usage': rows, 'provider_usage': totals, 'model_requests': len(messages),
+        evidence = usage_evidence(rows, {'uncached_input_tokens': 'input', 'cached_input_tokens': 'cacheRead',
+                                         'cache_creation_input_tokens': 'cacheWrite', 'output_tokens': 'output',
+                                         'reasoning_output_tokens': 'reasoning',
+                                         'input_tokens': ('input', 'cacheRead', 'cacheWrite')}, len(messages))
+        return {'native_usage': rows, **evidence, 'model_requests': len(messages),
                 'tool_names': dict(Counter(p.get('name','unknown') for m in messages
                                           for p in m.get('content',[]) if p.get('type') == 'toolCall')),
                 'all_tool_calls': sum(p.get('type') == 'toolCall' for m in messages for p in m.get('content',[])),
                 'models': sorted({m.get('model', '') for m in messages}),
                 'providers': sorted({m['provider'] for m in messages if m.get('provider')}),
                 'reasoning_efforts': sorted(set(levels)),
-                'settled': any(e.get('type') == 'agent_end' for e in events),
-                'errors': [m.get('errorMessage') for m in messages if m.get('stopReason') in ('error','aborted')]}
+                'pi_outcome': outcome,
+                'settled': bool(outcome['settlements']) and not outcome['pending'],
+                'errors': [m.get('errorMessage') for m in messages if m.get('stopReason') in ('error','aborted')]
+                          + ['Native Pi terminal response reached the length limit.'
+                             for item in outcome['settlements'] if item['stop_reason'] == 'length']}
     native = json.loads((output/'runtime/native/usage.json').read_text())
     rows = native['sessions']
     messages = native['assistant_messages']
@@ -301,8 +305,22 @@ def metrics(agent, output):
 
 
 def sum_usage(rows, mapping):
-    totals = {}
+    return usage_evidence(rows, mapping, len(rows))['provider_usage']
+
+
+def usage_evidence(rows, mapping, expected_rows):
+    """Keep observed contributions without treating absent completed-event rows as zero."""
+    totals, partial, known = {}, {}, {}
     for field, native in mapping.items():
-        values = [r.get(native) for r in rows]
-        totals[field] = sum(values) if values and all(type(v) is int for v in values) else None
-    return totals
+        keys = (native,) if isinstance(native, str) else native
+        values = []
+        for row in rows:
+            parts = [row.get(key) for key in keys]
+            if parts and all(type(value) is int for value in parts):
+                values.append(sum(parts))
+        known[field] = len(values)
+        partial[field] = sum(values) if values else None
+        totals[field] = (partial[field] if type(expected_rows) is int and expected_rows > 0
+                         and len(rows) == expected_rows and len(values) == expected_rows else None)
+    return {'provider_usage': totals, 'partial_reported_usage_sums': partial,
+            'usage_fields_reported_by_rows': known, 'expected_usage_rows': expected_rows}

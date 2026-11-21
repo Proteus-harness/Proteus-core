@@ -11,8 +11,8 @@ use serde_json::{Value, json};
 
 use crate::{
     contracts::{
-        AgentControlRequest, AgentControlResult, AgentIsolation, AgentProfile, Tool, ToolContext,
-        ToolRegistry, ToolSource,
+        AgentControlRequest, AgentControlResult, AgentIsolation, AgentLifecycleStatus,
+        AgentProfile, Tool, ToolContext, ToolRegistry, ToolSource,
     },
     domain::{ToolCall, ToolResult, ToolSpec},
 };
@@ -124,6 +124,13 @@ fn parse_task_call(
         .ok_or_else(|| "task requires string arg 'prompt'".to_owned())?;
     let description = optional_string(args.get("description"), "description")?;
     let task_id = optional_string(args.get("task_id"), "task_id")?;
+    let model_options = super::model_options::parse(call)?;
+    if task_id.is_some() && !model_options.is_empty() {
+        return Err(
+            "model and effort can only be chosen for a fresh task; resume keeps its selection"
+                .into(),
+        );
+    }
 
     let mut request = AgentControlRequest::new(agent_type, prompt, parent_task)
         .with_metadata(json!({ "source_call_id": call.id }));
@@ -133,6 +140,11 @@ fn parse_task_call(
     if let Some(task_id) = task_id {
         request.metadata["task_id"] = json!(task_id);
     }
+    request
+        .metadata
+        .as_object_mut()
+        .expect("request metadata object")
+        .extend(model_options);
     Ok(request)
 }
 
@@ -163,7 +175,16 @@ fn result_to_tool_result(
     task_id: Option<String>,
     workspace_note: Option<String>,
 ) -> ToolResult {
-    let mut output = result.summary;
+    let completed = result.status == AgentLifecycleStatus::Completed;
+    let status = json!(result.status);
+    let mut output = if completed {
+        result.summary
+    } else {
+        format!(
+            "[task status: {status}]\nTask completion was not confirmed. The summary below may be incomplete; actions may already have taken effect.\n\n{}",
+            result.summary
+        )
+    };
     if let Some(task_id) = task_id {
         output.push_str(&format!("\n\n[task_id: {task_id}]"));
     }
@@ -177,7 +198,14 @@ fn result_to_tool_result(
         _ => serde_json::Map::new(),
     };
     metadata.insert("tool".into(), json!(TASK_TOOL));
-    metadata.insert("status".into(), json!(result.status));
+    metadata.insert("status".into(), status);
     metadata.insert("child_thread_id".into(), json!(result.child_thread_id));
-    ToolResult::ok(call_id.to_owned(), output).with_metadata(Value::Object(metadata))
+    let result = if completed {
+        ToolResult::ok(call_id.to_owned(), output)
+    } else {
+        // Keep the partial summary and workspace information in the same field
+        // as the error: text_or_status gives error precedence over output.
+        ToolResult::error(call_id.to_owned(), output)
+    };
+    result.with_metadata(Value::Object(metadata))
 }

@@ -11,6 +11,8 @@ pub fn event_log_path(configured_path: &Path, config_path: Option<&Path>, cwd: &
 }
 
 pub fn config_store_root(path: &Path) -> PathBuf {
+    let physical = crate::core::physical_config_path(path);
+    let path = physical.as_path();
     if path.is_dir() {
         return path
             .parent()

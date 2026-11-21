@@ -9,7 +9,7 @@ import sys
 import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "common"))
-from proc_sampler import Recorder, Tree, table
+from proc_sampler import PHASE_INTERVAL_POLICY, Recorder, Tree, table
 
 
 def classifier(args):
@@ -44,7 +44,8 @@ class Metrics:
         event["subject"] = subject
         self.log.write(event)
         self.small.append(dict(phase=event["phase"], monotonic_ns=event["monotonic_ns"],
-                               interval_seconds=event["interval_seconds"], **subject))
+                               interval_seconds=event["interval_seconds"],
+                               phase_interval_eligible=event["phase_interval_eligible"], **subject))
         if subject["pss_swap_kib"] > self.args.max_pss_mib * 1024:
             raise MemoryError(f"subject PSS+SwapPss exceeded {self.args.max_pss_mib} MiB")
         if subject["memory_incomplete_pids"]:
@@ -66,11 +67,22 @@ class Metrics:
         for phase in sorted({sample["phase"] for sample in self.small}):
             samples = [sample for sample in self.small if sample["phase"] == phase]
             phases[phase] = dict(samples=len(samples))
-            for key in ("rss_kib", "pss_kib", "pss_swap_kib", "swap_pss_kib", "private_kib", "cpu_percent_one_core"):
+            for key in ("rss_kib", "pss_kib", "pss_swap_kib", "swap_pss_kib", "private_kib"):
                 values = [sample[key] for sample in samples]
                 phases[phase][key] = dict(median=statistics.median(values), peak=max(values))
-            elapsed = sum(sample["interval_seconds"] or 0 for sample in samples)
-            phase_counters = {field: sum(sample["interval_counters"][field] for sample in samples)
+            intervals = [sample for sample in samples if sample.get("phase_interval_eligible") is True]
+            excluded = [sample for sample in samples if sample.get("phase_interval_eligible") is not True]
+            cpu = [sample["cpu_percent_one_core"] for sample in intervals]
+            phases[phase]["cpu_percent_one_core"] = dict(median=statistics.median(cpu) if cpu else None,
+                                                        peak=max(cpu) if cpu else None)
+            phases[phase]["eligible_interval_samples"] = len(intervals)
+            phases[phase]["excluded_interval_samples"] = len(excluded)
+            phases[phase]["excluded_interval_seconds"] = sum(sample["interval_seconds"] or 0 for sample in excluded)
+            phases[phase]["excluded_interval_counters"] = {
+                field: sum(sample["interval_counters"][field] for sample in excluded)
+                for field in ("cpu_ticks", "read_bytes", "write_bytes", "rchar", "wchar")}
+            elapsed = sum(sample["interval_seconds"] for sample in intervals)
+            phase_counters = {field: sum(sample["interval_counters"][field] for sample in intervals)
                               for field in ("cpu_ticks", "read_bytes", "write_bytes", "rchar", "wchar")}
             phases[phase]["observed_interval_counters"] = phase_counters
             phases[phase]["observed_interval_seconds"] = elapsed
@@ -80,7 +92,7 @@ class Metrics:
         counters = {field: sum(row.get(field, 0) for row in observed)
                     for field in ("cpu_ticks", "read_bytes", "write_bytes", "rchar", "wchar", "minor_faults", "major_faults")}
         counters["cpu_seconds"] = counters["cpu_ticks"] / self.tree.clock_ticks
-        return dict(phases=phases, subject_observed_counters=counters,
+        return dict(phases=phases, phase_interval_policy=PHASE_INTERVAL_POLICY, subject_observed_counters=counters,
                     sampled_peak_pss_swap_kib=max((sample["pss_swap_kib"] for sample in self.small), default=0),
                     sampled_peak_rss_kib=max((sample["rss_kib"] for sample in self.small), default=0),
                     sampling_scope="actual Core backends + reference modules; Python/driver control overhead separately grouped",

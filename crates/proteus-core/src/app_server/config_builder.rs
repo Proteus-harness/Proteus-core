@@ -1,4 +1,5 @@
 mod component_packages;
+mod inline_source;
 mod persistence;
 mod plugins;
 #[cfg(test)]
@@ -21,7 +22,7 @@ use serde_json::Value;
 use crate::{
     core::{
         AppConfig, ModuleCatalogEntrySummary, ModuleSourceTopology, ModuleTopology, ModulesConfig,
-        ProviderProfileConfig, TopologyBuildInput, TopologySnapshot, build_topology_snapshot,
+        TopologyBuildInput, TopologySnapshot, build_topology_snapshot,
         core_slots::{CoreSlotSelection, core_slot_descriptor_by_id},
     },
     domain::PermissionMode,
@@ -154,11 +155,12 @@ impl AppServerHandle {
         let current_plan = self.runtime.assembly_plan().await;
         validate_config_builder_modules(&modules, current_plan.catalog_entries())?;
 
-        let mut next_config = if tokio::fs::try_exists(config_path).await? {
-            AppConfig::load(Some(config_path)).await?
-        } else {
-            self.config.read().await.clone()
-        };
+        let mut next_config =
+            if tokio::fs::try_exists(crate::core::physical_config_path(config_path)).await? {
+                AppConfig::load(Some(config_path)).await?
+            } else {
+                self.config.read().await.clone()
+            };
         let replaced_state = config_builder_state(&next_config);
         let component_ids =
             component_packages::apply(&mut next_config, component_packages, &self.cwd)?;
@@ -186,13 +188,9 @@ impl AppServerHandle {
             next_config.addons = update.addons;
             next_config.tools.mcp_servers = update.mcp_servers;
         }
-        if let Some(active_provider) = &active_provider {
-            validate_config_builder_provider(active_provider, &next_config)?;
-        }
         if let Some(hooks) = hooks {
             next_config.modules.hooks = hooks;
         }
-        next_config.modules.validate_hooks()?;
         for (slot, module_id) in modules {
             set_module_slot(&mut next_config.modules, &slot, module_id)?;
         }
@@ -208,9 +206,10 @@ impl AppServerHandle {
         if let Some(mode) = permission_mode {
             next_config.permissions.mode = mode;
         }
+        next_config.validate_semantics()?;
         let target = config_builder_target_path(Some(config_path))
             .context("config target is not available")?;
-        if !target
+        if !crate::core::physical_config_path(&target)
             .extension()
             .is_some_and(|extension| extension == "json")
         {
@@ -384,16 +383,6 @@ fn config_builder_providers(config: &AppConfig) -> Vec<ConfigBuilderProvider> {
             active: config.active_provider.as_ref() == Some(id),
         })
         .collect()
-}
-
-pub(super) fn validate_config_builder_provider(
-    active_provider: &str,
-    config: &AppConfig,
-) -> Result<()> {
-    if !config.providers.contains_key(active_provider) {
-        anyhow::bail!("active_provider is not defined in [providers]: {active_provider}");
-    }
-    Ok(())
 }
 
 pub(super) fn validate_config_builder_modules(

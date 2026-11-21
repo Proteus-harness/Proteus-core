@@ -8,6 +8,8 @@ from pathlib import Path
 import re
 from statistics import median
 
+from usage_report import TOKENS, json_lines, known_sum, project_usage, read_json, summarize_usage
+
 HERE = Path(__file__).resolve().parent
 CORE = HERE.parents[2]
 DATA = CORE / 'target/performance/coding-harness'
@@ -23,27 +25,6 @@ DESCRIPTIONS = {
     'ledger-recovery': 'Многофайловое хранилище с crash recovery, миграцией и concurrent writers',
     'go-review': 'Три последовательных запроса на SGF parser, territory counting и интеграцию',
 }
-TOKENS = ('input_tokens', 'cached_input_tokens', 'output_tokens', 'reasoning_output_tokens')
-
-
-def read_json(path):
-    return json.loads(path.read_text()) if path.is_file() else None
-
-
-def json_lines(path):
-    if path.is_file():
-        with path.open(errors='replace') as stream:
-            for line in stream:
-                try:
-                    value = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if isinstance(value, dict):
-                    yield value
-
-
-def known_sum(values):
-    return sum(values) if values and all(type(value) is int for value in values) else None
 
 
 def midpoint(values):
@@ -208,40 +189,6 @@ def audit_trial(path, agent, expected_turns=1, continuity_verified=False):
             'review_flags': flags}
 
 
-def usage_completion(path, result, metrics):
-    if result.get('pipeline_ok') and not result.get('timed_out'):
-        return True, 'The complete task pipeline settled and exported its reported usage.'
-    agent = result.get('agent')
-    if agent == 'proteus':
-        failures = metrics.get('failures', [])
-        all_answered = (type(metrics.get('model_requests')) is int
-                        and metrics.get('model_requests') == metrics.get('model_responses'))
-        settled = metrics.get('settlements') or []
-        if all_answered and settled and all(item.get('status') == 'success' for item in settled) and not any(
-            isinstance(item, dict) and item.get('kind') == 'model' for item in failures
-        ):
-            return True, 'Every canonical model exchange and task settlement completed before the CLI teardown error.'
-    elif agent == 'pi':
-        completed = 0
-        failed = False
-        for event in json_lines(path/'stdout.jsonl'):
-            if event.get('type') == 'agent_end' and not event.get('willRetry'):
-                completed += 1
-            message = event.get('message', {})
-            if event.get('type') == 'message_end' and message.get('role') == 'assistant':
-                failed |= message.get('stopReason') in ('error', 'aborted', 'pending')
-        if completed >= result.get('expected_turns', 1) and not failed:
-            return True, 'Each requested Pi turn emitted a final agent_end before the CLI error.'
-    elif agent == 'opencode':
-        native = read_json(path/'runtime/native/usage.json') or {}
-        primary = native.get('assistant_messages', [])
-        if (metrics.get('settled') and primary and primary[-1].get('finish') == 'stop'
-                and sum(msg.get('finish') == 'stop' for msg in primary) >= result.get('expected_turns', 1)
-                and not metrics.get('errors')):
-            return True, 'The native session succeeded and its final assistant stopped before the CLI teardown error.'
-    return False, 'The generation or task did not settle; recorded usage is a lower bound and can omit the active request.'
-
-
 def failure_taxonomy(result, grade, failures):
     classes = []
     text = json.dumps(failures, ensure_ascii=False)
@@ -308,8 +255,6 @@ def read_trial(path, case, arm, attempt):
                               sum(item.get('origin') == 'direct' for item in metrics['requests'])
                               if metrics.get('requests') else metrics.get('model_requests')),
            'usage_includes_auxiliary': metrics.get('usage_includes_auxiliary_requests', False),
-           'tokens': metrics.get('provider_usage', {}),
-           'observed_partial_usage': metrics.get('partial_reported_usage_sums', {}),
            'failures_by_kind': dict(kinds), 'failure_count': len(failures), 'tools': metrics.get('tool_names', {}),
            'compactions': metrics.get('compactions'), 'model_verified': result.get('model_verified', False),
            'reasoning_verified': result.get('reasoning_verified', False),
@@ -339,13 +284,7 @@ def read_trial(path, case, arm, attempt):
                 'last_assistant_age_seconds': round((stamp-max(created))/1000, 3),
                 'last_completed_before_error_age_seconds': round((stamp-max(before_error))/1000, 3) if before_error else None,
                 'outer_timed_out': result.get('timed_out', False)}
-    row['usage_complete'], row['usage_completeness_reason'] = usage_completion(path, result, metrics)
-    row['reported_usage'] = dict(row['tokens'])
-    row['observed_partial_usage'] = {key: value if type(value) is int else
-                                   row['observed_partial_usage'].get(key)
-                                   for key, value in {**{key: None for key in TOKENS}, **row['reported_usage']}.items()}
-    if not row['usage_complete']:
-        row['tokens'] = {key: None for key in row['tokens']}
+    row.update(project_usage(path, result, metrics))
     row['failure_taxonomy'] = failure_taxonomy(result, grade, failures)
     row['length_limit_failures'] = sum(isinstance(item, dict) and 'length limit' in json.dumps(item) for item in failures)
     try:
@@ -368,18 +307,14 @@ def summarize(rows, arms, expected_cases):
         selected = [row for row in rows if row['arm'] == arm and row['attempt'] == 1]
         done = [row for row in selected if row['state'] == 'graded']
         observed = [row for row in selected if 'tokens' in row]
-        values = {key: [row['tokens'].get(key) for row in observed] for key in TOKENS}
+        usage = summarize_usage(observed)
         stats.append({'arm': arm, 'expected_tasks': len(expected_cases), 'graded': len(done),
                       'passed': sum(row['pass'] for row in done),
                       'grade_passed': sum(row['grade'] is True for row in done),
                       'pipeline_failed_with_task_pass': sum(row['grade'] is True and not row['pipeline_ok'] for row in done), 'failed': sum(not row['pass'] for row in done),
                       'timed_out': sum(row.get('timed_out', False) for row in done),
                       'observed_runs': len(observed),
-                      'tokens': {key: known_sum(items) for key, items in values.items()},
-                      'known_token_runs': {key: sum(value is not None for value in items) for key, items in values.items()},
-                      'observed_token_sums': {key: sum(
-                          row['tokens'][key] if type(row['tokens'].get(key)) is int else
-                          row.get('observed_partial_usage', {}).get(key) or 0 for row in observed) for key in TOKENS},
+                      **usage,
                       'median_seconds': midpoint([row.get('seconds') for row in done]),
                       'median_actions': midpoint([row.get('actions') for row in done]),
                       'median_requests': midpoint([row.get('requests') for row in done]),

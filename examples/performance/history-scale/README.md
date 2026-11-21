@@ -193,6 +193,26 @@ PSS+SwapPss делит их пропорционально. Отдельно е�
 sampled peaks, resident medians и CPU weighted mean по длительности интервалов
 (100% — одно ядро). `VmHWM` разных процессов не складывается в пик дерева.
 
+CPU median/peak, weighted mean и phase interval counters включают только
+интервалы, целиком начинающиеся не раньше последней наблюдённой метки фазы
+(`whole-observed-interval/v1`). Общая проверка используется и при записи subject
+сводки, и при чтении raw full-tree samples в `../summarize.py`. Память и её пики
+сохраняются по всем выборкам. Нет пригодных интервалов: CPU равен `null`/`н/д`,
+а не измеренному нулю. Суммы counters по пустому множеству остаются нулевыми,
+поэтому читать их нужно вместе с `eligible_interval_samples` и
+`observed_interval_seconds`, не как стоимость всей фазы.
+
+`excluded_interval_samples`, `excluded_interval_seconds` и
+`excluded_interval_counters` явно показывают исключённые наблюдения. Сумма
+исключённых секунд не включает неизвестную длительность первой выборки и не
+измеряет все ненаблюдённые промежутки. Raw samples и lifetime totals не
+перезаписываются, работа из пересекающего интервала не теряется из них.
+`phase_interval_policy` отмечает новую семантику. При сравнении старых данных
+сохранённые subject phase aggregates показываются без перерасчёта с legacy
+предупреждением; full-tree CPU из raw samples без точного начала интервала
+показывается как `н/д`, при сохранении памяти. Это явная новая read-time
+проекция, а не исправление опубликованных исторических результатов.
+
 Первые запуски используют свежие копии canonical inputs, но кэш ОС не
 очищается: это не cold boot и не измерение allocation count. Restart сохраняет
 derived files именно своего случая. Sequential `/proc` scan не атомарен;

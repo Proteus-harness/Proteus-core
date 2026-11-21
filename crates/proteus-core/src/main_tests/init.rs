@@ -2,6 +2,20 @@ use super::*;
 use proteus_contracts::domain::ModuleKind;
 
 #[test]
+fn init_rejects_inline_selection_without_writing_source_or_selector_directories() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("agent.toml");
+    std::fs::write(&path, "# existing self-contained source\n").unwrap();
+    let reference = proteus_core::core::config_reference(&path, "explore").unwrap();
+    assert!(run_init(InitProfile::Coding, Some(&reference)).is_err());
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "# existing self-contained source\n"
+    );
+    assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+}
+
+#[test]
 fn init_destination_uses_config_file_or_profile_file_in_dir() {
     assert_eq!(
         init_destination_path(Path::new("/tmp/config.toml"), InitProfile::Coding),

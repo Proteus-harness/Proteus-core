@@ -64,13 +64,14 @@ async fn start_with_polling(handle: &AppServerHandle, path: PathBuf, mut polling
     let owner = std::sync::Arc::downgrade(&handle.inner);
     let stop = handle.profile_stop.clone();
     tokio::spawn(async move {
+        let physical = crate::core::physical_config_path(&path);
         let mut last_scan_started = None;
         let mut seen = None;
         let mut failed = None;
         let mut inputs: Option<ConfigInputs> = None;
         let mut pending = false;
         let mut addons = config.addons.clone();
-        let mut source_seen = path.exists();
+        let mut source_seen = physical.exists();
         loop {
             let mut poll = tokio::select! {
                 _ = stop.cancelled() => break,
@@ -81,7 +82,7 @@ async fn start_with_polling(handle: &AppServerHandle, path: PathBuf, mut polling
             };
             let Some(inner) = owner.upgrade() else { break };
             let handle = AppServerHandle { inner };
-            if !source_seen && !path.exists() {
+            if !source_seen && !physical.exists() {
                 continue;
             };
             source_seen = true;

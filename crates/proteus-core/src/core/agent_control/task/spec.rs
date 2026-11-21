@@ -44,6 +44,7 @@ pub(super) fn task_tool_spec(roles: &[AgentProfile], timeout_ms: u64) -> ToolSpe
     };
     let description = format!(
         "Delegate a focused task to an isolated Proteus agent profile and return its summary.\n\
+Only completed tasks return success. Other outcomes return an error with the observed status and a possibly incomplete summary; actions may already have taken effect, so inspect the result before retrying.\n\
 The subagent starts with a FRESH context, so include all necessary background in the prompt; parent history is not passed.\n\
 Reuse task_id from a previous task result to continue that subagent with its accumulated context.\n\
 Choose the role that best matches the delegated work and keep the prompt specific.\n\
@@ -72,6 +73,14 @@ Do the work yourself when it needs your accumulated context, close supervision, 
                 "task_id": {
                     "type": "string",
                     "description": "Resume a previous subagent task with its accumulated context."
+                },
+                "model": {
+                    "type": "string", "minLength": 1,
+                    "description": "Optional configured model alias or model ID for a fresh task. Defaults to the role choice, then the current parent model."
+                },
+                "effort": {
+                    "type": "string", "minLength": 1,
+                    "description": "Optional reasoning effort for the selected model on a fresh task. Resume keeps the existing model and effort."
                 }
             },
             "required": ["prompt", "agent_type"]

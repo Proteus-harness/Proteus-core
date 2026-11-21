@@ -394,10 +394,16 @@ async fn user_input_forwarder_waits_without_timeout_when_timeout_is_zero() {
         .await
         .expect("user input request event should arrive")
         .expect("event stream should stay open");
-    assert!(matches!(
-        request_event,
-        AppServerEvent::UserInputRequested { request } if request.request_id == request_id
-    ));
+    let request_id = match request_event {
+        AppServerEvent::UserInputRequested { request } => {
+            assert_ne!(
+                request.request_id, request_id,
+                "app-server owns queue identity"
+            );
+            request.request_id
+        }
+        other => panic!("expected user input request, got {other:?}"),
+    };
 
     tokio::time::sleep(Duration::from_millis(30)).await;
 
@@ -701,7 +707,7 @@ async fn zero_timeout_pending_user_input_resolves_on_shutdown() {
         .expect("event stream should stay open");
     assert!(matches!(
         request_event,
-        AppServerEvent::UserInputRequested { request } if request.request_id == request_id
+        AppServerEvent::UserInputRequested { request } if request.request_id != request_id
     ));
 
     user_inputs::resolve_pending_user_inputs_empty(pending_user_inputs.clone(), &events).await;

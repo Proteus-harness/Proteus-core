@@ -6,6 +6,7 @@ use serde_json::{Value, json};
 use super::control::{FollowupRequest, MAX_OUTSTANDING_COMPLETIONS};
 use super::spec::{followup_spec, send_message_spec};
 use super::*;
+mod wait;
 use crate::{
     contracts::{
         AgentControlHandle, AgentControlMessage, AgentControlRequest, AgentControlResult,
@@ -113,6 +114,32 @@ fn context(host: Arc<TestHost>) -> ToolContext {
 
 fn output(result: &ToolResult) -> Value {
     serde_json::from_str(&result.output).expect("json output")
+}
+
+#[tokio::test]
+async fn fresh_spawn_passes_model_alias_and_effort_and_rejects_invalid_options_before_reservation()
+{
+    let control = CollaborationControl::default();
+    let host = Arc::new(TestHost::new(new_session_id()));
+    let spawn = SpawnAgentTool::new(vec![role()], 10_000, control);
+    let ctx = context(host.clone());
+    let mut args =
+        json!({"task_name":"model_choice","message":"inspect","agent_type":"explore", "model":17});
+    let rejected = spawn
+        .invoke(&call("spawn_agent", args.clone()), ctx.clone())
+        .await
+        .unwrap();
+    assert!(!rejected.ok);
+    assert!(host.requests.lock().unwrap().is_empty());
+    args["model"] = json!("budget-run");
+    args["effort"] = json!("xhigh");
+    let accepted = spawn.invoke(&call("spawn_agent", args), ctx).await.unwrap();
+    assert!(accepted.ok);
+    let requests = host.requests.lock().unwrap();
+    assert_eq!(requests[0].metadata["model"], "budget-run");
+    assert_eq!(requests[0].metadata["effort"], "xhigh");
+    drop(requests);
+    host.finished.cancel();
 }
 
 #[tokio::test]

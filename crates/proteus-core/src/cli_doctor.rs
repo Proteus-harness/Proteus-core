@@ -22,7 +22,7 @@ pub(crate) async fn run_doctor(
     findings.ok(format!("cwd: {}", cwd.display()));
 
     match effective_config {
-        Some(path) if path.exists() => {
+        Some(path) if proteus_core::core::physical_config_path(path).exists() => {
             let source = if explicit_config.is_some() {
                 "explicit"
             } else {
@@ -37,7 +37,8 @@ pub(crate) async fn run_doctor(
         None => findings.warn("no config path could be resolved; defaults will be used"),
     }
 
-    if let Some(path) = single_config_file_for_warning(effective_config)
+    let physical_config = effective_config.map(proteus_core::core::physical_config_path);
+    if let Some(path) = single_config_file_for_warning(physical_config.as_deref())
         && let Some(warning) = mixed_config_files_warning(&path)
     {
         findings.warn(warning);

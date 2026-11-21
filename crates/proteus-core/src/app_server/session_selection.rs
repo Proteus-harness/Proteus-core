@@ -35,15 +35,20 @@ fn sha256(bytes: &[u8]) -> String {
 }
 
 fn resolved_path(path: &Path) -> Result<PathBuf> {
-    let absolute = std::path::absolute(path)?;
-    absolute
+    let selection = crate::core::config_selection(path)?;
+    let absolute = std::path::absolute(crate::core::physical_config_path(path))?;
+    let mut resolved = absolute
         .ancestors()
         .find_map(|ancestor| {
             std::fs::canonicalize(ancestor)
                 .ok()
                 .map(|root| root.join(absolute.strip_prefix(ancestor).expect("ancestor")))
         })
-        .context("cannot resolve selection profile path")
+        .context("cannot resolve selection profile path")?;
+    for role in selection {
+        resolved = crate::core::config_reference(&resolved, &role)?;
+    }
+    Ok(resolved)
 }
 
 fn binding(config: &AppConfig, path: &Path) -> Result<Option<String>> {
@@ -230,6 +235,9 @@ impl super::AppServerHandle {
         model: ModelRef,
         reasoning: ReasoningConfig,
     ) -> Result<()> {
+        if super::session_model::persist_if_scoped(self, &config, &model, &reasoning).await? {
+            return Ok(());
+        }
         let (Some(path), Some(store)) = (&self.config_path, self.runtime.session_store()) else {
             return Ok(());
         };

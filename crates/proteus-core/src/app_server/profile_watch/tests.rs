@@ -227,3 +227,68 @@ async fn watcher_does_not_keep_a_dropped_handle_alive() {
     .await
     .unwrap();
 }
+
+#[tokio::test]
+async fn inline_role_watches_physical_source_and_ui_save_keeps_parent_and_siblings() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("agent.json");
+    let child = serde_json::to_value(crate::test_model::config()).unwrap();
+    let sibling = child.clone();
+    let mut document = child.clone();
+    document["permissions"]["mode"] = serde_json::json!("plan");
+    document["agent_control"]["roles"] = serde_json::json!([
+        { "name": "explore", "description": "Reader", "config": child },
+        { "name": "coder", "description": "Writer", "config": sibling }
+    ]);
+    std::fs::write(&path, serde_json::to_vec_pretty(&document).unwrap()).unwrap();
+    let selected = crate::core::config_reference(&path, "explore").unwrap();
+    let server = AgentAppServer::launch(
+        AppConfig::load(Some(&selected)).await.unwrap(),
+        directory.path().to_path_buf(),
+        Some(&selected),
+    )
+    .await
+    .unwrap();
+    let mut events = server.subscribe();
+    document["agent_control"]["roles"][0]["config"]["permissions"]["mode"] =
+        serde_json::json!("auto");
+    std::fs::write(&path, serde_json::to_vec_pretty(&document).unwrap()).unwrap();
+    next_reload(&mut events).await;
+    assert_eq!(
+        server.config.read().await.permissions.mode,
+        PermissionMode::Auto
+    );
+    assert_eq!(server.permission_mode().await, PermissionMode::Auto);
+
+    server
+        .set_config_builder(
+            Default::default(),
+            None,
+            Default::default(),
+            None,
+            None,
+            Some(PermissionMode::Normal),
+        )
+        .await
+        .unwrap();
+    let saved: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    assert_eq!(saved["permissions"]["mode"], "plan");
+    assert_eq!(
+        saved["agent_control"]["roles"][1],
+        document["agent_control"]["roles"][1]
+    );
+    assert_eq!(
+        saved["agent_control"]["roles"][0]["config"]["permissions"]["mode"],
+        "normal"
+    );
+    assert_eq!(
+        AppConfig::load(Some(&selected))
+            .await
+            .unwrap()
+            .permissions
+            .mode,
+        PermissionMode::Normal
+    );
+    assert!(!selected.exists());
+    server.shutdown().await;
+}

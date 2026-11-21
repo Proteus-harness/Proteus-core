@@ -35,7 +35,15 @@ pub(super) fn spawn_spec(roles: &[AgentProfile], timeout_ms: u64) -> ToolSpec {
                     "description": "Unique one-segment name within this session."
                 },
                 "message": { "type": "string", "description": "Task sent to the child agent." },
-                "agent_type": role_schema(roles)
+                "agent_type": role_schema(roles),
+                "model": {
+                    "type": "string", "minLength": 1,
+                    "description": "Optional configured model alias or model ID. Defaults to the role choice, then the current parent model."
+                },
+                "effort": {
+                    "type": "string", "minLength": 1,
+                    "description": "Optional reasoning effort supported by the selected model."
+                }
             },
             "required": ["task_name", "message", "agent_type"],
             "additionalProperties": false

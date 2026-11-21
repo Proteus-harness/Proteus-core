@@ -79,6 +79,16 @@ impl RuntimeRegistry {
         }
     }
 
+    pub(crate) fn model_capabilities(
+        &self,
+        model: &ModelRef,
+    ) -> Result<Option<crate::model_standard::ModelCapabilities>> {
+        self.model_service
+            .as_ref()
+            .map(|service| service.capabilities(model))
+            .transpose()
+    }
+
     pub fn from_config(config: &AppConfig, cwd: PathBuf) -> Result<Self> {
         Ok(PreparedAssembly::from_config(config.clone(), cwd, None)?
             .into_parts()

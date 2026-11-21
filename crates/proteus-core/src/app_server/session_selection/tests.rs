@@ -1,6 +1,61 @@
 use super::*;
 use crate::app_server::AgentAppServer;
 
+#[tokio::test]
+async fn inline_roles_keep_separate_last_models_inside_one_physical_profile_store() {
+    let root = tempfile::tempdir().unwrap();
+    let cwd = tempfile::tempdir().unwrap();
+    let source = root.path().join("agent.json");
+    let baseline = crate::test_model::config();
+    let mut document = serde_json::to_value(&baseline).unwrap();
+    document["agent_control"]["roles"] = serde_json::json!([
+        { "name": "explore/read", "description": "Reader", "config": baseline },
+        { "name": "coder", "description": "Writer", "config": baseline }
+    ]);
+    std::fs::write(&source, serde_json::to_vec_pretty(&document).unwrap()).unwrap();
+    let reader_path = crate::core::config_reference(&source, "explore/read").unwrap();
+    let coder_path = crate::core::config_reference(&source, "coder").unwrap();
+    let reader_config = AppConfig::load(Some(&reader_path)).await.unwrap();
+    let coder_config = AppConfig::load(Some(&coder_path)).await.unwrap();
+    assert_eq!(reader_config.profile.name, coder_config.profile.name);
+    assert_ne!(
+        last_path(&reader_config, &reader_path).unwrap(),
+        last_path(&coder_config, &coder_path).unwrap()
+    );
+    assert_eq!(config_store_root(&reader_path), root.path());
+    let reader =
+        AgentAppServer::launch(reader_config.clone(), cwd.path().into(), Some(&reader_path))
+            .await
+            .unwrap();
+    reader
+        .set_model_name("reader-only-choice".into())
+        .await
+        .unwrap();
+    reader.shutdown().await;
+    drop(reader);
+    let coder = AgentAppServer::launch(coder_config, cwd.path().into(), Some(&coder_path))
+        .await
+        .unwrap();
+    assert_eq!(
+        coder.runtime.model_ref().await.unwrap().model,
+        baseline.active_model_config().unwrap().model
+    );
+    coder
+        .set_model_name("coder-only-choice".into())
+        .await
+        .unwrap();
+    coder.shutdown().await;
+    drop(coder);
+    let reader = AgentAppServer::launch(reader_config, cwd.path().into(), Some(&reader_path))
+        .await
+        .unwrap();
+    assert_eq!(
+        reader.runtime.model_ref().await.unwrap().model,
+        "reader-only-choice"
+    );
+    reader.shutdown().await;
+}
+
 async fn launch(root: &Path, cwd: &Path) -> super::super::AppServerHandle {
     AgentAppServer::launch(
         crate::test_model::config(),

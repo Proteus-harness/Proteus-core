@@ -119,12 +119,33 @@ Bootstrap/rotation включены в role timeout
 и cancellation; дополнительные snapshots/полная child history не сохраняются
 в родителе. Пока binding отсутствует, открывать child session по догадке нельзя.
 
+При пересылке runtime events runner переводит только physical root thread
+дочерней session в её logical `child_thread_id`. Thread потомка, исходный
+turn и execution интерактивного запроса сохраняются; label прямого ребёнка
+получает имя его role, label потомка не заменяется. Envelope относится к
+принимающей session и получает её event sequence. Identity physical root
+хранится вместе с durable session и меняется при `NewSession`, но не при
+resume. Это attribution активного forwarding path, не постоянная доставка
+из idle peer: фоновые потомки после завершения foreground turn своего
+родителя пока не имеют независимого dispatcher-а.
+
 Если отмена уже видна при ожидании role permit, она имеет приоритет даже
 при одновременно свободном permit. Свежий запуск не арендует и не создаёт
 процесс; зарезервированный resume возвращается в прежний bounded idle pool
 без отправки запроса и без очистки истории. `resumable` по-прежнему зависит
 от idle cap и сохранности процесса. Отмена после admission остаётся обычным
 cancel/write-failure путём; это не обещание отката уже начатого turn-а.
+
+Отмена и role timeout активного process turn используют один bounded
+cancel-and-settle путь: адресный `Cancel` и ожидание terminal response исходного
+`Send` в пределах `cancel_grace_ms`. Это отдельный cleanup budget после role
+deadline; ожидание включает запись, чтение и пересылку событий. Кооперативно
+завершившийся peer может остаться resumable, сохраняя `cancelled` или `timed_out`
+как причину завершения. ACK самого `Cancel` не заменяет terminal response.
+Если setup ещё не завершён, запись JSONL могла быть прервана, доставка сообщений
+не подтверждена или grace истёк, connection не переиспользуется и прямой peer
+завершается. Принудительный fallback не гарантирует остановку всех потомков:
+components и terminal commands могут владеть отдельными process groups.
 
 Real-process boundary test одновременно запускает два полных Proteus,
 передаёт им разные payload, проверяет отсутствие cross-delivery, адресный

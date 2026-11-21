@@ -13,6 +13,7 @@ import subprocess
 EVENT_LOG = os.environ["MCP_FIXTURE_EVENT_LOG"]
 GENERATION_FILE = os.environ["MCP_FIXTURE_GENERATION_FILE"]
 INIT_MODE = os.environ.get("MCP_FIXTURE_INIT_MODE", "ok")
+LIST_MODE = os.environ.get("MCP_FIXTURE_LIST_MODE", "ok")
 WRITE_LOCK = threading.Lock()
 CANCEL_LOCK = threading.Lock()
 CANCELLED = {}
@@ -204,6 +205,20 @@ for raw_line in sys.stdin:
     elif method == "tools/list":
         cursor = params.get("cursor")
         event(f"list:{cursor or 'first'}")
+        if LIST_MODE != "ok":
+            valid = tool("echo", "valid discovery tool")
+            invalid = tool("invalid", "invalid nested input schema", {
+                "message": {"type": "invalid-type"},
+            })
+            tools = {
+                "empty": [],
+                "invalid_first": [invalid, valid],
+                "invalid_last": [valid, invalid],
+                "collision": [valid, valid],
+                "invalid_collision": [valid, valid, invalid],
+            }[LIST_MODE]
+            result(request_id, {"tools": tools})
+            continue
         if cursor is None:
             result(request_id, {
                 "tools": [tool("echo", "echo a label", {
