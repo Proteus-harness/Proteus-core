@@ -68,7 +68,12 @@ async fn main() -> Result<()> {
     ensure!(rows > 0 && repeats > 0);
     ensure!(model_history_rows.is_none_or(|keep| keep > 0 && keep <= rows));
     std::fs::create_dir_all(&cwd)?;
-    let store = SessionStore::new(&root, &cwd, new_session_id())?;
+    let store = SessionStore::new(
+        fixture_storage::service(&cwd)?,
+        &root,
+        &cwd,
+        new_session_id(),
+    )?;
     let messages: Vec<_> = (0..rows)
         .map(|i| {
             CanonicalMessage::text(
@@ -238,3 +243,6 @@ async fn seed_model_requests(
     }
     Ok(request_record_bytes)
 }
+
+#[path = "support/session_storage.rs"]
+mod fixture_storage;

@@ -9,12 +9,19 @@ priority = 90
 name = "dev-slim"
 
 [modules]
+session_storage = "jsonl"
 hooks = ["codex_compact"]
 # Slim profile for dogfooding Proteus itself. Keep this focused on the active
 # coding-agent path; parked/research capabilities stay out of the hot surface.
 workflow = "coding.single_loop"
 context = "repo_aware"
 policy = "ask_write"
+
+[components.session-storage]
+command = "proteus-session-storage-module"
+transport.max_frame_bytes = 134217728
+
+[components.session-storage.exports.session_storage.jsonl]
 
 [components.reference-workflow]
 command = "proteus-coding-workflow-module"

@@ -33,12 +33,18 @@ impl ReplayState {
                 "workflow requested unrecorded context preparation".into(),
             );
         };
-        let HookEvent::BeforeContext { target, .. } = &trace.input.event else {
+        let HookEvent::BeforeContext {
+            target,
+            model_capabilities,
+            ..
+        } = &trace.input.event
+        else {
             unreachable!()
         };
         let event = HookEvent::BeforeContext {
             output: ContextPreparationOutput::unchanged(input.messages.clone()),
             input: input.clone(),
+            model_capabilities: model_capabilities.clone(),
             target: self.lock().target.clone().or_else(|| target.clone()),
         };
         let result = ReplayHooks::new(self.clone(), module_ids)

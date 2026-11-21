@@ -97,7 +97,13 @@ async fn context_recorder_persists_exact_task_bundle_error_and_pending_to_cold_p
     let workspace = tempfile::tempdir().unwrap();
     let session = new_session_id();
     let execution = new_execution_id();
-    let store = SessionStore::new(config.path(), workspace.path(), session).unwrap();
+    let store = SessionStore::new(
+        crate::test_support::storage(std::path::Path::new(".")),
+        config.path(),
+        workspace.path(),
+        session,
+    )
+    .unwrap();
     let accounting = std::sync::Arc::new(tokio::sync::Mutex::new(
         crate::core::model_context::ModelContextState::default(),
     ));
@@ -171,11 +177,7 @@ async fn context_recorder_persists_exact_task_bundle_error_and_pending_to_cold_p
         .context_response_recorded(successful, &outcomes[0].1)
         .await
         .unwrap_err();
-    assert!(
-        error
-            .to_string()
-            .contains("duplicate context build response")
-    );
+    assert!(format!("{error:#}").contains("duplicate context build response"));
     assert_eq!(
         store.load_projection().unwrap().records.len(),
         5,
@@ -197,7 +199,13 @@ async fn context_lifecycle_allows_canceled_and_timeout_turns_with_pending_build(
         let turn = new_turn_id();
         let invocation = Uuid::new_v4();
         let task = AgentTask::new("pending context", workspace.path().into());
-        let store = SessionStore::new(config.path(), workspace.path(), session).unwrap();
+        let store = SessionStore::new(
+            crate::test_support::storage(std::path::Path::new(".")),
+            config.path(),
+            workspace.path(),
+            session,
+        )
+        .unwrap();
         store
             .append_execution_journal_entry(
                 ExecutionAttribution::for_turn(execution, session, thread, turn),
@@ -231,19 +239,16 @@ async fn context_lifecycle_allows_canceled_and_timeout_turns_with_pending_build(
         let cold = store.load_projection().unwrap();
         assert_eq!(cold.interrupted_context_builds, vec![invocation]);
         assert!(cold.unsettled_turns.is_empty());
-        assert!(
-            recorder
-                .context_response_recorded(
-                    invocation,
-                    &ContextBuildOutcome::Error {
-                        message: "late result".into(),
-                        causes: Vec::new(),
-                    }
-                )
-                .await
-                .unwrap_err()
-                .to_string()
-                .contains("settled root turn")
-        );
+        let error = recorder
+            .context_response_recorded(
+                invocation,
+                &ContextBuildOutcome::Error {
+                    message: "late result".into(),
+                    causes: Vec::new(),
+                },
+            )
+            .await
+            .unwrap_err();
+        assert!(format!("{error:#}").contains("settled root turn"));
     }
 }

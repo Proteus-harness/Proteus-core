@@ -18,9 +18,31 @@ impl AppServerHandle {
         F: FnOnce() -> Fut,
         Fut: std::future::Future<Output = Result<()>>,
     {
+        let _transition = self.settings_transition.lock().await;
         let previous = self.config.read().await.clone();
+        let prior_behavior = self.behavior.read().await.clone();
+        let behavior = super::session_behavior::resolved(prior_behavior.clone(), &config);
+        let behavior_active = behavior != Default::default();
+        let behavior_base = super::session_behavior::overlay(&config, &behavior);
+        let assembly = if behavior_active {
+            Box::pin(prepare_assembly(
+                &behavior_base,
+                &self.cwd,
+                self.config_path.as_deref(),
+            ))
+            .await?
+        } else {
+            assembly
+        };
         let scoped = super::session_model::stored(self, &config).await?;
-        let invalidated = matches!(scoped, super::session_model::Stored::Invalidated);
+        let invalidated = match &scoped {
+            super::session_model::Stored::Invalidated => true,
+            super::session_model::Stored::Absent => match self.config_path.as_deref() {
+                Some(path) => super::session_selection::binding_changed(&previous, &config, path)?,
+                None => false,
+            },
+            super::session_model::Stored::Current(_) => false,
+        };
         let scoped_model = match &scoped {
             super::session_model::Stored::Current(selected) => Some(selected.model.clone()),
             _ => None,
@@ -31,9 +53,9 @@ impl AppServerHandle {
         };
         let (effective, assembly) = match &scoped {
             super::session_model::Stored::Current(selected) => {
-                super::session_model::prepare(self, &config, selected).await?
+                super::session_model::prepare(self, &behavior_base, selected).await?
             }
-            _ => (config.clone(), assembly),
+            _ => (behavior_base, assembly),
         };
         let old_model = previous.selected_model_config()?;
         let next_model = config.selected_model_config()?;
@@ -58,10 +80,14 @@ impl AppServerHandle {
         } else {
             None
         };
-        let mode = explicit_mode.or_else(|| {
-            (previous.permissions.mode != config.permissions.mode)
-                .then_some(config.permissions.mode)
-        });
+        let mode = if behavior_active || prior_behavior != Default::default() {
+            Some(effective.permissions.mode)
+        } else {
+            explicit_mode.or_else(|| {
+                (previous.permissions.mode != config.permissions.mode)
+                    .then_some(config.permissions.mode)
+            })
+        };
         let snapshot = SessionConfigSnapshot::from_runtime_config(
             &effective,
             assembly.registry(),
@@ -76,10 +102,17 @@ impl AppServerHandle {
                 model_ref,
                 mode,
                 reasoning,
-                commit,
+                || {
+                    super::session_behavior::commit_profile(
+                        self,
+                        prior_behavior.selected.is_some() && behavior.selected.is_none(),
+                        commit,
+                    )
+                },
             )
             .await?;
         *self.config.write().await = config;
+        *self.behavior.write().await = behavior;
         self.set_profile_error(None).await;
         let _ = self.events.send(AppServerEvent::ModulesReloaded {
             old_epoch: report.old_epoch,

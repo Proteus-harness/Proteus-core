@@ -225,3 +225,29 @@ async fn init_json_destination_is_loadable_json() {
         .await
         .expect("generated JSON config must load");
 }
+
+#[tokio::test]
+async fn init_profiles_keep_explicit_persistent_storage() {
+    for profile in [
+        InitProfile::Coding,
+        InitProfile::Codex,
+        InitProfile::Full,
+        InitProfile::Safe,
+    ] {
+        let dir = tempfile::tempdir().expect("config dir");
+        run_init(profile, Some(dir.path())).expect("init profile");
+        let config = AppConfig::load(Some(&dir.path().join(INIT_CONFIG_FILE)))
+            .await
+            .expect("generated config loads");
+        let selected = config
+            .modules
+            .session_storage
+            .as_deref()
+            .expect("generated profiles retain persistent sessions");
+        assert!(config.components.values().any(|component| {
+            component
+                .exports()
+                .any(|(slot, id, _)| slot == "session_storage" && id == selected)
+        }));
+    }
+}

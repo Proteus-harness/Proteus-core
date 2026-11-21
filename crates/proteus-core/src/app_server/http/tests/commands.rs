@@ -7,13 +7,52 @@ async fn session_settings_are_validated_and_return_the_complete_updated_config()
     for provider in config.providers.values_mut() {
         provider.reasoning_efforts = vec!["low".into(), "high".into()];
     }
+    config.modes = serde_json::from_value(json!({
+        "review": {"title":"Review"},
+        "quiet": {"title":"Quiet", "tools":[], "hooks":[], "permission_mode":"plan"},
+    }))
+    .unwrap();
     let config_path = directory.path().join("config.toml");
+    let source = toml::to_string_pretty(&config).unwrap();
+    std::fs::write(&config_path, &source).unwrap();
     let server = AgentAppServer::launch(config, directory.path().to_path_buf(), Some(&config_path))
         .await
         .unwrap();
     let (shutdown, _) = broadcast::channel(1);
     let state = HttpAppState::new(server.clone(), shutdown, test_security()).await;
     let session = server.session_dir_path().unwrap();
+    let response = route_request(
+        state.clone(),
+        authed_json_request("/new-session", json!({"source_session_dir":session})),
+    )
+    .await
+    .unwrap();
+    let other = match response_output(response).await {
+        StdioOutput::Response {
+            ok: true,
+            output: Some(output),
+            ..
+        } => {
+            let path = PathBuf::from(output["session_dir"].as_str().unwrap());
+            state.server_for_session_dir(&path).await.unwrap()
+        }
+        other => panic!("new session failed: {other:?}"),
+    };
+    // Both initial HTTP projections must expose the same choices without
+    // requiring a successful setting update to make the picker appear.
+    for path in ["/config", "/config/local"] {
+        let response = route_request(
+            state.clone(),
+            authed_get_request(&session_uri(path, &server)),
+        )
+        .await
+        .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let config: proteus_contracts::app_protocol::config::ConfigSummary =
+            serde_json::from_slice(&response_bytes(response).await).unwrap();
+        assert_behavior(&config, "_default");
+    }
+    let mut selected_behavior = "_default";
     for (setting, ok) in [
         (json!({"id":"mode", "value":"plan"}), true),
         (json!({"id":"mode", "value":"invented"}), false),
@@ -24,7 +63,12 @@ async fn session_settings_are_validated_and_return_the_complete_updated_config()
             true,
         ),
         (json!({"id":"reasoning_effort", "value":"_default"}), true),
+        (json!({"id":"behavior_mode", "value":"quiet"}), true),
+        (json!({"id":"behavior_mode", "value":"missing"}), false),
     ] {
+        if setting["id"] == "behavior_mode" && ok {
+            selected_behavior = "quiet";
+        }
         let response = route_request(
             state.clone(),
             authed_json_request(
@@ -45,12 +89,51 @@ async fn session_settings_are_validated_and_return_the_complete_updated_config()
                 serde_json::from_value(response["output"]["config"].clone()).unwrap();
             assert!(!config.session_settings.is_empty());
             assert_eq!(config.permission_mode, "Plan");
+            assert_behavior(&config, selected_behavior);
         } else {
             assert!(response["error"].is_string());
         }
     }
     assert_eq!(server.permission_mode().await, PermissionMode::Plan);
-    server.shutdown().await;
+    let response = route_request(
+        state.clone(),
+        authed_get_request(&session_uri("/config", &other)),
+    )
+    .await
+    .unwrap();
+    let other_config: proteus_contracts::app_protocol::config::ConfigSummary =
+        serde_json::from_slice(&response_bytes(response).await).unwrap();
+    assert_behavior(&other_config, "_default");
+    assert_eq!(other_config.permission_mode, "Normal");
+    assert_eq!(
+        std::fs::read_to_string(&config_path).unwrap(),
+        source,
+        "a session setting never rewrites the agent config"
+    );
+    shutdown_test_servers(&state).await;
+}
+
+fn assert_behavior(
+    config: &proteus_contracts::app_protocol::config::ConfigSummary,
+    selected: &str,
+) {
+    use proteus_contracts::app_protocol::settings::SessionSettingControl;
+    let behavior = config
+        .session_settings
+        .iter()
+        .find(|setting| setting.id == "behavior_mode")
+        .expect("HTTP config exposes the behavior picker");
+    let SessionSettingControl::Select { value, options } = &behavior.control else {
+        panic!("select mode")
+    };
+    assert_eq!(value, selected);
+    assert_eq!(
+        options
+            .iter()
+            .map(|option| option.value.as_str())
+            .collect::<Vec<_>>(),
+        ["_default", "quiet", "review"]
+    );
 }
 
 #[tokio::test]

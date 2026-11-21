@@ -2,7 +2,8 @@ use std::path::{Path, PathBuf};
 
 use super::{
     loading::{
-        config_name_ref, default_config_dir, expand_user_path_with_home, resolve_config_name_path,
+        config_name_ref, default_config_dir, default_config_path_from_env,
+        expand_user_path_with_home, resolve_config_name_path,
     },
     *,
 };
@@ -145,6 +146,39 @@ fn config_name_ref_accepts_simple_names_only() {
     assert_eq!(config_name_ref(Path::new(".")), None);
     assert_eq!(config_name_ref(Path::new("..")), None);
     assert_eq!(config_name_ref(Path::new("codex\\config")), None);
+}
+
+#[test]
+fn default_config_path_preserves_explicit_overrides_and_home_precedence() {
+    let mut values = std::collections::BTreeMap::from([
+        ("PROTEUS_CONFIG_PATH", "/explicit/profile.toml"),
+        ("PROTEUS_CONFIG_HOME", "/custom-config"),
+        ("HOME", "/home/fixture"),
+        ("XDG_CONFIG_HOME", "/xdg-config"),
+    ]);
+    for (key, expected) in [
+        ("PROTEUS_CONFIG_PATH", "/explicit/profile.toml"),
+        ("PROTEUS_CONFIG_HOME", "/custom-config/configs/config.toml"),
+        (
+            "HOME",
+            "/home/fixture/.config/Proteus-harness/configs/config.toml",
+        ),
+        (
+            "XDG_CONFIG_HOME",
+            "/xdg-config/Proteus-harness/configs/config.toml",
+        ),
+    ] {
+        assert_eq!(
+            default_config_path_from_env(|key| {
+                values
+                    .get(key)
+                    .map(|value| std::ffi::OsString::from(*value))
+            }),
+            Some(PathBuf::from(expected)),
+        );
+        values.remove(key);
+    }
+    assert_eq!(default_config_path_from_env(|_| None), None);
 }
 
 #[test]

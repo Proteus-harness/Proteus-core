@@ -5,6 +5,57 @@ use serde_json::json;
 use super::*;
 use crate::{core::ModuleCatalog, domain::ModuleKind};
 
+#[test]
+fn session_storage_is_optional_and_selected_by_exact_process_export() {
+    let cwd = tempfile::tempdir().unwrap();
+    let mut config = crate::test_model::config();
+    config.modules.session_storage = None;
+    assert!(
+        ModuleCatalog::selected_session_storage(&config, cwd.path())
+            .unwrap()
+            .is_none()
+    );
+    config.modules.session_storage = Some("history-backend".into());
+    config.components.insert(
+        "storage-worker".into(),
+        serde_json::from_value(json!({
+            "command":"deliberately-missing-storage-plan-worker",
+            "exports":{"session_storage":{"history-backend":{}}}
+        }))
+        .unwrap(),
+    );
+    let catalog = ModuleCatalog::from_config(&config).unwrap();
+    let plan =
+        AssemblyPlan::resolve(config.clone(), None, cwd.path().to_owned(), &catalog).unwrap();
+    assert!(plan.is_valid());
+    let slot = plan
+        .slots
+        .iter()
+        .find(|slot| slot.id == "session_storage")
+        .unwrap();
+    assert!(!slot.required);
+    assert_eq!(slot.module_id.as_deref(), Some("history-backend"));
+    let export = plan
+        .components
+        .iter()
+        .find(|component| component.id == "storage-worker")
+        .unwrap()
+        .exports
+        .first()
+        .unwrap();
+    assert_eq!(export.contract_version, "v2");
+    assert_eq!(
+        export.composition,
+        crate::contracts::ProcessModuleComposition::SelectOne
+    );
+    assert_eq!(export.module_methods, ["execute"]);
+    assert!(export.host_methods.is_empty());
+    // The declaration-only plan above succeeds without launching the missing
+    // worker. Building the selected service performs its ordinary handshake.
+    config.modules.session_storage = Some("unregistered-storage".into());
+    assert!(ModuleCatalog::selected_session_storage(&config, cwd.path()).is_err());
+}
+
 fn process_search_config(command: &str) -> AppConfig {
     let mut config = crate::test_model::config();
     config
@@ -168,6 +219,7 @@ fn hooks_preserve_config_order_and_only_include_selected_exports() {
             [
                 crate::contracts::OPERATION_HOST_COMPLETE_MODEL_METHOD,
                 crate::contracts::OPERATION_HOST_EXECUTE_TOOL_METHOD,
+                crate::contracts::HOOK_HOST_ESTIMATE_MODEL_INPUT_METHOD,
             ]
         );
         assert_eq!(

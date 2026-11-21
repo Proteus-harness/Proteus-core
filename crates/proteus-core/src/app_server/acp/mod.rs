@@ -155,7 +155,11 @@ async fn serve(
                     let session = mode.session(&request.session_id).await?;
                     let _lease = session.reserve()?;
                     let permission = input::permission_mode(&request.mode_id)?;
-                    session.server.set_permission_mode(permission).await;
+                    session
+                        .server
+                        .set_permission_mode(permission)
+                        .await
+                        .map_err(internal)?;
                     cx.send_notification(SessionNotification::new(
                         request.session_id.clone(),
                         SessionUpdate::CurrentModeUpdate(CurrentModeUpdate::new(request.mode_id)),

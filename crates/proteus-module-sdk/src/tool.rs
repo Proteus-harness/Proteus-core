@@ -1,4 +1,4 @@
-//! Typed adapter for the existing tool/v6 contract; it defines no new slot.
+//! Typed adapter for the existing tool/v7 contract; it defines no new slot.
 
 use anyhow::{Result, bail};
 use proteus_contracts::{
@@ -52,7 +52,7 @@ pub struct ToolExport<T> {
 }
 
 impl<T: ToolModule> ToolExport<T> {
-    /// Bind one requested tool/v6 export. The factory must also check module_id
+    /// Bind one requested tool/v7 export. The factory must also check module_id
     /// and parse module_config before choosing its implementation.
     pub fn new(binding: ProcessComponentExportInitialize, tools: T) -> Result<Self> {
         if binding.slot != "tool" || binding.contract_version != PROCESS_TOOL_CONTRACT_VERSION {

@@ -63,7 +63,9 @@ async fn start_with_polling(handle: &AppServerHandle, path: PathBuf, mut polling
     };
     let owner = std::sync::Arc::downgrade(&handle.inner);
     let stop = handle.profile_stop.clone();
-    tokio::spawn(async move {
+    // Keep profile preparation/publication futures off the caller's native
+    // stack; this owner can be started from deeply nested transport futures.
+    tokio::spawn(Box::pin(async move {
         let physical = crate::core::physical_config_path(&path);
         let mut last_scan_started = None;
         let mut seen = None;
@@ -159,7 +161,7 @@ async fn start_with_polling(handle: &AppServerHandle, path: PathBuf, mut polling
                 }
             }
         }
-    });
+    }));
 }
 
 async fn refresh(handle: &AppServerHandle, path: &Path, expected: &Fingerprint) -> Result<bool> {

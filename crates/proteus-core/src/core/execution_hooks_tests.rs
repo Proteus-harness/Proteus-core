@@ -238,3 +238,54 @@ async fn invalid_context_and_foreign_attribution_are_rejected_before_later_handl
     );
     assert!(calls.lock().unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn continuing_before_model_still_shapes_the_accepted_request() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    struct ContinueHandler;
+    #[async_trait]
+    impl HookHandler for ContinueHandler {
+        async fn invoke(
+            &self,
+            _: HookInput,
+            _: Arc<dyn crate::contracts::HookHost>,
+        ) -> Result<HookResponse> {
+            Ok(HookResponse::Continue)
+        }
+    }
+    struct CountDescriptions(Arc<AtomicUsize>);
+    #[async_trait]
+    impl Model for CountDescriptions {
+        fn id(&self) -> std::borrow::Cow<'static, str> {
+            "mock".into()
+        }
+        fn capabilities(&self, _: &ModelRef) -> Result<ModelCapabilities> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(ModelCapabilities::empty())
+        }
+        async fn stream(&self, _: CanonicalModelRequest) -> Result<ModelEventStream> {
+            panic!("shaping must not invoke provider")
+        }
+    }
+    let descriptions = Arc::new(AtomicUsize::new(0));
+    let chain = RuntimeHookChain::new(
+        vec![("continue".into(), Arc::new(ContinueHandler))],
+        ExecutionScope::fresh(CancellationToken::new()),
+        Arc::new(NoopExecutionRecorder),
+        Some(Arc::new(ModelService::new(Arc::new(CountDescriptions(
+            descriptions.clone(),
+        ))))),
+    );
+    let event = model_event();
+    let mut shaped = event.clone();
+    let HookEvent::BeforeModel { request, .. } = &mut shaped else {
+        unreachable!()
+    };
+    // Empty capabilities remove automatic tool choice from a tool-free request.
+    request.tool_choice = crate::domain::ToolChoice::None;
+    assert_eq!(
+        chain.apply(bound_input(&chain, event)).await.unwrap(),
+        shaped
+    );
+    assert_eq!(descriptions.load(Ordering::SeqCst), 1);
+}

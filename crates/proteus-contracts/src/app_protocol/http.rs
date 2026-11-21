@@ -98,15 +98,36 @@ pub struct SetConfigBuilderRequest {
     /// `None` — не трогать `tools.enabled`; `Some` — заменить список целиком.
     #[serde(default)]
     pub tools_enabled: Option<Vec<String>>,
-    /// `None` — не трогать `active_provider`.
+    /// Absent preserves the source choice; null removes it; a string selects a preset.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_model_choice"
+    )]
+    pub model: Option<Option<String>>,
+    /// None preserves named definitions; Some replaces the owned catalogue.
     #[serde(default)]
-    pub active_provider: Option<String>,
+    pub models: Option<BTreeMap<String, super::config_builder::ConfigBuilderModelPreset>>,
+    /// Optional compare-and-swap baseline for a catalogue replacement.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_models: Option<BTreeMap<String, super::config_builder::ConfigBuilderModelPreset>>,
+    /// Partial direct-role selections; a null value restores parent inheritance.
+    #[serde(default)]
+    pub role_models: Option<BTreeMap<String, Option<String>>>,
+    /// Complete replacement of the source-owned behavior mode definitions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub modes: Option<BTreeMap<String, crate::domain::BehaviorModeDefinition>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_modes: Option<BTreeMap<String, crate::domain::BehaviorModeDefinition>>,
     /// `None` — не трогать `[permissions] mode`.
     #[serde(default)]
     pub permission_mode: Option<PermissionMode>,
     /// Register installed process packages without selecting their exports.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub component_packages: Vec<ComponentPackageInstall>,
+    /// Remove source-owned model connections after checking their named-model users.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub remove_model_connections: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, Deserialize)]
@@ -115,6 +136,15 @@ pub struct ComponentPackageInstall {
     pub id: String,
     /// Absolute executable followed by its arguments; never a shell command.
     pub command: Vec<String>,
+    /// Optional authored logo reference; presentation only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    /// Explicit environment names shared with this new component only.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub env_allowlist: Vec<String>,
+    /// Additive settings for this new package's concrete exports only.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub initial_config: BTreeMap<String, BTreeMap<String, serde_json::Value>>,
     /// Declared package exports, in the same shape as module.json.
     pub exports: BTreeMap<String, Vec<String>>,
     #[serde(default)]
@@ -182,4 +212,37 @@ pub struct DeleteQueuedMessageRequest {
     pub id: Option<String>,
     pub session_dir: PathBuf,
     pub message_id: MessageId,
+}
+
+fn deserialize_model_choice<'de, D>(deserializer: D) -> Result<Option<Option<String>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<String>::deserialize(deserializer).map(Some)
+}
+
+#[cfg(test)]
+mod model_choice_tests {
+    use super::*;
+    #[test]
+    fn model_choice_distinguishes_preserve_clear_and_select() {
+        for (wire, expected) in [
+            (serde_json::json!({}), None),
+            (serde_json::json!({"model":null}), Some(None)),
+            (
+                serde_json::json!({"model":"cheap"}),
+                Some(Some("cheap".into())),
+            ),
+        ] {
+            let value: SetConfigBuilderRequest = serde_json::from_value(wire).unwrap();
+            assert_eq!(value.model, expected);
+            let round_trip: SetConfigBuilderRequest =
+                serde_json::from_value(serde_json::to_value(&value).unwrap()).unwrap();
+            assert_eq!(round_trip.model, expected);
+            assert_eq!(
+                serde_json::to_value(value).unwrap().get("model").is_some(),
+                expected.is_some()
+            );
+        }
+    }
 }

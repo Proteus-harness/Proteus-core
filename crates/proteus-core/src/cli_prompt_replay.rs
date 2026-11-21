@@ -16,7 +16,9 @@ pub(crate) async fn run_prompt_replay(
     let model_config = config.active_model_config()?;
     let catalog = ModuleCatalog::from_config(config)?;
     let adapter = catalog.build_model_adapter(&model_config, cwd)?;
+    let storage = proteus_core::core::configured_session_storage(config, cwd)?;
     let report = replay_prompt(
+        storage,
         command.source,
         adapter,
         PromptReplayOptions {

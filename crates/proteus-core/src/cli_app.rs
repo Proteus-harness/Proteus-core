@@ -279,11 +279,7 @@ fn decode_response(
 }
 
 fn permission_mode_arg(mode: PermissionMode) -> Result<&'static str> {
-    match mode {
-        PermissionMode::Plan => Ok("plan"),
-        PermissionMode::Normal => Ok("normal"),
-        PermissionMode::Auto => Ok("auto"),
-    }
+    Ok(mode.as_str())
 }
 
 fn prompt_approval(
@@ -484,6 +480,10 @@ time.sleep(30)
             "normal"
         );
         assert_eq!(permission_mode_arg(PermissionMode::Auto).unwrap(), "auto");
+        assert_eq!(
+            permission_mode_arg(PermissionMode::FullAccess).unwrap(),
+            "full_access"
+        );
     }
 
     #[test]

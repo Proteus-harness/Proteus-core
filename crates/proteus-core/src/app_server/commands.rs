@@ -20,7 +20,7 @@ const BUILTINS: &[(&str, &str, &str)] = &[
     (
         "mode",
         "Показать или выбрать режим разрешений",
-        "[normal|plan|auto]",
+        "[normal|plan|full_access]",
     ),
 ];
 
@@ -142,9 +142,10 @@ impl AppServerHandle {
                         "normal" => crate::domain::PermissionMode::Normal,
                         "plan" => crate::domain::PermissionMode::Plan,
                         "auto" => crate::domain::PermissionMode::Auto,
-                        _ => return Err(anyhow!("usage: /mode [normal|plan|auto]")),
+                        "full_access" => crate::domain::PermissionMode::FullAccess,
+                        _ => return Err(anyhow!("usage: /mode [normal|plan|full_access]")),
                     };
-                    self.set_permission_mode(mode).await;
+                    self.set_permission_mode(mode).await?;
                 }
                 serde_json::to_string_pretty(&self.config_summary().await)?
             }

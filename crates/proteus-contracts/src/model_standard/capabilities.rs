@@ -6,6 +6,9 @@ use crate::domain::HostedToolKind;
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct ModelCapabilities {
+    /// Native checkpoint generation through `ModelOperation::Compact`.
+    #[serde(default)]
+    pub supports_compaction: bool,
     pub supports_tools: bool,
     pub supports_parallel_tool_calls: bool,
     pub supports_freeform_tools: bool,
@@ -28,6 +31,7 @@ impl ModelCapabilities {
     /// Базовая capability: только текст + tools, без streaming/image/etc.
     pub fn basic_text_and_tools() -> Self {
         Self {
+            supports_compaction: false,
             supports_tools: true,
             supports_parallel_tool_calls: false,
             supports_freeform_tools: false,
@@ -48,6 +52,7 @@ impl ModelCapabilities {
     /// Пустые capabilities — всё false. Используется как fallback.
     pub fn empty() -> Self {
         Self {
+            supports_compaction: false,
             supports_tools: false,
             supports_parallel_tool_calls: false,
             supports_freeform_tools: false,
@@ -63,6 +68,11 @@ impl ModelCapabilities {
             max_input_tokens: None,
             max_output_tokens: None,
         }
+    }
+
+    pub fn with_compaction(mut self, value: bool) -> Self {
+        self.supports_compaction = value;
+        self
     }
 
     pub fn with_tools(mut self, value: bool) -> Self {

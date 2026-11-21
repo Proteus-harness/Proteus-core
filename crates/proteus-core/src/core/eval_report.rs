@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use crate::{
     core::{
         JournalEntry, JournalRecord, ModelResponseOutcome, SessionStore, ToolCallRecordPhase,
-        TurnSettlementStatus, normalize_session_dir_path,
+        TurnSettlementStatus,
     },
     domain::{CallId, ToolCall, ToolCallResolution, TurnId},
 };
@@ -72,9 +72,12 @@ struct EvalAccumulator {
     settled_tools: BTreeSet<CallId>,
 }
 
-pub fn read_eval_report(path: impl AsRef<Path>) -> Result<EvalReport> {
-    let session_dir = normalize_session_dir_path(path.as_ref().to_path_buf())?;
-    let store = SessionStore::open(session_dir.clone()).with_context(|| {
+pub fn read_eval_report(
+    storage: crate::core::StorageService,
+    path: impl AsRef<Path>,
+) -> Result<EvalReport> {
+    let session_dir = path.as_ref().to_path_buf();
+    let store = SessionStore::open(storage, session_dir.clone()).with_context(|| {
         format!(
             "failed to open canonical session journal at {}",
             session_dir.display()
@@ -246,16 +249,14 @@ fn record_changed_files(
                 .or_else(|| call.args.get("input"))
                 .and_then(serde_json::Value::as_str)
             {
-                for path in patch_paths(patch) {
-                    changed_files.insert(path);
-                }
+                changed_files.extend(patch_paths(patch));
             }
         }
         _ => {}
     }
 }
 
-fn patch_paths(patch: &str) -> Vec<String> {
+fn patch_paths(patch: &str) -> impl Iterator<Item = String> {
     patch
         .lines()
         .filter_map(|line| {
@@ -267,7 +268,6 @@ fn patch_paths(patch: &str) -> Vec<String> {
         .map(str::trim)
         .filter(|path| !path.is_empty())
         .map(str::to_owned)
-        .collect()
 }
 
 #[cfg(test)]
@@ -295,8 +295,13 @@ mod tests {
     async fn report_uses_canonical_journal_records() {
         let config_dir = tempfile::tempdir().expect("config");
         let workspace = tempfile::tempdir().expect("workspace");
-        let store = SessionStore::new(config_dir.path(), workspace.path(), new_session_id())
-            .expect("store");
+        let store = SessionStore::new(
+            crate::test_support::storage(workspace.path()),
+            config_dir.path(),
+            workspace.path(),
+            new_session_id(),
+        )
+        .expect("store");
         let thread_id = new_thread_id();
         let turn_id = new_turn_id();
         let attribution = ExecutionAttribution::for_turn(
@@ -447,7 +452,8 @@ mod tests {
             .await
             .expect("turn settled");
 
-        let report = read_eval_report(store.session_dir()).expect("report");
+        let report =
+            read_eval_report(store.storage_service(), store.session_dir()).expect("report");
 
         assert!(report.succeeded());
         assert_eq!(report.records, 9);
@@ -468,8 +474,13 @@ mod tests {
     async fn unfinished_turn_is_reported_as_failure() {
         let config_dir = tempfile::tempdir().expect("config");
         let workspace = tempfile::tempdir().expect("workspace");
-        let store = SessionStore::new(config_dir.path(), workspace.path(), new_session_id())
-            .expect("store");
+        let store = SessionStore::new(
+            crate::test_support::storage(workspace.path()),
+            config_dir.path(),
+            workspace.path(),
+            new_session_id(),
+        )
+        .expect("store");
         let turn_id = new_turn_id();
         let thread_id = new_thread_id();
         let attribution = ExecutionAttribution::for_turn(
@@ -492,7 +503,8 @@ mod tests {
             .await
             .expect("turn opened");
 
-        let report = read_eval_report(store.journal_path()).expect("report");
+        let report =
+            read_eval_report(store.storage_service(), store.journal_path()).expect("report");
 
         assert!(!report.succeeded());
         assert_eq!(report.turns_failed, 1);

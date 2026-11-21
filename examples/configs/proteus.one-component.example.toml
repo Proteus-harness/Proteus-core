@@ -16,13 +16,20 @@ model = "fake-tool-model"
 stream = true
 
 [modules]
+session_storage = "jsonl"
 hooks = ["tool_selection.dynamic", "codex_compact"]
 workflow = "coding.codex_loop"
 context = "simple"
 policy = "allow_all"
 
-# Этот профиль намеренно собирает callback-связанные exports в один process.
-# Это отдельный failure domain для P4 evidence, а не новый обязательный default.
+[components.session-storage]
+command = "proteus-session-storage-module"
+transport.max_frame_bytes = 134217728
+
+[components.session-storage.exports.session_storage.jsonl]
+
+# Storage запускается отдельно. Callback-связанные exports собраны в один process.
+# Reference-agent сохраняет общий failure domain для P4 evidence.
 [components.reference-agent]
 command = "proteus-reference-module"
 

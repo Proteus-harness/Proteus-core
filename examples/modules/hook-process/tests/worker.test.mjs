@@ -17,8 +17,9 @@ test("real TS worker multiplexes exports, redirects logs and cancels only the ad
       console.log('ported log');
       hooks.on('before_context', async (event: any, ctx: any) => {
         const model = await ctx.completeModel({messages: []});
+        const estimate = await ctx.estimateModelInput({model:{provider:'fixture',model:'native'},parts:[]});
         const tool = await ctx.executeTool({id:'nested', name:'read_file',args:{path:'a'}});
-        return {action:'context_preparation', output:{...event.output,metadata:{model,tool}}};
+        return {action:'context_preparation', output:{...event.output,metadata:{model,estimate,tool}}};
       });
       hooks.on('before_tool', async (event: any, ctx: any) => {
         if(event.call.name==='wait') await setTimeout(2000, undefined, {signal:ctx.signal});
@@ -51,7 +52,7 @@ test("real TS worker multiplexes exports, redirects logs and cancels only the ad
     replies.set(id, resolve);
     child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`);
   });
-   const binding = (id) => ({ slot: "hook", module_id: id, contract_version: "v6", composition: "ordered_many", module_config: { entry, settings: { tag: id } }, host_features: ["org.example/future.v1"] });
+   const binding = (id) => ({ slot: "hook", module_id: id, contract_version: "v8", composition: "ordered_many", module_config: { entry, settings: { tag: id } }, host_features: ["org.example/future.v1"] });
   const invocation = (id, module, name) => ({
     export: { slot: "hook", module_id: module },
     lineage: { root_invocation_id: id, parent_invocation_id: null, depth: 0 },
@@ -76,7 +77,7 @@ test("real TS worker multiplexes exports, redirects logs and cancels only the ad
     preparation.params.event = {event:"before_context",input:{messages:[],request:null,token_estimate:null,window_tokens:null,reason:null},output:{messages:[],changed:false},target:null};
     const prepared = await send("h:1:5", "hook.invoke", preparation);
     assert.equal(prepared.result.result.action, "context_preparation");
-    assert.deepEqual(callbacks.map(frame=>frame.method), ["host.model.complete", "host.tools.execute"]);
+    assert.deepEqual(callbacks.map(frame=>frame.method), ["host.model.complete", "host.model.estimate_input", "host.tools.execute"]);
     assert.ok(callbacks.every(frame=>frame.params.invocation_id==="h:1:5"));
     assert.equal(prepared.result.result.output.metadata.model.value, "host.model.complete");
     failModel = true;

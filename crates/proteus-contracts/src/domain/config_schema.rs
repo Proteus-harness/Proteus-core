@@ -23,6 +23,16 @@ pub struct ConfigField {
     /// Presentation grouping among sibling fields; never a configuration path.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub section: Option<ConfigSection>,
+    /// Optional discovery hints for an editable string list. Never an allowlist.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub suggestions: Option<ConfigSuggestions>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ConfigSuggestions {
+    Tools {},
+    Exports { slot: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -77,6 +87,7 @@ impl ConfigField {
             advanced: false,
             unit: None,
             section: None,
+            suggestions: None,
         }
     }
     pub fn with_default(mut self, value: impl Into<Value>) -> Self {
@@ -93,6 +104,14 @@ impl ConfigField {
     }
     pub fn unit(mut self, unit: &str) -> Self {
         self.unit = Some(unit.into());
+        self
+    }
+    pub fn suggest_tools(mut self) -> Self {
+        self.suggestions = Some(ConfigSuggestions::Tools {});
+        self
+    }
+    pub fn suggest_exports(mut self, slot: &str) -> Self {
+        self.suggestions = Some(ConfigSuggestions::Exports { slot: slot.into() });
         self
     }
     pub fn section(mut self, id: &str, title: &str, description: &str) -> Self {
@@ -167,6 +186,29 @@ fn validate_fields(fields: &[ConfigField], depth: usize) -> Result<(), String> {
                         "config schema has conflicting metadata for section {:?}",
                         section.id
                     ));
+                }
+            }
+        }
+        if let Some(suggestions) = &field.suggestions {
+            let string_list = match &field.value {
+                ConfigValueSchema::Array { items } => match items.as_ref() {
+                    ConfigValueSchema::String { secret: false, .. } => true,
+                    ConfigValueSchema::Enum { options } => {
+                        options.iter().all(|option| option.value.is_string())
+                    }
+                    _ => false,
+                },
+                _ => false,
+            };
+            if !string_list {
+                return Err(format!(
+                    "config schema suggestions require a string list: {}",
+                    field.key
+                ));
+            }
+            if let ConfigSuggestions::Exports { slot } = suggestions {
+                if slot.trim().is_empty() {
+                    return Err("config schema suggestions need a nonempty export slot".into());
                 }
             }
         }
@@ -277,6 +319,41 @@ mod tests {
             serde_json::from_value::<ModuleConfigSchema>(encoded).unwrap(),
             grouped
         );
+    }
+
+    #[test]
+    fn list_suggestions_round_trip_without_restricting_values() {
+        let schema = ModuleConfigSchema {
+            fields: vec![
+                ConfigField::new("sources", "Источники", "", ConfigValueSchema::strings())
+                    .suggest_exports("context_provider")
+                    .with_default(serde_json::json!(["custom-source"])),
+                ConfigField::new("tools", "Инструменты", "", ConfigValueSchema::strings())
+                    .suggest_tools(),
+            ],
+        };
+        schema.validate().unwrap();
+        let wire = serde_json::to_value(&schema).unwrap();
+        assert_eq!(
+            wire["fields"][0]["suggestions"],
+            serde_json::json!({"type":"exports","slot":"context_provider"})
+        );
+        assert_eq!(
+            serde_json::from_value::<ModuleConfigSchema>(wire).unwrap(),
+            schema
+        );
+        for field in [
+            boolean("bad").suggest_tools(),
+            ConfigField::new("bad", "Bad", "", ConfigValueSchema::strings()).suggest_exports(" "),
+        ] {
+            assert!(
+                ModuleConfigSchema {
+                    fields: vec![field]
+                }
+                .validate()
+                .is_err()
+            );
+        }
     }
 
     #[test]

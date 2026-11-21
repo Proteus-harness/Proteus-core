@@ -1,25 +1,34 @@
-# Pi 1.5.2: npm package and installer in Proteus-modules/tool/pi-tools.
-active_provider = "chatgpt"
+# Pi 1.5.2: штатные поведенческие слоты; модель независимо подключена через OpenCode Go.
+model = "cheap"
 
-[providers.chatgpt]
-provider = "pi_codex"
-model = "gpt-6.1-sol"
+[models.cheap]
+provider = "opencode"
 stream = true
-[providers.chatgpt.reasoning]
-effort = "high"
+model = "deepseek-v4.1-flash"
 summary = true
+effort = "high"
 
-[components.pi-model]
-command = "proteus-pi-module"
-env_allowlist = ["HOME", "PI_CODING_AGENT_DIR", "PATH", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy"]
-[components.pi-model.exports.model.pi_codex]
-[module_config.model.pi_codex]
-implementation = "openai-codex"
+[module_config.model.opencode]
+provider = "opencode-go"
+
+[module_config.workflow.pi_loop]
+catalog_provider = "opencode-go"
+
+[module_config.hook.pi_compact]
+catalog_provider = "opencode-go"
+
+# Штатный bash использует OS-права worker; перед эффектами требуется approval.
+[module_config.policy.codex_policy]
+allow = ["read"]
+allow_sandboxed = []
+ask_before = ["bash", "edit", "write"]
 
 [profile]
 name = "pi"
+title = "Pi"
 
 [modules]
+session_storage = "jsonl"
 workflow = "pi_loop"
 context = "pi_context"
 policy = "codex_policy"
@@ -44,6 +53,12 @@ env_allowlist = ["HOME", "PI_CODING_AGENT_DIR", "PATH"]
 command = "proteus-policy-pack-module"
 [components.policy.exports.policy.codex_policy]
 
+[components.opencode-model]
+command = "proteus-opencode-module"
+env_allowlist = ["HOME", "XDG_DATA_HOME", "PATH", "OPENCODE_API_KEY", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy"]
+
+[components.opencode-model.exports.model.opencode]
+
 [tools]
 enabled = ["read", "bash", "edit", "write"]
 mcp_servers = []
@@ -51,11 +66,14 @@ mcp_servers = []
 [permissions]
 mode = "normal"
 
-# Upstream bash uses the worker's OS permissions. Ask before starting an effect.
-[module_config.policy.codex_policy]
-allow = ["read"]
-allow_sandboxed = []
-ask_before = ["bash", "edit", "write"]
 
 [event_log]
 path = ".proteus/events.jsonl"
+
+[components.session-storage]
+command = "proteus-session-storage-module"
+transport.max_frame_bytes = 134217728
+
+[components.session-storage.exports.session_storage.jsonl]
+
+[components.session-storage.exports.session_storage.sqlite]

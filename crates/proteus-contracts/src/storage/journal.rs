@@ -1,0 +1,321 @@
+use crate::{
+    contracts::{ContextBuildOutcome, ModelCallOrigin, OperationOwner},
+    domain::{
+        AgentOutput, AgentTask, ExchangeId, ExecutionId, HistoryCompactionReport, RecordId,
+        SessionId, SubagentSessionBinding, ThreadId, ToolCall, ToolCallResolution, ToolResult,
+        TurnId,
+    },
+    model_standard::{
+        CanonicalMessage, CanonicalModelRequest, CanonicalModelResponse, ModelFailure,
+    },
+};
+use serde::{Deserialize, Serialize};
+mod hook_trace;
+
+#[derive(Deserialize)]
+#[serde(transparent)]
+struct StoredHookTrace(#[serde(with = "hook_trace")] crate::contracts::HookTrace);
+
+#[derive(Serialize)]
+#[serde(transparent)]
+struct StoredHookTraceRef<'a>(#[serde(with = "hook_trace")] &'a crate::contracts::HookTrace);
+
+pub const JOURNAL_SCHEMA_VERSION: u32 = 21;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ContextRequestRecorded {
+    pub invocation_id: uuid::Uuid,
+    pub task: AgentTask,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ContextResponseRecorded {
+    pub invocation_id: uuid::Uuid,
+    pub outcome: ContextBuildOutcome,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct TurnOpened {
+    pub task: AgentTask,
+    pub intent: Option<String>,
+    pub base_history_revision: u64,
+    pub module_epoch: u64,
+    pub config_snapshot: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum HistoryMutationKind {
+    Append,
+    Replace,
+    Checkpoint,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct HistoryMutated {
+    pub previous_revision: u64,
+    pub new_revision: u64,
+    pub mutation: HistoryMutationKind,
+    pub messages: Vec<CanonicalMessage>,
+    pub compaction: Option<HistoryCompactionReport>,
+    pub tool_results: Vec<crate::contracts::WorkflowToolResultBinding>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ModelRequestRecorded {
+    pub exchange_id: ExchangeId,
+    pub origin: ModelCallOrigin,
+    pub owner: OperationOwner,
+    pub request: CanonicalModelRequest,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ModelMessageRecorded {
+    pub exchange_id: ExchangeId,
+    pub message: CanonicalMessage,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ModelResponseOutcome {
+    Response { response: CanonicalModelResponse },
+    Error { failure: ModelFailure },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ModelResponseRecorded {
+    pub exchange_id: ExchangeId,
+    pub outcome: ModelResponseOutcome,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "phase", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ToolCallRecordPhase {
+    Requested { owner: OperationOwner },
+    ApprovalRequested { reason: String },
+    Resolved { resolution: ToolCallResolution },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ToolCallRecorded {
+    pub call: ToolCall,
+    pub phase: ToolCallRecordPhase,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ToolResultRecorded {
+    pub result: ToolResult,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TurnSettlementStatus {
+    Success,
+    Error,
+    Canceled,
+    Timeout,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct TurnSettled {
+    pub status: TurnSettlementStatus,
+    pub output: Option<AgentOutput>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum JournalKind {
+    HookInvoked,
+    TurnOpened,
+    HistoryMutated,
+    ContextRequestRecorded,
+    ContextResponseRecorded,
+    ModelRequestRecorded,
+    ModelMessageRecorded,
+    ModelResponseRecorded,
+    ToolCallRecorded,
+    ToolResultRecorded,
+    ToolEffectRecorded,
+    SubagentSessionBoundRecorded,
+    TurnSettled,
+}
+
+impl JournalKind {
+    pub fn is_display_record(self) -> bool {
+        matches!(
+            self,
+            Self::HistoryMutated
+                | Self::ModelMessageRecorded
+                | Self::ModelResponseRecorded
+                | Self::ToolCallRecorded
+                | Self::ToolResultRecorded
+                | Self::ToolEffectRecorded
+                | Self::SubagentSessionBoundRecorded
+                | Self::TurnOpened
+                | Self::TurnSettled
+        )
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(
+    tag = "kind",
+    content = "payload",
+    rename_all = "snake_case",
+    deny_unknown_fields
+)]
+pub enum JournalEntry {
+    HookInvoked(crate::contracts::HookTrace),
+    TurnOpened(TurnOpened),
+    HistoryMutated(HistoryMutated),
+    ContextRequestRecorded(ContextRequestRecorded),
+    ContextResponseRecorded(ContextResponseRecorded),
+    ModelRequestRecorded(ModelRequestRecorded),
+    ModelMessageRecorded(ModelMessageRecorded),
+    ModelResponseRecorded(ModelResponseRecorded),
+    ToolCallRecorded(ToolCallRecorded),
+    ToolResultRecorded(ToolResultRecorded),
+    ToolEffectRecorded(ToolResultRecorded),
+    SubagentSessionBoundRecorded(SubagentSessionBinding),
+    TurnSettled(TurnSettled),
+}
+
+// Both storage encodings use the same strict payload DTO for each kind.
+macro_rules! decode_entry {
+    ($decode:ident, $kind:expr, $payload:expr) => {
+        match $kind {
+            JournalKind::HookInvoked => {
+                serde_json::$decode($payload).map(JournalEntry::HookInvoked)
+            }
+            JournalKind::TurnOpened => serde_json::$decode($payload).map(JournalEntry::TurnOpened),
+            JournalKind::HistoryMutated => {
+                serde_json::$decode($payload).map(JournalEntry::HistoryMutated)
+            }
+            JournalKind::ContextRequestRecorded => {
+                serde_json::$decode($payload).map(JournalEntry::ContextRequestRecorded)
+            }
+            JournalKind::ContextResponseRecorded => {
+                serde_json::$decode($payload).map(JournalEntry::ContextResponseRecorded)
+            }
+            JournalKind::ModelRequestRecorded => {
+                serde_json::$decode($payload).map(JournalEntry::ModelRequestRecorded)
+            }
+            JournalKind::ModelMessageRecorded => {
+                serde_json::$decode($payload).map(JournalEntry::ModelMessageRecorded)
+            }
+            JournalKind::ModelResponseRecorded => {
+                serde_json::$decode($payload).map(JournalEntry::ModelResponseRecorded)
+            }
+            JournalKind::ToolCallRecorded => {
+                serde_json::$decode($payload).map(JournalEntry::ToolCallRecorded)
+            }
+            JournalKind::ToolResultRecorded => {
+                serde_json::$decode($payload).map(JournalEntry::ToolResultRecorded)
+            }
+            JournalKind::ToolEffectRecorded => {
+                serde_json::$decode($payload).map(JournalEntry::ToolEffectRecorded)
+            }
+            JournalKind::SubagentSessionBoundRecorded => {
+                serde_json::$decode($payload).map(JournalEntry::SubagentSessionBoundRecorded)
+            }
+            JournalKind::TurnSettled => {
+                serde_json::$decode($payload).map(JournalEntry::TurnSettled)
+            }
+        }
+    };
+}
+
+impl JournalEntry {
+    /// Lossless compact payload for built-in durable storage. Live DTO serialization
+    /// continues to use the full canonical representation.
+    pub fn stored_payload_value(&self) -> serde_json::Result<serde_json::Value> {
+        match self {
+            Self::HookInvoked(trace) => serde_json::to_value(StoredHookTraceRef(trace)),
+            _ => self.payload_value(),
+        }
+    }
+
+    pub fn from_stored_kind_and_payload(
+        kind: JournalKind,
+        payload: serde_json::Value,
+    ) -> serde_json::Result<Self> {
+        match kind {
+            JournalKind::HookInvoked => serde_json::from_value::<StoredHookTrace>(payload)
+                .map(|trace| Self::HookInvoked(trace.0)),
+            _ => Self::from_kind_and_payload(kind, payload),
+        }
+    }
+
+    pub fn from_stored_kind_and_bytes(
+        kind: JournalKind,
+        payload: &[u8],
+    ) -> serde_json::Result<Self> {
+        match kind {
+            JournalKind::HookInvoked => serde_json::from_slice::<StoredHookTrace>(payload)
+                .map(|trace| Self::HookInvoked(trace.0)),
+            _ => Self::from_kind_and_bytes(kind, payload),
+        }
+    }
+
+    pub fn kind(&self) -> JournalKind {
+        match self {
+            Self::HookInvoked(_) => JournalKind::HookInvoked,
+            Self::TurnOpened(_) => JournalKind::TurnOpened,
+            Self::HistoryMutated(_) => JournalKind::HistoryMutated,
+            Self::ContextRequestRecorded(_) => JournalKind::ContextRequestRecorded,
+            Self::ContextResponseRecorded(_) => JournalKind::ContextResponseRecorded,
+            Self::ModelRequestRecorded(_) => JournalKind::ModelRequestRecorded,
+            Self::ModelMessageRecorded(_) => JournalKind::ModelMessageRecorded,
+            Self::ModelResponseRecorded(_) => JournalKind::ModelResponseRecorded,
+            Self::ToolCallRecorded(_) => JournalKind::ToolCallRecorded,
+            Self::ToolResultRecorded(_) => JournalKind::ToolResultRecorded,
+            Self::ToolEffectRecorded(_) => JournalKind::ToolEffectRecorded,
+            Self::SubagentSessionBoundRecorded(_) => JournalKind::SubagentSessionBoundRecorded,
+            Self::TurnSettled(_) => JournalKind::TurnSettled,
+        }
+    }
+
+    pub fn payload_value(&self) -> serde_json::Result<serde_json::Value> {
+        let mut value = serde_json::to_value(self)?;
+        value
+            .get_mut("payload")
+            .map(serde_json::Value::take)
+            .ok_or_else(|| serde::ser::Error::custom("journal entry omitted payload"))
+    }
+
+    pub fn from_kind_and_payload(
+        kind: JournalKind,
+        payload: serde_json::Value,
+    ) -> serde_json::Result<Self> {
+        decode_entry!(from_value, kind, payload)
+    }
+
+    pub fn from_kind_and_bytes(kind: JournalKind, payload: &[u8]) -> serde_json::Result<Self> {
+        decode_entry!(from_slice, kind, payload)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct JournalRecord {
+    pub schema_version: u32,
+    pub record_id: RecordId,
+    pub session_seq: u64,
+    pub timestamp_ms: i64,
+    pub session_id: SessionId,
+    pub execution_id: Option<ExecutionId>,
+    pub thread_id: Option<ThreadId>,
+    pub turn_id: Option<TurnId>,
+    pub entry: JournalEntry,
+}

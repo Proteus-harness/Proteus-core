@@ -5,28 +5,39 @@ Proteus принимает TOML и JSON; init и Config Builder сохраняю
 должны приводить к ошибке, а не игнорироваться.
 
 Полный рабочий пример: [configs/config.toml](../../configs/config.toml).
-Он включает подписочную сборку `codex`:
-[configs/codex.config.toml](../../configs/codex.config.toml).
+Рабочие профили `codex`, `pi` и `opencode` используют подключение OpenCode Go
+и preset `cheap` (`deepseek-v4.1-flash`, effort `high`). Поведение выбирается
+слотами, а не этим preset. ChatGPT OAuth выбирается отдельно через
+[codex-subscription.config.toml](../../configs/codex-subscription.config.toml).
 Минимальный fake-model профиль:
 [proteus.example.toml](../../examples/configs/proteus.example.toml).
 
 ## Самодостаточный Конфиг Агента
 
-[configs/agent.toml](../../configs/agent.toml) — один файл рабочей сборки
-с поведением Codex и моделью через OpenCode Go. В нём явно описаны provider,
-слоты, настройки tools/policy/context, process components и обе дочерние роли.
+[configs/config.toml](../../configs/config.toml) — один файл основной
+experimental-сборки владельца. Сейчас она использует Codex-shaped slots
+и модель через OpenCode Go; её состав можно менять независимо от reference-профилей.
+В файле явно описаны provider,
+слоты, настройки tools/policy/context, process components и read-only роль explore.
 `include`, внешних child configs и файлов prompts для этой сборки не требуется:
-тексты инструкций находятся в `instructions.text`. Поле `profile.name` не
+инструкции ролей находятся в `instructions.text`, а закреплённые базовые шаблоны
+поставляются внутри выбранного модуля. Поле `profile.name` не
 требуется и не выбирает поведение: реализации выбирают `modules` и `components`.
 
 ```sh
-/path/to/Proteus/bin/proteus --config /path/to/agent.toml --cwd /path/to/project
+/path/to/Proteus/bin/proteus --config /path/to/config.toml --cwd /path/to/project
 ```
 
 Переносятся готовая поставка и этот файл. Process workers и их SDK принадлежат
 поставке, а не встраиваются в TOML. Авторизация OpenCode подключается на новом
-компьютере отдельно. Настройки Desktop, виджетов и расширений хранятся отдельно
-от агента в `~/.config/dev.proteus.native/preferences.json`.
+компьютере отдельно. Оформление Desktop, расположение виджетов и визуальные
+параметры расширений хранятся в отдельных JSON/TOML; стандартный файл —
+`~/.config/dev.proteus.native/desktop/default.json`. Каждое нативное окно
+выбирает свой визуальный конфиг без изменения агента. Метаданные приложения,
+default и необязательные привязки к путям agent configs находятся в
+`~/.config/dev.proteus.native/preferences.json`. При переносе на другой ПК
+визуальные файлы копируются отдельно, а привязки к локальным путям выбираются
+заново в приложении; подробнее — [запуск на другом ПК](second-pc-bootstrap.md).
 
 Каждая запись `[[agent_control.roles]]` принимает `config` как путь/named config
 или как вложенную конфигурацию. Tools, policy, context и permissions роли
@@ -35,10 +46,18 @@ Proteus принимает TOML и JSON; init и Config Builder сохраняю
 выбор через интерфейс. Например, слоты роли задаются в
 `[agent_control.roles.config.modules]`, а её явный выбор модели — строкой
 `model = "cheap"` в `agent_control.roles.config` или на самой записи роли.
-Оба способа одновременно задавать нельзя. Полный пример — в `agent.toml`.
+Оба способа одновременно задавать нельзя. Полный пример — в `config.toml`.
+
+Root и inline-роли Codex выбирают `codex_base_instructions` и `codex_compact`;
+поверх базового prompt роль добавляет только свои инструкции. Explore сохраняет
+read-only каталог. Для coder с собственным worktree есть самостоятельный
+`codex-task.config.toml`, использующий уже поддержанный `surface = "task"`.
+Collaboration допускает только parallel-safe роли без worktree: writer не
+объявляется доступным через `spawn_agent`, если этот lifecycle не поддержан.
+Дочерние роли по умолчанию не делегируют дальше (`surface = "none"`).
 
 При загрузке внутренний reference роли указывает на ту же секцию исходного
-файла: `agent.toml#agent=/explore`. Имя роли кодируется как JSON pointer token
+файла: `config.toml#agent=/explore`. Имя роли кодируется как JSON pointer token
 (`~0` для `~`, `~1` для `/`); несколько токенов выбирают вложенные роли. Такие
 references создаёт loader; вручную перечислять их в самодостаточном конфиге
 не нужно. Дочерние процессы читают свою секцию и следят за изменениями исходного
@@ -47,6 +66,41 @@ references создаёт loader; вручную перечислять их в 
 роли меняет её секцию, сохраняя родителя и соседей. Ошибки вложенных конфигов
 проверяются уже при загрузке родителя. Inline-роли требуют одного исходного
 файла, а не directory mode.
+
+## Поведение Поставляемых Профилей
+
+| Файл | Поведение | Модель по умолчанию |
+|---|---|---|
+| `config.toml` | Experimental default владельца, Codex-shaped slots, Code Mode и read-only collaboration | `cheap`, OpenCode Go DeepSeek/high; дополнительный preset `chatgpt` через подписку |
+| `codex.config.toml` | Независимая reference-сборка Codex: пять основных tools, compaction/base instructions; read-only collaboration | Тот же Go preset |
+| `codex-task.config.toml` | Та же основа; task-делегирование с отдельным worktree coder | Тот же preset; дети наследуют текущий выбор |
+| `pi.config.toml` | Pi 1.5.2 loop, четыре native tools, prompt builder и compactor | Тот же Go preset |
+| `opencode.config.toml` | OpenCode 2.0.22 tools, prompts, instructions, compaction и continuation | Тот же Go preset |
+| `codex-subscription.config.toml` | Вспомогательная OAuth-сборка Codex с пятью tools | Собственное ChatGPT-подключение |
+
+Default и reference-профили — самостоятельные файлы без неявного наследования.
+Совпадающие сейчас настройки не связывают их дальнейшие изменения.
+Один preset не делает профили одинаковыми. Pi и OpenCode используют свои
+закреплённые upstream реализации; Core сохраняет порядок journal facts,
+подтверждение checkpoints и общую границу разрешений. Запись сессии выполняет
+выбранный storage module. Полная эквивалентность всего upstream session runtime
+этими сборками не заявляется. DCP, внешние plugins, MCP и subagents в Pi/OpenCode
+по умолчанию не подключаются.
+
+Pi загружает SYSTEM/APPEND_SYSTEM через native resource loader с его правилами
+приоритета; загрузка этих инструкций не активирует сторонние пакеты или extensions.
+Для workflow и compactor явно выбран `catalog_provider = "opencode-go"`.
+Поддерживаются native Pi model-info каталоги `opencode-go` и `openai-codex`:
+неизвестная им модель отклоняется, даже если другой model adapter её предлагает.
+Core доставляет steering на model boundary; native Pi переключение между
+отдельными tools и весь follow-up lifecycle требуют дополнительного контракта.
+
+При типизированном context-window overflow OpenCode применяет выбранный native
+compactor и повторяет запрос после подтверждённого Core checkpoint. На один
+model step допускается одно такое восстановление; отказ/отсутствие изменения,
+неподтверждённый checkpoint и cancellation не запускают повтор. Уже принятые
+tool effects сохраняются. Background jobs, remote provider compaction и весь
+partial-assistant/session recovery lifecycle остаются отдельными границами.
 
 ## Именованные Настройки Моделей
 
@@ -72,6 +126,10 @@ stream = true
 одновременно задавать `model` и `active_provider`, а также `models` и `providers`.
 
 Inline-роли видят именованные модели родителя и могут определить локальные.
+Выбор `role.model` и `role.config.model` разрешается в одном каталоге ребёнка:
+он включает модели родителя и локальные определения с приоритетом ребёнка.
+Для роли с внешним файлом `role.model` по-прежнему выбирает имя из каталога
+родителя; содержимое внешнего файла не участвует в этом поиске.
 Им передаются только модельные presets, bindings и `module_config.model`;
 права инструментов и остальные behavior slots не наследуются. Поэтому модель
 можно описать один раз в начале файла. Если выбор роли отсутствует, bootstrap
@@ -93,14 +151,17 @@ Resume/followup продолжают с уже выбранной моделью
 или `effort` вместе с `task_id` отклоняется. Явное изменение конфигурации route
 может инвалидировать сохранённое session-переопределение при reload.
 
+Правила сохранения и инвалидации выбора при reload описаны в разделе
+[Сохранение Выбора Модели В App-server](#сохранение-выбора-модели-в-app-server).
+
 ## Resolution
 
 Без `--config` путь выбирается в таком порядке:
 
 1. `PROTEUS_CONFIG_PATH`;
 2. `$PROTEUS_CONFIG_HOME/configs/config.toml`;
-3. `$HOME/.config/Proteus-agent/configs/config.toml`;
-4. XDG config path, если `HOME` недоступен.
+3. `$HOME/.config/Proteus-harness/configs/config.toml`;
+4. `$XDG_CONFIG_HOME/Proteus-harness/configs/config.toml`, если `HOME` недоступен.
 
 `--config codex` означает named config
 `<config-dir>/codex.config.toml`. Явный путь с `/` или extension
@@ -111,7 +172,7 @@ directory файлы `.toml` / `.json` merge-ятся лексикографич
 
 Directory mode предназначен для одного profile, разложенного на fragments.
 Каталог `configs/` в репозитории содержит альтернативные named profiles
-(`codex`, `restricted`, `context-search-chatgpt`, `opencode`) и потому не должен передаваться
+(`codex`, `pi`, `opencode`) и потому не должен передаваться
 целиком через `--config configs`: выбирайте конкретный файл или named config.
 
 ```toml
@@ -123,12 +184,27 @@ config file. Includes merge-ятся слева направо, затем те�
 перекрывает результат. Objects merge recursively; arrays и scalar values
 заменяются целиком. Include cycle — ошибка.
 
-Поставляемая подписочная сборка `codex` использует явные fragments:
+При сохранении обычного файла-обёртки с `include` Config Builder сохраняет
+исходную форму унаследованного выбора (`model` или `active_provider`) независимо
+от написания каталога. Несвязанный Save не закрепляет выбор локально;
+переключение переопределяет тот же ключ. Включённые файлы и каталог не меняются.
+Очистка унаследованного выбора и изменение его каталога из обёртки отклоняются
+до записи: редактируйте источник-владелец. Локальный выбор над include без
+выбранной модели, включая JSON `null`, можно очищать. Inline-роли, directory
+overlay и локальные каталоги сохраняют свои правила. Эта проверка не создаёт
+транзакционный snapshot одновременно изменяемых includes.
+
+Основные Go-профили самостоятельны; fragments используются только в явно
+выбранных дополнительных сборках:
 
 ```text
-configs/config.toml                 основная подписочная сборка с расширенными tools
-configs/codex.config.toml           строгая Codex-shaped подписочная сборка
-configs/restricted.config.toml      рабочая Linux-сборка с частичной изоляцией
+configs/config.toml                самостоятельная experimental-сборка, Go и ChatGPT, Code Mode
+configs/codex.config.toml           самостоятельная reference-сборка Codex
+configs/codex-task.config.toml      Go-сборка с изолированным coding task
+configs/pi.config.toml             самостоятельные Pi slots и Go model
+configs/opencode.config.toml       самостоятельные OpenCode slots и Go model
+configs/codex-subscription.config.toml самостоятельный OAuth Codex, 5 tools
+configs/fixtures/restricted.toml   тестовая Linux-сборка с частичной изоляцией
 configs/fragments/codex-behavior.toml общий выбор modules/tools и peer routing
 configs/fragments/codex-components.toml единая доверенная process-композиция root и peers
 configs/fragments/restricted-components.toml частично ограниченная композиция
@@ -148,8 +224,10 @@ provider и каждый behavior slot. Массивы не append-ятся. `co
 merge-ится рекурсивно: например, profile может добавить новый exact export, не
 повторяя launch-параметры и остальные exports component-а.
 
-Root `codex` и основной `config.toml` используют подписочные child configs.
-Отдельные API/proxy-профили не поставляются.
+В основных Go и самостоятельных подписочных сборках роль explore описана
+inline и наследует модель родителя. В отдельном `codex-task` так же описан coder.
+Подписочные named child configs остаются самостоятельными примерами; они не
+нужны для переноса одного из основных файлов.
 
 Базовые параметры OAuth model export задаются в `openai-chatgpt.toml`,
 а process-композиция root и peers — в `codex-components.toml`.
@@ -158,20 +236,20 @@ Root `codex` и основной `config.toml` используют подпис
 `codex-peer-runtime.toml` включает общий список components, а параметры
 конкретного peer задаются его собственным фрагментом.
 
-Основная и строгая сборки различаются намеренно. `config.toml` сохраняет
-расширенный набор из 19 tools и context providers с `repo_tree`.
-`codex.config.toml` дополнительно включает `codex-upstream.toml`: пять tools,
-hook `codex_base_instructions` и context providers
-`project_instructions`, `skills`, `environment`. Общие фрагменты не делают
-эти profiles взаимозаменяемыми. `codex-profile.toml` и общий runtime также
-используются `proteus init codex` с его явно выбранным API-подключением.
+Строгие Codex и подписочная сборки сохраняют пять Codex-shaped tools,
+`codex_base_instructions` и context providers `project_instructions`, `skills`,
+`environment`; transport определяет function/freeform patch. Основной
+`config.toml` дополнительно подключает `code_mode`.
+`codex-profile.toml` и общий runtime также используются `proteus init codex`
+с его явно выбранным API-подключением.
 
-Личное подключение Go разделяет ответственности: сборка `codex` задаёт
+Подключение Go разделяет ответственности: сборка `codex` задаёт
 поведение и роли, `fragments/opencode-go.toml` — запуск нативного OpenCode
 model component, export и его настройки. Каталог моделей и точные варианты
 effort предоставляет SDK OpenCode через `model.catalog.v1`; статический TOML
 с записью каждой модели не нужен. Каталог обновляется по запросу с кешем на
-пять минут и не выбирает workflow, context или policy. Личный overlay:
+пять минут и не выбирает workflow, context или policy. В самостоятельных
+Go-профилях это уже описано внутри файла. Для отдельной сборки доступен overlay:
 
 ```toml
 include = ["/путь/к/Proteus/share/configs/fragments/opencode-go.toml"]
@@ -204,32 +282,22 @@ profile, его `prompts/` должен указывать на общую па�
 
 `~`, `$HOME` и `${HOME}` раскрываются в path fields.
 
-## Рабочий Linux-Профиль Restricted
+## Тестовая Сборка Restricted
 
-[restricted.config.toml](../../configs/restricted.config.toml) — отдельная
-рабочая сборка с частичной OS-изоляцией. Она сохраняет подписочную модель,
-обычный набор tools, роли и поведение основного `config.toml` через общие
-fragments. Основной профиль и `codex` автоматически не переключаются.
+[fixtures/restricted.toml](../../configs/fixtures/restricted.toml) проверяет
+частичную OS-изоляцию выбранных components на Linux. Она хранится вместе
+с тестовыми fixtures, используется в smoke-проверках и скрыта из
+переключателя конфигов Desktop. Fixture сохраняет подписочную модель,
+19 tools и исследовательскую роль через общие fragments.
 
-После установки CLI:
-
-```bash
-cd /path/to/project
-proteus --config restricted doctor
-proteus --config restricted
-```
-
-В готовом Desktop portable профиль выбирается тем же named key:
+Для запуска из checkout:
 
 ```bash
-./proteus-native /path/to/project --config restricted
+proteus --config /absolute/path/to/Proteus-core/configs/fixtures/restricted.toml doctor
 ```
 
-В checkout без установки profiles используйте явный путь:
-`proteus --config /absolute/path/to/Proteus-core/configs/restricted.config.toml`.
-`--config restricted` ищет установленный `restricted.config.toml` в config-dir,
-а не произвольный файл в текущей папке. Installer и portable поставляют этот
-profile и его fragments; существующий пользовательский named config сохраняется.
+Installer и portable поставляют fixture в `configs/fixtures/restricted.toml`.
+При ручной проверке установленной копии передавайте её полный путь.
 
 Нужны Linux, исполняемый `/usr/bin/bwrap` и разрешённые user namespaces.
 Профиль явно разрешает чтение `/usr`, `/lib`, `/lib64` и `/bin`: все эти пути
@@ -277,7 +345,7 @@ PROTEUS_CONFIG_HOME="$PWD/.local" proteus --config codex
 Копирование выполняется один раз в отсутствующий `.local/configs/`; затем
 редактируются рабочие копии. `PROTEUS_CONFIG_HOME` сохраняет named resolution
 и для child profiles. Для постоянного использования того же каталога из CLI
-и приложения можно направить `~/.config/Proteus-agent/configs` на абсолютный путь
+и приложения можно направить `~/.config/Proteus-harness/configs` на абсолютный путь
 к `.local/configs/`. Прямая ссылка на tracked `configs/` превращает личные
 правки в изменения исходников.
 
@@ -299,6 +367,12 @@ provider = "fake"
 model = "fake-tool-model"
 stream = true
 
+[components.session-storage]
+command = "proteus-session-storage-module"
+transport.max_frame_bytes = 134217728
+
+[components.session-storage.exports.session_storage.jsonl]
+
 [components.reference-model]
 command = "proteus-reference-module"
 
@@ -308,6 +382,7 @@ command = "proteus-reference-module"
 implementation = "fake"
 
 [modules]
+session_storage = "jsonl"
 workflow = "coding.single_loop"
 context = "simple"
 policy = "ask_write"
@@ -402,9 +477,9 @@ OpenAI/Anthropic shaping лучше брать из tracked configs, а не к�
 ```toml
 [module_config.model.openai]
 implementation = "openai"
-api_key_file = "$HOME/.config/Proteus-agent/secrets/openai.json"
+api_key_file = "$HOME/.config/Proteus-harness/secrets/openai.json"
 api_key_json_key = "openai_api_key"
-base_url_file = "$HOME/.config/Proteus-agent/secrets/openai.json"
+base_url_file = "$HOME/.config/Proteus-harness/secrets/openai.json"
 base_url_json_key = "base_url"
 ```
 
@@ -419,7 +494,7 @@ OpenCode или отдельный API proxy не требуются.
 ```bash
 proteus-model-pack-module auth openai_codex login
 proteus-model-pack-module auth openai_codex status
-proteus --config codex
+proteus --config codex-subscription
 ```
 
 Для машины без callback в браузере:
@@ -434,7 +509,7 @@ Device-code login должен быть разрешён в настройках
 без автоматического открытия. Вход ограничен 15 минутами, Ctrl+C отменяет его.
 
 Credentials хранятся только у provider-а в
-`$HOME/.config/Proteus-agent/secrets/chatgpt.json`. `login`, `status` и `logout`
+`$HOME/.config/Proteus-harness/secrets/chatgpt.json`. `login`, `status` и `logout`
 принимают `--auth-file /absolute/path/chatgpt.json`; тот же путь необходимо
 задать в `module_config.model.<id>.auth_file` у всех нужных profiles. Путь к
 файлу можно настроить независимо от каталогов установки. Файлы Codex/OpenCode
@@ -448,34 +523,18 @@ token автоматически обновляется вместе с access t
 proteus-model-pack-module auth openai_codex logout
 ```
 
-Готовый `codex` использует `gpt-5.6-luna` и собственные
-`codex-explore`/`codex-coder`: peers также обращаются через
-подписку. Модель при запуске задаётся в `providers.chatgpt.model`; доступные
+Вспомогательный `codex-subscription` использует
+`gpt-5.6-luna`; его дочерняя роль также обращается через подписку. Модель при
+запуске задаётся в `providers.chatgpt.model`; доступные
 модели и лимиты определяются аккаунтом. Фрагмент `fragments/openai-chatgpt.toml` задаёт explicit
 model export, capabilities и консервативный порог контекста 200000 tokens.
 
-Основной `config.toml` включает `codex.config.toml`, сохраняя его model/provider,
-workflow, preparation hook, peers и остальные параметры. DCP отложен и
+Основной `config.toml` и reference `codex.config.toml` самостоятельны.
+В обоих доступен OpenCode Go. Основной конфиг также содержит подключение
+ChatGPT и инструмент `code_mode`; его состав настраивается независимо.
+DCP отложен и
 исключён из штатных профилей и поставки. Его исходники сохранены в
 [Proteus-modules/research/dcp](https://github.com/Proteus-harness/Proteus-modules/tree/main/research/dcp).
-
-Экспериментальный `context-search-chatgpt` включает основной `config.toml` и меняет
-только context selection на `repo_aware`. Запуск:
-
-```bash
-proteus --config context-search-chatgpt
-```
-
-Он подгружает project instructions, skills, environment и до 8 результатов
-поиска по словам текущей задачи через указанный `context_provider/rg_search`. Общий бюджет
-контекста — 60000 bytes; model limits, capabilities, effort, workflow, tools
-и конфигурация peers наследуются без изменения. Это отдельная сборка для
-экспериментов, а не заявление о Codex parity: `repo_aware` также добавляет task
-chunk и иначе оформляет project instructions. Поиск может добавить шум и
-увеличить первый запрос. Он не видит историю прочитанных файлов и не удаляет
-из контекста уже известные модели фрагменты. Запуск без `--config` возвращает
-основной `config.toml` с `codex_context`; `--config codex` явно выбирает
-ту же подписочную сборку.
 
 `openai_codex` сам запрашивает `GET /backend-api/codex/models` с ChatGPT OAuth.
 Интерфейс приложения показывает все возвращённые модели, включая entries с отметкой «скрытая»,
@@ -513,7 +572,7 @@ stream = true
 
 [module_config.model.openai_codex]
 implementation = "openai_codex"
-auth_file = "$HOME/.config/Proteus-agent/secrets/chatgpt.json"
+auth_file = "$HOME/.config/Proteus-harness/secrets/chatgpt.json"
 
 [components.reference-model]
 command = "proteus-reference-module"
@@ -620,21 +679,29 @@ Anthropic adapter передаёт это отключение отсутств�
 ### Сохранение Выбора Модели В App-server
 
 Выбор модели, включение рассуждений и effort через app-server сохраняются
-отдельно от общего профиля: `<session_dir>/model-selection.json` восстанавливает
-свой выбор чата, а `<config store>/model-selections/<hash>.json` хранит последний
+отдельно от общего профиля. Metadata key `model-selection.json` выбранного
+storage service восстанавливает выбор чата, а
+`<config store>/model-selections/<hash>.json` хранит последний
 выбор для новых чатов того же канонического пути профиля, имени профиля и
-provider alias. Новый чат фиксирует унаследованный выбор в своём файле;
-последующее изменение в соседнем чате его не заменяет. Старый чат без своего
-файла использует baseline профиля, а не последний выбор другого чата.
+provider alias. Новый чат фиксирует унаследованный выбор в своих metadata;
+последующее изменение в соседнем чате его не заменяет. Старый чат без
+сохранённого выбора использует baseline профиля.
 При отсутствии file-backed профиля или SessionStore эти операции остаются
 только runtime overrides.
 
-Каждый файл ограничен 16 KiB и содержит версию, модель, рассуждения и hash
-привязки; journal, история сообщений и SQLite-проекции для этого не читаются.
+Каждое сохранённое значение ограничено 16 KiB и содержит версию, модель,
+рассуждения и hash привязки. Чтение выбора использует metadata API storage.
+JSONL backend импортирует прежний отдельный файл при первом обращении.
 Привязка учитывает baseline модели/рассуждений и относящиеся к выбранному
 model export настройки component и module config. Их изменение отменяет
 старую привязку; правка несвязанного раздела профиля сама по себе её не меняет.
 Учётные данные и config целиком в эти файлы не копируются.
+
+При изменении привязки reload применяет модель и reasoning нового baseline —
+так же, как холодное открытие отклоняет устаревшую запись выбора. Несвязанные
+изменения профиля сохраняют пользовательский выбор. Scoped-конфигурации
+дочерних задач проверяются по своей отдельной привязке; сессии без config path
+сохраняют прежние правила in-memory reload.
 
 Явный новый выбор проходит обычную проверку доступных модели и effort.
 Восстановление ранее сохранённого выбора с совпадающей привязкой не запрашивает
@@ -659,17 +726,20 @@ prompts и named child configs `codex-explore.config.toml` /
 provider example, а не установка подписочного `codex`. Provider example
 явно встраивается как в parent, так и в оба child config. Созданные child configs
 независимы от одноимённых поставляемых подписочных profiles.
-Поставляемая сборка и её peers используют ChatGPT OAuth и `gpt-5.6-luna`.
+Явные поставляемые подписочные примеры и их named peers используют ChatGPT
+OAuth и `gpt-5.6-luna`; основные самостоятельные профили используют OpenCode Go.
 В generated runtime роли ссылаются на абсолютные пути созданных рядом
 child profiles; запуск parent по явному пути не подхватывает одноимённый
 профиль из глобального config home.
 
 ## Выбор Behavior Modules
 
-`[modules]` имеет четыре optional selection keys (ordered hooks задаются отдельно):
+`[modules]` выбирает реализации storage и behavior slots. Ordered hooks
+задаются отдельным списком.
 
 ```toml
 [modules]
+session_storage = "jsonl"
 workflow = "coding.single_loop"
 context = "repo_aware"
 policy = "ask_write"
@@ -685,6 +755,45 @@ hooks = ["tool_selection.dynamic", "codex_compact"]
 автоматический выбор какого-либо reference module. Для обычных behavior slots
 специальных ids `none`, `default`, `process`, `text` и `all_visible` нет;
 отсутствующий slot остаётся отсутствующим без compatibility fallback.
+
+## Хранение Сессий
+
+Для сохранения и открытия чатов конфиг явно выбирает storage export. Основные
+поставляемые профили уже подключают JSONL. В собственный конфиг со старой
+поставки добавьте selection и component при обновлении executable.
+
+```toml
+[modules]
+session_storage = "jsonl"
+
+[components.session-storage]
+command = "proteus-session-storage-module"
+transport.max_frame_bytes = 134217728
+
+[components.session-storage.exports.session_storage.jsonl]
+```
+
+Секция `[modules]` объединяется с уже существующей в файле. Worker должен быть
+доступен в `PATH` или указан абсолютным путём. Повышенный frame budget позволяет
+прочитать целиком большие ранее сохранённые records и blobs. Остальные
+components сохраняют собственные бюджеты. Export использует пустой object
+`module_config`.
+
+Для SQLite замените `jsonl` на `sqlite` и в selection, и в имени export.
+JSONL читает существующие `journal.jsonl` schema 21 и `session.json` schema 4.
+SQLite хранит canonical journal в `journal.sqlite` с WAL и `synchronous=FULL`.
+Выбор другого backend требует совместимых с ним сессий или отдельного переноса
+данных. Автоматическая конверсия форматов отсутствует.
+
+Без `modules.session_storage` runtime работает с историей в памяти. Для нового
+persistent SessionStore также нужен file-backed config. Операции открытия
+сохранённой сессии, catalog, doctor и replay используют выбранный service.
+
+Уже созданный runtime удерживает свой storage service. Изменение его selection,
+launch descriptor или module config требует открытия нового runtime. HTTP server
+сохраняет ту же привязку для своего каталога сессий и требует перезапуска после
+её изменения. Настройки модели и tools продолжают применяться через обычный
+reload при прежней storage-привязке.
 
 ## Process Components И Exports
 
@@ -780,6 +889,7 @@ timeout_ms = 60000
 | `env_allowlist` | parent env names, разрешённые child process |
 | `env` | scoped literal env; перекрывает allowlist |
 | `handshake_timeout_ms` | единый initialize timeout: подготовка, запись и ответ |
+| `transport.max_frame_bytes` | максимальный размер кадра только этого component; по умолчанию 8 MiB, допустимо 1–128 MiB |
 | `description` | fallback observability text для exports |
 | `exports.<slot>.<module_id>` | непустая exact export map, обязательно |
 | `sandbox` | strict launch policy; без поля используется `mode = "trusted"` |
@@ -795,6 +905,29 @@ Environment процесса очищается. Process host сохраняет
 затем применяет allowlist и literal env. Один component запускается один раз
 на canonical workspace; все его exports делят child lifecycle и restart.
 Launch config не принимает вложенный module `config`.
+
+Для component, которому нужны большие записи, бюджет задаётся явно:
+
+```toml
+[components.session-storage.transport]
+max_frame_bytes = 134217728
+```
+
+Настройка действует на весь process component, включая все его exports.
+Остальные components сохраняют предел 8 MiB. Host согласованно меняет входной
+и выходной размер кадра; конечные совокупные бюджеты receive и очереди data
+увеличиваются до `max(обычный бюджет, 2 × max_frame_bytes)`. Это пределы,
+а не заранее выделенная память. Отдельные бюджеты control и notifications
+сохраняются. Размер кадра входит в identity запуска; иконка по-прежнему не
+меняет эту identity.
+
+До `initialize` host передаёт согласованный предел в служебной переменной
+`PROTEUS_MODULE_MAX_FRAME_BYTES`. Её нельзя задавать через `components.*.env`:
+источник настройки — `transport.max_frame_bytes`. Rust SDK читает её в `run`,
+ограничивает чтение stdin и проверяет размер ответа до записи stdout. При
+встраивании SDK `serve` использует обычный предел; `serve_with_transport`
+принимает явный бюджет. Worker на другом SDK/языке должен самостоятельно
+применять переданный предел; настройка host не увеличивает его внутренний лимит.
 
 Module-owned config:
 
@@ -1035,8 +1168,8 @@ tool:             reference.tools и узкие selectors, direct_patch, codex_p
 Он заменяет tool implementation; context provider отдельно не добавляется.
 
 Для выполнения JavaScript со вложенными вызовами инструментов есть отдельный
-пакет `code-mode` в Proteus-modules и
-[opt-in профиль `code-mode`](../../configs/code-mode.config.toml).
+пакет `code-mode` в Proteus-modules. Он подключён в
+[основном `config.toml`](../../configs/config.toml).
 Export `tool/code_mode` предоставляет инструмент `code_mode`; массив
 `tools.enabled` должен содержать также настоящие имена вызываемых инструментов.
 `await tools.call(name, args)` возвращает `ToolResult`, а `text()` и `console.log()`
@@ -1162,7 +1295,7 @@ disabled_mcp_servers = ["team.tools:database"]
 Core не читает `SKILL.md`: любой `context_provider/v4` может предоставить
 typed skill catalog, либо вернуть `null`, если не поддерживает эту возможность.
 Одинаковые host-owned `SkillRuntimeSettings` передаются context provider и
-`tool/v6`; в reference skill-pack один фильтр используется для списка и загрузки.
+`tool/v7`; в reference skill-pack один фильтр используется для списка и загрузки.
 `name` ограничен 64 ASCII-символами без `--`, `description` — 1024 символами;
 дополнительные поля Agent Skills не предоставляют новых прав tools.
 
@@ -1253,7 +1386,7 @@ AgentControl facades определяются выбранной моделью 
 
 ### Собственный Process Tool
 
-Собственные tools предоставляются через component export `tool/v6`.
+Собственные tools предоставляются через component export `tool/v7`.
 Описание tool, входная схема, safety, parallel permission и исполнение
 принадлежат модулю; Core не разбирает его алгоритм или собственные настройки.
 Работающий пример, который запускает `rg`, —
@@ -1395,7 +1528,7 @@ continuations не выполняются; иной вид результата 
 
 ```toml
 [permissions]
-mode = "normal" # plan | normal | auto
+mode = "normal" # plan | normal | full_access
 
 [module_config.policy.ask_write]
 allow = ["search", "read_file", "grep"]
@@ -1403,7 +1536,19 @@ ask_before = ["apply_patch", "write_file", "shell"]
 ```
 
 `ModeAwarePolicy` применяется в core поверх выбранной process policy.
-Модуль не может обойти `ToolSafety` или approval transport.
+Модуль не может обойти `ToolSafety` или approval transport. `plan` допускает
+только `ReadOnly`; `normal` применяет правила выбранного профиля; `full_access`
+снимает `Ask` для всех safety classes, сохраняя явные `Deny` и отдельные
+ограничения sandbox. В основной experimental-сборке `configs/config.toml`
+`normal` запрашивает подтверждение записи и shell; точные reference profiles
+Codex, Pi и OpenCode задают собственные правила.
+
+Сохранённый `auto` остаётся прежним отдельным режимом: разрешены чтение и
+запись, команды, сеть и опасные инструменты запрещены. Он не переводится в
+`full_access` и принимается действующими config/API/CLI клиентами, но не
+предлагается для нового выбора. Session settings показывают его лишь как
+текущее legacy значение. Config Builder публикует `plan`, `normal`,
+`full_access`; сохранение других настроек не меняет прежний `auto`.
 
 Смена mode текущей сессии — временный override: она не меняет default профиля
 и не переносится в файл при сохранении других настроек, в том числе первом
@@ -1494,9 +1639,10 @@ max_summary_bytes = 8192
 конфигу другого полного Proteus. Его provider/model, instructions, workflow,
 tools, policy и содержательные ограничения не наследуются от root. Parent role
 содержит только имя/описание, config reference и технические process/lifecycle
-bounds. Поставляемый `codex.config.toml` использует
-`codex-explore` и `codex-coder`; их tool surfaces и policy
-находятся в отдельных child profiles.
+bounds. Поставляемые `config.toml` и `codex.config.toml` описывают read-only
+explorer inline. Named `codex-explore` и `codex-coder` остаются отдельными
+примерами полных peers; их tool surfaces и policy находятся в child profiles.
+`codex-task.config.toml` явно выбирает task facade и inline coder с worktree.
 
 Профиль `codex-go` включает актуальный `codex.config.toml` и каталог
 `fragments/codex-go-models.toml`: workflow, upstream-инструкции, context, tools и
@@ -1608,7 +1754,7 @@ Pi/OpenCode tool handlers (включая изменение args), JSON-stdin P
 `updatedInput` и Stop scripts Codex/Claude Code. Completion review сохраняет
 root turn, имеет общий workflow deadline и лимит 8 продолжений.
 Неподдержанные upstream действия отклоняются явно; это адаптер переноса,
-не загрузчик чужих plugins. Модуль использует тот же `hook/v6`, без отдельной
+не загрузчик чужих plugins. Модуль использует тот же `hook/v8`, без отдельной
 registration или authority surface в Core.
 
 ### DCP — Отложенный Эксперимент
@@ -1634,7 +1780,7 @@ prompt = "Review $ARGUMENTS carefully"
 строки, не shell expansion. Команда не запускает tools сама и не выдаёт новых прав.
 Имена проверяются; пустой prompt или результат expansion, дубли с host/module
 командами, зарезервированные `exit`/`quit` и неизвестные поля дают ошибку.
-Module-команды объявляются реализацией tool через `tool/v6`,
+Module-команды объявляются реализацией tool через `tool/v7`,
 а не этим блоком; отключение tool убирает его команду из каталога.
 
 Полный список текущей сборки — `/help`; [семантика и API](runtime-and-events.md#slash-команды).
@@ -1724,13 +1870,109 @@ runtime snapshot меняется одним обновлением. Он не �
 из воздуха: selection доступен только для entries текущего catalog. Existing
 `components` и opaque `module_config` сохраняются.
 
-Выбор `active_provider` не редактирует определения `providers`. В существующем
-TOML/JSON-профиле и directory overlay конструктор сохраняет как явные
-определения, так и отсутствие этой секции: провайдеры из includes/fragments
-не копируются в верхний файл при сохранении других настроек. Явные локальные
-переопределения остаются приоритетными. При первом сохранении отсутствующего
-standalone-файла записывается полная конфигурация, включая определения
-провайдеров, нужные её выбору модели.
+Именованные настройки моделей отделены от подключений: `model_modules` и
+`module_config.model.<id>` описывают соединения, `models` — именованные наборы
+`provider/model/stream/reasoning/reasoning_efforts`, а `model` — выбор агента.
+`GET /config/builder` показывает сохранённый baseline профиля, даже если текущая
+сессия временно выбрала другую модель, effort или route.
+
+`POST /config/builder` принимает `models` как полную замену собственного
+каталога; отсутствие поля сохраняет определения. Desktop также передаёт
+`expected_models` с baseline своего черновика: несовпадение с актуальным
+каталогом отклоняется до записи истории/runtime. Это защищает определения,
+добавленные из другого окна; явный API-клиент может не передавать CAS baseline
+для намеренной безусловной замены. Поле `model` различает
+отсутствие (сохранить выбор), строку (выбрать имя) и JSON null (снять собственный
+выбор). `role_models` — частичное отображение имён непосредственных inline-ролей
+в имя набора или null для наследования текущей модели родителя. `model_roles`
+в snapshot содержит точные исходные ссылки, доступность правки и пояснение:
+совпадающие по значениям наборы не считаются одной ссылкой.
+
+Перед публикацией модельное изменение проходит обычную загрузку и нормализацию
+исходного документа без промежуточной записи. Поэтому удаление используемого
+имени, неверная ссылка роли и устаревшее resolved значение не сохраняются.
+История включает определения и ссылки ролей. TOML сохраняет не затронутые
+таблицы, комментарии и исходное плоское/вложенное написание reasoning.
+
+`models_writable=false` обозначает каталог, который нельзя полностью править
+в этом исходнике: includes, directory fragments и частичные определения
+редактируют в файле-владельце, а не копируют в wrapper. Внешние конфиги ролей, собственные
+каталоги/полные определения роли и унаследованные секции показаны read-only.
+Для inline child отсутствие собственного выбора показано как `model=null`, а
+не как нормализованная bootstrap-модель родителя. Такой null восстанавливает
+наследование и при откате истории. `model_writable=false` обозначает полное
+исходное определение, которое нельзя безопасно заменить выбором alias.
+У additive include-wrapper нельзя удалить унаследованный root-выбор.
+Обычное сохранение других полей не материализует каталоги и настройки модели.
+У inline-роли сохраняется её исходная частичная `module_config.model`, а не
+объединённая карта настроек родителя и ребёнка. Поэтому последующие изменения
+унаследованных подключений родителя остаются видны. Намеренная правка этих
+настроек в ребёнке создаёт собственное переопределение.
+
+Именованные режимы поведения задаются отдельно от моделей:
+
+```toml
+[modes.review]
+title = "Проверка"
+instructions = "Проверь изменения и объясни найденные проблемы."
+permission_mode = "plan"
+tools = ["read_file", "search"]
+hooks = []
+
+[modes.work]
+title = "Работа"
+permission_mode = "normal"
+```
+
+`modes.<id>` принимает только `title`, `instructions`, `tools`, `hooks` и
+`permission_mode`. Строки instructions добавляются к инструкциям профиля;
+они не заменяют исходный prompt. Отсутствующий список наследует полную доступность baseline. Непустой tools —
+полный allowlist, включая автоматически добавляемые tools; `tools=[]` закрывает все вызываемые инструменты, включая автоматически
+зарегистрированные MCP, agent-control и provider-hosted tools. `hooks=[]`
+отключает hooks; непустой список задаёт их точный порядок. Пустые и повторные
+имена в списках отвергаются, а не удаляются автоматически. Режим выбирает
+существующие возможности и не отменяет policy, approval или sandbox каждого
+вызова. Неизвестные инструменты/hooks выбранного режима дают обычную ошибку
+сборки; предыдущее рабочее состояние остаётся доступным.
+
+`GET /config/builder` возвращает `modes` и `modes_writable`.
+`POST /config/builder` принимает полную локальную замену `modes` с необязательным
+CAS baseline `expected_modes`; includes, fragments и частично унаследованные
+определения меняют в файле-владельце. Определения входят в историю настроек;
+TOML-сохранение сохраняет остальные таблицы и комментарии. ID может быть любой
+непустой строкой, кроме зарезервированного `_default`; название title, если
+задано, тоже должно быть непустым. При пустой карте modes поле можно опустить.
+
+Текущий чат выбирает режим через generic session setting `behavior_mode`;
+`_default` возвращает настройки профиля. Обычный setting `mode` по-прежнему
+означает только permission mode. Выбор поведения не меняет агентский конфиг,
+другие чаты или общие предпочтения для новых чатов. В metadata текущей сессии
+хранятся только выбранный ID, привязка к профилю/inline-роли/workspace и явный
+permission override. После reconnect режим разрешается по текущему конфигу:
+изменённое определение применяется заново, удалённый ID возвращает baseline.
+Повторное создание или восстановление удалённого определения не выбирает его
+автоматически ни в живой сессии, ни после reconnect.
+Выбор другого режима снимает прежний явный permission override; последующая
+ручная смена permissions действует поверх режима в этом чате. Профили без
+modes сохраняют прежнюю семантику session permissions и reload.
+
+Выбор поведения требует idle-сессии. Подготовка и запись metadata завершаются
+до публикации runtime; ошибка не меняет текущие tools, модель или permissions.
+Модель/effort текущего чата и режим поведения сочетаются в обоих направлениях,
+включая полную пересборку adapter при смене route/stream. Сохранение/reload
+профиля применяет выбранное поведение поверх нового baseline, не копируя
+эффективные временные инструкции или списки в исходный конфиг.
+
+`ConfigField.suggestions` — необязательная presentation metadata для списков
+строк: `{type:"tools"}` предлагает известные инструменты,
+`{type:"exports",slot:"context_provider"}` — exports указанного slot.
+Подсказки не являются allowlist: пользовательские строки сохраняются, а
+валидация значения и authority по-прежнему принадлежат реализации.
+
+`components.<id>.icon` — необязательная ссылка оформления (путь или asset ID).
+Core передаёт её как `plugins[].icon`, не открывает и не загружает ресурс.
+Иконка не меняет process launch, permissions или binding сохранённого/временного
+выбора модели. Поставщик интерфейса определяет, как разрешать локальную ссылку.
 
 `GET /config/builder` возвращает для каждого модуля nullable `config_schema`.
 Модельные exports находятся в `model_modules`, обработчики — в
@@ -1779,8 +2021,26 @@ inventory и схемы параметров читаются из одного 
 
 `POST /config/builder` также принимает `component_packages`: список установленных
 process-пакетов с `id`, `command` (абсолютный executable и argv), `exports`
-в форме `{slot: [module_id]}` из `module.json` и необязательным `replace`.
-Без `replace` создаётся новая запись `components.<id>`; коллизия id — ошибка.
+в форме `{slot: [module_id]}` из `module.json`, необязательными `replace` и
+`env_allowlist` и presentation-only `icon`. Новый component сохраняет авторскую
+иконку; replacement без icon сохраняет текущую, с явной icon обновляет её.
+`env_allowlist` явно разрешает только указанные имена окружения
+нового component; default окружение не расширяется. Registrar принимает
+конкретные export ID, а не `*` из шаблона пакета. Без `replace` создаётся новая
+запись `components.<id>`; коллизия id — ошибка. Необязательный `initial_config`
+имеет форму `{slot:{id:value}}`: настройки добавляются только новым exports
+этого пакета. Чужие и уже существующие записи отвергаются; при replacement
+непустой seed запрещён. Новое подключение передаёт только свой seed, поэтому
+устаревший snapshot другого окна не стирает независимые подключения.
+Поле `remove_model_connections` принимает список ID подключений модели.
+Удаление убирает соответствующий `model/<id>` export и его
+`module_config.model.<id>`. Другие exports того же component сохраняются;
+component удаляется после удаления последнего export. Если подключение
+используется именованной моделью, запрос завершается ошибкой. Удалять можно
+подключение, объявленное в редактируемом файле профиля. Объявление из include
+требует изменения исходного файла, иначе оно появилось бы снова при загрузке.
+Регистрация подключения в локальном файле поверх include и последующее удаление
+поддерживаются. Проверки и подготовка сборки выполняются до записи профиля.
 Для обновления aliases клиент явно передаёт `replace: [{id, command}]`, где
 `command` — ожидаемый текущий executable. Host проверяет неизменность команды,
 совпадение имени бинарника и наличие всех exports alias в пакете. Для команды
@@ -1812,7 +2072,7 @@ TOML-представимость значений и подготовка runti
 Существующие ходы продолжают работу со своим immutable snapshot.
 
 Перед записью профиля сохранение кладёт заменяемое состояние этих полей в
-`<config store>/config-history/<путь профиля>/`, рядом с sessions, а не в
+`<config store>/config-history/v2/<путь профиля>/`, рядом с sessions, а не в
 каталог `configs`: он может быть ссылкой на репозиторий. Хранятся последние
 50 состояний; сохранение без изменений и повтор последнего состояния новую
 запись не создают. Запись истории выполняется до изменения файла, и её ошибка
@@ -1821,8 +2081,15 @@ TOML-представимость значений и подготовка runti
 проходит обычным `POST /config/builder`, поэтому проверяется той же сборкой и
 сам попадает в историю. Builder не умеет снимать выбор slot: если в старом
 состоянии slot не был выбран, текущий модуль остаётся. Параметры модулей,
-которых не было в старом состоянии, сохраняются пустым объектом.
+которых не было в старом состоянии, сохраняются пустым объектом. Исключение —
+новые подключения моделей: регистрация компонентов не входит в историю, поэтому
+их текущие параметры сохраняются. Поле `state.model_connections` фиксирует
+известные на момент записи подключения, чтобы отличать новый компонент от
+существовавшего подключения без явных параметров.
 Ручные правки других частей файла откат не трогает.
+История настроек v2 включает именованные модели и ссылки ролей. Старые записи
+истории настроек остаются нетронутыми в прежней папке и не смешиваются с новым
+форматом; история разговоров и journals этим переходом не затрагиваются.
 
 До запуска тот же результат можно проверить отдельно:
 

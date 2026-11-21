@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     env,
     path::{Path, PathBuf},
 };
@@ -11,6 +11,8 @@ use super::{
     AppConfig, ConfigInputs, config_reference, config_selection, physical_config_path,
     selected_config_value_mut,
 };
+
+mod connection_removal;
 
 impl AppConfig {
     pub async fn load(path: Option<&Path>) -> Result<Self> {
@@ -54,6 +56,55 @@ impl AppConfig {
             .await
     }
 
+    /// For a plain include wrapper, retain the inherited choice spelling before
+    /// model normalization erases it. Inline sources and managed overlays have
+    /// distinct ownership rules and are deliberately excluded.
+    pub(crate) fn inherited_model_choice_key(path: &Path) -> Result<Option<&'static str>> {
+        if !config_selection(path)?.is_empty() {
+            return Ok(None);
+        }
+        let physical = physical_config_path(path);
+        if !physical.is_file()
+            || physical.file_name().and_then(|name| name.to_str())
+                == Some(super::CONFIG_BUILDER_OVERLAY)
+        {
+            return Ok(None);
+        }
+        let mut local = load_config_value(&physical)?;
+        let includes = take_config_includes(&mut local)?;
+        if includes.is_empty()
+            || ["models", "providers"]
+                .iter()
+                .any(|key| local.get(*key).is_some())
+        {
+            return Ok(None);
+        }
+        let base_dir = physical.parent().unwrap_or_else(|| Path::new("."));
+        let mut value = Value::Object(Map::new());
+        let mut inputs = ConfigInputs::default();
+        for include in includes {
+            let included = load_config_path_value(
+                &resolve_config_include(base_dir, &include),
+                &mut BTreeSet::new(),
+                &mut inputs,
+            )?;
+            merge_config_value(&mut value, included);
+        }
+        // Explicit JSON null has the same unselected semantics as omission.
+        Ok(
+            if value.get("model").is_some_and(|value| !value.is_null()) {
+                Some("model")
+            } else if value
+                .get("active_provider")
+                .is_some_and(|value| !value.is_null())
+            {
+                Some("active_provider")
+            } else {
+                None
+            },
+        )
+    }
+
     pub async fn resolve_config_path(path: Option<&Path>) -> Result<Option<PathBuf>> {
         match path {
             Some(path) => Ok(Some(resolve_explicit_config_path(path).await?)),
@@ -80,6 +131,32 @@ impl AppConfig {
     }
 
     async fn load_path(path: &Path, inputs: &mut ConfigInputs) -> Result<Self> {
+        Self::load_path_settings(path, inputs, None, None).await
+    }
+
+    /// Validate a model proposal through the same source normalizer as loading,
+    /// without writing a temporary file or publishing runtime state.
+    pub(crate) async fn load_with_settings_edits(
+        path: &Path,
+        edits: Option<&super::ModelSourceEdits>,
+        modes: Option<&BTreeMap<String, crate::domain::BehaviorModeDefinition>>,
+    ) -> Result<Self> {
+        let resolved = Self::resolve_config_path(Some(path))
+            .await?
+            .context("config path is unavailable")?;
+        let mut inputs = ConfigInputs::default();
+        Self::load_path_settings(&resolved, &mut inputs, edits, modes)
+            .await?
+            .with_resolved_instructions(Some(&resolved), &mut inputs)
+            .await
+    }
+
+    async fn load_path_settings(
+        path: &Path,
+        inputs: &mut ConfigInputs,
+        edits: Option<&super::ModelSourceEdits>,
+        modes: Option<&BTreeMap<String, crate::domain::BehaviorModeDefinition>>,
+    ) -> Result<Self> {
         let selection = config_selection(path)?;
         let physical = physical_config_path(path);
         let metadata = tokio::fs::metadata(&physical)
@@ -90,6 +167,75 @@ impl AppConfig {
             bail!("inline agent selection requires a single config file");
         }
         let mut value = load_config_path_value(&physical, &mut BTreeSet::new(), inputs)?;
+        let mut local = if metadata.is_file() {
+            let mut local = load_config_value(&physical)?;
+            selected_config_value_mut(&mut local, &selection)
+                .ok()
+                .map(|value| {
+                    let mut view = super::model_settings::source_view(value);
+                    if let Some(modes) = value.get("modes") {
+                        view["modes"] = modes.clone();
+                    }
+                    view
+                })
+        } else {
+            None
+        };
+        if let Some(edits) = edits {
+            if edits.selected.is_some() {
+                anyhow::ensure!(
+                    super::model_settings::source_choice(&mut value, &selection)?.1,
+                    "model selection is a full source definition; edit it at its owning source"
+                );
+            }
+            let mut probe = value.clone();
+            super::models::normalize_model_sources(&mut probe)?;
+            let probe = selected_config_value_mut(&mut probe, &selection)?;
+            let available = serde_json::from_value(
+                probe
+                    .get("providers")
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!({})),
+            )?;
+            if edits.selected.is_some() {
+                super::model_settings::remove_outer_choice(&mut value, &selection)?;
+            }
+            let source = selected_config_value_mut(&mut value, &selection)?;
+            let ownership = super::ModelSourceMetadata::capture(
+                source,
+                local.as_ref(),
+                &available,
+                metadata.is_file(),
+            );
+            ownership.apply(source, edits)?;
+            if let Some(local) = &mut local {
+                ownership.apply(local, edits)?;
+            }
+        }
+        if let Some(modes) = modes {
+            let source = selected_config_value_mut(&mut value, &selection)?;
+            let existing = source
+                .get("modes")
+                .cloned()
+                .unwrap_or_else(|| serde_json::json!({}));
+            let probe = AppConfig {
+                modes: serde_json::from_value(existing)?,
+                ..AppConfig::default()
+            };
+            anyhow::ensure!(
+                super::BehaviorSourceMetadata::capture(local.as_ref(), &probe, metadata.is_file())
+                    .writable,
+                "behavior modes are inherited; edit their owning source"
+            );
+            source["modes"] = serde_json::to_value(modes)?;
+            if let Some(local) = &mut local {
+                local["modes"] = serde_json::to_value(modes)?;
+            }
+        }
+        let (source_choice, choice_writable) =
+            super::model_settings::source_choice(&mut value, &selection)?;
+        let source_models =
+            super::model_settings::source_view(selected_config_value_mut(&mut value, &selection)?);
         // Resolve model names and shared model-only bindings before selecting a
         // child, so a source-local name has the same meaning in every role.
         super::models::normalize_model_sources(&mut value)?;
@@ -102,12 +248,23 @@ impl AppConfig {
             source = config_reference(&source, role)?;
         }
         normalize_inline_configs(&mut value, &source, metadata.is_file(), inputs).await?;
-        let config: Self = serde_json::from_value(value).with_context(|| {
+        let mut config: Self = serde_json::from_value(value).with_context(|| {
             format!(
                 "failed to build config from {source_kind} {}",
                 path.display()
             )
         })?;
+        config.model_source = super::ModelSourceMetadata::capture(
+            &source_models,
+            local.as_ref(),
+            &config.providers,
+            metadata.is_file(),
+        );
+        config.behavior_source =
+            super::BehaviorSourceMetadata::capture(local.as_ref(), &config, metadata.is_file());
+        config.model_source.choice = Some(source_choice);
+        config.model_source.resolved_choice = config.active_provider.clone();
+        config.model_source.choice_writable = choice_writable;
         config.validate_semantics()?;
         Ok(config)
     }
@@ -277,7 +434,15 @@ fn load_config_file_value(
     stack: &mut BTreeSet<PathBuf>,
     inputs: &mut ConfigInputs,
 ) -> Result<Value> {
-    let mut value = load_config_value(path)?;
+    merge_config_file_value(path, load_config_value(path)?, stack, inputs)
+}
+
+fn merge_config_file_value(
+    path: &Path,
+    mut value: Value,
+    stack: &mut BTreeSet<PathBuf>,
+    inputs: &mut ConfigInputs,
+) -> Result<Value> {
     let includes = take_config_includes(&mut value)?;
     if includes.is_empty() {
         return Ok(value);
@@ -325,20 +490,26 @@ fn resolve_config_include(base_dir: &Path, include: &Path) -> PathBuf {
 }
 
 fn default_config_path() -> Option<PathBuf> {
-    if let Some(path) = env::var_os("PROTEUS_CONFIG_PATH") {
+    default_config_path_from_env(|key| env::var_os(key))
+}
+
+pub(super) fn default_config_path_from_env(
+    mut get: impl FnMut(&str) -> Option<std::ffi::OsString>,
+) -> Option<PathBuf> {
+    if let Some(path) = get("PROTEUS_CONFIG_PATH") {
         return Some(PathBuf::from(path));
     }
 
-    if let Some(config_home) = env::var_os("PROTEUS_CONFIG_HOME") {
+    if let Some(config_home) = get("PROTEUS_CONFIG_HOME") {
         return Some(PathBuf::from(config_home).join("configs/config.toml"));
     }
 
-    if let Some(home) = env::var_os("HOME") {
-        return Some(PathBuf::from(home).join(".config/Proteus-agent/configs/config.toml"));
+    if let Some(home) = get("HOME") {
+        return Some(PathBuf::from(home).join(".config/Proteus-harness/configs/config.toml"));
     }
 
-    env::var_os("XDG_CONFIG_HOME").map(|xdg_config_home| {
-        PathBuf::from(xdg_config_home).join("Proteus-agent/configs/config.toml")
+    get("XDG_CONFIG_HOME").map(|xdg_config_home| {
+        PathBuf::from(xdg_config_home).join("Proteus-harness/configs/config.toml")
     })
 }
 

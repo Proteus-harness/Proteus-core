@@ -41,7 +41,11 @@ async fn rust_and_python_workflows_share_the_checkpoint_contract() {
             .await
             .unwrap();
         runtime.run("hello".into()).await.unwrap();
-        let store = SessionStore::open(runtime.session_dir().unwrap().to_owned()).unwrap();
+        let store = SessionStore::open(
+            session_storage_fixture::storage(std::path::Path::new(".")),
+            runtime.session_dir().unwrap().to_owned(),
+        )
+        .unwrap();
         let projection = store.load_projection().unwrap();
         assert!(projection.records.iter().any(|record| matches!(&record.entry,
             JournalEntry::HistoryMutated(mutation) if mutation.mutation == HistoryMutationKind::Checkpoint)));
@@ -153,12 +157,18 @@ async fn lost_preparation_acknowledgement_cannot_roll_back_committed_history() {
         assert_eq!(history.last().unwrap().display_text(), "lost_ack");
         if let Some(dir) = runtime.session_dir() {
             assert_eq!(
-                SessionStore::open(dir.to_owned())
-                    .unwrap()
-                    .load_messages()
-                    .unwrap(),
+                SessionStore::open(
+                    session_storage_fixture::storage(std::path::Path::new(".")),
+                    dir.to_owned()
+                )
+                .unwrap()
+                .load_messages()
+                .unwrap(),
                 history
             );
         }
     }
 }
+
+#[path = "../support/model.rs"]
+mod session_storage_fixture;

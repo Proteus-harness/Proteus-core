@@ -45,17 +45,17 @@ pub use assembly::{
 };
 pub use bound_model::{BoundModel, ModelExecutionBinding};
 pub use bound_tools::{BoundTools, ToolExecutionBinding};
-pub(crate) use config::ConfigInputs;
 pub use config::{
     AgentControlConfig, AgentControlSurface, AgentProfileConfig, AppConfig, AppServerConfig,
-    ConfiguredMcpServerConfig, EventLogConfig, InstructionSourceConfig, ModelConfig, ModulesConfig,
-    PermissionsConfig, ProcessEnvironmentConfig, ProfileConfig, PromptCommandConfig,
-    ProviderProfileConfig, RuntimeConfig, ToolsConfig, config_reference, config_selection,
-    expand_user_path, physical_config_path, selected_config_value_mut,
+    BehaviorSourceMetadata, ConfiguredMcpServerConfig, EventLogConfig, InstructionSourceConfig,
+    ModelConfig, ModelSourceMetadata, ModulesConfig, PermissionsConfig, ProcessEnvironmentConfig,
+    ProfileConfig, PromptCommandConfig, ProviderProfileConfig, RuntimeConfig, SourceModelRole,
+    ToolsConfig, config_reference, config_selection, expand_user_path, physical_config_path,
+    selected_config_value_mut,
 };
+pub(crate) use config::{ConfigInputs, ModelSourceEdits};
 pub use config_snapshot::{
     CONFIG_SNAPSHOT_FILE, SessionConfigModules, SessionConfigSnapshot, SessionConfigTool,
-    write_config_snapshot,
 };
 pub use eval_report::{EvalReport, read_eval_report};
 pub use event_store::InMemoryEventStore;
@@ -74,6 +74,7 @@ pub use runtime::{
 };
 #[cfg(test)]
 pub(crate) use session_journal::ModelMessageRecorded;
+pub(crate) use session_journal::is_display_kind;
 pub use session_journal::{
     ContextRequestRecorded, ContextResponseRecorded, DEFAULT_BLOB_THRESHOLD_BYTES, HistoryMutated,
     HistoryMutationKind, JOURNAL_FILE, JOURNAL_SCHEMA_VERSION, JournalEntry, JournalKind,
@@ -83,17 +84,17 @@ pub use session_journal::{
     TurnSettlementStatus,
 };
 pub(crate) use session_journal::{JournalReadCursor, JournalReadSnapshot, history_message_sha256};
-#[cfg(unix)]
 pub(crate) use session_store::read_cache as session_read_cache;
 #[cfg(unix)]
 pub(crate) use session_store::subscribe_catalog_updates;
 pub(crate) use session_store::{
-    PreparedSession, SessionReadModel, SessionTranscriptAppend, prepare_latest_workspace_session,
+    CommittedDisplay, DisplayRecords, PrefixIdentities, PreparedSession, SessionReadModel,
+    SessionTranscriptAppend, prepare_latest_workspace_session, session_storage_binding,
 };
 pub use session_store::{
-    SessionStore, canonicalize_session_dir_path, decode_workspace_path, delete_workspace_session,
-    encode_workspace_path, list_session_summaries, list_session_summaries_for_audit,
-    list_workspace_session_summaries, normalize_session_dir_path,
+    SessionStore, StorageService, canonicalize_session_dir_path, configured_session_storage,
+    decode_workspace_path, delete_workspace_session, encode_workspace_path, list_session_summaries,
+    list_session_summaries_for_audit, list_workspace_session_summaries,
 };
 pub use topology::{
     ModelTopology, ModuleSourceTopology, ModuleTopology, SlotTopology, ToolTopology,

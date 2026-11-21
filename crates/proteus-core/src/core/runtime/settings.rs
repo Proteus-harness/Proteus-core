@@ -1,6 +1,21 @@
 use super::*;
 
 impl AgentRuntime {
+    pub(crate) async fn set_permission_mode_with_commit<F, Fut>(
+        &self,
+        mode: PermissionMode,
+        commit: F,
+    ) -> Result<()>
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = Result<()>>,
+    {
+        let _guard = self.services.reload_lock.lock().await;
+        commit().await?;
+        self.services.execution_state.write().await.permission_mode = mode;
+        Ok(())
+    }
+
     /// A bound provider can select another model without rebuilding its worker.
     /// Stream mode belongs to its construction, so that change uses reassembly.
     /// Validation, metadata commit and publication share the settings lock.

@@ -57,6 +57,12 @@ impl SnapshotParts {
 }
 
 impl SessionView {
+    pub(super) fn session_store(&self) -> Option<crate::core::SessionStore> {
+        self.runtime
+            .upgrade()
+            .and_then(|runtime| runtime.session_store().cloned())
+    }
+
     pub(super) fn run_is_active(&self) -> bool {
         self.execution.active.is_some()
     }

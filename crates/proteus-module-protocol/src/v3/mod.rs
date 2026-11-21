@@ -14,6 +14,7 @@ mod pending;
 mod routing;
 mod runtime;
 mod signal;
+mod transport_config;
 mod wire;
 mod wire_id;
 
@@ -26,5 +27,8 @@ pub use invocation::{
     InvocationHandle, InvocationRef, InvocationTerminal, NoAsyncHostRequests,
 };
 pub use notification::{InvocationNotification, InvocationNotificationReceiver};
+pub use transport_config::{
+    COMPONENT_MAX_FRAME_BYTES_ENV, ComponentTransportConfig, MAX_COMPONENT_FRAME_BYTES,
+};
 pub use wire::COMPONENT_PROTOCOL_V3;
 pub use wire_id::{WireDirection, WireId, parse_wire_id};

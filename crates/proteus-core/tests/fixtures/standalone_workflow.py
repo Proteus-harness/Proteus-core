@@ -1,4 +1,4 @@
-"""Exercise workflow/v20 using execution capabilities without conversation state."""
+"""Exercise workflow/v22 using execution capabilities without conversation state."""
 import json
 import sys
 import uuid
@@ -10,8 +10,8 @@ from component_runtime import HostError, ProtocolError, run_component
 def initialize(params):
     exports = []
     for export in params["exports"]:
-        if (export["slot"], export["contract_version"], export["composition"]) != ("workflow", "v20", "select_one"):
-            raise ProtocolError("expected workflow/v20")
+        if (export["slot"], export["contract_version"], export["composition"]) != ("workflow", "v22", "select_one"):
+            raise ProtocolError("expected workflow/v22")
         exports.append({key: export[key] for key in ("slot", "module_id", "contract_version", "composition")})
         exports[-1]["module_features"] = []
         exports[-1]["config_schema"] = None

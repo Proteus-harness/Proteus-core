@@ -265,9 +265,10 @@ impl WorkflowHistoryRecorder for ReplayCheckpointRecorder {
                     .insert(recorded.message_id, actual.message_id);
                 inner.part_ids.insert(recorded.part_id, actual.part_id);
             }
-            let mut value = serde_json::to_value(&expected.ack_messages)?;
-            super::hooks::rewrite_strings(&mut value, &inner.expected_to_actual);
-            let mut ack_messages: Vec<CanonicalMessage> = serde_json::from_value(value)?;
+            let mut ack_messages = super::canonical_rewrite::rewrite_messages(
+                &expected.ack_messages,
+                &inner.expected_to_actual,
+            )?;
             for message in &mut ack_messages {
                 if let Some(actual) = inner.message_ids.get(&message.id) {
                     message.id = *actual;

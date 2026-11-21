@@ -21,7 +21,7 @@ def read_rows(directories, excluded):
                 if not registry.get("auxiliary_model_verified"):
                     excluded.append({"source": str(file.resolve()), "reason": "unverified auxiliary title model"})
                     continue
-            key = model, case, repeat, arm
+            key = result['model'], result['reasoning'], case, int(repeat), arm
             if key in identities:
                 raise ValueError(f'duplicate run {key}')
             identities.add(key)
@@ -71,7 +71,7 @@ def summarize(rows):
                       'observed_token_sums':usage['observed_token_sums'],
                       'requests':complete_sum([r['requests'] for r in primary]),
                       'actions':complete_sum([r['actions'] for r in primary]),'tools':dict(tools),
-                      'median_wall_seconds':round(median(r['seconds'] for r in primary),2)})
+                      'median_wall_seconds':round(median(r['seconds'] for r in primary),2) if primary else None})
     return stats
 
 

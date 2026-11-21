@@ -191,11 +191,9 @@ export к ним не относится. MCP cancel/timeout завершает 
 composition(slot contract) = select_one | ordered_many
 ```
 
-Composition хранится в общей authority table и подтверждается отдельно для
-каждого export:
-
-- `select_one`: workflow, model, context, policy;
-- `ordered_many`: tool, context provider, hook.
+Правило выбора хранится в таблице прав протокола и подтверждается отдельно для
+каждого export при handshake. Для каждого слота оно приведено в
+[таблице контрактов](modules.md#слоты-и-их-выбор).
 
 Модуль не может изменить cardinality, сделать свой `module_id` особым или
 объявить новый slot. Это изменение host contract.
@@ -225,7 +223,7 @@ Composition хранится в общей authority table и подтвержд
       {
         "slot": "tool",
         "module_id": "reference.tools",
-        "contract_version": "v6",
+        "contract_version": "v7",
         "composition": "ordered_many",
         "module_config": {},
         "host_features": []
@@ -256,7 +254,7 @@ Composition хранится в общей authority table и подтвержд
       {
         "slot": "tool",
         "module_id": "reference.tools",
-        "contract_version": "v6",
+        "contract_version": "v7",
         "composition": "ordered_many",
         "module_features": [],
         "config_schema": null
@@ -422,13 +420,14 @@ Rust host и модуль используют один
 
 | Slot | Contract | Module methods | Host callbacks |
 |---|---|---|---|
-| hook | v6 | `hook.invoke` | `host.model.complete`, `host.tools.execute` (по фазе invocation) |
+| session_storage | v2 | `execute` | — |
+| hook | v8 | `hook.invoke` | `host.model.complete`, `host.model.estimate_input`, `host.tools.execute` (по фазе invocation) |
 | policy | v2 | `evaluate`, `evaluate_visibility` | — |
 | context provider | v4 | `provide`, `catalog` | — |
-| tool | v6 | `list`, `invoke` | `host.model.complete`, `host.tools.execute`, `host.conversation.read`, `host.conversation.snapshot` |
+| tool | v7 | `list`, `invoke`, optional `terminal` | `host.model.complete`, `host.tools.execute`, `host.conversation.read`, `host.conversation.snapshot` |
 | context | v3 | `build` | `host.context.provide` |
-| model | v13 | `describe`, `catalog`, `quota`, `stream` | `host.model.emit` (acknowledged canonical events) |
-| workflow | v20 | `run` | runtime status, context, model, context preparation, history checkpoint, tool visibility/selection/execution, events |
+| model | v14 | `describe`, `stream`, optional `catalog`, `quota`, `estimate_input` | `host.model.emit` (acknowledged canonical events) |
+| workflow | v22 | `run` | runtime status, context, model, context preparation, history checkpoint, tool visibility/selection/execution, events |
 
 Canonical source:
 `crates/proteus-module-protocol/src/authority.rs`. Изменение таблицы требует
@@ -438,7 +437,7 @@ DTO, adapter, protocol/conformance и swap evidence в одном commit.
 описаны в [hook-tool-operations.md](hook-tool-operations.md). Отдельный
 compactor slot/export удалён; стратегия выбирается hook export.
 
-`tool/v6` возвращает из `list` definitions
+`tool/v7` возвращает из `list` definitions
 `{ spec: ToolSpec, model_visible: boolean, user_command: ToolUserCommand | null }`.
 Все поля обязательны, включая явный nullable `user_command`; bare ToolSpec и
 старые versions не принимаются. `ToolUserCommand` содержит `name`, `description`
@@ -476,7 +475,12 @@ constructor задаёт `false`, модуль обязан передать п�
 версии этих contracts и ToolSpec без поля не принимаются. Wire остаётся v3;
 параллельность вызовов не меняет composition slot-а и его host authority.
 
-`workflow/v20` использует обязательный `runtime.execution_id`, явные nullable
+`workflow/v22` принимает `runtime.permission_mode = "full_access"` как отдельное
+авторазрешение вызовов с сохранением явных policy denials и независимых sandbox
+ограничений. Прежний `auto` не меняет смысл. Модули с типизированным runtime
+должны использовать этот контракт; старый `workflow/v21` отклоняется на handshake.
+
+`workflow/v22` использует обязательный `runtime.execution_id`, явные nullable
 `runtime.conversation` и `runtime.model_ref`. Conversation содержит полный
 набор session/thread/turn ids; частичная attribution не принимается. Standalone
 invocation передаёт `conversation: null` и может передать пустую history.
@@ -489,7 +493,7 @@ invocation modes используют один registry/policy/approval/safety p
 Ненастроенная модель отсутствует и в wire reference, и в ExecutionContext;
 `host.model.complete/stream` возвращает явную ошибку, без fake adapter.
 
-`workflow/v20` передаёт в `runtime` непрозрачный `intent: string | null` и
+`workflow/v22` передаёт в `runtime` непрозрачный `intent: string | null` и
 эффективный `permission_mode` запуска. Семантику имени определяет выбранный
 workflow; неподдерживаемое намерение должно давать явную ошибку, а не обычный
 запуск с проигнорированными параметрами. Поле не расширяет authority: host
@@ -518,7 +522,7 @@ Core восстанавливает их из journal либо памяти; в�
 `coding.codex_loop` представляет их request-only маркером `<turn_aborted>`
 из выбранного upstream; marker не становится новым принятым вводом пользователя.
 
-`workflow/v20` возвращает strict terminal envelope: `status = "success"` с
+`workflow/v22` возвращает strict terminal envelope: `status = "success"` с
 `result: WorkflowOutput` либо `status = "error"` с `failure: WorkflowFailure`.
 Ошибка алгоритма может содержать `history: WorkflowHistoryUpdate` — завершённые
 `new_messages`, optional `history_replacement` и `compactions`; `model_failure`
@@ -573,9 +577,66 @@ tools. Запрос без результата остаётся неизвес�
 `coding.codex_loop` и Python example используют checkpoints; callback доступен
 всем implementations workflow slot с одинаковой authority.
 
+## Session Storage
+
+`session_storage/v2` — `select_one` export с единственным методом `execute`.
+`ListCandidates` перечисляет descriptors по identity и файловым метаданным для
+предварительного выбора чата. `List` сохраняет проверку canonical journal и
+возвращает проверенные summaries. Кандидат сам по себе не разрешает execution.
+`SessionStorageRequest` и `SessionStorageResponse` задаются в
+`proteus-contracts::contracts::session_storage`. Host callbacks отсутствуют.
+`local_path` и `record_location` в session descriptor служат для отображения и
+диагностики. Доступ к records, metadata, blobs и кешам идёт через service.
+
+Core назначает `operation_id`, timestamp и ожидаемую revision до отправки
+`Commit`. Модуль атомарно сохраняет тот же id как journal `record_id` и
+возвращает durable ACK с фактическим canonical record. `session_seq` считает
+все факты, `history_revision` — изменения conversation history. При утрате ACK
+`CommitStatus` позволяет установить результат той же операции.
+
+Writer lease содержит token и generation. Read-only snapshot фиксирует session,
+revision и hash committed prefix, поэтому пагинация и replay читают одну версию.
+Expired handle требует нового открытия. Незавершённый append восстанавливает
+writer. Read-only чтение сохраняет исходный журнал.
+
+Опциональная возможность `display_projection` позволяет восстановить экран
+чата одним строгим проходом по этому префиксу. `OpenDisplaySnapshot` возвращает
+ограниченное производное состояние, а `ReadDisplayRecords` выдаёт страницы из
+того же префикса, пропуская записи, которые нужны только проверке и replay.
+Номера записей на странице возрастают, между ними допустимы пропуски. Модуль
+может отказаться от подготовки при превышении бюджета. Тогда Core строит
+представление из обычного полного snapshot. Продолжение сессии по-прежнему
+проверяется под writer lease.
+
+При сохранении экранной проекции Core сохраняет архивные страницы transcript
+группами: один неизменяемый объект кеша содержит до восьми страниц и не более
+256 KiB в несжатом виде и в JSON тела группы. Крупная страница и каждая страница, затрагивающая
+последние 50 строк, остаются отдельными объектами. При добавлении сообщений
+уже сохранённые группы не перечитываются для переупаковки. Старую и текущую
+историю читатель различает по заголовку запрошенной ревизии; он сверяет
+SHA-256 объекта и запрошенных страниц. Утрата объекта означает промах кеша,
+а не разрешение читать строки из другой ревизии.
+Новые группы хранят каждую логическую страницу как отдельный DEFLATE-кадр в
+base64. Размер тела группы не превосходит удвоенного размера её наименьшей
+несжатой страницы; плохо сжимаемые страницы образуют меньшие группы или
+сохраняются отдельно. Читатель по-прежнему загружает и проверяет целый объект,
+но распаковывает лишь пересекающиеся страницы с ограничением на выходной размер.
+Неподдерживаемая форма производного кеша отклоняется и перестраивается из
+канонического журнала. Размер ответа клиенту, журнал и квоты storage от этой
+группировки не меняются. Точный индекс идентичностей хранит UUID и хеши в
+упакованном base64, произвольные CallId сохраняются без нормализации; прежняя
+форма индекса также требует перестроения.
+
+Core удерживает выбранный storage service в течение runtime. Reload с изменённым
+selection, launch descriptor или `module_config.session_storage` отклоняется.
+HTTP server также проверяет эту привязку при открытии новых сессий из изменённого
+профиля. Для смены хранилища запускается новый runtime/server с явным конфигом.
+Бюджет больших кадров задаётся для component через
+[`transport.max_frame_bytes`](../guides/configuration.md#process-components-и-exports).
+
 ## Model Stream В Workflow
 
-`workflow/v20` предоставляет всем exports два callbacks:
+`workflow/v22` предоставляет всем exports два callbacks:
 
 - `host.model.stream.start(WorkflowCompleteModelRequest) -> { stream_id }`;
 - `host.model.stream.next({ stream_id }) -> WorkflowModelStreamItem` с
@@ -808,7 +869,7 @@ ToolRegistry
   -> invoke
 ```
 
-Component не задаёт execution/chat ownership. В `tool/v6` host передаёт
+Component не задаёт execution/chat ownership. В `tool/v7` host передаёт
 `ExecutionAttribution` из активного execution binding: `ExecutionId` обязателен,
 а `SessionId`/`ThreadId`/`TurnId` существуют только как optional agent
 projection. Detached execution проходит wire без fake chat identities.
@@ -857,7 +918,7 @@ Python examples доказывают независимость wire от Rust:
 - `examples/modules/agent-worker/agent.py`.
 
 JS/TS [`hook-process`](../../examples/modules/hook-process/README.md) использует
-тот же wire v3 с несколькими `hook/v6` exports, concurrent invocations и
+тот же wire v3 с несколькими `hook/v8` exports, concurrent invocations и
 адресной отменой через `AbortSignal`. SDK и porting helpers находятся внутри
 внешнего component; в Core нет language- или origin-specific пути исполнения.
 
@@ -866,7 +927,7 @@ JS/TS [`hook-process`](../../examples/modules/hook-process/README.md) испол
 ```bash
 cargo run -p proteus-module-protocol --features conformance-cli --bin proteus-component-conformance -- \
   --component-id python-search \
-  --export '{"slot":"tool","module_id":"python_rg","contract_version":"v6","module_config":{}}' \
+  --export '{"slot":"tool","module_id":"python_rg","contract_version":"v7","module_config":{}}' \
   --probe-export tool/python_rg \
   --probe-method list \
   --probe-params 'null' \
@@ -882,8 +943,10 @@ Host предлагает `host_features` отдельно каждому export
 только поддерживаемое пересечение в `module_features`; отсутствие optional
 feature допустимо, неизвестное или повторное подтверждение — ошибка handshake.
 Функция не добавляет callbacks: authority по-прежнему задаёт slot и invocation.
-В `model/v13` `describe` и `stream` составляют обязательное ядро;
-`model.catalog.v1` и `model.quota.v1` разрешают соответствующие optional вызовы.
+В `model/v14` `describe` и `stream` составляют обязательное ядро;
+`model.catalog.v1`, `model.quota.v1` и `model.input_estimate.v1` разрешают
+соответствующие optional вызовы. `estimate_input` — локальная оценка
+provider-owned Opaque parts, без inference или model/usage journal exchange.
 Без подтверждения host не вызывает метод и возвращает отсутствие данных.
 Связь method→feature задаётся общей таблицей slot contracts. Broker проверяет
 acknowledgement именно текущего generation/export при admission, после lazy
@@ -905,7 +968,16 @@ routing или authority. Другие неизвестные поля по-пр
 
 ## Model Streaming
 
-`model/v13` использует canonical DTO из `proteus-contracts::contracts::process_model`:
+`model/v14` использует canonical DTO из `proteus-contracts::contracts::process_model`:
+
+`CanonicalModelRequest.operation` выбирает `Complete` (обычный default) или
+`Compact` (нативный checkpoint). Compact требует явного
+`ModelCapabilities.supports_compaction`; unsupported операция отклоняется host
+до model invocation. Это та же операция через существующие bound model callbacks
+workflow, hook и tool, а не отдельный HTTP path или привилегия конкретного export.
+Поэтому согласованный cut включает `workflow/v22`, `hook/v8` и `tool/v7`.
+В `BeforeContext.model_capabilities` host сообщает описание выбранной модели;
+отсутствие descriptor означает неизвестную capability, а не разрешение Compact.
 
 `ContentPart::Opaque { format, data }` сохраняет упорядоченный блок ответа,
 который нужен следующему запросу провайдера. Core хранит его как часть
@@ -1012,7 +1084,7 @@ event; это причина, а не команда Core повторить з�
 без завершения, сохраняя остальные
 ошибки данных и deadline отдельными. Codex workflow принимает решение о повторе
 с подтверждённой историей; preparation hook сохраняет свою политику повторов.
-Действуют `model/v13`, `workflow/v20`, `hook/v6`, `tool/v6` и journal schema v21,
+Действуют `model/v14`, `workflow/v22`, `hook/v8`, `tool/v7` и journal schema v21,
 без readers старых форм.
 Передача `ToolCall` в существующем `CanonicalMessage` не меняет wire/storage DTO.
 
@@ -1052,8 +1124,9 @@ implementation через typed describe; Core не угадывает его п
 Tracked reference crates — ordinary Rust libraries, линкуемые внутрь процессного модуля.
 
 Все behavior implementations, включая model providers, используют process
-exports. Core сохраняет canonical model service, execution binding и journal;
-provider HTTP/SDK implementations находятся в процессном модуле.
+exports. Core сохраняет canonical model service, execution binding и порядок
+фиксации journal facts. Физическое хранение сессии делегируется выбранному
+`session_storage/v2`; provider HTTP/SDK implementations находятся в model module.
 Для subagents действует другой process contract: полный Proteus соединяется с
 другим полным Proteus через root-owned `AgentControl`, а не становится
 Component Runtime export-ом. Это не скрытый extension mechanism и не основание
@@ -1083,7 +1156,7 @@ invocation authority и проверяемого lifecycle — без второ
 
 ## Typed Hook Chain
 
-`hook/v6` имеет `composition=ordered_many`; host выбирает exact exports
+`hook/v8` имеет `composition=ordered_many`; host выбирает exact exports
 по `modules.hooks` в порядке config snapshot. Wire input содержит typed event,
 execution attribution и cwd; cancellation token остаётся host-only.
 Input также содержит обязательный nullable `conversation`: для
@@ -1108,7 +1181,7 @@ execution state в единственном shared mutable поле. Reload ме
 
 ### Completion Review И Workflow Continuation
 
-`hook/v6` включает `tool_arguments { args }` к before-tool и
+`hook/v8` включает `tool_arguments { args }` к before-tool и
 `continue_turn { reason }` к `before_stop`. Tool identity неизменна, изменённые
 args валидируются после каждого export до policy/approval; journal хранит
 исходный Requested и effective call в успешном trace/approval/resolution.
@@ -1121,7 +1194,7 @@ Root вызывает `before_stop { task, history, output, attempt, continuatio
 остаётся best-effort и не возобновляет execution. Replay исполняет тот же root
 review loop с записанными responses, без запуска hook executables.
 
-`workflow/v20` требует nullable `runtime.continuation`. Значение содержит
+`workflow/v22` требует nullable `runtime.continuation`. Значение содержит
 `attempt`, `reason`, `current_user_message_id`, `history: WorkflowHistoryUpdate`.
 При continuation input history включает прошлый кандидат и может заканчиваться
 assistant/tool; текущий user определяется явным anchor. Output/checkpoints/
@@ -1134,7 +1207,7 @@ Reference workflows и внешний Python example поддерживают э
 
 ### Интерактивный терминал существующего tool
 
-Optional feature `tool_terminal/v1` расширяет `tool/v6`: новый slot и отдельный
+Optional feature `tool_terminal/v1` расширяет `tool/v7`: новый slot и отдельный
 HTTP-сервис модуля не создаются. SDK `ToolModule::supports_terminal_control`
 включает feature только при согласованном `host_features`; обычные tool exports
 работают без неё. `ToolModuleHost::supports_terminal_publish()` явно отличает

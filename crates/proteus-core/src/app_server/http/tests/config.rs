@@ -52,7 +52,10 @@ async fn route_config_builder_returns_editable_module_slots() {
         .iter()
         .filter_map(|slot| slot.get("id").and_then(Value::as_str))
         .collect::<Vec<_>>();
-    assert_eq!(slot_ids, vec!["workflow", "context", "policy",]);
+    assert_eq!(
+        slot_ids,
+        vec!["workflow", "context", "policy", "session_storage"]
+    );
     assert!(
         slots
             .iter()
@@ -73,14 +76,14 @@ async fn route_config_builder_returns_editable_module_slots() {
     }));
     assert!(snapshot.get("tools_enabled").is_some_and(Value::is_array));
     assert!(snapshot.get("tools").is_some_and(Value::is_array));
-    assert!(snapshot.get("providers").is_some_and(Value::is_array));
+    assert!(snapshot.get("models").is_some_and(Value::is_object));
     assert_eq!(
         snapshot.get("permission_mode").and_then(Value::as_str),
         Some("normal")
     );
     assert_eq!(
         snapshot.get("permission_modes"),
-        Some(&json!(["plan", "normal", "auto"]))
+        Some(&json!(["plan", "normal", "full_access"]))
     );
 
     let typed: proteus_contracts::app_protocol::config_builder::ConfigBuilderSnapshot =
@@ -257,7 +260,9 @@ async fn route_config_history_keeps_replaced_states_for_rollback() {
         "hooks": restored["hooks"],
         "module_config": restored["module_config"],
         "tools_enabled": restored["tools_enabled"],
-        "active_provider": restored["active_provider"],
+        "model": restored["model"],
+        "models": restored["models"],
+        "role_models": restored["role_models"],
         "permission_mode": restored["permission_mode"],
     }))
     .await;
@@ -301,10 +306,12 @@ model = "fake-smart"
             ),
     )
     .expect("write config");
-    let config = {
+    let mut config = {
         let raw = std::fs::read_to_string(&config_path).expect("read config");
         toml::from_str::<AppConfig>(&raw).expect("parse config")
     };
+    crate::test_support::storage_config(&mut config);
+    std::fs::write(&config_path, toml::to_string_pretty(&config).unwrap()).unwrap();
     let server = AgentAppServer::launch(config, cwd.path().to_path_buf(), Some(&config_path))
         .await
         .expect("app server");
@@ -318,7 +325,7 @@ model = "fake-smart"
             json!({
                 "modules": {},
                 "tools_enabled": ["apply_patch", "search"],
-                "active_provider": "smart",
+                "model": "smart",
                 "permission_mode": "auto"
             }),
         ),
@@ -329,7 +336,10 @@ model = "fake-smart"
     assert_eq!(response.status(), StatusCode::OK);
     let bytes = response_bytes(response).await;
     let snapshot: Value = serde_json::from_slice(&bytes).expect("builder JSON");
-    assert_eq!(snapshot.get("active_modules"), Some(&json!([])));
+    assert_eq!(
+        snapshot.get("active_modules"),
+        Some(&json!([{"slot":"session_storage","id":"jsonl"}]))
+    );
 
     let written = std::fs::read_to_string(&config_path).expect("read config");
     assert!(
@@ -342,29 +352,21 @@ model = "fake-smart"
         snapshot.get("tools_enabled"),
         Some(&json!(["apply_patch", "search"]))
     );
-    assert_eq!(
-        snapshot.get("active_provider").and_then(Value::as_str),
-        Some("smart")
-    );
+    assert_eq!(snapshot.get("model").and_then(Value::as_str), Some("smart"));
     assert_eq!(
         snapshot.get("permission_mode").and_then(Value::as_str),
         Some("auto")
     );
-    assert!(
-        snapshot
-            .get("providers")
-            .and_then(Value::as_array)
-            .is_some_and(|providers| providers.iter().any(|provider| {
-                provider.get("id").and_then(Value::as_str) == Some("smart")
-                    && provider.get("active").and_then(Value::as_bool) == Some(true)
-            }))
-    );
+    assert_eq!(snapshot["models"]["smart"]["model"], "fake-smart");
     assert_eq!(server.permission_mode().await, PermissionMode::Auto);
     let model_ref = server.runtime.model_ref().await.unwrap();
     assert_eq!(model_ref.model, "fake-smart");
 
     let summary = server.config_summary().await;
-    assert_eq!(summary.get("modules"), Some(&json!([])));
+    assert_eq!(
+        summary.get("modules"),
+        Some(&json!([{"slot":"session_storage","id":"jsonl"}]))
+    );
     assert!(
         summary
             .get("module_epoch")

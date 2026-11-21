@@ -59,10 +59,8 @@ impl AgentRuntime {
         let input = input.into();
         let input = tokio::task::spawn_blocking(move || super::images::ImageStore::prepare(input))
             .await??;
-        if input.has_images()
-            && let Some(store) = &self.session.session_store
-        {
-            store.prepare_attachments().await?;
+        if let Some(store) = &self.session.session_store {
+            return super::images::ImageStore::admit_to_session(input, store).await;
         }
         let images = self.services.images.clone();
         tokio::task::spawn_blocking(move || images.admit(input)).await?

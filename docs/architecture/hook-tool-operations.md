@@ -1,6 +1,24 @@
 # Операции Hooks И Tools
 
-Действующая граница: `hook/v6`, `tool/v6`, `workflow/v20`, journal schema v21.
+Действующая граница: `hook/v8`, `tool/v7`, `workflow/v22`, journal schema v21.
+
+Запрос модели явно задаёт `CanonicalModelRequest.operation`: обычный `Complete`
+или нативный `Compact`. Отсутствие operation означает обычный Complete;
+поддержка Compact всегда требует `ModelCapabilities.supports_compaction`.
+Host проверяет capability до provider I/O и передаёт выбранное описание модели
+в `BeforeContext.model_capabilities`; model-free подготовка получает `None`.
+Workflow не может подменить этот host-owned descriptor.
+
+Compact из hook использует тот же bound model callback, auxiliary attribution,
+учёт usage и cancellation. UI stream Compact подавляется по typed operation,
+независимо от формы metadata. В отличие от обычной auxiliary генерации, он
+проходит настроенные `BeforeModel` transforms; вложенный auxiliary Complete
+не запускает их повторно. Формат checkpoint принадлежит provider adapter:
+Core сохраняет ordered `Opaque` без интерпретации и отображения. Подготовка
+лишь предлагает replacement; durable history меняет workflow checkpoint после
+успеха. Replay использует записанный descriptor и сравнивает operation, не
+обращаясь к provider.
+
 Отдельные slots `compactor` и `tool_exposure`, их selections, exports и
 adapters удалены.
 Алгоритм подготовки выбирается обычным hook export в `modules.hooks`.
@@ -24,8 +42,8 @@ cancellation и бюджет родителя. Authority не зависит о�
 совмещения exports в одном process. Callback задачи восстанавливают parent scope.
 
 Model callback — auxiliary вызов с обычным shaping, validation, journal и usage.
-Он не потребляет root steering, не публикует основной ответ и не повторяет
-BeforeModel chain. Результат возвращается вызывающему модулю без автоматической
+Он не потребляет root steering и не публикует основной ответ; обычный Complete
+не повторяет BeforeModel chain. Результат возвращается вызывающему модулю без автоматической
 записи в conversation. Provider failure не подменяется специальным fallback.
 
 Tool callback проходит BoundTools, registry, policy, approval, safety и полную
@@ -110,6 +128,29 @@ metadata. Opaque metadata не меняет типизированные пол�
 в полный replacement перед checkpoint. Свежий request context строится после
 принятия подготовки.
 
+## Локальная оценка opaque input
+
+`hook/v8` добавляет `host.model.estimate_input` с `ModelInputEstimateRequest`:
+выбранная `model` и уникальные canonical `Opaque` parts. Только selected bound
+model может оценить свой материал; Core не знает provider format или формулу.
+`model/v14` объявляет метод `estimate_input` опциональным feature
+`model.input_estimate.v1`. Не поддерживается — `null`, а не нулевая оценка.
+Ответ `ModelInputEstimate` содержит subset уникальных `part_id` и `u32 tokens`;
+ноль допустим. Чужие/повторные ids и не-Opaque запросы отклоняются.
+
+Это локальная advisory операция с owner, отменой и timeout текущего invocation.
+Она не запускает BeforeModel, inference, ModelRequest или TokenUsage exchange.
+У ToolHost и WorkflowHost этого callback нет. Replay использует уже записанный
+hook proposal; дополнительного journal record или повторного sizing нет.
+
+`ModelInputEstimate` читает/пишет typed map `{parts:[{part_id,tokens}]}` под ключом
+`model/input_token_estimates` в metadata hook output и workflow request.
+Применяются только matching Opaque ids; payload и message metadata неизменны.
+`ContextTokenEstimateSource` сохраняет `estimated`/`observed` под
+`context/token_estimate_source`. Helpers сохраняют другие metadata keys и не
+заменяют произвольное scalar metadata. Wire DTO не получает обязательных полей,
+старые записи остаются читаемыми.
+
 ## Принятие Истории
 
 1. Host привязывает target/revision и запускает ordered BeforeContext chain.
@@ -150,6 +191,21 @@ Replay проверяет завершённость и связность до�
 не занимают место следующего workflow request. Отбор tools воспроизводится по BeforeToolSelection trace. Failed/unchanged
 preparation воспроизводится по BeforeContext trace, без требования следующего direct call.
 Cold resume читает accepted working history из journal.
+
+## Материал подготовки и размер трассы
+
+Workflow создаёт вход через `ContextPreparationInput::from_request`. Сообщения
+переходят в `input.messages`, а шаблон запроса хранит параметры модели.
+Хук возвращает `Continue` при отсутствии изменений. Для оценки токенов, причины
+пропуска и других диагностических полей хост и модуль могут согласовать
+`hook.context_preparation_diagnostics.v1`. При этой возможности ответ содержит
+только диагностические поля. Полный результат нужен при замене истории.
+
+Проверка нового ответа хука должна включать длинную историю и проходить через
+сериализацию. Для изменения только оценки проверяются состав ответа и результат
+применения к исходному кандидату. Для записи журнала проверяются размер
+сериализованной трассы и точное восстановление исходного события и всех решений.
+Эти проверки обнаруживают повторную запись истории даже с включённым уплотнением файлов.
 
 ## Стратегии
 

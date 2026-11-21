@@ -37,6 +37,7 @@ async fn main() -> Result<()> {
         ensure!((1..=1024).contains(&snapshots) && (1..=1024).contains(&kib));
         std::fs::create_dir_all(root.join("workspace"))?;
         let store = SessionStore::new(
+            fixture_storage::service(&root.join("workspace"))?,
             &root.join("config"),
             &root.join("workspace"),
             new_session_id(),
@@ -70,7 +71,10 @@ async fn main() -> Result<()> {
     let mut fixture: Fixture = serde_json::from_slice(&std::fs::read(root.join("fixture.json"))?)?;
     // Copies retain the encoded workspace identity but have their own writer lease.
     fixture.session = root.join(&fixture.session);
-    let store = SessionStore::open(fixture.session.clone())?;
+    let store = SessionStore::open(
+        fixture_storage::service(&std::env::current_dir()?)?,
+        fixture.session.clone(),
+    )?;
     let started = Instant::now();
     match args[1].as_str() {
         "recover" => {
@@ -135,3 +139,6 @@ async fn main() -> Result<()> {
     }
     Ok(())
 }
+
+#[path = "support/session_storage.rs"]
+mod fixture_storage;

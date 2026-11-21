@@ -5,7 +5,7 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{Result, anyhow};
+use anyhow::{Context as _, Result, anyhow};
 use tokio::sync::{Mutex, RwLock, broadcast};
 
 use crate::{
@@ -13,9 +13,9 @@ use crate::{
     core::{
         AgentRuntime, AppConfig, AssemblyPlan, ChannelApprovalTransport, ChannelUserInputTransport,
         FanoutEventSink, JsonlEventStore, ModuleCatalog, PreparedAssembly, ReservedRunCompletion,
-        SessionStore, TopologyBuildInput, TopologySnapshot, UserMessageReservation,
+        SessionStore, StorageService, TopologyBuildInput, TopologySnapshot, UserMessageReservation,
         build_topology_snapshot, config_store_root, delete_workspace_session,
-        list_session_summaries, list_workspace_session_summaries, normalize_session_dir_path,
+        list_session_summaries, list_workspace_session_summaries,
     },
     domain::{AgentOutput, PermissionMode, SessionId, new_thread_id},
 };
@@ -44,8 +44,9 @@ mod model_selection;
 mod path_utils;
 mod queued_messages;
 mod runs;
-mod session_selection;
+mod session_behavior;
 mod session_model;
+mod session_selection;
 mod session_settings;
 pub mod stdio;
 mod transcript;
@@ -54,12 +55,15 @@ mod usage;
 mod user_inputs;
 
 pub use config_builder::{
-    ConfigBuilderModule, ConfigBuilderModuleSelection, ConfigBuilderProvider, ConfigBuilderSlot,
-    ConfigBuilderSnapshot, ConfigBuilderState, ConfigBuilderTool, ConfigBuilderWarning,
+    ConfigBuilderModelPreset, ConfigBuilderModelRole, ConfigBuilderModule,
+    ConfigBuilderModuleSelection, ConfigBuilderSlot, ConfigBuilderSnapshot, ConfigBuilderState,
+    ConfigBuilderTool, ConfigBuilderWarning,
 };
 pub use config_history::{ConfigHistory, ConfigRevision};
 use context_map::{ContextMapInput, build_context_map_snapshot};
 use path_utils::paths_equal;
+#[cfg(test)]
+pub(crate) use transcript::journal_transcript_append_committed;
 #[cfg(test)]
 pub(crate) use transcript::journal_transcript_messages;
 use transcript::transcript_messages;
@@ -81,6 +85,12 @@ pub use proteus_contracts::app_protocol::{
 };
 
 impl AppServerHandle {
+    pub(crate) fn storage_service(&self) -> Result<StorageService> {
+        self.storage
+            .clone()
+            .ok_or_else(|| anyhow!("no session storage module is selected"))
+    }
+
     pub fn subscribe(&self) -> broadcast::Receiver<AppServerEvent> {
         self.events.subscribe()
     }
@@ -218,9 +228,8 @@ impl AppServerHandle {
         Ok(AppRememberResult::new(kind, content))
     }
 
-    pub async fn set_permission_mode(&self, mode: PermissionMode) {
-        // A session override must not change the published profile's reload baseline.
-        self.runtime.set_permission_mode(mode).await;
+    pub async fn set_permission_mode(&self, mode: PermissionMode) -> Result<()> {
+        self.set_behavior_permission(mode).await
     }
 
     pub async fn permission_mode(&self) -> PermissionMode {
@@ -264,14 +273,24 @@ impl AppServerHandle {
         let Some(config_path) = self.config_path.as_deref() else {
             return Ok(Vec::new());
         };
-        list_session_summaries(&config_store_root(config_path))
+        match self.storage.clone() {
+            Some(storage) => list_session_summaries(storage, &config_store_root(config_path)),
+            None => Ok(Vec::new()),
+        }
     }
 
     pub fn workspace_session_summaries(&self) -> Result<Vec<AppSessionSummary>> {
         let Some(config_path) = self.config_path.as_deref() else {
             return Ok(Vec::new());
         };
-        list_workspace_session_summaries(&config_store_root(config_path), &self.cwd)
+        match self.storage.clone() {
+            Some(storage) => list_workspace_session_summaries(
+                storage,
+                &config_store_root(config_path),
+                &self.cwd,
+            ),
+            None => Ok(Vec::new()),
+        }
     }
 
     pub async fn delete_workspace_session(&self, session_dir: PathBuf) -> Result<bool> {
@@ -283,17 +302,30 @@ impl AppServerHandle {
                 .runtime
                 .session_store()
                 .ok_or_else(|| anyhow!("session has no storage"))?;
-            store.validate_owned_delete_scope(&config_store_root(config_path), &self.cwd)?;
+            let checked = store.clone();
+            let root = config_store_root(config_path);
+            let cwd = self.cwd.clone();
+            tokio::task::spawn_blocking(move || checked.validate_owned_delete_scope(&root, &cwd))
+                .await??;
             // Inline: cancellation before settlement must not detach shutdown or
             // remove storage underneath admitted runtime work.
             self.shutdown().await;
             return self.delete_closed_session().await;
         }
         // A path alone never authorizes taking another local runtime's lease.
-        delete_workspace_session(&config_store_root(config_path), &self.cwd, session_dir).await
+        delete_workspace_session(
+            self.storage_service()?,
+            &config_store_root(config_path),
+            &self.cwd,
+            session_dir,
+        )
+        .await
     }
 
     pub(crate) async fn delete_closed_session(&self) -> Result<bool> {
+        // A settings write owns session metadata and any last-used rollback
+        // until it publishes. Retire storage only after that owner settles.
+        let _settings = self.settings_transition.lock().await;
         let Some(config_path) = self.config_path.as_deref() else {
             return Ok(false);
         };
@@ -309,8 +341,11 @@ impl AppServerHandle {
         let Some(active_dir) = self.runtime.session_dir() else {
             return false;
         };
-        normalize_session_dir_path(session_dir.to_path_buf())
-            .is_ok_and(|session_dir| paths_equal(active_dir, &session_dir))
+        paths_equal(active_dir, session_dir)
+            || self
+                .runtime
+                .session_store()
+                .is_some_and(|store| paths_equal(&store.journal_path(), session_dir))
     }
 
     pub async fn transcript(&self) -> Result<Vec<AppTranscriptMessage>> {
@@ -382,8 +417,9 @@ impl AppServerHandle {
         let event_log_config_path = config.event_log.path.clone();
         drop(config);
         let config_path = self.config_path.clone();
+        let storage = self.storage_service()?;
         tokio::task::spawn_blocking(move || {
-            let session_store = SessionStore::open(session_dir.clone())?;
+            let session_store = SessionStore::open(storage, session_dir.clone())?;
             let workspace_path = session_store.workspace_path()?;
             let event_log_path = crate::core::event_log_path(
                 &event_log_config_path,
@@ -412,6 +448,14 @@ impl AppServerHandle {
     }
 }
 
+async fn selected_storage(config: &AppConfig, cwd: &Path) -> Result<Option<StorageService>> {
+    let config = config.clone();
+    let cwd = cwd.to_owned();
+    tokio::task::spawn_blocking(move || ModuleCatalog::selected_session_storage(&config, &cwd))
+        .await
+        .context("session storage startup task failed")?
+}
+
 pub struct AgentAppServer;
 
 impl AgentAppServer {
@@ -420,7 +464,16 @@ impl AgentAppServer {
         cwd: PathBuf,
         config_path: Option<&Path>,
     ) -> Result<AppServerHandle> {
-        Self::launch_inner(config, cwd, config_path, None, None, None).await
+        Box::pin(Self::launch_inner(
+            config,
+            cwd,
+            config_path,
+            None,
+            None,
+            None,
+            None,
+        ))
+        .await
     }
 
     pub(crate) async fn launch_child(
@@ -429,14 +482,15 @@ impl AgentAppServer {
         config_path: Option<&Path>,
         parent_session_id: crate::domain::SessionId,
     ) -> Result<AppServerHandle> {
-        Self::launch_inner(
+        Box::pin(Self::launch_inner(
             config,
             cwd,
             config_path,
             None,
             None,
             Some(parent_session_id),
-        )
+            None,
+        ))
         .await
     }
 
@@ -445,18 +499,37 @@ impl AgentAppServer {
         cwd: PathBuf,
         config_path: Option<&Path>,
     ) -> Result<AppServerHandle> {
-        let resumed = if let Some(config_path) = config_path {
+        let storage = selected_storage(&config, &cwd).await?;
+        Self::launch_or_resume_latest_with_storage(config, cwd, config_path, storage).await
+    }
+
+    pub(crate) async fn launch_or_resume_latest_with_storage(
+        config: AppConfig,
+        cwd: PathBuf,
+        config_path: Option<&Path>,
+        storage: Option<StorageService>,
+    ) -> Result<AppServerHandle> {
+        let resumed = if let (Some(config_path), Some(storage)) = (config_path, storage.clone()) {
             let root = config_store_root(config_path);
             let workspace = cwd.clone();
             tokio::task::spawn_blocking(move || {
-                crate::core::prepare_latest_workspace_session(&root, &workspace)
+                crate::core::prepare_latest_workspace_session(storage, &root, &workspace)
             })
             .await
             .map_err(|error| anyhow!("session lookup task failed: {error}"))??
         } else {
             None
         };
-        Self::launch_inner(config, cwd, config_path, None, resumed, None).await
+        Box::pin(Self::launch_inner(
+            config,
+            cwd,
+            config_path,
+            None,
+            resumed,
+            None,
+            storage,
+        ))
+        .await
     }
 
     pub async fn launch_resumed(
@@ -465,12 +538,63 @@ impl AgentAppServer {
         config_path: Option<&Path>,
         session_dir: PathBuf,
     ) -> Result<AppServerHandle> {
+        let storage = selected_storage(&config, &cwd)
+            .await?
+            .ok_or_else(|| anyhow!("no session storage module is selected"))?;
+        Self::launch_resumed_with_storage(config, cwd, config_path, session_dir, storage).await
+    }
+
+    pub(crate) async fn launch_with_storage(
+        config: AppConfig,
+        cwd: PathBuf,
+        config_path: Option<&Path>,
+        storage: Option<StorageService>,
+    ) -> Result<AppServerHandle> {
+        Box::pin(Self::launch_inner(
+            config,
+            cwd,
+            config_path,
+            None,
+            None,
+            None,
+            storage,
+        ))
+        .await
+    }
+
+    pub(crate) async fn launch_resumed_with_storage(
+        config: AppConfig,
+        cwd: PathBuf,
+        config_path: Option<&Path>,
+        session_dir: PathBuf,
+        storage: StorageService,
+    ) -> Result<AppServerHandle> {
+        let selected = storage.clone();
         let resumed = tokio::task::spawn_blocking(move || {
-            crate::core::PreparedSession::from_dir(normalize_session_dir_path(session_dir)?)
+            crate::core::PreparedSession::from_dir(selected, session_dir)
         })
         .await
         .map_err(|error| anyhow!("session restore task failed: {error}"))??;
-        Self::launch_inner(config, cwd, config_path, None, Some(resumed), None).await
+        Self::launch_prepared_with_storage(config, cwd, config_path, resumed, storage).await
+    }
+
+    async fn launch_prepared_with_storage(
+        config: AppConfig,
+        cwd: PathBuf,
+        config_path: Option<&Path>,
+        resumed: crate::core::PreparedSession,
+        storage: StorageService,
+    ) -> Result<AppServerHandle> {
+        Box::pin(Self::launch_inner(
+            config,
+            cwd,
+            config_path,
+            None,
+            Some(resumed),
+            None,
+            Some(storage),
+        ))
+        .await
     }
 
     #[cfg(test)]
@@ -480,7 +604,16 @@ impl AgentAppServer {
         config_path: Option<&Path>,
         module_catalog: ModuleCatalog,
     ) -> Result<AppServerHandle> {
-        Self::launch_inner(config, cwd, config_path, Some(module_catalog), None, None).await
+        Box::pin(Self::launch_inner(
+            config,
+            cwd,
+            config_path,
+            Some(module_catalog),
+            None,
+            None,
+            None,
+        ))
+        .await
     }
 
     async fn launch_inner(
@@ -490,6 +623,7 @@ impl AgentAppServer {
         module_catalog: Option<ModuleCatalog>,
         resumed_session: Option<crate::core::PreparedSession>,
         parent_session_id: Option<crate::domain::SessionId>,
+        storage: Option<StorageService>,
     ) -> Result<AppServerHandle> {
         if let Some(session_store) = resumed_session.as_ref() {
             cwd = session_store.workspace_path()?;
@@ -524,12 +658,15 @@ impl AgentAppServer {
             .with_event_sink(event_sink)
             .with_approval(Arc::new(approval_transport))
             .with_user_input(Arc::new(user_input_transport));
+        if let Some(storage) = storage {
+            builder = builder.with_session_storage(storage);
+        }
         if let Some(parent_session_id) = parent_session_id {
             builder = builder.with_parent_session_id(parent_session_id);
         }
-        let mut refresh_stale_view = false;
+        let mut cached_display_source = None;
         let initial_transcript = if let Some(prepared) = resumed_session {
-            let (session_store, model, _, stale) = tokio::task::spawn_blocking(move || {
+            let (session_store, model, cached_source) = tokio::task::spawn_blocking(move || {
                 let result = prepared
                     .into_display_view(|source| journal_transcript_from_source(source, None));
                 read_model::release_projection_memory();
@@ -537,7 +674,7 @@ impl AgentAppServer {
             })
             .await
             .map_err(|error| anyhow!("session transcript task failed: {error}"))??;
-            refresh_stale_view = stale;
+            cached_display_source = cached_source;
             builder = builder.resume_from_session_view(
                 session_store,
                 model.revision,
@@ -583,9 +720,11 @@ impl AgentAppServer {
             approval_timeout,
         );
 
+        let storage = runtime.session_storage();
         let handle = AppServerHandle {
             inner: Arc::new(AppServerState {
                 runtime,
+                storage,
                 config: config_snapshot,
                 config_path: config_path_snapshot,
                 cwd: cwd_snapshot,
@@ -595,13 +734,16 @@ impl AgentAppServer {
                 runs: Arc::new(Mutex::new(runs::RunRegistry::default())),
                 profile_stop: CancellationToken::new(),
                 profile_error: Mutex::new(None),
+                settings_transition: Mutex::new(()),
+                behavior: RwLock::new(Default::default()),
             }),
         };
         session_model::restore(&handle, selection_is_new).await?;
+        Box::pin(session_behavior::restore(&handle, selection_is_new)).await?;
         handle.command_catalog().await?;
         profile_watch::start(&handle).await;
-        if refresh_stale_view {
-            read_model::refresh_in_background(&handle);
+        if let Some(source) = cached_display_source {
+            read_model::refresh_in_background(&handle, source);
         }
         Ok(handle)
     }
@@ -613,6 +755,13 @@ impl AgentAppServer {
 async fn completed_transcript(
     runtime: Arc<AgentRuntime>,
 ) -> Result<read_model::CompletedTranscript> {
+    completed_transcript_from_commit(runtime, None).await
+}
+
+async fn completed_transcript_from_commit(
+    runtime: Arc<AgentRuntime>,
+    committed: Option<crate::core::CommittedDisplay>,
+) -> Result<read_model::CompletedTranscript> {
     if runtime.session_dir().is_none() {
         return Ok(transcript_messages(&runtime.history().await?).into());
     }
@@ -620,7 +769,7 @@ async fn completed_transcript(
         let store = runtime
             .session_store()
             .ok_or_else(|| anyhow!("persisted session has no store"))?;
-        read_model::project_completed_transcript(store)
+        read_model::project_committed_transcript(store, committed)
     })
     .await
     .map_err(|error| anyhow!("transcript projection task failed: {error}"))?

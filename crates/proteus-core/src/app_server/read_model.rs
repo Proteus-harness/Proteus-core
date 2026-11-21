@@ -22,32 +22,6 @@ impl From<Vec<AppTranscriptMessage>> for CompletedTranscript {
     }
 }
 
-impl CompletedTranscript {
-    pub fn from_model(
-        store: &SessionStore,
-        transcript: Vec<AppTranscriptMessage>,
-        stale: bool,
-    ) -> Self {
-        #[cfg(unix)]
-        if let Some(page) = if stale {
-            store.saved_display_page()
-        } else {
-            store.saved_transcript_page(None, None)
-        } {
-            return Self {
-                messages: page.messages,
-                cursor: Some(AppTranscriptCursor {
-                    revision: page.revision,
-                    before: page.start,
-                    base: page.base,
-                }),
-            };
-        }
-        let _ = (store, stale);
-        transcript.into()
-    }
-}
-
 /// Read a complete named display revision. A disposable cache miss must not
 /// make the canonical history unreadable, but a newer source is not that revision.
 #[cfg(unix)]
@@ -79,11 +53,15 @@ pub(super) fn transcript_page(
         "history position is outside the requested revision"
     );
     let start = end.saturating_sub(50);
+    // Collecting the owned iterator directly can reuse the full archive allocation.
+    // Move only the requested rows into a separately sized response buffer.
+    let mut window = Vec::with_capacity(end - start);
+    window.extend(messages.into_iter().skip(start).take(end - start));
     Ok(proteus_contracts::app_protocol::AppTranscriptPage {
         revision,
         start,
         total,
-        messages: messages.into_iter().skip(start).take(end - start).collect(),
+        messages: window,
         // Rebuilding cannot prove a relationship to a lost display projection.
         base: None,
     })
@@ -96,22 +74,29 @@ fn rebuild_transcript(
 ) -> anyhow::Result<(String, Vec<AppTranscriptMessage>)> {
     use crate::core::session_read_cache::SourceFingerprint;
 
-    let source = SourceFingerprint::read(store.session_dir(), 8192)
-        .ok_or_else(|| anyhow::anyhow!("history source cannot be fingerprinted"))?;
+    // Reject an unavailable named revision before rebuilding anything. An
+    // unnamed cold page needs no preliminary OpenSnapshot: its strict display
+    // read already captures the input fingerprint (also on canonical fallback).
+    let named = if let Some(expected) = expected {
+        let source = SourceFingerprint::try_read(store)?;
+        anyhow::ensure!(
+            source.revision().as_deref() == Some(expected),
+            "history revision changed; refresh the session snapshot"
+        );
+        Some(source)
+    } else {
+        None
+    };
+    let (source, model) = store.project_sourced_read_model(named.as_ref(), |snapshot| {
+        journal_transcript_from_source(snapshot, None)
+    })?;
+    anyhow::ensure!(
+        SourceFingerprint::try_read(store)? == source,
+        "history source changed during recovery; refresh the session snapshot"
+    );
     let revision = source
         .revision()
         .ok_or_else(|| anyhow::anyhow!("history source revision is unavailable"))?;
-    anyhow::ensure!(
-        expected.is_none_or(|expected| expected == revision),
-        "history revision changed; refresh the session snapshot"
-    );
-    // Strict journal validation is mandatory; cached conversation state is not
-    // an authority. project_read_model saves the index only on a stable source.
-    let model = store.project_read_model(|source| journal_transcript_from_source(source, None))?;
-    anyhow::ensure!(
-        SourceFingerprint::read(store.session_dir(), 8192).as_ref() == Some(&source),
-        "history source changed during recovery; refresh the session snapshot"
-    );
     // Cache writes are best effort (e.g. disk full). The verified in-memory
     // result remains usable without retrying indefinitely or requiring a writer lease.
     Ok((revision, model.transcript))
@@ -123,6 +108,25 @@ pub(super) fn current_read_model(store: &SessionStore) -> anyhow::Result<Session
         Some(model) => Ok(model),
         None => store.project_read_model(|source| journal_transcript_from_source(source, None)),
     }
+}
+
+pub(super) fn project_committed_transcript(
+    store: &SessionStore,
+    committed: Option<crate::core::CommittedDisplay>,
+) -> anyhow::Result<CompletedTranscript> {
+    if let Some(committed) = committed
+        && let Some(view) = store.publish_committed_view(
+            committed,
+            super::transcript::journal_transcript_append_committed,
+        )
+    {
+        release_projection_memory();
+        return Ok(CompletedTranscript {
+            messages: view.transcript,
+            cursor: view.cursor,
+        });
+    }
+    project_completed_transcript(store)
 }
 
 pub(super) fn project_completed_transcript(
@@ -161,41 +165,30 @@ pub(super) fn release_projection_memory() {
     }
 }
 
-pub(super) fn refresh_in_background(server: &AppServerHandle) {
+pub(super) fn refresh_in_background(
+    server: &AppServerHandle,
+    cached_source: crate::core::session_read_cache::SourceFingerprint,
+) {
     let server = server.clone();
     let Some(baseline) = server.events.completed_history() else {
         return;
     };
     tokio::spawn(async move {
         let result: anyhow::Result<()> = async {
-            let Some(dir) = server.runtime.session_dir().map(std::path::Path::to_owned) else {
+            let Some(store) = server.runtime.session_store().cloned() else {
                 return Ok(());
             };
-            #[cfg(unix)]
-            let source = {
-                let dir = dir.clone();
-                tokio::task::spawn_blocking(move || {
-                    crate::core::session_read_cache::SourceFingerprint::read(&dir, 8192)
-                })
-                .await?
-            };
-            let Some(read) = server.runtime.refresh_cached_resume().await? else {
+            let Some(read) = server.runtime.refresh_cached_resume(cached_source).await? else {
                 return Ok(());
             };
             let transcript = tokio::task::spawn_blocking(move || {
-                let store = SessionStore::open(dir)?;
-                let model = SessionReadModel::from_validated(&store, read, |source| {
+                let view = store.project_validated_view(read, cfg!(unix), |source| {
                     journal_transcript_from_source(source, None)
                 })?;
-                #[cfg(unix)]
-                if let Some(source) = source {
-                    store.save_read_model(&source, &model);
-                }
-                Ok::<_, anyhow::Error>(CompletedTranscript::from_model(
-                    &store,
-                    model.transcript,
-                    false,
-                ))
+                Ok::<_, anyhow::Error>(CompletedTranscript {
+                    messages: view.transcript,
+                    cursor: view.cursor,
+                })
             })
             .await??;
             server.events.refresh_history(&baseline, transcript)?;
@@ -234,3 +227,6 @@ pub(super) fn latest_tool_state(
         .saved_tool_state(name)
         .ok_or_else(|| ToolStateNotReady.into())
 }
+
+#[cfg(test)]
+pub(crate) mod faults;

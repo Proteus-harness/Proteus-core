@@ -9,7 +9,7 @@ publish = false
 
 [dependencies]
 anyhow = "1"
-proteus-module-sdk = { git = "https://github.com/Proteus-harness/Proteus-core.git", rev = "bee0e409e746e2df9db32748d4f8ea02201bd4af" }
+proteus-module-sdk = { git = "https://github.com/Proteus-harness/Proteus-core.git", rev = "59da60a35929b6ab73550ee39c4f07f3bfa513a1" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 

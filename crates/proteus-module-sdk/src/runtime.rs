@@ -16,7 +16,10 @@ use proteus_contracts::contracts::{
 };
 use proteus_module_protocol::{
     ProcessModuleRpcError, process_contract_authority,
-    v3::{ComponentFrame, WireDirection, parse_component_frame, parse_wire_id},
+    v3::{
+        ComponentFrame, ComponentTransportConfig, WireDirection, parse_component_frame,
+        parse_wire_id,
+    },
 };
 use serde_json::Value;
 
@@ -53,9 +56,10 @@ struct ModuleRuntime {
 pub fn run(
     factory: impl Fn(ProcessComponentExportInitialize) -> Result<Box<dyn Export>>,
 ) -> Result<()> {
-    serve(
+    serve_with_transport(
         std::io::BufReader::new(std::io::stdin()),
         std::io::stdout(),
+        ComponentTransportConfig::from_environment()?,
         factory,
     )
 }
@@ -67,7 +71,19 @@ pub fn serve(
     writer: impl std::io::Write + Send + 'static,
     factory: impl Fn(ProcessComponentExportInitialize) -> Result<Box<dyn Export>>,
 ) -> Result<()> {
-    let mut reader = FrameReader::new(reader);
+    serve_with_transport(reader, writer, ComponentTransportConfig::default(), factory)
+}
+
+/// Embed a worker with the same explicit per-component budget as its launcher.
+/// `run` reads the launch environment; `serve` keeps ordinary defaults.
+pub fn serve_with_transport(
+    reader: impl std::io::BufRead + 'static,
+    writer: impl std::io::Write + Send + 'static,
+    transport: ComponentTransportConfig,
+    factory: impl Fn(ProcessComponentExportInitialize) -> Result<Box<dyn Export>>,
+) -> Result<()> {
+    transport.validate()?;
+    let mut reader = FrameReader::new(reader, transport.max_frame_bytes);
     let initialize_value = reader
         .read()?
         .ok_or_else(|| anyhow!("missing initialize request"))?;
@@ -103,7 +119,11 @@ pub fn serve(
         exports: exports.values().map(|export| export.manifest()).collect(),
         metadata: Default::default(),
     };
-    let transport = Arc::new(ModuleTransport::new(initialize_wire_id.generation, writer));
+    let transport = Arc::new(ModuleTransport::new(
+        initialize_wire_id.generation,
+        writer,
+        transport.max_frame_bytes,
+    ));
     transport.write(&rpc_success(
         &initialize_id,
         serde_json::to_value(manifest)?,
@@ -310,6 +330,12 @@ impl ModuleRuntime {
 }
 
 fn terminal_error(error: &anyhow::Error) -> ProcessModuleRpcError {
+    if let Some(failure) =
+        error.downcast_ref::<proteus_contracts::contracts::SessionStorageFailure>()
+    {
+        return ProcessModuleRpcError::new(-32_000, format!("{error:#}"))
+            .with_data(serde_json::json!(failure));
+    }
     let failure = error
         .downcast_ref::<proteus_contracts::process_module::ProcessModuleError>()
         .and_then(|error| error.model_failure.as_ref())

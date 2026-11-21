@@ -10,8 +10,9 @@ async fn local_config_remains_available_while_external_catalog_is_loading() {
     let marker = config_dir.path().join("catalog-started");
     let release = config_dir.path().join("catalog-release");
     let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/process_model.py");
-    let config: AppConfig = serde_json::from_value(json!({
+    let mut config: AppConfig = serde_json::from_value(json!({
         "active_provider": "fixture",
+        "modes": {"review": {"title":"Review"}},
         "providers": {"fixture": {
             "provider": "external", "model": "selected", "reasoning": {"effort": "high"}
         }},
@@ -34,6 +35,7 @@ async fn local_config_remains_available_while_external_catalog_is_loading() {
         }}}
     }))
     .unwrap();
+    crate::test_support::storage_config(&mut config);
     let server = AgentAppServer::launch(
         config,
         config_dir.path().to_owned(),
@@ -41,7 +43,10 @@ async fn local_config_remains_available_while_external_catalog_is_loading() {
     )
     .await
     .unwrap();
-    server.set_permission_mode(PermissionMode::Plan).await;
+    server
+        .set_permission_mode(PermissionMode::Plan)
+        .await
+        .unwrap();
     let (shutdown, _) = broadcast::channel(1);
     let state = HttpAppState::new(server.clone(), shutdown, test_security()).await;
     let local_uri = session_uri("/config/local", &server);
@@ -52,6 +57,15 @@ async fn local_config_remains_available_while_external_catalog_is_loading() {
     assert_eq!(local.permission_mode, "Plan");
     assert_eq!(local.reasoning.effort.as_deref(), Some("high"));
     assert!(local.model_catalog_error.is_none());
+    let behavior = local
+        .session_settings
+        .iter()
+        .find(|setting| setting.id == "behavior_mode")
+        .expect("local settings include configured behavior modes");
+    assert_eq!(
+        serde_json::to_value(&behavior.control).unwrap()["value"],
+        "_default"
+    );
     assert!(
         !marker.exists(),
         "local configuration never starts discovery"

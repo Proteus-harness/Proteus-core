@@ -23,7 +23,7 @@ use crate::{
         Event, EventContext, ExchangeId, ModelRef, SessionId, ThreadId, ToolSpec, TurnId,
         new_exchange_id,
     },
-    model_standard::{CanonicalModelRequest, ModelCapabilities, ModelStreamEvent},
+    model_standard::{CanonicalModelRequest, ModelCapabilities, ModelOperation, ModelStreamEvent},
 };
 
 const RESERVED_ATTRIBUTION_KEYS: [&str; 3] = ["session_id", "thread_id", "turn_id"];
@@ -339,14 +339,30 @@ impl Model for BoundModel {
         self.service.provider_hosted_tools(model)
     }
 
+    async fn estimate_input(
+        &self,
+        request: crate::contracts::ModelInputEstimateRequest,
+    ) -> Result<Option<crate::contracts::ModelInputEstimate>> {
+        request.validate().map_err(anyhow::Error::msg)?;
+        let cancellation =
+            crate::core::model_call_scope::operation_cancellation(&self.binding.scope.cancellation);
+        tokio::select! {
+            biased;
+            _ = cancellation.cancelled() => Err(model_cancelled()),
+            _ = wait_for_deadline(self.deadline()), if self.model_timeout_ms != 0 => Err(model_timeout(self.model_timeout_ms)),
+            result = self.service.estimate_input(request) => result,
+        }
+    }
+
     async fn stream(&self, request: CanonicalModelRequest) -> Result<ModelEventStream> {
         let deadline = self.deadline();
         let auxiliary = current_model_call_origin() == crate::contracts::ModelCallOrigin::Auxiliary;
-        let suppress = request
-            .metadata
-            .get("suppress_stream_deltas")
-            .and_then(|value| value.as_bool())
-            .unwrap_or(false);
+        let suppress = request.operation == ModelOperation::Compact
+            || request
+                .metadata
+                .get("suppress_stream_deltas")
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false);
         let stream = self.stream_with_deadline(request, deadline).await?;
         if auxiliary {
             return Ok(stream);

@@ -1,5 +1,7 @@
 //! Session-owned admission, cancellation and settlement shared by HTTP/stdio.
-use super::{AppServerEvent, AppServerHandle, completed_transcript};
+use super::{
+    AppServerEvent, AppServerHandle, completed_transcript, completed_transcript_from_commit,
+};
 use crate::{
     contracts::CancellationToken,
     core::{
@@ -194,11 +196,15 @@ impl AppServerHandle {
             // published under the admission lock. A new send cannot overtake it.
             let mut completion = server
                 .runtime
-                .run_reserved_completion(reserved, cancellation.clone())
+                .run_reserved_completion(reserved, cancellation.clone(), true)
                 .await;
             // The reservation remains held until the registry publishes the
             // terminal state, so no next turn can overtake this projection.
-            let history = completed_transcript(server.runtime.clone()).await;
+            let display = completion
+                .as_mut()
+                .ok()
+                .and_then(|result| result.display.take());
+            let history = completed_transcript_from_commit(server.runtime.clone(), display).await;
             let mut runs = server.runs.lock().await;
             let failed_queued = if server.events.has_unstarted_input() {
                 match completion.as_mut() {

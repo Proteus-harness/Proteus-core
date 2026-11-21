@@ -164,7 +164,8 @@ async fn route_inspect_topology_returns_json_and_mermaid() {
     assert!(body.starts_with("flowchart LR"));
     assert!(body.contains("Turn pipeline"));
     assert!(body.contains("workflow<br/>"));
-    assert!(!body.contains("Backends / post-turn"));
+    assert!(body.contains("Backends / post-turn"));
+    assert!(body.contains("session_storage"));
     assert!(body.contains("ToolRegistry"));
     assert!(body.contains("selects modules"));
     assert!(!body.contains("Warnings"));

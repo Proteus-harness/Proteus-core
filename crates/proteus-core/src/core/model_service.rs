@@ -8,8 +8,8 @@ use crate::{
     contracts::{Model, ModelEventStream},
     domain::{ModelRef, ToolSpec},
     model_standard::{
-        CanonicalModelRequest, ModelCapabilities, ModelStreamEvent, RequestShaper,
-        validate_model_response_against_request,
+        CanonicalModelRequest, ModelCapabilities, ModelResponseValidationContext, ModelStreamEvent,
+        RequestShaper,
     },
 };
 
@@ -68,17 +68,31 @@ impl Model for ModelService {
         self.adapter.quota().await
     }
 
+    async fn estimate_input(
+        &self,
+        request: crate::contracts::ModelInputEstimateRequest,
+    ) -> Result<Option<crate::contracts::ModelInputEstimate>> {
+        let validation = request.validation_context().map_err(anyhow::Error::msg)?;
+        let result = self.adapter.estimate_input(request).await?;
+        if let Some(estimate) = &result {
+            validation
+                .validate_response(estimate)
+                .map_err(anyhow::Error::msg)?;
+        }
+        Ok(result)
+    }
+
     async fn stream(&self, request: CanonicalModelRequest) -> Result<ModelEventStream> {
         let request = self.prepare_request(request)?;
-        let validation_request = request.clone();
+        let validation = ModelResponseValidationContext::from_request(&request).into_owned();
         let stream = self.start_prepared(request).await?;
-        Ok(validating_stream(stream, validation_request))
+        Ok(validating_stream(stream, validation))
     }
 }
 
 fn validating_stream(
     mut stream: ModelEventStream,
-    validation_request: CanonicalModelRequest,
+    validation: ModelResponseValidationContext<'static>,
 ) -> ModelEventStream {
     Box::pin(async_stream::try_stream! {
         let mut terminal_seen = false;
@@ -86,7 +100,7 @@ fn validating_stream(
             let event = item?;
             match &event {
                 ModelStreamEvent::Response { response } => {
-                    validate_model_response_against_request(&validation_request, response)
+                    validation.validate_response(response)
                         .map_err(|error| anyhow!("model protocol error: {error}"))?;
                     terminal_seen = true;
                     yield event;

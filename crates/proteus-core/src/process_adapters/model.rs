@@ -247,6 +247,41 @@ impl Model for ProcessModel {
         Ok(result)
     }
 
+    async fn estimate_input(
+        &self,
+        request: crate::contracts::ModelInputEstimateRequest,
+    ) -> Result<Option<crate::contracts::ModelInputEstimate>> {
+        let validation = request.validation_context().map_err(anyhow::Error::msg)?;
+        let method = crate::contracts::PROCESS_MODEL_ESTIMATE_METHOD;
+        let start = self
+            .client
+            .start(
+                method,
+                serde_json::to_value(request)?,
+                Arc::new(proteus_module_protocol::v3::NoAsyncHostRequests),
+            )
+            .await;
+        let mut handle = match start {
+            Ok(handle) => handle,
+            Err(error) if error.kind == ComponentBrokerErrorKind::UnsupportedFeature => {
+                return Ok(None);
+            }
+            Err(error) => return Err(error.into()),
+        };
+        let mut guard = CancelOnDrop(Some(handle.cancel_handle()));
+        let terminal = handle.result().await?;
+        guard.disarm();
+        let result: Option<crate::contracts::ModelInputEstimate> =
+            self.client.decode(method, terminal)?;
+        if let Some(estimate) = &result {
+            if let Err(error) = validation.validate_response(estimate) {
+                self.client.reset();
+                bail!("invalid model input estimate: {error}");
+            }
+        }
+        Ok(result)
+    }
+
     async fn stream(
         &self,
         request: CanonicalModelRequest,

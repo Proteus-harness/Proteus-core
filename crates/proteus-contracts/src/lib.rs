@@ -10,6 +10,7 @@ pub mod extension_metadata;
 pub mod git_support;
 pub mod model_standard;
 pub mod process_module;
+pub mod storage;
 pub mod tool_support;
 
 #[cfg(test)]

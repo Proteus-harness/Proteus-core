@@ -10,10 +10,22 @@ use crate::{
     model_standard::CanonicalMessage,
 };
 
+/// Provider-neutral work performed by the selected model implementation.
+#[derive(Debug, Default, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ModelOperation {
+    #[default]
+    Complete,
+    /// Produce a native checkpoint for continuing the supplied conversation.
+    Compact,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[non_exhaustive]
 #[serde(deny_unknown_fields)]
 pub struct CanonicalModelRequest {
+    #[serde(default)]
+    pub operation: ModelOperation,
     pub model: ModelRef,
     pub instructions: Vec<InstructionBlock>,
     pub messages: Vec<CanonicalMessage>,
@@ -33,6 +45,7 @@ impl CanonicalModelRequest {
     /// Минимальный конструктор с defaults. Остальные поля через `with_*`.
     pub fn new(model: ModelRef, messages: Vec<CanonicalMessage>) -> Self {
         Self {
+            operation: ModelOperation::Complete,
             model,
             instructions: Vec::new(),
             messages,
@@ -46,6 +59,11 @@ impl CanonicalModelRequest {
             client_metadata: BTreeMap::new(),
             metadata: serde_json::Value::Null,
         }
+    }
+
+    pub fn with_operation(mut self, operation: ModelOperation) -> Self {
+        self.operation = operation;
+        self
     }
 
     pub fn with_instructions(mut self, instructions: Vec<InstructionBlock>) -> Self {
@@ -123,6 +141,28 @@ mod tests {
     use super::*;
     use crate::contracts::WorkflowCompleteModelRequest;
     use crate::model_standard::MessageRole;
+
+    #[test]
+    fn ordinary_operation_is_the_canonical_default_and_unknown_operations_fail() {
+        let request = CanonicalModelRequest::new(ModelRef::new("provider", "model"), vec![]);
+        assert_eq!(request.operation, ModelOperation::Complete);
+        let mut value = serde_json::to_value(&request).unwrap();
+        value.as_object_mut().unwrap().remove("operation");
+        assert_eq!(
+            serde_json::from_value::<CanonicalModelRequest>(value.clone()).unwrap(),
+            request
+        );
+        value["operation"] = serde_json::json!("Guess");
+        assert!(serde_json::from_value::<CanonicalModelRequest>(value).is_err());
+        let compact = request.with_operation(ModelOperation::Compact);
+        assert_eq!(
+            serde_json::from_value::<CanonicalModelRequest>(
+                serde_json::to_value(&compact).unwrap()
+            )
+            .unwrap(),
+            compact
+        );
+    }
 
     #[test]
     fn strict_workflow_model_request_rejects_unknown_fields_at_each_known_layer() {

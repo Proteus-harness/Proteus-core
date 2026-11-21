@@ -443,6 +443,7 @@ async fn delivered_message_and_completed_work_survive_model_failure_in_history_a
     let config_path = config_root.path().join("configs").join("config.toml");
     let runtime = Arc::new(
         AgentRuntime::builder(AppConfig::default(), workspace.path().to_path_buf())
+            .with_session_storage(crate::test_support::storage(std::path::Path::new(".")))
             .with_config_path(Some(&config_path))
             .with_module_catalog(test_catalog())
             .build()
@@ -627,7 +628,7 @@ async fn terminal_completion_holds_next_reservation_until_transport_publishes() 
         UserMessageReservation::Queued(_) => panic!("idle runtime must start"),
     };
     let completion = runtime
-        .run_reserved_completion(reserved, CancellationToken::new())
+        .run_reserved_completion(reserved, CancellationToken::new(), false)
         .await
         .expect("completion");
     assert!(completion.output().is_some());
@@ -658,6 +659,7 @@ async fn queued_message_without_tool_boundary_runs_as_followup_turn() {
     let event_sink = Arc::new(RuntimeEventSink::default());
     let runtime = Arc::new(
         AgentRuntime::builder(config.clone(), cwd.path().to_path_buf())
+            .with_session_storage(crate::test_support::storage(std::path::Path::new(".")))
             .with_config_path(Some(&config_path))
             .with_module_catalog(test_catalog())
             .with_event_sink(event_sink.clone())

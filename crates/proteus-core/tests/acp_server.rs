@@ -225,9 +225,13 @@ async fn unsupported_methods_content_and_modes_fail_without_inference() {
     assert_eq!(updates[0]["params"]["update"]["currentModeId"], "plan");
     client.close().await;
     assert!(
-        proteus_core::core::list_workspace_session_summaries(client.dir.path(), &client.cwd)
-            .unwrap()
-            .is_empty()
+        proteus_core::core::list_workspace_session_summaries(
+            session_storage_fixture::storage(std::path::Path::new(".")),
+            client.dir.path(),
+            &client.cwd
+        )
+        .unwrap()
+        .is_empty()
     );
 }
 
@@ -322,3 +326,6 @@ async fn runtime_timeout_is_an_error_with_its_own_cold_settlement() {
             .any(|m| m.display_text() == "timeout")
     );
 }
+
+#[path = "support/model.rs"]
+mod session_storage_fixture;

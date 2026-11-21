@@ -59,11 +59,11 @@ impl ModuleCatalog {
             .filter(|name| is_builtin_tool_name(name))
             .cloned()
             .collect::<Vec<_>>();
-        if let Some(name) =
-            ctx.config.tools.enabled.iter().find(|name| {
-                !is_builtin_tool_name(name) && !process_tools_by_name.contains_key(*name)
-            })
-        {
+        if let Some(name) = ctx.config.tools.enabled.iter().find(|name| {
+            ctx.config.behavior_tools.is_none()
+                && !is_builtin_tool_name(name)
+                && !process_tools_by_name.contains_key(*name)
+        }) {
             bail!(
                 "unsupported tool: '{name}'. Configure a process Tool module that provides it or remove it from tools.enabled."
             );

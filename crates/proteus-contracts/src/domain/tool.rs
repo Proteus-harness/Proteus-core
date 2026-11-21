@@ -454,7 +454,27 @@ pub enum PermissionMode {
     Plan,
     #[default]
     Normal,
+    /// Automatically approve calls unless the selected policy denies them.
+    /// This does not grant OS or sandbox permissions.
+    FullAccess,
+    /// Legacy mode: read/write tools only; commands and network stay denied.
     Auto,
+}
+
+impl PermissionMode {
+    /// Modes offered for a new selection. Auto remains readable and executable
+    /// for persisted configurations and clients using the legacy value.
+    pub const SELECTABLE: [Self; 3] = [Self::Plan, Self::Normal, Self::FullAccess];
+
+    /// Canonical value shared by config, API and child-process CLI arguments.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Plan => "plan",
+            Self::Normal => "normal",
+            Self::FullAccess => "full_access",
+            Self::Auto => "auto",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

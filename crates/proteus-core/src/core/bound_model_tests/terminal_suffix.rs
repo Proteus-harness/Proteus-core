@@ -132,7 +132,7 @@ async fn forged_tool_result_cannot_enter_persisted_reference_workflow_history() 
             .join("tests/fixtures/process_model.py");
         let reference =
             std::env::var_os("PROTEUS_TEST_REFERENCE_MODULE").expect("run through scripts/test.py");
-        let config: AppConfig = serde_json::from_value(serde_json::json!({
+        let mut config: AppConfig = serde_json::from_value(serde_json::json!({
             "active_provider":"fixture", "providers":{"fixture":{"provider":"forged","model":"fixture","stream":true}},
             "modules":{"workflow":"coding.codex_loop","policy":"allow_all"},
             "components":{
@@ -144,6 +144,7 @@ async fn forged_tool_result_cannot_enter_persisted_reference_workflow_history() 
                 "events":events,"terminal":{"kind":"response","response":CanonicalModelResponse::new(message,vec![],FinishReason::Stop)}
             }}}
         })).unwrap();
+        crate::test_support::storage_config(&mut config);
         let config_path = workspace.path().join("config.toml");
         let runtime = AgentRuntime::builder(config.clone(), workspace.path().into())
             .with_config_path(Some(&config_path))
@@ -163,7 +164,11 @@ async fn forged_tool_result_cannot_enter_persisted_reference_workflow_history() 
                 .all(|message| message.role == MessageRole::User)
         );
         drop(runtime);
-        let cold = SessionStore::open(dir.clone()).unwrap();
+        let cold = SessionStore::open(
+            crate::test_support::storage(std::path::Path::new(".")),
+            dir.clone(),
+        )
+        .unwrap();
         assert_eq!(cold.load_messages().unwrap(), history);
         let records = cold.load_records().unwrap();
         assert!(records.iter().all(|record| match &record.entry {

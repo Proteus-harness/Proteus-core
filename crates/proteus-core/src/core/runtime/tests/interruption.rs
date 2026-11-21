@@ -62,6 +62,7 @@ async fn in_memory_interruption_is_retired_after_compaction_retaining_its_anchor
             let cwd = tempfile::tempdir().unwrap();
             let config_path = cwd.path().join("config.toml");
             let builder = AgentRuntime::builder(AppConfig::default(), cwd.path().to_owned())
+                .with_session_storage(crate::test_support::storage(std::path::Path::new(".")))
                 .with_config_path(persist.then_some(config_path.as_path()))
                 .with_module_catalog(test_catalog());
             let runtime = builder.build().unwrap();

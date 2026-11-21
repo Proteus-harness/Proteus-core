@@ -340,6 +340,75 @@ async fn session_routes_reject_missing_unknown_and_ambiguous_addresses() {
 }
 
 #[tokio::test]
+async fn supervised_saved_chat_skips_unrelated_live_handle_and_keeps_launch_workspace() {
+    let a = tempfile::tempdir().unwrap();
+    let b = tempfile::tempdir().unwrap();
+    let root = tempfile::tempdir().unwrap();
+    let config_path = root.path().join("config.toml");
+    let storage = crate::test_model::storage(a.path());
+    let mut dirs = Vec::new();
+    for (workspace, text) in [(a.path(), "unrelated A"), (b.path(), "required B")] {
+        let store = crate::core::SessionStore::new(
+            storage.clone(),
+            root.path(),
+            workspace,
+            crate::domain::new_session_id(),
+        )
+        .unwrap();
+        store
+            .append_history(
+                crate::domain::new_thread_id(),
+                None,
+                &[crate::model_standard::CanonicalMessage::text(
+                    crate::model_standard::MessageRole::User,
+                    text,
+                )],
+            )
+            .await
+            .unwrap();
+        dirs.push(store.session_dir().to_owned());
+    }
+    let missing = root.path().join("deleted");
+    for (hint, initial, count) in [
+        (None, &dirs[0], 2),
+        (Some(dirs[1].clone()), &dirs[1], 1),
+        (Some(missing), &dirs[0], 2),
+    ] {
+        let (server, default_workspace) = crate::app_server::startup::launch_http_selected(
+            crate::test_model::config(),
+            a.path().to_owned(),
+            Some(&config_path),
+            None,
+            false,
+            hint,
+        )
+        .await
+        .unwrap();
+        assert_eq!(server.session_dir_path().as_ref(), Some(initial));
+        let (shutdown, _) = broadcast::channel(1);
+        let state =
+            HttpAppState::new_for_workspace(server, default_workspace, shutdown, test_security())
+                .await;
+        // Real handler path used by Desktop, including reuse for its second /resume.
+        let opened =
+            command_value(post_at(&state, "/resume", json!({"session_dir":dirs[1]})).await);
+        assert_eq!(opened["workspace_path"], json!(b.path()));
+        assert_eq!(opened["session_dir"], json!(dirs[1]));
+        let live = state.server_for_session_dir(&dirs[1]).await.unwrap();
+        assert_eq!(live.transcript().await.unwrap()[0].text, "required B");
+        assert_eq!(state.all_servers().await.len(), count);
+        let bootstrap = read_json_at(&state, "/bootstrap").await;
+        assert_eq!(bootstrap["session_dir"], json!(initial));
+        assert_eq!(bootstrap["cwd"], json!(a.path()));
+        let new_session = command_value(post_at(&state, "/new-session", json!({})).await);
+        assert_eq!(new_session["workspace_path"], json!(a.path()));
+        for live in state.all_servers().await {
+            live.shutdown().await;
+        }
+    }
+}
+
+#[tokio::test]
 async fn lifecycle_uses_the_explicit_source_workspace_and_keeps_deletion_in_the_config_store() {
     let workspace_a = tempfile::tempdir().unwrap();
     let workspace_b = tempfile::tempdir().unwrap();
@@ -355,6 +424,7 @@ async fn lifecycle_uses_the_explicit_source_workspace_and_keeps_deletion_in_the_
     let (shutdown, _) = broadcast::channel(1);
     let state = HttpAppState::new(a.clone(), shutdown, test_security()).await;
     let stored_b = crate::core::SessionStore::new(
+        state.storage_service().unwrap(),
         config_dir.path(),
         workspace_b.path(),
         crate::domain::new_session_id(),
@@ -473,6 +543,7 @@ async fn lifecycle_uses_the_explicit_source_workspace_and_keeps_deletion_in_the_
     // must fail before dropping its live registration or touching its files.
     let outside_store = tempfile::tempdir().unwrap();
     let outside = crate::core::SessionStore::new(
+        crate::test_support::storage(std::path::Path::new(".")),
         outside_store.path(),
         workspace_b.path(),
         crate::domain::new_session_id(),
@@ -533,6 +604,86 @@ async fn lifecycle_uses_the_explicit_source_workspace_and_keeps_deletion_in_the_
         StdioOutput::Response { ok: false, .. }
     ));
     assert_eq!(state.all_servers().await.len(), count);
+    for server in state.all_servers().await {
+        server.shutdown().await;
+    }
+}
+
+#[tokio::test]
+async fn http_rejects_storage_binding_drift_before_new_or_cold_resume() {
+    let (state, server, root) = test_state().await;
+    let baseline = state.launch.config.clone();
+    let config_path = state.launch.config_path.as_ref().unwrap();
+    let initial_count = state.all_servers().await.len();
+    for change in ["selection", "command", "config", "transport", "export"] {
+        let mut changed = serde_json::to_value(&baseline).unwrap();
+        match change {
+            "selection" => changed["modules"]["session_storage"] = Value::Null,
+            "command" => {
+                changed["components"]["test-session-storage"]["command"] =
+                    json!("must-never-launch-storage-drift")
+            }
+            "config" => {
+                changed["module_config"]["session_storage"]["jsonl"] =
+                    json!({"new_backend_setting": true})
+            }
+            "transport" => {
+                changed["components"]["test-session-storage"]["transport"]["max_frame_bytes"] =
+                    json!(64 * 1024 * 1024)
+            }
+            "export" => {
+                changed["components"]["test-session-storage"]["exports"]["session_storage"]["jsonl"]
+                    ["timeout_ms"] = json!(30_001)
+            }
+            _ => unreachable!(),
+        }
+        let changed: AppConfig = serde_json::from_value(changed).unwrap();
+        std::fs::write(config_path, toml::to_string_pretty(&changed).unwrap()).unwrap();
+        for response in [
+            execute_new_session(&state, None, None, None).await,
+            execute_resume(&state, None, root.path().join("cold-session")).await,
+        ] {
+            let StdioOutput::Response {
+                ok: false,
+                error: Some(error),
+                ..
+            } = response
+            else {
+                panic!("{change}: expected a storage binding rejection: {response:?}");
+            };
+            assert!(
+                error.contains("restart the HTTP server"),
+                "{change}: {error}"
+            );
+        }
+        assert_eq!(state.all_servers().await.len(), initial_count, "{change}");
+    }
+    server.shutdown().await;
+}
+
+#[tokio::test]
+async fn http_source_session_must_match_pinned_storage_but_model_settings_may_change() {
+    let (state, server, _root) = test_state().await;
+    server.config.write().await.runtime.context_timeout_ms += 1;
+    let opened = execute_new_session(&state, None, server.session_dir_path(), None).await;
+    assert!(
+        matches!(opened, StdioOutput::Response { ok: true, .. }),
+        "{opened:?}"
+    );
+    server
+        .config
+        .write()
+        .await
+        .module_config
+        .entry("session_storage".into())
+        .or_default()
+        .insert("jsonl".into(), json!({"new_backend_setting": true}));
+    let rejected = execute_new_session(&state, None, server.session_dir_path(), None).await;
+    assert!(
+        matches!(&rejected, StdioOutput::Response { ok: false, error: Some(error), .. }
+        if error.contains("restart the HTTP server")),
+        "{rejected:?}"
+    );
     for server in state.all_servers().await {
         server.shutdown().await;
     }

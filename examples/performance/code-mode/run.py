@@ -45,7 +45,9 @@ def config_for(mode, state, workspace, run_root, base, model, reasoning, timeout
         "response and use parallel tool calling. Check all tool results and complete every required operation.")
     return {
         "include": [str(base)], "profile": {"name": f"code-mode-eval-{mode}"},
-        "providers": {"chatgpt": {"model": model, "reasoning": {"effort": reasoning, "summary": True}}},
+        "model": "chatgpt",
+        "models": {"chatgpt": {"provider": "openai_codex", "model": model,
+                              "effort": reasoning, "summary": True}},
         "instructions": [
             {"kind": "System", "file": str(ROOT / "configs/prompts/codex-default.md"), "priority": 100},
             {"kind": "System", "text": instruction, "priority": 110}],
@@ -66,7 +68,7 @@ def config_for(mode, state, workspace, run_root, base, model, reasoning, timeout
 
 
 def command_with_environment(arguments):
-    environment = Path.home() / ".config/Proteus-agent/environment"
+    environment = Path.home() / ".config/Proteus-harness/environment"
     if not environment.is_file():
         return arguments
     # Match the portable launcher's configured environment; never print values.
@@ -157,7 +159,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True, help="new result directory")
     parser.add_argument("--binary", type=Path, default=ROOT.parent / "Proteus-desktop/build/Proteus/bin/proteus")
-    parser.add_argument("--base-config", type=Path, default=ROOT / "configs/code-mode.config.toml")
+    parser.add_argument("--base-config", type=Path, default=ROOT / "configs/config.toml")
     parser.add_argument("--model", default="gpt-5.6-luna")
     parser.add_argument("--reasoning", default="high")
     parser.add_argument("--api-schemas", action="store_true", help="declare API output and report field schemas")

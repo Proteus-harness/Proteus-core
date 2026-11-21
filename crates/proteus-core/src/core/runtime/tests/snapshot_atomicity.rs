@@ -165,8 +165,11 @@ async fn admitted_turn_freezes_registry_and_effective_settings_until_settlement(
     let workflow = Arc::new(AtomicityProbeWorkflow {
         observations: observations.clone(),
     });
+    let mut config = AppConfig::default();
+    crate::test_support::storage_config(&mut config);
     let runtime = Arc::new(
-        AgentRuntime::builder(AppConfig::default(), workspace.path().to_path_buf())
+        AgentRuntime::builder(config, workspace.path().to_path_buf())
+            .with_session_storage(crate::test_support::storage(std::path::Path::new(".")))
             .with_config_path(Some(&config_path))
             .with_module_catalog(test_catalog())
             .with_event_sink(gate.clone())

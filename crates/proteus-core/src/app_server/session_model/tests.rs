@@ -4,6 +4,7 @@ use crate::{
     model_standard::ModelCapabilities,
 };
 use serde_json::json;
+use std::path::Path;
 
 fn config() -> AppConfig {
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/process_model.py");
@@ -20,7 +21,7 @@ fn config() -> AppConfig {
             })))}
         })
     };
-    serde_json::from_value(json!({
+    let mut config = serde_json::from_value(json!({
         "active_provider": "main", "providers": {
             "main": {"provider": "first", "model": "first-default", "reasoning": {"effort": "low"}},
             "cheap": {"provider": "second", "model": "second-default", "reasoning": {"effort": "high"}}
@@ -28,7 +29,9 @@ fn config() -> AppConfig {
         "components": {"model-worker": {"command": "python3", "args": ["-B", fixture],
             "exports": {"model": {"first": {}, "second": {}}}}},
         "module_config": {"model": {"first": settings("first", 111), "second": settings("second", 222)}}
-    })).unwrap()
+    })).unwrap();
+    crate::test_support::storage_config(&mut config);
+    config
 }
 
 fn reasoning() -> ReasoningConfig {
@@ -83,7 +86,16 @@ async fn unchanged_exact_selection_keeps_the_live_adapter_and_epoch() {
         .unwrap();
     assert_eq!(server.runtime.configuration_view().await.0.epoch, epoch);
     assert_eq!(std::fs::read_to_string(marker).unwrap(), pids);
-    assert!(server.session_dir_path().unwrap().join(FILE).exists());
+    assert!(
+        server
+            .runtime
+            .session_store()
+            .unwrap()
+            .read_metadata_document(FILE)
+            .await
+            .unwrap()
+            .is_some()
+    );
     server.shutdown().await;
 }
 
@@ -186,7 +198,10 @@ async fn exact_configuration_rebinds_provider_and_preserves_source_and_permissio
     let baseline = config();
     let server = launch(baseline.clone(), root.path(), cwd.path()).await;
     let original = std::fs::read(root.path().join("agent.json")).unwrap();
-    server.set_permission_mode(PermissionMode::Auto).await;
+    server
+        .set_permission_mode(PermissionMode::Auto)
+        .await
+        .unwrap();
     server
         .apply_model_configuration(ModelRef::new("second", "second-other"), reasoning(), false)
         .await
@@ -326,7 +341,16 @@ async fn unsupported_model_effort_and_route_leave_the_current_configuration_unch
         assert_eq!(server.runtime.model_ref().await, before);
         assert_eq!(server.runtime.reasoning().await, reasoning_before);
     }
-    assert!(!server.session_dir_path().unwrap().join(FILE).exists());
+    assert!(
+        server
+            .runtime
+            .session_store()
+            .unwrap()
+            .read_metadata_document(FILE)
+            .await
+            .unwrap()
+            .is_none()
+    );
     assert!(last_files(root.path()).is_empty());
     server.close_idle_runs().await.unwrap();
     assert!(
@@ -399,4 +423,58 @@ async fn profile_refresh_keeps_scoped_binding_until_its_source_route_is_changed(
         "first"
     );
     server.shutdown().await;
+}
+
+#[tokio::test]
+async fn builder_model_definitions_remain_saved_when_session_uses_another_route() {
+    let root = tempfile::tempdir().unwrap();
+    let cwd = tempfile::tempdir().unwrap();
+    let baseline = config();
+    let server = launch(baseline.clone(), root.path(), cwd.path()).await;
+    server
+        .apply_model_configuration(ModelRef::new("second", "second-other"), reasoning(), false)
+        .await
+        .unwrap();
+    let snapshot = server.config_builder_snapshot().await;
+    assert_eq!(snapshot.model.as_deref(), Some("main"));
+    assert_eq!(snapshot.models["main"].model, "first-default");
+    assert_eq!(
+        snapshot.models["main"].reasoning,
+        baseline.providers["main"].reasoning
+    );
+    assert_eq!(snapshot.models["cheap"].model, "second-default");
+    assert!(
+        snapshot
+            .model_modules
+            .iter()
+            .find(|module| module.id == "first")
+            .unwrap()
+            .active
+    );
+    assert!(
+        !snapshot
+            .model_modules
+            .iter()
+            .find(|module| module.id == "second")
+            .unwrap()
+            .active
+    );
+    assert_eq!(snapshot.module_config, baseline.module_config);
+    assert_eq!(
+        server.runtime.model_ref().await.unwrap(),
+        ModelRef::new("second", "second-other")
+    );
+    server.shutdown().await;
+}
+
+#[test]
+fn component_icon_does_not_invalidate_scoped_model_binding() {
+    let mut config = config();
+    let selected = ModelRef::new("second", "second-other");
+    let before = binding(&config, &selected).unwrap();
+    let component = config.components.get_mut("model-worker").unwrap();
+    let mut source = serde_json::to_value(&*component).unwrap();
+    source["icon"] = json!("assets/model.svg");
+    *component = serde_json::from_value(source).unwrap();
+    assert_eq!(binding(&config, &selected).unwrap(), before);
 }

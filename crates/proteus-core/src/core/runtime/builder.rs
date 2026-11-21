@@ -11,7 +11,7 @@ use crate::{
     core::{
         AppConfig, CachedApprovalTransport, HeadlessApprovalTransport, HeadlessUserInputTransport,
         JsonlEventStore, ModuleCatalog, PreparedAssembly, SessionConfigSnapshot, SessionStore,
-        write_config_snapshot,
+        StorageService,
     },
     domain::{SessionId, ThreadId, new_session_id, new_thread_id},
 };
@@ -36,6 +36,7 @@ pub struct AgentRuntimeBuilder {
     parent_session_id: Option<SessionId>,
     thread_id: Option<ThreadId>,
     resumed_session: Option<SessionStore>,
+    storage: Option<StorageService>,
     resumed_history: Option<crate::contracts::ConversationSnapshot>,
     resumed_view: Option<(u64, usize)>,
     deferred_resume_validation: bool,
@@ -55,6 +56,7 @@ impl AgentRuntimeBuilder {
             parent_session_id: None,
             thread_id: None,
             resumed_session: None,
+            storage: None,
             resumed_history: None,
             resumed_view: None,
             deferred_resume_validation: false,
@@ -68,6 +70,12 @@ impl AgentRuntimeBuilder {
 
     pub fn with_module_catalog(mut self, catalog: ModuleCatalog) -> Self {
         self.module_catalog = Some(catalog);
+        self
+    }
+
+    /// Reuse the storage selected by the host for this configuration.
+    pub fn with_session_storage(mut self, storage: StorageService) -> Self {
+        self.storage = Some(storage);
         self
     }
 
@@ -103,7 +111,11 @@ impl AgentRuntimeBuilder {
         session_dir: impl Into<PathBuf>,
         thread_id: ThreadId,
     ) -> Result<Self> {
-        let session_store = SessionStore::open(session_dir.into())?;
+        let storage = self.storage.clone().map_or_else(
+            || crate::core::configured_session_storage(&self.config, &self.cwd),
+            Ok,
+        )?;
+        let session_store = SessionStore::open(storage, session_dir.into())?;
         Ok(self.resume_from_session_store(session_store, thread_id))
     }
 
@@ -116,7 +128,7 @@ impl AgentRuntimeBuilder {
         self.resumed_session = Some(session_store);
         self.resumed_history = None;
         self.resumed_view = None;
-        self.deferred_resume_validation = false;
+        self.deferred_resume_validation = true;
         self
     }
 
@@ -171,6 +183,7 @@ impl AgentRuntimeBuilder {
             parent_session_id,
             thread_id,
             resumed_session,
+            storage,
             resumed_history,
             resumed_view,
             deferred_resume_validation,
@@ -184,11 +197,17 @@ impl AgentRuntimeBuilder {
             Some(store) => store.workspace_path()?,
             None => cwd,
         };
-        let assembly = if let Some(catalog) = module_catalog {
-            PreparedAssembly::from_catalog(config, cwd.clone(), config_path.as_deref(), catalog)?
-        } else {
-            PreparedAssembly::from_config(config, cwd.clone(), config_path.as_deref())?
-        };
+        let storage = resumed_session
+            .as_ref()
+            .map(|store| store.storage_service())
+            .or(storage);
+        let assembly = PreparedAssembly::from_catalog_with_storage(
+            config,
+            cwd.clone(),
+            config_path.as_deref(),
+            module_catalog,
+            storage,
+        )?;
         let config = assembly.plan().config();
         let registry = assembly.registry();
         let permission_mode = assembly.plan().permission_mode;
@@ -224,14 +243,18 @@ impl AgentRuntimeBuilder {
         let session_store = if let Some(session_store) = resumed_session {
             Some(session_store)
         } else {
-            config_path
-                .as_deref()
-                .map(config_store_root)
-                .map(|config_dir| {
-                    SessionStore::new_with_parent(&config_dir, &cwd, session_id, parent_session_id)
-                })
-                .transpose()?
+            match (config_path.as_deref(), registry.session_storage.as_ref()) {
+                (Some(path), Some(service)) => Some(SessionStore::new_with_parent(
+                    service.clone(),
+                    &config_store_root(path),
+                    &cwd,
+                    session_id,
+                    parent_session_id,
+                )?),
+                _ => None,
+            }
         };
+        let storage = registry.session_storage.clone();
         let config_snapshot = session_store.as_ref().map(|_| {
             SessionConfigSnapshot::from_runtime_config(
                 &config,
@@ -240,13 +263,6 @@ impl AgentRuntimeBuilder {
                 approval.can_request_approval(),
             )
         });
-        if resume_history
-            && let (Some(session_store), Some(snapshot)) = (&session_store, &config_snapshot)
-            && session_store.session_dir().exists()
-            && let Err(error) = write_config_snapshot(session_store.session_dir(), snapshot)
-        {
-            eprintln!("warning: failed to persist session config snapshot: {error:#}");
-        }
         let mut resume_context = None;
         let history = if resumed_view.is_some() {
             Vec::new()
@@ -274,16 +290,11 @@ impl AgentRuntimeBuilder {
             .map(|cfg| cfg.reasoning.clone())
             .unwrap_or_default();
         let images = super::images::ImageStore::new(
-            session_store
-                .as_ref()
-                .map(|s| s.session_dir().join("images"))
-                .unwrap_or_else(|| {
-                    config_path
-                        .as_deref()
-                        .map(config_store_root)
-                        .unwrap_or_else(|| cwd.clone())
-                        .join("images")
-                }),
+            config_path
+                .as_deref()
+                .map(config_store_root)
+                .unwrap_or_else(|| cwd.clone())
+                .join("images"),
         );
 
         let mut session = SessionState::new(
@@ -318,6 +329,7 @@ impl AgentRuntimeBuilder {
             services: RuntimeServices {
                 terminals: Arc::default(),
                 images,
+                storage,
                 cwd,
                 execution_state: RwLock::new(RuntimeExecutionState {
                     runtime: RuntimeSnapshot::new(

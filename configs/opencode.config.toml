@@ -1,11 +1,19 @@
-# Native OpenCode 2.0.22 slot adapters; source pin 527f0b931d1f9b3ebd34e106c51b31ce5db5b075.
-# Install: Proteus-modules/workflow/opencode-runtime/install.py --prefix /ready/Proteus
-include = "proteus.provider.example.toml"
+# OpenCode 2.0.22: штатные поведенческие слоты; модель через OpenCode Go, внешние plugins отключены.
+model = "cheap"
+
+[models.cheap]
+provider = "opencode"
+stream = true
+model = "deepseek-v4.1-flash"
+summary = true
+effort = "high"
 
 [profile]
 name = "opencode"
+title = "OpenCode"
 
 [modules]
+session_storage = "jsonl"
 workflow = "opencode_loop"
 context = "opencode_context"
 policy = "opencode_policy"
@@ -31,6 +39,12 @@ env_allowlist = ["HOME", "PATH", "SHELL", "LANG", "LC_ALL", "XDG_STATE_HOME", "P
 command = "proteus-policy-pack-module"
 [components.policy-pack.exports.policy.opencode_policy]
 
+[components.opencode-model]
+command = "proteus-opencode-module"
+env_allowlist = ["HOME", "XDG_DATA_HOME", "PATH", "OPENCODE_API_KEY", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy"]
+
+[components.opencode-model.exports.model.opencode]
+
 [tools]
 enabled = ["read", "write", "edit", "patch", "shell", "glob", "grep"]
 mcp_servers = []
@@ -40,6 +54,7 @@ mode = "normal"
 
 # Core remains the effect admission boundary. The upstream file/shell plugin's
 # additional external_directory requests fail closed inside the adapter.
+
 [module_config.policy.opencode_policy]
 rules = [
   { permission = "*", action = "allow" },
@@ -62,11 +77,24 @@ split_commands = true
 tools = ["read"]
 pattern_args = ["path"]
 
+[module_config.model.opencode]
+provider = "opencode-go"
+
 [app_server]
 approval_timeout_ms = 0
+
 [runtime]
 model_timeout_ms = 10800000
 context_timeout_ms = 30000
 workflow_timeout_ms = 14400000
+
 [event_log]
 path = ".proteus/events.jsonl"
+
+[components.session-storage]
+command = "proteus-session-storage-module"
+transport.max_frame_bytes = 134217728
+
+[components.session-storage.exports.session_storage.jsonl]
+
+[components.session-storage.exports.session_storage.sqlite]

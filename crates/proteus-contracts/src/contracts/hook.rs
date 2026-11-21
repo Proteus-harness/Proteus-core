@@ -2,14 +2,18 @@
 use super::{ExecutionAttribution, ModelCallOrigin};
 use crate::{
     domain::{AgentOutput, AgentTask, ToolCall, ToolResult, ToolSpec, validate_tool_call_args},
-    model_standard::{CanonicalMessage, CanonicalModelRequest, InstructionBlock},
+    model_standard::{
+        CanonicalMessage, CanonicalModelRequest, InstructionBlock, ModelCapabilities,
+    },
 };
 use anyhow::{Result, bail};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, sync::Arc};
 
-pub const PROCESS_HOOK_CONTRACT_VERSION: &str = "v6";
+pub const PROCESS_HOOK_CONTRACT_VERSION: &str = "v8";
+pub const HOOK_CONTEXT_PREPARATION_DIAGNOSTICS_FEATURE: &str =
+    "hook.context_preparation_diagnostics.v1";
 pub const PROCESS_HOOK_INVOKE_METHOD: &str = "hook.invoke";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -35,6 +39,9 @@ pub enum HookEvent {
     },
     BeforeContext {
         input: super::ContextPreparationInput,
+        /// Host-owned description of the selected request model; absent for model-free work.
+        #[serde(default)]
+        model_capabilities: Option<ModelCapabilities>,
         output: super::ContextPreparationOutput,
         #[serde(deserialize_with = "Option::deserialize")]
         target: Option<super::ContextPreparationTarget>,
@@ -83,6 +90,9 @@ pub enum HookResponse {
     ContextPreparation {
         output: super::ContextPreparationOutput,
     },
+    ContextPreparationDiagnostics {
+        diagnostics: super::ContextPreparationDiagnostics,
+    },
     ModelContext {
         messages: Vec<CanonicalMessage>,
         instructions: Vec<InstructionBlock>,
@@ -114,6 +124,9 @@ impl<'de> Deserialize<'de> for HookResponse {
             ContextPreparation {
                 output: super::ContextPreparationOutput,
             },
+            ContextPreparationDiagnostics {
+                diagnostics: super::ContextPreparationDiagnostics,
+            },
             ModelContext {
                 messages: Vec<CanonicalMessage>,
                 instructions: Vec<InstructionBlock>,
@@ -135,6 +148,9 @@ impl<'de> Deserialize<'de> for HookResponse {
             Wire::Continue {} => Self::Continue,
             Wire::ToolSelection { output } => Self::ToolSelection { output },
             Wire::ContextPreparation { output } => Self::ContextPreparation { output },
+            Wire::ContextPreparationDiagnostics { diagnostics } => {
+                Self::ContextPreparationDiagnostics { diagnostics }
+            }
             Wire::ModelContext {
                 messages,
                 instructions,
@@ -175,6 +191,19 @@ pub fn apply_hook_response(event: &HookEvent, response: &HookResponse) -> Result
             *output = super::context_preparation::compose_outputs(input, output, candidate)?;
         }
         (
+            HookEvent::BeforeContext { input, output, .. },
+            HookResponse::ContextPreparationDiagnostics { diagnostics },
+        ) => {
+            let original_token_estimate = if output.changed {
+                output.original_token_estimate.or(input.token_estimate)
+            } else {
+                diagnostics.original_token_estimate
+            };
+            output.set_diagnostics(diagnostics);
+            output.original_token_estimate = original_token_estimate;
+            super::validate_context_preparation_output(input, output)?;
+        }
+        (
             HookEvent::BeforeModel { request, .. },
             HookResponse::ModelContext {
                 messages,
@@ -211,6 +240,20 @@ pub fn apply_hook_response(event: &HookEvent, response: &HookResponse) -> Result
     }
     Ok(event)
 }
+/// Expand an optional diagnostic update for consumers using the base hook wire shape.
+pub fn expand_context_preparation_response(
+    event: &HookEvent,
+    response: &HookResponse,
+) -> Result<HookResponse> {
+    if !matches!(response, HookResponse::ContextPreparationDiagnostics { .. }) {
+        return Ok(response.clone());
+    }
+    let HookEvent::BeforeContext { output, .. } = apply_hook_response(event, response)? else {
+        unreachable!("validated diagnostic response belongs to context preparation")
+    };
+    Ok(HookResponse::ContextPreparation { output })
+}
+
 fn validate_model_context(
     original: &[CanonicalMessage],
     messages: &[CanonicalMessage],

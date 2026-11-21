@@ -71,7 +71,22 @@ Matrix ищет Pi в `~/.local/bin/pi`, OpenCode в
 `--binary`, как и путь/hash в metadata: переименованный candidate не заменяется
 соседним файлом с именем `proteus`. Это правило построения argv, не проверка
 неизменности файла между подготовкой и фактическим запуском.
-Профиль Proteus задаётся `--base-config` внутри `configs/` Core.
+Профиль Proteus задаётся `--base-config`; прежние fragment-профили должны
+находиться внутри `configs/` Core, самодостаточная native-сборка может быть
+отдельным TOML-файлом.
+
+Текущая монолитная сборка `--base-config configs/config.toml` определяется по
+выбранному именованному model с `provider = "opencode"` и использует нативный
+`model/opencode`, без подмены на Pi. Слоты, prompts, hooks и schemas tools
+сохраняются; runner разрешает выбранные root tools в своей внешней OS-песочнице,
+отключает MCP и записывает эти overrides. Опциональный `--disable-subagents`
+отключает роли и collaboration surface только для этого disposable прогона;
+без флага роли сохраняются. Native OpenCode с этим флагом получает последний
+`subagent deny` и `experimental.subagent_depth = 0`; effective config проверяется
+до генерации. Метрики с несколькими journals требуют отдельной агрегации.
+Сборка должна быть самодостаточной, без `include`. Provider для этого adapter
+подтверждается конфигурацией model binding и наблюдаемым логическим adapter ID
+в canonical requests, а не отсутствующим provider ID в ответе внешнего API.
 
 Для Flash требуется действующий ключ Go в native OpenCode. Runner получает
 только активную запись `opencode-go` через native `auth export`, переносит её в
@@ -200,6 +215,10 @@ python3 -B examples/performance/coding-harness/report.py \
 Матрица записывает pipeline и grading для каждой клетки, сохраняет неуспехи и
 возвращает ненулевой exit при любом FAIL. Повтор учитывается отдельно от шести
 первых попыток. `report.py` проверяет одинаковые prompt/repository hashes.
+Уникальность попытки определяется фактическими model/effort, case, номером
+попытки и arm, а не псевдонимом модели в имени папки. Повторное включение одной
+попытки отклоняется; конфигурация только с повторами не получает медиану первичных
+запусков.
 
 Короткий и длинный отчёты используют одну политику полноты usage. Числовой
 subtotal сам по себе не подтверждает завершение generation: для незавершённого
@@ -313,6 +332,11 @@ grader и исходных файлов. В `go-review` продолжения �
 агента, первый результат по каждой задаче и контрольный повтор Go. Полный
 расход прерванного запроса может остаться неизвестным. Сумму подтверждённых
 токенов таких запусков отчёт показывает как нижнюю границу.
+JSON и Markdown используют одни выбранные `cases`/`arms`. Повторные оси плана
+и дубликаты попыток внутри каждого основного или диагностического набора
+отклоняются. Длинный отчёт остаётся серией DeepSeek Flash/high и проверяет
+это сочетание у наблюдаемых запусков; исторический baseline учитывается отдельно.
+Эти проверки не изменяют сохранённые результаты прежних прогонов.
 
 ```sh
 python3 -B "$suite/long_report.py" --runs "$data/long-flash-reproduction" \
@@ -343,3 +367,157 @@ tool call. Его можно запускать без подключения к
 С ним новая сборка воспроизвела все четыре запроса модели и восемь вызовов
 инструментов. При подстановке нового workflow replay обнаружил изменившийся
 лимит на первом hook `before_context`.
+
+## Сложный публичный набор: Terminal-Bench 4.0
+
+`tb4.py` фиксирует семь задач из upstream tag `v4.0.0`, revision
+`452bf305c6daa62fc59061d22133a7cbc7c1572e`. Это все задачи категории Software,
+запрашивающие до 2 CPU, 4096 MiB RAM, 10240 MiB storage, без GPU и compose.
+Отбор не использует результаты агентов. Получаются `bun-sourcemap-leak`,
+`mvcc-lsm-compaction`, `ontology-kg-querying`, `photonic-waveguide-routing`,
+`react-lead-form`, `session-window-debug`, `wal-recovery-ordering`.
+
+Исполнение и перенос artifacts выполняет **Harbor 0.26.0**, backend Podman.
+Сохраняются исходные Dockerfiles, instruction, tests и отдельный verifier
+каждой задачи. Proteus получает только агентскую среду; checkout, эталонные
+решения и скрытые tests в неё не копируются. `tb4_agent.py` устанавливает
+зависимости агента и переносит готовую portable-сборку с текущим native
+`model/opencode`. Авторизация экспортируется приватно из активной Go-записи,
+не включается в job config и удаляется после запуска. Canonical sessions,
+usage и сведения о выбранной конфигурации остаются в trial `agent/`.
+
+```sh
+data=target/performance/tb4-pilot
+suite=examples/performance/coding-harness
+uv venv --python 3.13.9 target/performance/tb4-harbor-venv
+uv pip install --python target/performance/tb4-harbor-venv/bin/python \
+  harbor==0.26.0 patchelf==0.19.3.0
+# Для установленного Compose V2 frontend нужен rootless Podman socket.
+systemctl --user start podman.socket
+python3 "$suite/tb4.py" freeze
+target/performance/tb4-harbor-venv/bin/python "$suite/tb4.py" run \
+  --arm oracle --name oracle-controls
+target/performance/tb4-harbor-venv/bin/python "$suite/tb4.py" run \
+  --arm nop --name starter-controls
+target/performance/tb4-harbor-venv/bin/python "$suite/tb4.py" run \
+  --arm inspect --name inspect-bun --only bun-sourcemap-leak --concurrency 1
+target/performance/tb4-harbor-venv/bin/python "$suite/tb4.py" run \
+  --arm proteus --name proteus-high
+```
+
+Checkout размещается в `target/performance/upstream/terminal-bench-4`.
+Для экономии места достаточно sparse checkout семи каталогов `tasks/<id>`.
+Перед каждым запуском проверяются revision, чистота checkout и полные SHA-256
+деревьев задач. Frozen manifest нельзя перезаписать другими условиями; имена
+job уникальны, неудачные попытки сохраняются. `oracle` должен дать reward=1,
+`nop` — reward=0 без ошибки инфраструктуры. `inspect` не вызывает модель.
+
+Пилот: точный Go model slug `deepseek-v4.1-flash`, effort `high`, одна попытка,
+1200 секунд на задачу вместо upstream 28800, без дочерних агентов и без
+добавленного лимита ответа. Повторы после инфраструктурных ошибок учитываются
+отдельно; автоматических повторов нет. Штатный публичный network default
+сохраняется. Сравнение с другим харнесом должно использовать этот же manifest,
+grader, доступ к сети, effort, бюджет и запрет делегирования; поддержка native
+OpenCode в новом Harbor bridge пока не реализована.
+
+Portable-бинарники, собранные на Fedora, требуют более новой glibc, чем некоторые
+upstream images. Bridge копирует библиотеки только агента в `/runtime/abi`
+и меняет PT_INTERP/RUNPATH временных ELF-копий через pinned patchelf. Исходная
+поставка и библиотеки task tools не меняются. Хеши исходных/временных файлов,
+библиотек и patcher сохраняются в trial. `inspect` дополнительно запускает
+обычный CLI с EOF: проверяет re-exec app-server без отправки задачи модели.
+
+Это малый срез Software, **не официальный score на всех 66 задачах**.
+[Опубликованные DeepSeek 31,2%](https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash)
+на полном TB4 используют max effort и DeepSeek Harness Minimal. Они показывают
+сложность набора, но относятся к раннему checkpoint. Текущий Go catalog называет
+модель **1017**; для неё нужны отдельные
+[результаты и сведения о расходе](../results/2026-11-16-tb4-reference.md).
+Опубликованная серия Claude Code в среднем занимала 84 минуты на попытку:
+20-минутный пилот нельзя напрямую сравнивать с её score. Usage/cost estimate
+каталога также не доказывает денежное списание по подписке Go.
+
+## Полный Aider Polyglot: парный прогон
+
+`polyglot_corpus.py` сохраняет все 225 задач закреплённого Polyglot checkout:
+C++26, Go39, Java47, JavaScript49, Python34, Rust30. Поведение upstream Aider
+изучено на commit `5dc9490bb35f9729ef2c95d00a19ccd30c26339c`;
+SHA-256 исходных benchmark scripts сохраняются в
+`target/performance/polyglot-225/upstream-methodology/provenance.json`.
+
+Агент видит условие, объявленные implementation files и необходимые build
+configs. Тесты, `.meta` и примеры решений остаются вне его namespace. Проверка
+собирает pristine tree и накладывает только разрешённые solution files. После
+первого отказа возвращается диагностический вывод grader; вторая попытка
+продолжает ту же native session. Максимум два агентских turn, при первом PASS
+второй не запускается. Внутри turn доступны собственные tools и smoke tests,
+поэтому это сравнение двух харнесов на задачах Polyglot, а не точная реплика
+одной генерации Aider.
+
+```sh
+suite=examples/performance/coding-harness
+data=target/performance/polyglot-225
+python3 "$suite/polyglot_setup.py"
+python3 "$suite/polyglot_corpus.py" prepare
+python3 "$suite/polyglot_corpus.py" controls --workers 2
+python3 "$suite/polyglot_tool_preflight.py" --output "$data/my-tool-preflight"
+python3 "$suite/polyglot_run.py" init --output "$data/runs/my-run" \
+  --timeout 1200 --budget 20 --tool-preflight "$data/my-tool-preflight/result.json"
+python3 "$suite/polyglot_run.py" run --output "$data/runs/my-run" --jobs 4
+python3 "$suite/polyglot_report.py" --runs "$data/runs/my-run" \
+  --output "$data/runs/my-run/report.json"
+```
+
+`setup` закрепляет JDK21, Gradle8.7, JS dependencies, Cargo caches и недостающий
+Boost для двух C++ задач; версии и хеши находятся в `toolchains/receipt.json`.
+Toolchain/dependency mounts доступны только для чтения. Рабочие кеши Cargo,
+Gradle, Go и npm находятся в `/workspace/.benchmark-cache`: эта область
+доступна для записи также во внутренней песочнице Proteus и сохраняется между
+отдельными tool calls. `/tmp` для этого не подходит: shell создаёт его заново
+при каждом вызове. Подготовленный `node_modules` смонтирован для чтения прямо
+в workspace JavaScript-задач. Writable state и home
+раздельны для каждого task/agent; пользовательские конфиги и секреты в них
+не копируются целиком. В disposable Proteus shell component разрешаются только
+нужные benchmark toolchain env keys, чтобы условия совпадали с OpenCode.
+В отдельном network namespace доступ к HTTPS оставлен только для `opencode.ai`
+и `models.opencode.ai` через `polyglot_network.py`; публичные tests/solutions
+скачать нельзя. Proxy передаёт TLS непрозрачно и сохраняет только счётчики,
+без headers/body/credentials. Ограничение и запрет скачивания tests явно заданы
+одинаковым benchmark prompt prefix для обоих харнесов. Стандартные localhost
+RPC native OpenCode работают внутри namespace.
+Перед новым платным cohort `polyglot_tool_preflight.py --output <new-directory>`
+проверяет все шесть языков через текущие workflow/policy/shell slots Proteus.
+Только model slot заменён детерминированной fixture: два отдельных
+`exec_command` проверяют offline compiler/dependencies, запись и сохранение
+cache marker, а также отдельный tmpfs каждого вызова. Платных запросов нет.
+Grader не имеет сети и требует наблюдаемого исполнения тестов, а не одного
+exit0. Используются Java unskip, Rust include-ignored и все C++ tests; для JS
+активируются также 23 `xit` проверки `grep`, пропущенные upstream script.
+Эта адаптация сохранена в provenance, два явно optional JS tests остаются skipped.
+
+До платного admission нужны контроли всех задач. У `go--counter` тестов нет:
+он отмечен как неоцениваемый и не вызывает модель. Из **224 проверяемых задач**
+пять refactor starters уже проходят: Go ledger/markdown, Java ledger/tree-building,
+JavaScript ledger. Отчёт дополнительно показывает **219 задач**, на которых
+starter не прошёл. Для шести Rust-эталонов используется официальный
+`Cargo-example.toml`; receipt отмечает отличающийся reference contract.
+Условия и Cargo.toml кандидатских решений сохраняются.
+
+`init` фиксирует source/case/control/prompt hashes, compiler setup, модель и
+effort, config, executable/component hashes и digest JS model runtime.
+Порядок задач перемешан фиксированным seed, порядок харнесов чередуется.
+`run` продолжает отсутствующие задачи и сохраняет неудачные попытки;
+неполный trial требует явного аудита. На задачу выделяется 1200 секунд работы
+агента суммарно на оба turn; grader180 секунд считается отдельно. Лимит ответа
+модели не добавляется. Порог $20 применяется к catalog-equivalent usage:
+новые задачи перестают запускаться при его достижении или при неизвестном
+usage. Уже выполняющиеся задачи завершаются, поэтому это не жёсткий billing cap.
+
+Отчёт сохраняет first-turn/final PASS, независимый grader PASS, model/effort,
+continuity, actions, tokens/cache, стоимость и время. Полнота usage и известная
+нижняя граница расхода различаются; cumulative snapshots не суммируются дважды.
+Сетевые/квотные ошибки остаются в основной серии; дополнительный clean slice
+показывается с собственным знаменателем. Deadline остаётся ошибкой бюджета.
+225 языковых вариантов содержат 100 exercise slugs: 95% интервалы строятся
+парным cluster bootstrap по упражнению, сохраняя его языковые варианты вместе.
+Чужие Aider score/cost относятся к другой модели и протоколу и служат справкой.

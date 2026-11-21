@@ -2,7 +2,7 @@
 """Dependency-free context preparation hook for Proteus.
 
 The module keeps a valid suffix beginning at one of the most recent user
-turns. The hook/v6 boundary offers model and tool callbacks, but this
+turns. The hook/v8 boundary offers model and tool callbacks, but this
 deterministic implementation does not need them.
 """
 
@@ -27,7 +27,7 @@ from component_runtime import (
 
 SLOT = "hook"
 MODULE_ID = "python_suffix"
-CONTRACT_VERSION = "v6"
+CONTRACT_VERSION = "v8"
 
 EXPORT_INITIALIZE_FIELDS = {
     "slot",
@@ -235,7 +235,7 @@ def invoke(context: InvocationContext, method: str, params: Any) -> dict[str, An
         raise ProtocolError("hook event must be an object")
     if event.get("event") != "before_context":
         return {"result": {"action": "continue"}}
-    event = require_object(event, {"event", "input", "output", "target"}, "BeforeContext")
+    event = require_object(event, {"event", "input", "output", "target", "model_capabilities"}, "BeforeContext")
     prior = event["output"]
     if not isinstance(prior, dict) or not isinstance(prior.get("messages"), list):
         raise ProtocolError("BeforeContext output must be a preparation candidate")

@@ -80,14 +80,8 @@ async fn invalid_save_preserves_disk_live_epoch_and_history_then_valid_save_succ
                 "duplicate id",
             ),
             (serde_json::json!({"hooks":[" "]}), "blank id"),
-            (
-                serde_json::json!({"active_provider":"missing"}),
-                "not defined",
-            ),
-            (
-                serde_json::json!({"active_provider":" "}),
-                "must not be empty",
-            ),
+            (serde_json::json!({"model":"missing"}), "not defined"),
+            (serde_json::json!({"model":" "}), "must not be empty"),
         ] {
             let request: SetConfigBuilderRequest = serde_json::from_value(request).unwrap();
             let error = server.set_profile_config(request).await.unwrap_err();

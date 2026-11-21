@@ -33,7 +33,9 @@ pub(super) fn config_history_dir(config_path: &Path) -> PathBuf {
         .strip_prefix(&root)
         .map(Path::to_path_buf)
         .unwrap_or_else(|_| physical.file_name().map(PathBuf::from).unwrap_or_default());
-    let directory = root.join("config-history").join(relative);
+    // v2 records named definitions and exact role selections; old settings
+    // revisions remain untouched in their original namespace.
+    let directory = root.join("config-history").join("v2").join(relative);
     let selection = crate::core::config_selection(config_path).unwrap_or_default();
     if selection.is_empty() {
         return directory;
@@ -185,13 +187,15 @@ mod tests {
         std::fs::create_dir(&configs).unwrap();
         assert_eq!(
             config_history_dir(&configs.join("codex.config.toml")),
-            dir.path().join("config-history/configs/codex.config.toml")
+            dir.path()
+                .join("config-history/v2/configs/codex.config.toml")
         );
         let profile = dir.path().join("work");
         std::fs::create_dir(&profile).unwrap();
         assert_eq!(
             config_history_dir(&profile),
-            dir.path().join("config-history/work/config-builder.toml")
+            dir.path()
+                .join("config-history/v2/work/config-builder.toml")
         );
     }
 }

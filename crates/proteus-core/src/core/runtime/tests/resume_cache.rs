@@ -88,7 +88,13 @@ async fn display_resume_and_settled_turns_do_not_retain_decoded_history() {
 
 async fn cold_store(root: &std::path::Path, workspace: &std::path::Path) -> SessionStore {
     let fixture = tempfile::tempdir().unwrap();
-    let source = SessionStore::new(fixture.path(), workspace, new_session_id()).unwrap();
+    let source = SessionStore::new(
+        crate::test_support::storage(std::path::Path::new(".")),
+        fixture.path(),
+        workspace,
+        new_session_id(),
+    )
+    .unwrap();
     source
         .append_history(
             new_thread_id(),
@@ -108,7 +114,11 @@ async fn cold_store(root: &std::path::Path, workspace: &std::path::Path) -> Sess
     for file in ["session.json", "journal.jsonl"] {
         std::fs::copy(source.session_dir().join(file), target.join(file)).unwrap();
     }
-    SessionStore::open(target).unwrap()
+    SessionStore::open(
+        crate::test_support::storage(std::path::Path::new(".")),
+        target,
+    )
+    .unwrap()
 }
 
 async fn cached_runtime(store: SessionStore, config: &std::path::Path) -> AgentRuntime {

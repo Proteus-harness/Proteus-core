@@ -39,10 +39,13 @@ adapter-а и может сохраняться отдельно как opt-in d
 - `ToolCall` / `ToolResult`;
 - `AgentTask`, ids, usage и compaction report.
 
-Storage envelope, sequence allocation, fsync/rename и projection code
-принадлежат core storage-слою. Workflow/process module и provider
-adapter не получают права писать journal напрямую. Они возвращают contract
-DTO, а core фиксирует факт только в своей lifecycle boundary.
+Journal DTO и storage envelope принадлежат `proteus-contracts`. Чистые правила
+validation, redaction и проекций находятся в `proteus-session-semantics`.
+Выбранный `session_storage/v2` владеет физическим форматом, writer lease,
+транзакцией и восстановлением. Core назначает record identity, ожидаемую
+revision и порядок записи в своей lifecycle boundary, затем проверяет durable
+ACK. Workflow, hook и provider adapter возвращают contract DTO через свои
+обычные callbacks.
 
 `CanonicalModelResponse` содержит непустой ordered `messages`, а не один
 синтетический assistant message. `CanonicalMessage.phase` опционально
@@ -55,10 +58,20 @@ BoundModel записывает полный окончательный request 
 part и call identities и owned `ModelResponseValidationContext`, а не вторую
 копию historical payload. Context создаётся заново для каждого prepared request
 и используется одновременно для MessageCompleted и terminal response; tools
-между вызовами не кэшируются. Public request-based validator использует тот же
+между вызовами не кэшируются. Owned context хранит только имена и форму вызова
+в исходном порядке объявлений, без копий описаний и JSON-схем. Public
+request-based validator использует тот же
 context заимствованно, без копирования tools. При расширении request-specific
 правил меняются поля context и обе формы его construction, не фиктивный request.
-Provider DTO, полный journal request и failure reconciliation не меняются.
+Прямой ModelService и prompt replay также передают запрос адаптеру во владение,
+оставляя этот компактный context для terminal response. Provider DTO, полный
+journal request и failure reconciliation не меняются.
+
+Для optional input estimate одноразовый validation context хранит только ID
+непрозрачных частей. Typed request передаётся адаптеру без глубокой копии;
+сервис и process adapter независимо отклоняют неизвестные и повторные ID
+результата. Частичный результат, отсутствие оценки и нулевое число токенов
+сохраняют прежнюю семантику; opaque payload не удерживается ради проверки.
 
 ### Parts
 
@@ -98,7 +111,9 @@ provider-side execution и сохраняются в journal/transcript/eval pro
 
 ## Формат Journal
 
-Одна JSONL-строка — один строгий record с общим envelope:
+Один canonical record содержит строгий envelope. JSONL backend сохраняет его
+одной строкой, SQLite — транзакционной записью. Общие поля сохраняют одинаковую
+семантику в обеих реализациях.
 
 ```text
 schema_version
@@ -241,59 +256,56 @@ pre-compaction exchanges и точную lineage. Отдельные
 `messages.pre-compaction.N.jsonl` после перехода больше не нужны как источник
 данных.
 
-Отдельного history cache после cutover нет: resume всегда fold-ит
-history mutations и выбранные tool results из journal. Добавлять rebuildable cache следует только после
-измеренного bottleneck и с явным правилом, что при расхождении прав journal.
+Resume восстанавливает history mutations и выбранные tool results из journal.
+Перестраиваемые кеши привязаны к session, revision и hash committed prefix.
+Потеря кеша запускает восстановление из canonical records.
 
 ## Большие Payload
 
-Journal envelope с первой версии поддерживает storage value в двух
-формах: inline JSON и content-addressed blob reference `{sha256, bytes,
-relative_path}`. Семантический DTO после hydration одинаков в обоих случаях.
+Storage передаёт Core hydrated canonical DTO и проверяет размер и SHA-256
+content-addressed blobs. Отсутствующее или повреждённое значение приводит к
+ошибке чтения. `PutBlob` и `ReadBlobByHash` обслуживают session attachments,
+включая изображения для cold resume.
 
-Обычные messages, requests и responses остаются inline. Binary/image content
-и payload выше установленного лимита уходят в session-local `blobs/` через
-temp file + atomic rename. Absolute paths и ссылки наружу session directory
-запрещены. Hash проверяется при чтении; отсутствующий blob — явная corruption
-error. Конкретный threshold остаётся config/storage policy, а не полем module
-contract.
+JSONL backend хранит большие payload в session-local `blobs/`. Его journal
+value поддерживает inline JSON и reference `{sha256, bytes, relative_path}`.
+Пути ограничены каталогом сессии. SQLite backend хранит journal в своей базе.
+Физический threshold и кодек принадлежат реализации storage.
 
 ## Запись И Recovery
 
-- Один OS process владеет write-session через advisory lock на весь lifetime
-  writer-а; второй process получает отказ до tail recovery и allocation
-  `session_seq`. Read-only projection lock не берёт.
-- Внутри owner process один session writer сериализует allocation
-  `session_seq` и append.
-- Record сначала полностью сериализуется и проходит size/redaction checks,
-  затем дописывается одной critical section и flush-ится.
-- Полный tail recovery выполняется один раз после захвата write-session. В
-  steady state writer хранит последний подтверждённый byte offset и не
-  перечитывает весь journal перед каждым append. Проверка размера через metadata
-  обрезает только обнаруженный лишний хвост и отклоняет неожиданно укороченный
-  файл.
-- Cold recovery ищет последнюю полную строку обратным чтением блоков по 8 KiB,
-  затем последовательно декодирует полный JSONL-префикс. Reader держит буфер
-  64 KiB и одну закодированную строку вместо копии всего файла. Обычная
-  инициализация writer сохраняет validation indices, текущую history и компактные
-  usage/context projections, освобождая payload каждого проверенного record.
-  Explicit resume и replay сохраняют все records, когда они нужны вызывающему.
-  Проверяются также вытесненные snapshots и blobs; read-only load хвост не меняет.
-- Append считается подтверждённым только после `flush` и `sync_data`. При
-  ошибке armed rollback возвращает файл к committed offset; перед
-  следующим append незавершённый recovery повторяется. После cold start
-  незавершённая последняя JSONL-строка может быть отброшена, а ошибка в середине
-  файла завершает load явно.
-- Принятая операция записи владеет writer lock до commit или rollback внутри
-  blocking worker. Отмена вызывающего прекращает ожидание, но не эту запись:
-  следующая операция, включая `TurnSettled`, ждёт её завершения. Фоновый IO
-  не может дописать record после rollback или освобождения writer lock.
-- History revision меняется только вместе с успешно записанным
-  `history_mutated` или `tool_result_recorded` для активного history binding.
-- UI notification и telemetry event публикуются после canonical commit там,
-  где факт влияет на resume; потеря клиента не откатывает journal.
-- Secrets/redaction применяются до записи. Нельзя сначала сохранить credential,
-  а затем надеяться скрыть его в transcript projection.
+- Core назначает `operation_id`, timestamp, attribution и ожидаемые
+  `session_seq` / `history_revision` до отправки `Commit`. Модуль сохраняет
+  `operation_id` как `record_id` атомарно с фактом и возвращает ACK после
+  durable commit. Core проверяет identity и revision ответа.
+- Storage выдаёт writer lease с token и generation. OS-lease исключает второго
+  writer process. Core сериализует принятые операции одного session handle.
+  Последний release освобождает ownership; hibernate освобождает декодированное
+  состояние при сохранённой lease.
+- Потеря транспорта после отправки записи оставляет её исход неизвестным.
+  `CommitStatus` устанавливает результат по исходному `operation_id`.
+  Идентичный повтор этой операции возвращает прежний ACK. Другое содержимое
+  с тем же id отклоняется.
+- Read-only snapshot закрепляет точный committed prefix по revision и hash.
+  Все страницы, история, usage и replay читаются через storage API. Дописанный
+  хвост сохраняет прежний prefix; изменённый или усечённый prefix вызывает
+  ошибку. Read-only открытие сохраняет journal.
+- Восстановление writer проверяет canonical факты и blobs. JSONL backend
+  читает записи потоком, восстанавливает незавершённую последнюю строку и
+  отклоняет повреждённую полную строку. Steady-state append использует уже
+  подтверждённое состояние. SQLite использует транзакции WAL с
+  `synchronous=FULL`.
+- Принятая Core transaction продолжает commit/reconciliation при отмене
+  ожидающего caller. Следующая запись ждёт её завершения. Публикация
+  history checkpoint и влияющих на resume событий следует после ACK.
+- `session_seq` увеличивается для каждого journal record. `history_revision`
+  увеличивается для успешно принятого history mutation или tool result с
+  активным history binding.
+- Secrets/redaction применяются до durable записи с сохранением schema fields.
+  Resume, transcript и replay используют фактически подтверждённый record.
+
+Точная процессная граница и её authority описаны в
+[process-module-architecture.md](process-module-architecture.md#session-storage).
 
 Key-based redaction не входит в schema-definition поля canonical request и
 config snapshot: `ToolSpec.input_schema`, function `output_schema` и
@@ -355,7 +367,7 @@ recorded/replay outcome и usage, text equality, local/hosted/citation counts и
 
 ### Workflow Replay v0
 
-Replay сохраняет записанный `ExecutionId`: он доступен workflow/v20 и может
+Replay сохраняет записанный `ExecutionId`: он доступен workflow/v22 и может
 участвовать в deterministic ids и terminal metadata.
 
 `proteus --config <profile> replay workflow

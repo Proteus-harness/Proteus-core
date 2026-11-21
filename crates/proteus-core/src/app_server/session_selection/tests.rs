@@ -160,7 +160,10 @@ async fn existing_chat_without_sidecar_uses_profile_baseline_not_global_last() {
     old.runtime
         .session_store()
         .unwrap()
-        .prepare_metadata()
+        .write_metadata(
+            "test-materialized.json",
+            serde_json::json!({"materialized": true}),
+        )
         .await
         .unwrap();
     let old_dir = old.session_dir_path().unwrap();
@@ -186,8 +189,10 @@ async fn failed_global_write_rolls_back_session_and_does_not_publish_runtime() {
     let cwd = tempfile::tempdir().unwrap();
     let handle = launch(root.path(), cwd.path()).await;
     handle.set_model_name("before".into()).await.unwrap();
-    let session = handle.session_dir_path().unwrap().join(FILE);
-    let before = std::fs::read(&session).unwrap();
+    let before: serde_json::Value = read_session(handle.runtime.session_store().unwrap(), FILE)
+        .await
+        .unwrap()
+        .unwrap();
     let last = last_path(
         &crate::test_model::config(),
         &root.path().join("config.toml"),
@@ -197,7 +202,13 @@ async fn failed_global_write_rolls_back_session_and_does_not_publish_runtime() {
     std::fs::create_dir(&last).unwrap();
     assert!(handle.set_model_name("must-fail".into()).await.is_err());
     assert_eq!(handle.runtime.model_ref().await.unwrap().model, "before");
-    assert_eq!(std::fs::read(session).unwrap(), before);
+    assert_eq!(
+        read_session::<serde_json::Value>(handle.runtime.session_store().unwrap(), FILE)
+            .await
+            .unwrap()
+            .unwrap(),
+        before
+    );
     handle.shutdown().await;
 }
 
@@ -263,6 +274,129 @@ fn profile_provider_and_adapter_route_bind_choices_without_growing_route_files()
         last_path(&other, &path).unwrap(),
         last_path(&config, &path).unwrap()
     );
+}
+
+#[tokio::test]
+async fn route_reload_and_cold_resume_agree_on_global_model_and_reasoning() {
+    let mut mismatches = Vec::new();
+    for change in ["route", "component"] {
+        let root = tempfile::tempdir().unwrap();
+        let cwd = tempfile::tempdir().unwrap();
+        let path = root.path().join("config.toml");
+        let mut config = crate::test_model::config();
+        config.providers.get_mut("fake").unwrap().reasoning =
+            ReasoningConfig::new(Some("low".into()), true);
+        let server = AgentAppServer::launch(config.clone(), cwd.path().into(), Some(&path))
+            .await
+            .unwrap();
+        server.set_model_name("ui-choice".into()).await.unwrap();
+        server
+            .set_reasoning_effort(Some("high".into()))
+            .await
+            .unwrap();
+        let ui_model = server.runtime.model_ref().await;
+        let ui_reasoning = server.runtime.reasoning().await;
+        let directory = server.session_dir_path().unwrap();
+        let saved: serde_json::Value = read_session(server.runtime.session_store().unwrap(), FILE)
+            .await
+            .unwrap()
+            .unwrap();
+
+        // An unrelated refresh must not discard the user's selection.
+        config.runtime.context_timeout_ms += 1;
+        let assembly = super::super::prepare_assembly(&config, cwd.path(), Some(&path))
+            .await
+            .unwrap();
+        server
+            .publish_profile(config.clone(), assembly, None, || async { Ok(()) })
+            .await
+            .unwrap();
+        assert_eq!(server.runtime.model_ref().await, ui_model);
+        assert_eq!(server.runtime.reasoning().await, ui_reasoning);
+
+        match change {
+            "route" => {
+                config
+                    .module_config
+                    .get_mut("model")
+                    .unwrap()
+                    .get_mut("fake")
+                    .unwrap()["stream_delay_ms"] = 2.into();
+            }
+            "component" => {
+                let component = config.components.get_mut("test-model").unwrap();
+                let mut value = serde_json::to_value(&*component).unwrap();
+                value["handshake_timeout_ms"] = 30_001.into();
+                *component = serde_json::from_value(value).unwrap();
+            }
+            _ => unreachable!(),
+        }
+        let configured = config.selected_model_config().unwrap().unwrap();
+        let assembly = super::super::prepare_assembly(&config, cwd.path(), Some(&path))
+            .await
+            .unwrap();
+        server
+            .publish_profile(config.clone(), assembly, None, || async { Ok(()) })
+            .await
+            .unwrap();
+        let hot_model = server.runtime.model_ref().await;
+        let hot_reasoning = server.runtime.reasoning().await;
+        assert_eq!(
+            read_session::<serde_json::Value>(server.runtime.session_store().unwrap(), FILE)
+                .await
+                .unwrap()
+                .unwrap(),
+            saved
+        );
+        server.shutdown().await;
+        drop(server);
+
+        let cold =
+            AgentAppServer::launch_resumed(config, cwd.path().into(), Some(&path), directory)
+                .await
+                .unwrap();
+        let cold_model = cold.runtime.model_ref().await;
+        let cold_reasoning = cold.runtime.reasoning().await;
+        assert_eq!(cold_model, Some(configured.model_ref()));
+        assert_eq!(cold_reasoning, configured.reasoning);
+        if hot_model != cold_model || hot_reasoning != cold_reasoning {
+            mismatches.push((change, hot_model, hot_reasoning, cold_model, cold_reasoning));
+        }
+        cold.shutdown().await;
+    }
+    assert!(mismatches.is_empty(), "hot/cold mismatch: {mismatches:?}");
+}
+
+#[tokio::test]
+async fn profile_without_a_persistent_path_keeps_its_live_selection_on_route_reload() {
+    let cwd = tempfile::tempdir().unwrap();
+    let mut config = crate::test_model::config();
+    let server = AgentAppServer::launch(config.clone(), cwd.path().into(), None)
+        .await
+        .unwrap();
+    server.set_model_name("ui-choice".into()).await.unwrap();
+    server
+        .set_reasoning_effort(Some("high".into()))
+        .await
+        .unwrap();
+    let model = server.runtime.model_ref().await;
+    let reasoning = server.runtime.reasoning().await;
+    config
+        .module_config
+        .get_mut("model")
+        .unwrap()
+        .get_mut("fake")
+        .unwrap()["stream_delay_ms"] = 2.into();
+    let assembly = super::super::prepare_assembly(&config, cwd.path(), None)
+        .await
+        .unwrap();
+    server
+        .publish_profile(config, assembly, None, || async { Ok(()) })
+        .await
+        .unwrap();
+    assert_eq!(server.runtime.model_ref().await, model);
+    assert_eq!(server.runtime.reasoning().await, reasoning);
+    server.shutdown().await;
 }
 
 #[test]
@@ -364,7 +498,10 @@ async fn cancelled_request_keeps_transaction_owned_until_publish_before_next_sel
         handle.runtime.model_ref().await.unwrap().model,
         "latest-choice"
     );
-    let stored: Selection = serde_json::from_slice(&std::fs::read(session).unwrap()).unwrap();
+    let stored: Selection = read_session(handle.runtime.session_store().unwrap(), FILE)
+        .await
+        .unwrap()
+        .unwrap();
     let last = last_path(
         &crate::test_model::config(),
         &root.path().join("config.toml"),
@@ -413,4 +550,17 @@ async fn concurrent_delete_waits_for_metadata_write_and_never_resurrects_session
     assert!(handle.set_model_name("after-delete".into()).await.is_err());
     assert!(!directory.exists());
     handle.shutdown().await;
+}
+
+#[test]
+fn component_icon_does_not_invalidate_saved_model_selection_binding() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("config.toml");
+    let mut config = crate::test_model::config();
+    let before = binding(&config, &path).unwrap();
+    let component = config.components.get_mut("test-model").unwrap();
+    let mut source = serde_json::to_value(&*component).unwrap();
+    source["icon"] = serde_json::json!("assets/model.svg");
+    *component = serde_json::from_value(source).unwrap();
+    assert_eq!(binding(&config, &path).unwrap(), before);
 }

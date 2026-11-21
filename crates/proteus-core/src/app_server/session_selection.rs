@@ -34,7 +34,7 @@ fn sha256(bytes: &[u8]) -> String {
         .collect()
 }
 
-fn resolved_path(path: &Path) -> Result<PathBuf> {
+pub(super) fn resolved_path(path: &Path) -> Result<PathBuf> {
     let selection = crate::core::config_selection(path)?;
     let absolute = std::path::absolute(crate::core::physical_config_path(path))?;
     let mut resolved = absolute
@@ -70,6 +70,7 @@ fn binding(config: &AppConfig, path: &Path) -> Result<Option<String>> {
                 .exports()
                 .any(|(slot, id, _)| slot == "model" && id == model.provider)
         })
+        .map(|(id, component)| (id, component.execution_identity()))
         .collect();
     let bytes = serde_json::to_vec(&(
         resolved_path(path)?,
@@ -80,6 +81,12 @@ fn binding(config: &AppConfig, path: &Path) -> Result<Option<String>> {
         components,
     ))?;
     Ok(Some(sha256(&bytes)))
+}
+
+/// Hot publication follows the same invalidation as cold preference restore.
+/// Delegated session configurations have a separate binding and policy.
+pub(super) fn binding_changed(previous: &AppConfig, next: &AppConfig, path: &Path) -> Result<bool> {
+    Ok(binding(previous, path)? != binding(next, path)?)
 }
 
 fn last_path(config: &AppConfig, path: &Path) -> Result<PathBuf> {
@@ -95,7 +102,7 @@ fn last_path(config: &AppConfig, path: &Path) -> Result<PathBuf> {
         .join(format!("{}.json", sha256(&key))))
 }
 
-fn read_bytes(path: &Path) -> Result<Option<Vec<u8>>> {
+pub(super) fn read_bytes(path: &Path) -> Result<Option<Vec<u8>>> {
     let file = match std::fs::File::open(path) {
         Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -111,6 +118,32 @@ fn read_bytes(path: &Path) -> Result<Option<Vec<u8>>> {
         path.display()
     );
     Ok(Some(bytes))
+}
+
+pub(super) async fn read_session<T: serde::de::DeserializeOwned>(
+    store: &crate::core::SessionStore,
+    key: &str,
+) -> Result<Option<T>> {
+    let Some(document) = store.read_metadata_document(key).await? else {
+        return Ok(None);
+    };
+    // Session preferences retain their small application-level limit even if
+    // the selected storage supports larger generic metadata documents.
+    struct Bound(usize);
+    impl Write for Bound {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            if bytes.len() > MAX_BYTES as usize - self.0 {
+                return Err(std::io::Error::other("selection exceeds its size limit"));
+            }
+            self.0 += bytes.len();
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    serde_json::to_writer(Bound(0), &document.value)?;
+    Ok(Some(serde_json::from_value(document.value)?))
 }
 
 fn read_selection(path: &Path, expected: &str) -> Result<Option<Selection>> {
@@ -131,7 +164,7 @@ fn read_selection(path: &Path, expected: &str) -> Result<Option<Selection>> {
     Ok((selection.binding == expected).then_some(selection))
 }
 
-fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
+pub(super) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
     let parent = path.parent().context("selection path has no parent")?;
     std::fs::create_dir_all(parent)?;
     let temporary = parent.join(format!(".selection-{}.tmp", crate::domain::new_call_id()));
@@ -159,25 +192,41 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
     result.with_context(|| format!("persist selection {}", path.display()))
 }
 
-fn persist_pair(session: &Path, last: &Path, selection: &Selection) -> Result<()> {
-    let bytes = serde_json::to_vec(selection)?;
+async fn persist_pair(
+    store: &crate::core::SessionStore,
+    last: PathBuf,
+    selection: Selection,
+) -> Result<()> {
+    let bytes = serde_json::to_vec(&selection)?;
     ensure!(
         bytes.len() as u64 <= MAX_BYTES,
         "selection exceeds {MAX_BYTES} bytes"
     );
-    let previous = read_bytes(session)?;
-    atomic_write(session, &bytes)?;
-    // Each file is atomic, not a cross-file crash transaction. A crash between
-    // these renames can leave the session newer than the default for NEW chats.
-    // Ordinary failures roll back the session; a shared path lock prevents a
-    // second session from racing that rollback and the global last-used write.
-    if let Err(error) = atomic_write(last, &bytes) {
-        let rollback = match previous {
-            Some(previous) => atomic_write(session, &previous),
-            None => std::fs::remove_file(session).map_err(Into::into),
-        };
+    let previous = store.read_metadata_document(FILE).await?;
+    let written = store
+        .compare_exchange_metadata(
+            FILE.to_owned(),
+            previous.as_ref().map(|document| document.etag.clone()),
+            Some(serde_json::to_value(&selection)?),
+        )
+        .await?
+        .context("session selection write did not return a document")?;
+    // Global last-used preferences are app-owned. On ordinary failure restore
+    // the exact session value only if our own write still owns its version.
+    if let Err(error) = tokio::task::spawn_blocking(move || atomic_write(&last, &bytes))
+        .await
+        .context("last-used selection writer failed")
+        .and_then(|result| result)
+    {
+        let rollback = store
+            .compare_exchange_metadata(
+                FILE.to_owned(),
+                Some(written.etag),
+                previous.map(|document| document.value),
+            )
+            .await;
         return match rollback {
-            Ok(()) => Err(error),
+            Ok(_) => Err(error),
             Err(rollback) => Err(error.context(format!(
                 "session selection rollback also failed: {rollback:#}"
             ))),
@@ -198,6 +247,7 @@ impl super::AppServerHandle {
     pub(super) async fn update_selection(&self, update: SelectionUpdate) -> Result<()> {
         let server = self.clone();
         tokio::spawn(async move {
+            let _transition = server.settings_transition.lock().await;
             match update {
                 SelectionUpdate::Model(model) => {
                     server
@@ -256,17 +306,19 @@ impl super::AppServerHandle {
         let last = last_path(&config, path)?;
         let lock = super::config_builder::path_lock(&last)?;
         let guard = lock.lock_owned().await;
-        store
-            .with_metadata_transaction(move |directory| {
-                // The lock belongs to the actual writer, not its awaiter. Dropping
-                // a JoinHandle never unlocks an in-flight write/rollback.
-                let _guard = guard;
-                let session = directory.join(FILE);
-                #[cfg(test)]
-                tests::pause_persistence(&session);
-                persist_pair(&session, &last, &selection)
-            })
-            .await
+        let store = store.clone();
+        tokio::spawn(async move {
+            // The owner retains the global path lock through storage commit and rollback.
+            let _guard = guard;
+            #[cfg(test)]
+            {
+                let session = store.session_dir().join(FILE);
+                tokio::task::spawn_blocking(move || tests::pause_persistence(&session)).await?;
+            }
+            persist_pair(&store, last, selection).await
+        })
+        .await
+        .context("selection persistence task failed")?
     }
 }
 
@@ -282,15 +334,29 @@ pub(super) async fn restore(
     let Some(binding) = binding(config, path)? else {
         return Ok(());
     };
-    let session = store.session_dir().join(FILE);
-    let source = if is_new {
-        last_path(config, path)?
+    let selected = if is_new {
+        let source = last_path(config, path)?;
+        tokio::task::spawn_blocking(move || read_selection(&source, &binding))
+            .await
+            .context("selection restore worker failed")??
     } else {
-        session.clone()
+        let selected: Option<Selection> = read_session(store, FILE).await?;
+        match selected {
+            Some(selection) => {
+                ensure!(
+                    selection.version == 1,
+                    "unsupported selection version {}",
+                    selection.version
+                );
+                ensure!(
+                    !selection.model.model.trim().is_empty(),
+                    "saved model is empty"
+                );
+                (selection.binding == binding).then_some(selection)
+            }
+            None => None,
+        }
     };
-    let selected = tokio::task::spawn_blocking(move || read_selection(&source, &binding))
-        .await
-        .context("selection restore worker failed")??;
     if let Some(selection) = selected {
         let configured = config.active_model_config()?;
         ensure!(
@@ -304,9 +370,7 @@ pub(super) async fn restore(
             // Freeze the inherited choice for this session. Subsequent changes
             // in another chat must never override it on resume.
             store
-                .with_metadata_transaction(move |directory| {
-                    atomic_write(&directory.join(FILE), &serde_json::to_vec(&selection)?)
-                })
+                .write_metadata(FILE, serde_json::to_value(&selection)?)
                 .await?;
         }
     }

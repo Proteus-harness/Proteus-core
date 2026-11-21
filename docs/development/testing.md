@@ -38,6 +38,27 @@ GitHub Actions запускаются вручную через `workflow_dispat
 закреплённых исходников и общую Linux-поставку. Manual dogfood — добровольная
 [диагностика](dogfood-gate.md), без обязательного места в последовательности.
 
+## Разбор падений
+
+Сопоставьте первое расхождение с ожидаемым поведением. Если происхождение
+ошибки неясно, сравните тот же короткий сценарий в тех же условиях на исходной
+ревизии. Такое же падение на исходной ревизии показывает, что проблема возникла
+раньше. Для ошибки до первого действия сначала проверьте подготовку стенда,
+сигнатуры заглушек и соответствие бинарников проверяемому исходнику.
+
+Если нарушен контракт, исправьте реализацию. Если тест требует лишнего или
+закрепляет прежнее требование, измените ожидание так, чтобы оно по-прежнему
+ловило ошибку в нужном поведении. Если стенд пропускает шаг штатного запуска,
+исправьте подготовку. Например, для сброса поля проверьте восстановленное
+значение и исчезновение отметки об изменении. Точный
+текст подписи проверяйте, когда формулировка входит в требование. В smoke-тесте
+поставки Core сам запускает хук, а тест проверяет его эффект. Точную версию
+протокола проверяйте там, где предмет теста — совместимость участников.
+
+В сравнении харнесов фиксируйте результат проверки решения, штатное завершение
+агента и причину прерывания раздельно. При исключении сетевых сбоев или лимитов
+покажите размер оставшейся выборки и сохраните исходные результаты.
+
 ## Evidence Matrix
 
 Матрица выбирается по изменённому поведению. Каталог targets ниже помогает
@@ -46,7 +67,7 @@ GitHub Actions запускаются вручную через `workflow_dispat
 | Изменение | Достаточная проверка |
 |---|---|
 | Документация, комментарии | Содержание, локальные ссылки, `git diff --check` |
-| Скрипт portable-сборки | Реальный `python3 scripts/portable.py --debug в Proteus-desktop`; launcher и `install-shortcut` из собранной папки |
+| Скрипт portable-сборки | Целевой тест изменённой операции упаковки. Если изменился состав поставки, установка ярлыка или запуск, проверьте этот сценарий на собранном пакете |
 | Prompt/config без schema change | Загрузка профиля; при подключении готового модуля — один целевой invocation; init/install только при изменении упаковки |
 | Чистка tests | Изменённые test targets и сохранённые behavior checks |
 | Локальный helper | Затронутый test target |
@@ -56,11 +77,12 @@ GitHub Actions запускаются вручную через `workflow_dispat
 | Component sandbox/OS launch | Реальные Rust/Python workers: grants, protected fixture вне grants, network deny, teardown descendants и fail-closed; config → registry/tool в `component_sandbox` |
 | Module implementation | Module target; реальный invocation при изменении process boundary или side effects |
 | Tool/policy | Поведение tool и общий registry/policy/approval path по изменённой ветке |
+| Session storage | Оба backend через один контракт; durable ACK/потеря ACK, lease/restart, fixed-prefix paging, corruption, metadata CAS; Core cold resume и replay |
 | Workflow/runtime | Canonical journal и replay в поддержанной границе; cold history/terminal при изменении recovery |
 | Agent control | Real process peers, адресная доставка/отмена и независимые child configs |
 | HTTP/session | Затронутые handlers; reconnect/cold history/auth/SSE при изменении этих границ |
 | MCP/ACP | Реальный stdio peer; prompt/tools/approval/cancel и cold history по изменению |
-| Клиент | `python3 scripts/test.py` в Proteus-desktop; при UX change — ручной запуск окна |
+| Клиент | Затронутый target в Desktop. Для изменения взаимодействия проверьте сценарий в нативном окне |
 | Расширения клиента | Tests `declarative`/`extensions`; пример `Proteus-desktop/examples/extensions` в живом окне при изменении протокола |
 | Запуск приложения и portable | Запуск backend, завершение вместе с окном, portable build и запуск собранной папки |
 
@@ -68,7 +90,7 @@ GitHub Actions запускаются вручную через `workflow_dispat
 Подключение существующего модуля не является изменением runtime wiring:
 Cargo tests, пересборка reference-модуля, полный gate и portable build для
 такой правки не нужны. Расширяйте проверку только ради конкретной неразрешённой
-проблемы; долгую сборку или расширение задачи сначала обсуждайте с владельцем.
+проблемы. Объясните причину необходимой долгой сборки. Расширение задачи согласуйте с владельцем.
 Несвязанные ошибки сообщайте отдельно, не исследуя и не исправляя без запроса.
 
 Полный Rust gate нужен для общих contracts, runtime wiring, зависимостей,
@@ -106,7 +128,7 @@ cancellation и schema validation не меняются. Cargo features объе
 отдельно проверьте normal dependency tree выбранного worker, а не только
 workspace tests. `Cargo.lock` может сохранять clap для других targets.
 
-`full` выбирает пять crates harness, включая worker SDK. Реализации проверяются
+`full` проверяет crates из текущего Cargo workspace. Реализации проверяются
 своим `python3 scripts/test.py full` в Proteus-modules. В приложении обычный
 `python3 scripts/test.py` из Proteus-desktop проверяет только GPUI workspace
 и client-common. Проверки с готовыми расширениями включаются явно через
@@ -228,7 +250,7 @@ error, pending и cold read после interruption. Process wire/authority не
 | Reference exports, descriptors, tools и callbacks | [`proteus-reference-module --test conformance`](https://github.com/Proteus-harness/Proteus-modules/blob/main/components/process-module/tests/conformance.rs) |
 | Ordered hooks, actual effect и следующий живой turn после interruption, replay Success/Error | [`proteus-core --test hook_runtime`](../../crates/proteus-core/tests/hook_runtime.rs) |
 | JS/TS hook SDK, перенос handlers, multiplexing и targeted cancel | `node --test examples/modules/hook-process/tests/*.test.mjs`; настоящие slot/journal/replay — `hook_runtime::js_ports` и `hook_runtime::review` |
-| Model process, catalog/quota и cancellation | `proteus-core --test model_process`, `proteus-reference-module --test model_exports` |
+| Model process, catalog/quota/local input estimates и cancellation | `proteus-core --test model_process`, `proteus-reference-module --test model_exports` |
 | Skills/MCP/Agent Plugins management и автоподхват профиля | `proteus-core --lib app_server::http::tests::addons`, `app_server::profile_watch`, `core::agent_plugins`; загрузка и фильтрация — `skill-pack` |
 | Execution attribution и операции без chat identity | `proteus-core --test execution_boundary`, `core::runtime::tests::execution`, `core::bound_model`, `core::bound_tools` |
 | Один process с callback-связанными exports и journal/replay | `proteus-reference-module --test topology_journal` |
@@ -318,10 +340,28 @@ facts; совпавший final output не заменяет эти провер
 | Изображения: process workflow, cold resume, capability refusal, replay | `proteus-core --test execution_boundary images::`, provider encoding в `model-pack`, сохранение parts в `codex-context-preparation` |
 | Process peers и их tool surfaces | Core targets `process_agent_control`, `process_agent_pool` |
 
-Storage recovery проверяется отдельно от steady-state append: полный scan
-выполняется при открытии writer, а не при каждом record. Redaction сохраняет
-JSON schemas и удаляет credentials из metadata/arguments. Сокращение проверок
-не является основанием убирать `sync_data`, checkpoint или policy contracts.
+`scripts/test.py` собирает самостоятельный `proteus-session-storage-module`
+для Core fixtures и задаёт `PROTEUS_TEST_SESSION_STORAGE_MODULE`. При прямом
+запуске `cargo test` эта переменная должна указывать на актуальный executable.
+Storage selection в fixture задаётся явно, как в обычном agent config.
+
+В Proteus-modules общий набор `cargo test -p session-storage
+-p proteus-session-storage-module` проверяет JSONL и SQLite, включая
+idempotency, metadata CAS, blobs, deletion fencing и writer ownership.
+Process tests убивают настоящий SDK worker после durable commit до получения
+ACK приложением, затем проверяют восстановление и dedup по исходному id.
+Проверки страниц дописывают journal между чтениями и подтверждают сохранение
+закреплённого prefix при отказе на его повреждение.
+
+При изменении storage boundary дополнительно проверяются нормальный запуск
+Core с выбранным service, продолжение сохранённого чата, холодный HTTP history,
+удаление при живом writer и replay. Replay сравнивает session revision и hash
+canonical prefix до и после чтения. Для обоих backend используются одинаковые
+сценарии и утверждения о фактах исполнения.
+
+Recovery измеряется отдельно от steady-state append. Redaction сохраняет JSON
+schemas и удаляет credentials из metadata/arguments. Durability подтверждается
+реальной записью и восстановлением после завершения worker.
 
 Pinned upstream revision, подтверждённые срезы и ограничения реконструкции
 собраны в [codex-baseline.md](codex-baseline.md) и module `UPSTREAM.md`.
@@ -348,7 +388,7 @@ projection_clone_benchmark -- --ignored --nocapture` измеряет подго
 [session-db benchmark](../../examples/performance/session-db/README.md):
 фиксированные SQLite/Turso, одинаковые schema/data/durability, новые процессы
 и bounded keyset pages. Он не входит в обычный Rust gate и не меняет canonical
-JSONL journal; его результаты не заменяют замеры HTTP и нативного первого кадра.
+выбранный canonical journal; его результаты не заменяют замеры HTTP и нативного первого кадра.
 
 [Multi-agent benchmark](../../examples/performance/multi-agent/README.md)
 сравнивает 1/5/10 настоящих process peers с локальной fake model: PSS, CPU,
@@ -371,8 +411,8 @@ JSONL journal; его результаты не заменяют замеры HT
 Изменённые configs должны загружаться через текущий reader. При изменении
 schema обновляются все tracked producers/consumers/examples. Для проверки
 сборки без model request используйте `doctor`, `modules list` или `tools list`
-на representative profile; reference-модуль должен быть собран и доступен
-в `PATH`.
+на затронутом профиле. Его команды запуска должны разрешаться в готовые
+бинарники выбранных модулей. Reference-модуль нужен только профилю, который его использует.
 
 Tool проверяется по собственной semantics: input, safety, visibility,
 allow/ask/deny, path, timeout/cancel или output limits — когда эта ветка
@@ -387,21 +427,12 @@ Core на reference crates. Shell fixtures разбирают JSON-RPC id JSON-�
 
 ### Клиенты И Установка
 
-Клиент и `Proteus-desktop/crates/client-common` исключены из root workspace; клиент собирается
-своим toolchain из `Proteus-desktop/rust-toolchain.toml`:
-
-```bash
-cargo test --manifest-path Proteus-desktop/Cargo.toml
-cargo test --manifest-path Proteus-desktop/crates/client-common/Cargo.toml
-```
-
-Второй target нужен только при правке общих правил. При изменении shared
-client DTO в `proteus-contracts` клиент проверяется вместе с producers.
-
-Новая переносимая сборка (`python3 Proteus-desktop/scripts/portable.py`) нужна
-при проверке упаковки, запуска или по запросу владельца. Не запускайте её
-после каждой правки окна. Общие Rust gates выбирайте по затронутой границе,
-а не по факту запуска приложения.
+Клиент использует собственный Cargo workspace и toolchain. При изменении
+клиентского DTO в `proteus-contracts` проверьте затронутые операции Core и
+клиента. Команды для локального теста, проверки расширений и проверки готовой
+поставки приведены в [руководстве Desktop](https://github.com/Proteus-harness/Proteus-desktop/blob/main/BUILDING.md#запуск-и-проверки).
+После проверенной правки исполняемого компонента обновите его в рабочей поставке
+по правилам соответствующего репозитория.
 
 - Изолированная проверка installer: `./scripts/install-smoke.sh`.
   Она сама собирает и устанавливает Core и самостоятельные process modules
@@ -414,9 +445,6 @@ client DTO в `proteus-contracts` клиент проверяется вмест
   Process fixtures привязаны к установленным executable из `current`:
   shell launchers требуют пользовательский env, который component fixture
   намеренно не наследует. Launchers проверяются отдельными CLI этапами smoke.
-
-Для docs-only правки этих руководств достаточно проверки содержания и ссылок;
-пересборка клиента или установка не требуется.
 
 ## Ordered Hook Evidence
 
@@ -444,7 +472,7 @@ Workflow replay сверяет полный selection input и outcome, вклю
 без следующего model request и schemas скрытых tools. Standalone selection
 проверяет отсутствие модели/conversation и общий policy/cancellation path.
 
-Для `hook/v6` проверяются strict DTO/response validation, одинаковая authority
+Для `hook/v8` проверяются strict DTO/response validation, одинаковая authority
 с общими model/tool callbacks по actionable phase, config order и отсутствие duplicate/unknown selection.
 Boundary chain покрывает A→B/B→A, pre-effect failure, actual tool outcome
 при post-effect failure, targeted cancellation и component restart. Config

@@ -208,8 +208,9 @@ async fn active_module_command_rejects_rotation_then_idle_rotation_succeeds() {
     let config = write_child_config(home.path());
     let worker =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/process_commands.py");
-    let mut config_text = std::fs::read_to_string(&config).unwrap();
-    config_text.push_str(&format!(
+    let mut config_value: toml::Value =
+        toml::from_str(&std::fs::read_to_string(&config).unwrap()).unwrap();
+    let extra: toml::Value = toml::from_str(&format!(
         r#"
 [modules]
 policy = "probe.policy"
@@ -222,8 +223,20 @@ args = [{}]
 [components.command-probe.exports.policy."probe.policy"]
 "#,
         serde_json::to_string(&worker).unwrap()
-    ));
-    std::fs::write(&config, config_text).unwrap();
+    ))
+    .unwrap();
+    for (key, value) in extra.as_table().unwrap() {
+        let target = config_value
+            .as_table_mut()
+            .unwrap()
+            .entry(key.clone())
+            .or_insert_with(|| toml::Value::Table(Default::default()));
+        target
+            .as_table_mut()
+            .unwrap()
+            .extend(value.as_table().unwrap().clone());
+    }
+    std::fs::write(&config, toml::to_string(&config_value).unwrap()).unwrap();
     let mut peer = Peer::launch(&config, workspace.path());
     let first = peer.identity().await;
     peer.send(StdioRequest::ExecuteCommand {

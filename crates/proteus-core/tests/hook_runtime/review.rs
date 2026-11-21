@@ -141,7 +141,11 @@ async fn stop_review_resumes_same_turn_and_limit_failure_retains_progress_in_rep
                 .iter()
                 .any(|i| i.text == "Проверь ответ ещё раз.")
         );
-        let store = SessionStore::open(runtime.session_dir().unwrap().into()).unwrap();
+        let store = SessionStore::open(
+            session_storage_fixture::storage(std::path::Path::new(".")),
+            runtime.session_dir().unwrap().into(),
+        )
+        .unwrap();
         let history = store.load_messages().unwrap();
         assert_eq!(
             history
@@ -219,7 +223,11 @@ async fn canceled_or_timed_out_review_keeps_candidate_and_cold_settlement() {
                 .unwrap()
                 .is_err()
         );
-        let store = SessionStore::open(runtime.session_dir().unwrap().into()).unwrap();
+        let store = SessionStore::open(
+            session_storage_fixture::storage(std::path::Path::new(".")),
+            runtime.session_dir().unwrap().into(),
+        )
+        .unwrap();
         assert!(
             store
                 .load_messages()
@@ -231,3 +239,6 @@ async fn canceled_or_timed_out_review_keeps_candidate_and_cold_settlement() {
             if s.status == if cancel { TurnSettlementStatus::Canceled } else { TurnSettlementStatus::Timeout })));
     }
 }
+
+#[path = "../support/model.rs"]
+mod session_storage_fixture;

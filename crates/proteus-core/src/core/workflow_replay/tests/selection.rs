@@ -55,7 +55,13 @@ async fn source(selection_fails: bool, availability: Option<bool>) -> TestJourna
     let turn_id = new_turn_id();
     let execution_id = new_execution_id();
     let attribution = ExecutionAttribution::for_turn(execution_id, session_id, thread_id, turn_id);
-    let store = SessionStore::new(config_dir.path(), workspace.path(), session_id).unwrap();
+    let store = SessionStore::new(
+        crate::test_support::storage(workspace.path()),
+        config_dir.path(),
+        workspace.path(),
+        session_id,
+    )
+    .unwrap();
     let task = AgentTask::new("select tools only", workspace.path().into());
     let user = CanonicalMessage::text(MessageRole::User, &task.text);
     let spec = probe_tool_spec();
@@ -243,7 +249,7 @@ async fn replay(
     catalog.register_test_policy(POLICY_ID, policy);
     replay_workflow(
         source.store.session_dir(),
-        &AppConfig::default(),
+        &storage_config(),
         &catalog,
         WorkflowReplayOptions::default(),
     )

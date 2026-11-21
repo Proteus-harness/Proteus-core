@@ -51,13 +51,14 @@ for line in sys.stdin:
         "broken":{"type":"stdio","command":"missing-fixture-command"}
     }}).to_string()).unwrap();
     let marker = workspace.path().join("disabled-server-started");
-    let config: AppConfig = serde_json::from_value(json!({
+    let mut config: AppConfig = serde_json::from_value(json!({
         "modules":{"policy":"allow_all"}, "tools":{"enabled":["skill"], "mcp_servers":[{
             "name":"disabled", "enabled":false,"command":"python3", "args":["-c",format!("open({:?},'w').write('started')",marker)]
         }]},
         "components":{"capabilities":{"command":crate::test_model::reference_module(),"exports":{"context_provider":{"skills":{}},"tool":{"reference.tools":{}},"policy":{"allow_all":{}}}}},
         "addons":{"plugins":[{"path":plugin,"enabled":true}]}
     })).unwrap();
+    crate::test_support::storage_config(&mut config);
     std::fs::write(&config_path, toml::to_string_pretty(&config).unwrap()).unwrap();
     let server = AgentAppServer::launch(config, workspace.path().to_path_buf(), Some(&config_path))
         .await

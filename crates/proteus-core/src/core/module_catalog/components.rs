@@ -121,6 +121,22 @@ impl ModuleCatalog {
                     },
                 );
             }
+            "session_storage" => {
+                ensure_process_id_is_free(self, slot::SESSION_STORAGE, &module_id)?;
+                self.register_module::<dyn crate::contracts::SessionStorage>(
+                    slot::SESSION_STORAGE,
+                    &module_id,
+                    process_manifest(&export, ModuleKind::SessionStorage, description),
+                    move |ctx| {
+                        Ok(Arc::new(
+                            crate::process_adapters::ProcessSessionStorage::new(
+                                export.clone(),
+                                ctx.cwd,
+                            )?,
+                        ))
+                    },
+                );
+            }
             "workflow" => {
                 ensure_process_id_is_free(self, slot::WORKFLOW, &module_id)?;
                 self.register_module::<dyn Workflow>(

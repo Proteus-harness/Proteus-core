@@ -27,7 +27,13 @@ fn session_writer_process_helper() {
         .parse()
         .expect("valid helper session id");
     let runtime = tokio::runtime::Runtime::new().expect("helper runtime");
-    let store = SessionStore::new(&config_dir, &workspace, session_id).expect("helper store");
+    let store = SessionStore::new(
+        session_storage_fixture::storage(std::path::Path::new(".")),
+        &config_dir,
+        &workspace,
+        session_id,
+    )
+    .expect("helper store");
     runtime
         .block_on(store.append_history(
             new_thread_id(),
@@ -49,8 +55,13 @@ async fn exclusive_session_writer_is_released_after_process_exit() {
     let config_dir = tempfile::tempdir().expect("config dir");
     let workspace = tempfile::tempdir().expect("workspace");
     let session_id = new_session_id();
-    let store =
-        SessionStore::new(config_dir.path(), workspace.path(), session_id).expect("parent store");
+    let store = SessionStore::new(
+        session_storage_fixture::storage(std::path::Path::new(".")),
+        config_dir.path(),
+        workspace.path(),
+        session_id,
+    )
+    .expect("parent store");
     let mut child = Command::new(std::env::current_exe().expect("test executable"))
         .arg("--exact")
         .arg("session_writer_process_helper")
@@ -130,3 +141,6 @@ async fn exclusive_session_writer_is_released_after_process_exit() {
         vec![1, 2]
     );
 }
+
+#[path = "support/model.rs"]
+mod session_storage_fixture;

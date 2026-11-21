@@ -61,6 +61,7 @@ pub struct AgentRuntime {
 pub(crate) struct ReservedRunCompletion {
     result: Result<AgentOutput>,
     _finalization: SteeringFinalizationGuard,
+    pub(crate) display: Option<crate::core::CommittedDisplay>,
 }
 
 impl ReservedRunCompletion {
@@ -142,6 +143,7 @@ pub struct RuntimeReloadReport {
 struct RuntimeServices {
     terminals: Arc<terminals::TerminalRegistry>,
     images: images::ImageStore,
+    storage: Option<super::StorageService>,
     cwd: PathBuf,
     execution_state: RwLock<RuntimeExecutionState>,
     reload_lock: Mutex<()>,
@@ -333,14 +335,20 @@ impl AgentRuntime {
         Ok(())
     }
 
-    fn persist_config_snapshot_for_session(&self, snapshot: Option<&SessionConfigSnapshot>) {
+    async fn persist_config_snapshot_for_session(&self, snapshot: Option<&SessionConfigSnapshot>) {
         let (Some(session_store), Some(snapshot)) = (self.session.session_store.as_ref(), snapshot)
         else {
             return;
         };
-        if let Err(error) =
-            crate::core::write_config_snapshot(session_store.session_dir(), snapshot)
-        {
+        let result = match serde_json::to_value(snapshot) {
+            Ok(value) => {
+                session_store
+                    .write_metadata(crate::core::CONFIG_SNAPSHOT_FILE, value)
+                    .await
+            }
+            Err(error) => Err(error.into()),
+        };
+        if let Err(error) = result {
             eprintln!("warning: failed to persist session config snapshot: {error:#}");
         }
     }
@@ -358,7 +366,7 @@ impl AgentRuntime {
                         let recovery_store = store.clone();
                         let state = tokio::task::spawn_blocking(move || {
                             crate::core::session_journal::ValidatedJournalRead::open(
-                                recovery_store.session_dir(), recovery_store.session_id(),
+                                recovery_store,
                             ).map(|read| read.into_resume_state())
                         }).await.map_err(|recovery| {
                             anyhow::anyhow!("{error:#}; additionally failed to recover history after clear: {recovery:#}")
@@ -420,6 +428,10 @@ impl AgentRuntime {
                 .map(|snapshot| snapshot.messages)
         })
         .await?
+    }
+
+    pub fn session_storage(&self) -> Option<super::StorageService> {
+        self.services.storage.clone()
     }
 
     pub(crate) fn session_store(&self) -> Option<&SessionStore> {

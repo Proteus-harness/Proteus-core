@@ -212,10 +212,13 @@ fn registry(wait: bool, deny_leaf: bool) -> RuntimeRegistry {
         model_service: None,
         context: Arc::new(EmptyContextBuilder),
         tools,
+        tool_allowlist: None,
+        tool_inventory: Arc::new(vec![]),
         process_tool_specs: vec![],
         policy: Arc::new(Policy { deny_leaf }),
         agent_control: None,
         workflow: Arc::new(NoWorkflow),
+        session_storage: None,
         context_providers: vec![],
         mcp_servers: vec![],
         plugins: vec![],
@@ -453,4 +456,38 @@ async fn nested_terminal_execution_observes_parent_cancellation() {
     let events = sink.events().await;
     assert_eq!(events.iter().filter(|event| matches!(event, Event::ToolTerminalBound { call_id, .. } if call_id == "nested-child")).count(), 1);
     assert!(events.iter().any(|event| matches!(event, Event::ToolFinished { result } if result.call_id == "nested-child" && !result.ok)));
+}
+
+#[tokio::test]
+async fn behavior_tool_boundary_denies_leaf_on_direct_and_nested_host_paths() {
+    let mut registry = registry(false, false);
+    registry.tool_allowlist = Some(std::collections::BTreeSet::from(["parent".into()]));
+    let facts = Arc::new(Facts::default());
+    let sink = Arc::new(InMemoryEventStore::new());
+    let ctx = context(
+        &registry,
+        facts,
+        None,
+        sink.clone(),
+        CancellationToken::new(),
+    );
+    let task = AgentTask::new("fixture", registry.cwd.clone());
+    let direct = ToolOrchestrator::default()
+        .execute(&ctx, &task, ToolCall::new("direct", "leaf", json!({})))
+        .await
+        .unwrap();
+    assert!(!direct.ok);
+    let nested = ToolOrchestrator::default()
+        .execute(&ctx, &task, ToolCall::new("outer", "parent", json!({})))
+        .await
+        .unwrap();
+    assert!(!nested.ok);
+    assert!(nested.text_or_status().contains("leaf"));
+    assert!(
+        !sink
+            .events()
+            .await
+            .iter()
+            .any(|event| matches!(event, Event::ToolTerminalBound { .. }))
+    );
 }

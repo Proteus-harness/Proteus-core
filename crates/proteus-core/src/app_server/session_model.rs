@@ -1,10 +1,5 @@
 //! Exact delegated-task model routing, scoped to one durable child session.
 //! The profile and its shared last-choice preference remain the source baseline.
-use std::{
-    io::{Read, Write},
-    path::Path,
-};
-
 use anyhow::{Context, Result, ensure};
 use ring::digest::{SHA256, digest};
 use serde::{Deserialize, Serialize};
@@ -46,6 +41,7 @@ fn binding(config: &AppConfig, model: &ModelRef) -> Result<String> {
                 .exports()
                 .any(|(slot, id, _)| slot == "model" && id == model.provider)
         })
+        .map(|(id, component)| (id, component.execution_identity()))
         .collect::<Vec<_>>();
     let bytes = serde_json::to_vec(&(
         &config.active_provider,
@@ -60,30 +56,12 @@ fn binding(config: &AppConfig, model: &ModelRef) -> Result<String> {
         .collect())
 }
 
-fn read(path: &Path) -> Result<Option<Configuration>> {
-    let file = match std::fs::File::open(path) {
-        Ok(file) => file,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(error).context("read session model configuration"),
-    };
-    let mut bytes = Vec::new();
-    file.take(MAX_BYTES + 1).read_to_end(&mut bytes)?;
-    ensure!(
-        bytes.len() as u64 <= MAX_BYTES,
-        "session model configuration exceeds its size limit"
-    );
-    Ok(Some(
-        serde_json::from_slice(&bytes).context("invalid session model configuration")?,
-    ))
-}
-
 pub(super) async fn stored(server: &AppServerHandle, baseline: &AppConfig) -> Result<Stored> {
-    let Some(directory) = server.session_dir_path() else {
+    let Some(store) = server.runtime.session_store() else {
         return Ok(Stored::Absent);
     };
-    let selected = tokio::task::spawn_blocking(move || read(&directory.join(FILE)))
-        .await
-        .context("session model configuration reader failed")??;
+    let selected: Option<Configuration> =
+        super::session_selection::read_session(store, FILE).await?;
     match selected {
         None => Ok(Stored::Absent),
         Some(selected) if selected.binding == binding(baseline, &selected.model)? => {
@@ -103,31 +81,7 @@ async fn persist(server: &AppServerHandle, selected: Configuration) -> Result<()
         "session model configuration exceeds its size limit"
     );
     store
-        .with_metadata_transaction(move |directory| {
-            let temporary = directory.join(format!(
-                ".model-configuration-{}.tmp",
-                crate::domain::new_call_id()
-            ));
-            let result = (|| {
-                let mut options = std::fs::OpenOptions::new();
-                options.write(true).create_new(true);
-                #[cfg(unix)]
-                {
-                    use std::os::unix::fs::OpenOptionsExt;
-                    options.mode(0o600);
-                }
-                let mut file = options.open(&temporary)?;
-                file.write_all(&bytes)?;
-                file.sync_all()?;
-                drop(file);
-                std::fs::rename(&temporary, directory.join(FILE))?;
-                Ok(())
-            })();
-            if result.is_err() {
-                let _ = std::fs::remove_file(&temporary);
-            }
-            result
-        })
+        .write_metadata(FILE, serde_json::to_value(selected)?)
         .await
 }
 
@@ -280,6 +234,7 @@ async fn apply(
         serde_json::to_value(&*server.config.read().await)? == serde_json::to_value(baseline)?,
         "profile changed during model configuration; retry selection"
     );
+    let _transition = server.settings_transition.lock().await;
     let unchanged = selected.clone();
     if server
         .runtime
@@ -299,7 +254,8 @@ async fn apply(
     {
         return Ok(());
     }
-    let (effective, assembly) = prepare(server, baseline, &selected).await?;
+    let behavior = super::session_behavior::effective(server, baseline).await;
+    let (effective, assembly) = prepare(server, &behavior, &selected).await?;
     let snapshot = SessionConfigSnapshot::from_runtime_config(
         &effective,
         assembly.registry(),

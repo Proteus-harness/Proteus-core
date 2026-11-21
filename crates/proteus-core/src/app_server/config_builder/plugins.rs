@@ -17,6 +17,7 @@ use super::{ConfigBuilderTool, ConfigBuilderWarning};
 pub(super) fn builder_tools(
     topology: &TopologySnapshot,
     process_tool_specs: &[(ToolSource, ToolSpec)],
+    baseline: &AppConfig,
 ) -> (Vec<ConfigBuilderTool>, Vec<ConfigBuilderWarning>) {
     let mut tools = topology
         .tools
@@ -30,9 +31,12 @@ pub(super) fn builder_tools(
                     owner: tool.owner.clone(),
                     safety: tool.safety.clone(),
                     description: tool.description.clone(),
-                    enabled: tool.enabled,
+                    enabled: baseline.tools.enabled.iter().any(|name| name == &tool.name)
+                        || tool.runtime_managed,
                     runtime_managed: tool.runtime_managed,
-                    registered: tool.registered,
+                    registered: tool.registered
+                        && (baseline.tools.enabled.iter().any(|name| name == &tool.name)
+                            || tool.runtime_managed),
                 },
             )
         })
@@ -123,6 +127,7 @@ pub(super) fn builder_plugins(
                 id: component_id.clone(),
                 command: component.command().to_owned(),
                 description: component.description().map(str::to_owned),
+                icon: component.icon().map(str::to_owned),
                 exports,
                 tool_packs,
             }

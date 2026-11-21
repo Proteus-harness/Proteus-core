@@ -18,10 +18,14 @@ use crate::{
     },
 };
 
+#[path = "bound_model_tests/compaction.rs"]
+mod compaction;
 #[path = "bound_model_tests/deadline.rs"]
 mod deadline;
 #[path = "bound_model_tests/failure_progress.rs"]
 mod failure_progress;
+#[path = "bound_model_tests/input_estimate.rs"]
+mod input_estimate;
 #[path = "bound_model_tests/tool_authority.rs"]
 mod tool_authority;
 
@@ -314,7 +318,13 @@ async fn concurrent_bound_models_keep_metadata_events_and_journal_attribution_is
     let config_dir = tempfile::tempdir().unwrap();
     let workspace = tempfile::tempdir().unwrap();
     let session_id = new_session_id();
-    let store = SessionStore::new(config_dir.path(), workspace.path(), session_id).unwrap();
+    let store = SessionStore::new(
+        crate::test_support::storage(std::path::Path::new(".")),
+        config_dir.path(),
+        workspace.path(),
+        session_id,
+    )
+    .unwrap();
     let thread_a = new_thread_id();
     let thread_b = new_thread_id();
     let turn_a = new_turn_id();

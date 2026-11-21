@@ -7,7 +7,7 @@ mod config_schemas;
 use crate::{
     contracts::{
         AgentControl, AgentWorkflowContext, ApprovalPolicy, ContextBuilder, EventEmitter,
-        ExecutionContext, Model, ToolRegistry, UserInputTransport, Workflow,
+        ExecutionContext, Model, SessionStorage, ToolRegistry, UserInputTransport, Workflow,
     },
     core::{
         AgentControlRuntime, AppConfig, AssemblyPlan, BoundModel, ModeAwarePolicy,
@@ -18,6 +18,9 @@ use crate::{
     stubs::{DenyAllPolicy, EmptyContextBuilder, NoWorkflow},
 };
 
+#[cfg(test)]
+#[path = "registry/compaction_tests.rs"]
+mod compaction_tests;
 #[cfg(test)]
 #[path = "tool_terminal_binding_tests.rs"]
 mod tool_terminal_tests;
@@ -33,10 +36,14 @@ pub struct RuntimeRegistry {
     model_service: Option<Arc<ModelService>>,
     pub context: Arc<dyn ContextBuilder>,
     pub tools: ToolRegistry,
+    tool_allowlist: Option<std::collections::BTreeSet<String>>,
+    /// Description-only inventory, shared cheaply by snapshots of this generation.
+    pub(crate) tool_inventory: Arc<Vec<(crate::contracts::ToolSource, crate::domain::ToolSpec)>>,
     pub(crate) process_tool_specs: Vec<(crate::contracts::ToolSource, crate::domain::ToolSpec)>,
     pub policy: Arc<dyn ApprovalPolicy>,
     pub agent_control: Option<Arc<dyn AgentControl>>,
     pub workflow: Arc<dyn Workflow>,
+    pub session_storage: Option<Arc<dyn SessionStorage>>,
     pub(crate) context_providers: Vec<(String, Arc<dyn crate::core::RepoAwareContextProvider>)>,
     pub(crate) mcp_servers: Vec<proteus_contracts::app_protocol::addons::AppMcpServerState>,
     pub(crate) plugins: Vec<proteus_contracts::app_protocol::addons::AppAgentPluginState>,
@@ -104,6 +111,14 @@ impl RuntimeRegistry {
     }
 
     pub(crate) fn from_plan(plan: &AssemblyPlan, catalog: ModuleCatalog) -> Result<Self> {
+        Self::from_plan_with_storage(plan, catalog, None)
+    }
+
+    pub(crate) fn from_plan_with_storage(
+        plan: &AssemblyPlan,
+        catalog: ModuleCatalog,
+        storage: Option<super::StorageService>,
+    ) -> Result<Self> {
         plan.ensure_valid()?;
         let config = plan.config();
         let cwd = plan.cwd();
@@ -143,6 +158,47 @@ impl RuntimeRegistry {
             )?;
         }
 
+        let mut tool_inventory = tools.entries();
+        use crate::contracts::ToolProvider;
+        for provided in crate::tools::BuiltinToolProvider::new(vec![
+            "request_user_input".into(),
+            "AskUserQuestion".into(),
+        ])
+        .tools()?
+        {
+            let spec = provided.tool.spec();
+            if !tool_inventory
+                .iter()
+                .any(|(_, existing)| existing.name == spec.name)
+            {
+                tool_inventory.push((provided.source, spec));
+            }
+        }
+        for (source, spec) in &surface.process_tool_specs {
+            if !tool_inventory
+                .iter()
+                .any(|(_, existing)| existing.name == spec.name)
+            {
+                tool_inventory.push((source.clone(), spec.clone()));
+            }
+        }
+        let tool_inventory = Arc::new(tool_inventory);
+        let tool_allowlist = config.behavior_tools.as_ref().map(|names| {
+            names
+                .iter()
+                .cloned()
+                .collect::<std::collections::BTreeSet<_>>()
+        });
+        if let Some(names) = &tool_allowlist {
+            for name in names {
+                anyhow::ensure!(
+                    tools.get(name).is_some(),
+                    "unsupported behavior mode tool {name:?}"
+                );
+            }
+            tools = filter_tools(&tools, names)?;
+        }
+
         let policy_ctx = PolicyBuildContext { cwd };
         let policy: Arc<dyn ApprovalPolicy> =
             match plan.module_id(crate::domain::ModuleKind::Policy) {
@@ -154,8 +210,16 @@ impl RuntimeRegistry {
             Some(id) => catalog.build_workflow(id, &build_ctx)?,
             None => Arc::new(NoWorkflow),
         };
+        let session_storage = match storage {
+            Some(service) => Some(service),
+            None => plan
+                .module_id(crate::domain::ModuleKind::SessionStorage)
+                .map(|id| catalog.build_session_storage(id, &build_ctx))
+                .transpose()?,
+        };
         Ok(Self {
             config_exports: catalog.config_exports.clone(),
+            session_storage,
             hooks,
             cwd: cwd.to_path_buf(),
             model_config,
@@ -164,6 +228,8 @@ impl RuntimeRegistry {
             model_service,
             context,
             tools,
+            tool_allowlist,
+            tool_inventory,
             process_tool_specs: surface.process_tool_specs,
             policy,
             agent_control,
@@ -248,7 +314,10 @@ impl RuntimeRegistry {
                 )
                 .with_tool_authority(tools.clone())
                 .with_hooks(
-                    Arc::new(crate::contracts::NoExecutionHooks),
+                    // Compact needs the configured transforms even from a hook
+                    // callback. Keep this back-reference weak: the chain owns
+                    // the auxiliary model through its operation facade.
+                    weak_hooks.clone(),
                     attribution,
                     self.cwd.clone(),
                 ),
@@ -324,6 +393,9 @@ impl RuntimeRegistry {
                 service.id().as_ref(),
                 service.provider_hosted_tools(model)?,
             )?;
+        }
+        if let Some(names) = &self.tool_allowlist {
+            tools = filter_tools(&tools, names)?;
         }
         Ok(tools)
     }
@@ -407,4 +479,17 @@ impl RuntimeRegistry {
     pub(crate) fn replace_model_for_test(&mut self, model: Arc<dyn Model>) {
         self.model_service = Some(Arc::new(ModelService::new(model)));
     }
+}
+
+fn filter_tools(
+    tools: &ToolRegistry,
+    names: &std::collections::BTreeSet<String>,
+) -> Result<ToolRegistry> {
+    let mut selected = ToolRegistry::new();
+    for (_, spec) in tools.entries() {
+        if names.contains(&spec.name) {
+            selected.register_from(tools, &spec.name)?;
+        }
+    }
+    Ok(selected)
 }

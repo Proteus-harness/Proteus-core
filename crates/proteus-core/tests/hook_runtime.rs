@@ -22,6 +22,8 @@ async fn config() -> AppConfig {
     )))
     .await
     .unwrap();
+    config.components.remove("session-storage");
+    test_model::storage_config(&mut config);
     let mut value =
         serde_json::to_value(config.components.get("reference-agent").unwrap()).unwrap();
     value["command"] = json!(test_model::reference_module());
@@ -50,11 +52,14 @@ async fn config() -> AppConfig {
     config
 }
 fn records(runtime: &AgentRuntime) -> Vec<proteus_core::core::JournalRecord> {
-    SessionStore::open(runtime.session_dir().unwrap().to_path_buf())
-        .unwrap()
-        .load_projection()
-        .unwrap()
-        .records
+    SessionStore::open(
+        session_storage_fixture::storage(std::path::Path::new(".")),
+        runtime.session_dir().unwrap().to_path_buf(),
+    )
+    .unwrap()
+    .load_projection()
+    .unwrap()
+    .records
 }
 #[tokio::test]
 async fn independently_useful_process_hooks_change_actual_request_and_tool_result() {
@@ -310,10 +315,13 @@ async fn interruption_during_after_hook_preserves_already_completed_effect() {
                     .is_err()
             );
             if let Some(session_dir) = runtime.session_dir() {
-                let projection = SessionStore::open(session_dir.to_path_buf())
-                    .unwrap()
-                    .load_projection()
-                    .unwrap();
+                let projection = SessionStore::open(
+                    session_storage_fixture::storage(std::path::Path::new(".")),
+                    session_dir.to_path_buf(),
+                )
+                .unwrap()
+                .load_projection()
+                .unwrap();
                 assert!(projection.history.iter().flat_map(|message| &message.parts).any(|part| matches!(&part.payload, proteus_contracts::model_standard::ContentPart::ToolResult { result } if result.ok)));
                 assert!(projection.records.iter().any(|record| match &record.entry {
                     JournalEntry::ToolEffectRecorded(effect) => effect.result.ok,
@@ -347,3 +355,6 @@ async fn interruption_during_after_hook_preserves_already_completed_effect() {
         }
     }
 }
+
+#[path = "support/model.rs"]
+mod session_storage_fixture;

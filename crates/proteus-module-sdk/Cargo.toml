@@ -11,3 +11,10 @@ proteus-contracts = { path = "../proteus-contracts" }
 proteus-module-protocol = { path = "../proteus-module-protocol" }
 serde = "1"
 serde_json = "1"
+
+[dev-dependencies]
+proteus-process-host = { path = "../proteus-process-host" }
+
+[[test]]
+name = "transport_process"
+harness = false

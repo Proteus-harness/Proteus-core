@@ -210,6 +210,9 @@ pub trait ContextBuilderModule: Send + Sync + 'static {
 pub type ContextBuilderModuleObject = Box<dyn ContextBuilderModule>;
 
 pub trait HookModuleHost: Send + Sync {
+    fn estimate_model_input_json(&self, _request_json: String) -> ProcessModuleResult<String> {
+        Ok("null".to_owned())
+    }
     fn is_cancelled(&self) -> ProcessModuleResult<bool>;
     fn complete_model_json(&self, _request_json: String) -> ProcessModuleResult<String> {
         Err(ProcessModuleError::new(
@@ -298,6 +301,12 @@ pub trait ModelModuleHost: Send + Sync {
 }
 
 pub trait ModelModule: Send + Sync + 'static {
+    fn supports_input_estimate(&self) -> bool {
+        false
+    }
+    fn estimate_input_json(&self, _request_json: String) -> ProcessModuleResult<String> {
+        Ok("null".to_owned())
+    }
     fn describe(
         &self,
         model: crate::domain::ModelRef,

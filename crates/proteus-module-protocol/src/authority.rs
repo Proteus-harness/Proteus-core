@@ -19,9 +19,10 @@ use proteus_contracts::contracts::{
 
 const NO_HOST_METHODS: &[&str] = &[];
 const NO_PROTOCOL_FEATURES: &[&str] = &[];
-const OPERATION_HOST_METHODS: &[&str] = &[
+const HOOK_HOST_METHODS: &[&str] = &[
     OPERATION_HOST_COMPLETE_MODEL_METHOD,
     OPERATION_HOST_EXECUTE_TOOL_METHOD,
+    proteus_contracts::contracts::HOOK_HOST_ESTIMATE_MODEL_INPUT_METHOD,
 ];
 const POLICY_METHODS: &[&str] = &[
     PROCESS_POLICY_EVALUATE_METHOD,
@@ -89,6 +90,16 @@ impl ProcessContractAuthority {
 /// conformance evidence.
 pub const PROCESS_CONTRACT_AUTHORITIES: &[ProcessContractAuthority] = &[
     ProcessContractAuthority {
+        slot: "session_storage",
+        contract_version: proteus_contracts::contracts::PROCESS_SESSION_STORAGE_CONTRACT_VERSION,
+        composition: ProcessModuleComposition::SelectOne,
+        module_methods: &[proteus_contracts::contracts::PROCESS_SESSION_STORAGE_EXECUTE_METHOD],
+        module_method_features: &[],
+        host_methods: NO_HOST_METHODS,
+        host_features: &[proteus_contracts::contracts::SESSION_STORAGE_DISPLAY_PROJECTION_FEATURE],
+        required_features: NO_PROTOCOL_FEATURES,
+    },
+    ProcessContractAuthority {
         slot: "model",
         contract_version: PROCESS_MODEL_CONTRACT_VERSION,
         composition: ProcessModuleComposition::SelectOne,
@@ -97,8 +108,13 @@ pub const PROCESS_CONTRACT_AUTHORITIES: &[ProcessContractAuthority] = &[
             PROCESS_MODEL_CATALOG_METHOD,
             PROCESS_MODEL_QUOTA_METHOD,
             PROCESS_MODEL_STREAM_METHOD,
+            proteus_contracts::contracts::PROCESS_MODEL_ESTIMATE_METHOD,
         ],
         module_method_features: &[
+            (
+                proteus_contracts::contracts::PROCESS_MODEL_ESTIMATE_METHOD,
+                proteus_contracts::contracts::MODEL_INPUT_ESTIMATE_FEATURE,
+            ),
             (
                 PROCESS_MODEL_CATALOG_METHOD,
                 proteus_contracts::contracts::MODEL_CATALOG_FEATURE,
@@ -112,6 +128,7 @@ pub const PROCESS_CONTRACT_AUTHORITIES: &[ProcessContractAuthority] = &[
         host_features: &[
             proteus_contracts::contracts::MODEL_CATALOG_FEATURE,
             proteus_contracts::contracts::MODEL_QUOTA_FEATURE,
+            proteus_contracts::contracts::MODEL_INPUT_ESTIMATE_FEATURE,
         ],
         required_features: NO_PROTOCOL_FEATURES,
     },
@@ -121,8 +138,10 @@ pub const PROCESS_CONTRACT_AUTHORITIES: &[ProcessContractAuthority] = &[
         composition: ProcessModuleComposition::OrderedMany,
         module_methods: &[PROCESS_HOOK_INVOKE_METHOD],
         module_method_features: &[],
-        host_methods: OPERATION_HOST_METHODS,
-        host_features: NO_PROTOCOL_FEATURES,
+        host_methods: HOOK_HOST_METHODS,
+        host_features: &[
+            proteus_contracts::contracts::HOOK_CONTEXT_PREPARATION_DIAGNOSTICS_FEATURE,
+        ],
         required_features: NO_PROTOCOL_FEATURES,
     },
     ProcessContractAuthority {
@@ -250,6 +269,28 @@ mod tests {
     }
 
     #[test]
+    fn session_storage_is_selected_and_cannot_call_execution_services() {
+        let authority = current_process_contract_authority("session_storage").unwrap();
+        assert_eq!(authority.contract_version, "v2");
+        assert_eq!(authority.composition, ProcessModuleComposition::SelectOne);
+        assert_eq!(authority.module_methods, ["execute"]);
+        assert!(authority.host_methods.is_empty());
+        assert_eq!(
+            authority.host_features,
+            [proteus_contracts::contracts::SESSION_STORAGE_DISPLAY_PROJECTION_FEATURE]
+        );
+        assert!(authority.required_features.is_empty());
+        for method in [
+            OPERATION_HOST_COMPLETE_MODEL_METHOD,
+            OPERATION_HOST_EXECUTE_TOOL_METHOD,
+            TOOL_HOST_READ_CONVERSATION_METHOD,
+            WORKFLOW_HOST_EMIT_EVENT_METHOD,
+        ] {
+            assert!(!authority.allows_host_method(method));
+        }
+    }
+
+    #[test]
     fn context_provider_authority_is_module_id_independent() {
         let authority = process_contract_authority(
             "context_provider",
@@ -273,9 +314,33 @@ mod tests {
         let authority = process_contract_authority("hook", PROCESS_HOOK_CONTRACT_VERSION).unwrap();
         assert_eq!(authority.composition, ProcessModuleComposition::OrderedMany);
         assert_eq!(authority.module_methods, [PROCESS_HOOK_INVOKE_METHOD]);
-        assert_eq!(authority.host_methods, OPERATION_HOST_METHODS);
-        assert!(authority.host_features.is_empty());
+        assert_eq!(authority.host_methods, HOOK_HOST_METHODS);
+        assert_eq!(
+            authority.host_features,
+            [proteus_contracts::contracts::HOOK_CONTEXT_PREPARATION_DIAGNOSTICS_FEATURE]
+        );
+        assert!(authority.required_features.is_empty());
         assert!(process_contract_authority("hook", "v5").is_none());
+    }
+
+    #[test]
+    fn local_input_estimation_is_optional_for_models_and_hook_only_for_callbacks() {
+        let method = proteus_contracts::contracts::HOOK_HOST_ESTIMATE_MODEL_INPUT_METHOD;
+        for authority in PROCESS_CONTRACT_AUTHORITIES {
+            assert_eq!(
+                authority.allows_host_method(method),
+                authority.slot == "hook"
+            );
+        }
+        let model = current_process_contract_authority("model").unwrap();
+        assert_eq!(
+            model.feature_for_module_method(
+                proteus_contracts::contracts::PROCESS_MODEL_ESTIMATE_METHOD
+            ),
+            Some(proteus_contracts::contracts::MODEL_INPUT_ESTIMATE_FEATURE)
+        );
+        assert!(model.required_features.is_empty());
+        assert_eq!(model.contract_version, "v14");
     }
 
     #[test]
@@ -308,10 +373,10 @@ mod tests {
         for (slot, previous, current) in [
             ("context", "v2", "v3"),
             ("context_provider", "v3", "v4"),
-            ("model", "v12", "v13"),
-            ("workflow", "v19", "v20"),
-            ("hook", "v5", "v6"),
-            ("tool", "v5", "v6"),
+            ("model", "v13", "v14"),
+            ("workflow", "v21", "v22"),
+            ("hook", "v7", "v8"),
+            ("tool", "v6", "v7"),
             ("policy", "v1", "v2"),
         ] {
             assert!(process_contract_authority(slot, previous).is_none());

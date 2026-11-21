@@ -84,7 +84,7 @@ async fn recorded_failure_kind_selects_the_same_workflow_branch() {
 
         let report = replay_workflow(
             journal.store.session_dir(),
-            &AppConfig::default(),
+            &storage_config(),
             &catalog,
             WorkflowReplayOptions::default(),
         )

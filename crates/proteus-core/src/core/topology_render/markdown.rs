@@ -1,7 +1,7 @@
 use crate::core::TopologySnapshot;
 
 use super::{
-    helpers::{module_source_label, yes_no},
+    helpers::{module_source_label, ordered_slots, yes_no},
     map::render_topology_map,
     runtime::render_topology_runtime_path,
 };
@@ -9,27 +9,26 @@ use super::{
 pub fn render_topology_markdown(snapshot: &TopologySnapshot) -> String {
     let mut out = String::new();
     out.push_str("# Proteus Topology\n\n");
-    out.push_str(&format!("profile: `{}`\n", md_inline(&snapshot.profile)));
-    out.push_str(&format!("cwd: `{}`\n", md_inline(&snapshot.cwd)));
+    out.push_str(&format!("profile: {}\n", md_code_span(&snapshot.profile)));
+    out.push_str(&format!("cwd: {}\n", md_code_span(&snapshot.cwd)));
     out.push_str(&format!("module_epoch: `{}`\n", snapshot.module_epoch));
     out.push_str(&format!(
-        "permission_mode: `{}`\n",
-        md_inline(&snapshot.permission_mode)
+        "permission_mode: {}\n",
+        md_code_span(&snapshot.permission_mode)
     ));
     if let Some(model) = &snapshot.model {
         out.push_str(&format!(
-            "model: `{}/{}`\n",
-            md_inline(&model.provider),
-            md_inline(&model.name)
+            "model: {}\n",
+            md_code_span(&format!("{}/{}", model.provider, model.name))
         ));
     }
     if let Some(path) = &snapshot.config_path {
-        out.push_str(&format!("config_path: `{}`\n", md_inline(path)));
+        out.push_str(&format!("config_path: {}\n", md_code_span(path)));
     }
 
     out.push_str(&format!(
-        "\nhooks (ordered): `{}`\n",
-        md_inline(&snapshot.hooks.join(" -> "))
+        "\nhooks (ordered): {}\n",
+        md_code_span(&snapshot.hooks.join(" -> "))
     ));
     out.push_str("\n## Runtime Path\n\n");
     out.push_str("```text\n");
@@ -44,7 +43,7 @@ pub fn render_topology_markdown(snapshot: &TopologySnapshot) -> String {
     out.push_str("\n## Active Slots\n\n");
     out.push_str("| Slot | Active Module | Source | Responsibility |\n");
     out.push_str("|---|---|---|---|\n");
-    for slot in &snapshot.slots {
+    for slot in ordered_slots(snapshot) {
         let active = slot.active_module.as_deref().unwrap_or("-");
         let source = slot
             .active_module
@@ -87,8 +86,8 @@ pub fn render_topology_markdown(snapshot: &TopologySnapshot) -> String {
     } else {
         for warning in &snapshot.warnings {
             out.push_str(&format!(
-                "- `{}` {}\n",
-                md_inline(&warning.severity),
+                "- {} {}\n",
+                md_code_span(&warning.severity),
                 md_cell(&warning.message)
             ));
         }
@@ -98,13 +97,64 @@ pub fn render_topology_markdown(snapshot: &TopologySnapshot) -> String {
 }
 
 fn md_cell(value: &str) -> String {
-    value
-        .replace('\n', " ")
-        .replace('|', "\\|")
-        .trim()
-        .to_owned()
+    let value = value.trim();
+    let mut escaped = String::with_capacity(value.len());
+    let mut chars = value.chars().peekable();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '\r' => {
+                chars.next_if_eq(&'\n');
+                escaped.push(' ');
+            }
+            '\n' => escaped.push(' '),
+            '|' => escaped.push_str("\\|"),
+            ch => escaped.push(ch),
+        }
+    }
+    escaped
 }
 
-fn md_inline(value: &str) -> String {
-    value.replace('`', "\\`")
+fn md_code_span(value: &str) -> String {
+    // Code spans strip one space at each end, except for all-space content.
+    let padded_text =
+        value.starts_with(' ') && value.ends_with(' ') && !value.trim_matches(' ').is_empty();
+    if !value.contains('`') && !padded_text {
+        return format!("`{value}`");
+    }
+    let longest_run = value.split(|ch| ch != '`').map(str::len).max().unwrap_or(0);
+    let fence = "`".repeat(longest_run + 1);
+    format!("{fence} {value} {fence}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::md_code_span;
+
+    #[test]
+    fn code_spans_preserve_literal_ticks_and_boundary_spaces() {
+        for (value, markdown) in [
+            ("/home/me/my work", "`/home/me/my work`"),
+            ("  ", "`  `"),
+            (" work ", "`  work  `"),
+            ("/tmp/a`b", "`` /tmp/a`b ``"),
+            ("`a``b`", "``` `a``b` ```"),
+        ] {
+            assert_eq!(md_code_span(value), markdown);
+        }
+    }
+}
+
+#[cfg(test)]
+mod markdown_cell_tests {
+    use super::md_cell;
+
+    #[test]
+    fn one_cell_flattens_each_logical_line_break_once() {
+        for br in ["\n", "\r\n", "\r"] {
+            assert_eq!(
+                md_cell(&format!(" first|part{br}{br}last ")),
+                "first\\|part  last"
+            );
+        }
+    }
 }

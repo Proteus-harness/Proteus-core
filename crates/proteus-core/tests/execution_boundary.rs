@@ -352,10 +352,13 @@ async fn agent_runtime_records_a_detached_process_tool_execution_without_turn_st
     assert_eq!(runtime.history_len().await, 0);
 
     let session_dir = runtime.session_dir().expect("persisted runtime session");
-    let projection = SessionStore::open(session_dir.to_path_buf())
-        .expect("open Phase 8 session")
-        .load_projection()
-        .expect("load Phase 8 journal projection");
+    let projection = SessionStore::open(
+        session_storage_fixture::storage(std::path::Path::new(".")),
+        session_dir.to_path_buf(),
+    )
+    .expect("open Phase 8 session")
+    .load_projection()
+    .expect("load Phase 8 journal projection");
     assert_eq!(projection.records.len(), 3);
     assert!(projection.records.iter().all(|record| {
         record.execution_id.is_some() && record.thread_id.is_none() && record.turn_id.is_none()
@@ -399,10 +402,13 @@ async fn agent_runtime_records_a_detached_process_tool_execution_without_turn_st
             "invalid arguments reached the process tool"
         );
     }
-    let projection = SessionStore::open(session_dir.to_path_buf())
-        .unwrap()
-        .load_projection()
-        .unwrap();
+    let projection = SessionStore::open(
+        session_storage_fixture::storage(std::path::Path::new(".")),
+        session_dir.to_path_buf(),
+    )
+    .unwrap()
+    .load_projection()
+    .unwrap();
     assert_eq!(projection.records.iter().filter(|record| matches!(&record.entry,
         JournalEntry::ToolCallRecorded(tool) if matches!(tool.phase,
             proteus_core::core::ToolCallRecordPhase::Resolved { resolution: proteus_contracts::domain::ToolCallResolution::ValidationFailed { .. } }))).count(), 5);
@@ -498,10 +504,13 @@ async fn agent_runtime_memory_tool_uses_detached_attribution_and_records_without
     assert!(record["attribution"]["agent"].is_null());
     assert_eq!(runtime.history_len().await, 0);
 
-    let projection = SessionStore::open(runtime.session_dir().unwrap().to_path_buf())
-        .unwrap()
-        .load_projection()
-        .unwrap();
+    let projection = SessionStore::open(
+        session_storage_fixture::storage(std::path::Path::new(".")),
+        runtime.session_dir().unwrap().to_path_buf(),
+    )
+    .unwrap()
+    .load_projection()
+    .unwrap();
     assert!(projection.records.iter().any(|record| matches!(&record.entry, JournalEntry::ToolResultRecorded(tool) if tool.result.call_id == result.call_id)));
 }
 
@@ -718,6 +727,7 @@ async fn agent_runtime_forwards_targeted_cancel_without_serializing_a_process_si
     wait_for_file(&cancel_marker).await;
 
     let projection = SessionStore::open(
+        session_storage_fixture::storage(std::path::Path::new(".")),
         runtime
             .session_dir()
             .expect("persisted runtime session")
@@ -786,3 +796,6 @@ async fn agent_runtime_timeout_reaches_the_process_invocation() {
 
 #[path = "execution_boundary/workflow.rs"]
 mod workflow;
+
+#[path = "support/model.rs"]
+mod session_storage_fixture;

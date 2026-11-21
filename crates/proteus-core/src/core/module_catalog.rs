@@ -6,7 +6,7 @@ mod components;
 mod tools;
 
 use crate::{
-    contracts::{ApprovalPolicy, ContextBuilder, Model, Workflow},
+    contracts::{ApprovalPolicy, ContextBuilder, Model, SessionStorage, Workflow},
     core::{AppConfig, ModelConfig, RepoAwareContextProvider},
     domain::{ModuleKind, ModuleManifest, SlotId, slot},
     process_adapters::{ProcessContextProvider, ProcessExportConfig},
@@ -295,6 +295,36 @@ impl ModuleCatalog {
     ) -> Result<Arc<dyn ContextBuilder>> {
         self.build_typed::<dyn ContextBuilder>(
             slot::CONTEXT,
+            module,
+            &ModuleBuildInput::Module(ctx),
+        )
+    }
+
+    /// Build only the explicitly selected persistence service. This bootstrap
+    /// path registers other exports but never instantiates their implementations.
+    pub fn selected_session_storage(
+        config: &AppConfig,
+        cwd: &Path,
+    ) -> Result<Option<Arc<dyn SessionStorage>>> {
+        let Some(id) = config.modules.session_storage.as_deref() else {
+            return Ok(None);
+        };
+        let catalog = Self::from_config(config)?;
+        let ctx = ModuleBuildContext {
+            config,
+            cwd,
+            context_providers: &[],
+        };
+        catalog.build_session_storage(id, &ctx).map(Some)
+    }
+
+    pub fn build_session_storage(
+        &self,
+        module: &str,
+        ctx: &ModuleBuildContext<'_>,
+    ) -> Result<Arc<dyn SessionStorage>> {
+        self.build_typed::<dyn SessionStorage>(
+            slot::SESSION_STORAGE,
             module,
             &ModuleBuildInput::Module(ctx),
         )

@@ -1,4 +1,4 @@
-"""Small tool/v6 component for reload and checkpoint revision evidence."""
+"""Small tool/v7 component for reload and checkpoint revision evidence."""
 import sys
 from pathlib import Path
 
@@ -9,8 +9,8 @@ from component_runtime import ProtocolError, run_component
 def initialize(params):
     exports = []
     for export in params["exports"]:
-        if (export["slot"], export["contract_version"], export["composition"]) != ("tool", "v6", "ordered_many"):
-            raise ProtocolError("expected tool/v6 ordered_many")
+        if (export["slot"], export["contract_version"], export["composition"]) != ("tool", "v7", "ordered_many"):
+            raise ProtocolError("expected tool/v7 ordered_many")
         exports.append({**{key: export[key] for key in ("slot", "module_id", "contract_version", "composition")}, "module_features": [], "config_schema": None})
     return {"protocol_version": "v3", "component_id": params["component_id"], "exports": exports}
 

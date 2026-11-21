@@ -121,10 +121,10 @@ async fn execute_session_request(
         StdioRequest::Cancel { target_id, .. } => execute_cancel(state, server, &target_id)
             .await
             .map(|_| None),
-        StdioRequest::SetPermissionMode { mode, .. } => {
-            server.set_permission_mode(mode).await;
-            Ok(Some(json!({ "mode": mode })))
-        }
+        StdioRequest::SetPermissionMode { mode, .. } => server
+            .set_permission_mode(mode)
+            .await
+            .map(|()| Some(json!({ "mode": mode }))),
         StdioRequest::SetModel { model, .. } => {
             let server = server.clone();
             match server.set_model_name(model.clone()).await {
@@ -251,7 +251,7 @@ pub(super) async fn execute_set_permission_mode(
 ) -> StdioOutput {
     let result = async {
         let server = server_for_session(state, session_dir).await?;
-        server.set_permission_mode(mode).await;
+        server.set_permission_mode(mode).await?;
         Ok(Some(json!({ "mode": mode })))
     }
     .await;

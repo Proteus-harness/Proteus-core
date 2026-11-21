@@ -178,8 +178,16 @@ Wildcard CORS применяется только к публичному `/heal
 `permissions.mode` задаёт режим доступа:
 
 - `plan` показывает и исполняет только `ReadOnly` tools;
-- `normal` использует `ApprovalPolicy` и `ApprovalTransport`;
-- `auto` разрешает `ReadOnly` и `WritesFiles` без approval, но запрещает `RunsCommands`, `Network` и `Dangerous`.
+- `normal` использует правила выбранной `ApprovalPolicy` и `ApprovalTransport`;
+- `full_access` автоматически разрешает вызовы любых `ToolSafety`, если policy не вернула `Deny`;
+- `auto` — прежний отдельный режим для сохранённых конфигураций и клиентов: разрешает `ReadOnly` и `WritesFiles` без approval, но запрещает `RunsCommands`, `Network` и `Dangerous`.
+
+Основная experimental-сборка `configs/config.toml` в `normal` запрашивает
+подтверждение записи и shell. Codex, Pi и OpenCode reference profiles
+сохраняют свои правила. UI предлагает `plan`, `normal`, `full_access`;
+`auto` отображается только как текущее legacy значение и никогда не повышается
+до полного доступа. Режим не выдаёт sandbox grants и не изменяет OS launch
+ограничения components, stdio MCP или shell.
 
 Codex-профиль по умолчанию использует `normal`. Его prompt предлагает выполнять
 применимые проверки в рамках задачи; отдельное разговорное подтверждение
@@ -196,12 +204,12 @@ visibility/execution одному `ApprovalPolicy`; agent adapter эту decisio
 обходит. Композиция
 deny-monotonic: явный `Deny` выбранной policy (или structural deny при её
 отсутствии), а также deny-правило `codex_policy`/`opencode_policy` остаётся
-`Deny` в любом режиме. `plan` и
-`auto` могут снять только `Ask` для разрешённого режимом safety class; их
+`Deny` в любом режиме, включая `full_access`. `plan`, `auto` и `full_access`
+могут снять только `Ask` для разрешённого режимом safety class; их
 собственные запреты по `ToolSafety` по-прежнему являются верхней границей.
 
 CLI может переопределить config через `--plan`, `--auto` или
-`--permission-mode plan|normal|auto`. Внешние UI-клиенты могут переключать
+`--permission-mode plan|normal|full_access|auto`. Внешние UI-клиенты могут переключать
 режим для следующих turns через `StdioRequest::SetPermissionMode`.
 Переключение не меняет config-файл и не перезапускает app-server. В client-side
 plan flow UI может просить модель вернуть staged read-only plan, а после ответа
@@ -395,8 +403,9 @@ Reference exports `tool/direct_patch` и `tool/codex_patch`
 задаёт существующий каталог внутри workspace; относительный путь разрешается
 от workspace, отсутствие параметра выбирает workspace. Обе tool implementations
 отклоняют каталог вне этой границы. Модули
-канонизируют `cwd`, проверяют target path и отклоняют absolute paths,
-parent traversal и
+канонизируют `cwd` и проверяют target path. `codex_patch` принимает относительный
+путь либо абсолютный путь внутри выбранного `workdir`; `direct_patch` сохраняет
+только относительные target paths. Обе реализации отклоняют parent traversal и
 symlink-escape; конечный symlink запрещён для Add/Update/Delete и обеих сторон
 Move, даже если он указывает обратно внутрь workspace. `ToolOrchestrator` не
 делает workspace-санитизации за process tool — это обязанность выбранной
@@ -420,8 +429,10 @@ Reference `codex-patch` выбран в Codex-family profiles. Он приним
 пути как `A`/`M`/`D`. Подробная граница default file-update mode и provenance:
 [codex-patch/UPSTREAM.md](https://github.com/Proteus-harness/Proteus-modules/blob/main/tool/codex-patch/UPSTREAM.md).
 
-В подписочном профиле `codex` model-facing форма `apply_patch` —
-обычный function tool. Явно настроенный freeform custom tool всё равно проходит
+В Go-профиле `codex` model-facing форма `apply_patch` — function tool с `patch`.
+Подписочный `codex-subscription` выбирает native freeform. Базовые инструкции
+отображают форму выбранного ToolSpec; закреплённые upstream templates сохраняются.
+Явно настроенный freeform custom tool всё равно проходит
 через тот же `ToolOrchestrator`, `ApprovalPolicy` и process tool adapter.
 
 `coding.codex_loop` распознаёт поддержанные формы shell-команды `apply_patch`
@@ -498,7 +509,7 @@ attribute файла совпадает с configured executable `clean` или 
 ```
 
 Важно: решение `ask_write` без ослабления применяется в
-`permissions.mode = "normal"`. В `plan`/`auto` его `Deny` сохраняется, а `Ask`
+`permissions.mode = "normal"`. В `plan`/`auto`/`full_access` его `Deny` сохраняется, а `Ask`
 может быть снят только для разрешённого режимом safety class. CLI single-run и
 line REPL имеют интерактивный `ApprovalTransport`. Если итоговая policy
 возвращает `Ask`, `ToolOrchestrator` пишет `ApprovalRequested`, ждёт ответ
@@ -701,7 +712,7 @@ per-command изоляция описана модели явно; это зад
 ## codex_policy
 
 `codex_policy` поставляется тем же `policy-pack` и используется
-подписочным named config `codex` (`configs/codex.config.toml`). Это не отдельный
+основной сборкой, reference `codex` и явными подписочными profiles. Это не отдельный
 security layer: core применяет его через тот же `ApprovalPolicy` slot и тот же
 mode-aware wrapper.
 

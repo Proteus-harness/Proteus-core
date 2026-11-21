@@ -18,6 +18,7 @@ pub struct AppServerHandle {
 #[doc(hidden)]
 pub struct AppServerState {
     pub(super) runtime: Arc<AgentRuntime>,
+    pub(super) storage: Option<crate::core::StorageService>,
     pub(super) config: Arc<RwLock<AppConfig>>,
     pub(super) config_path: Option<PathBuf>,
     pub(super) cwd: PathBuf,
@@ -27,6 +28,8 @@ pub struct AppServerState {
     pub(super) runs: Arc<Mutex<RunRegistry>>,
     pub(super) profile_stop: CancellationToken,
     pub(super) profile_error: Mutex<Option<String>>,
+    pub(super) settings_transition: Mutex<()>,
+    pub(super) behavior: RwLock<super::session_behavior::Selection>,
 }
 
 impl Deref for AppServerHandle {

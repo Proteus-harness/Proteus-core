@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    io::{BufRead, BufWriter, Write},
+    io::{BufRead, BufWriter, Read, Write},
     sync::{
         Mutex,
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -17,22 +17,32 @@ const MAX_PENDING_CALLBACKS: usize = 256;
 
 pub struct FrameReader {
     reader: Box<dyn BufRead>,
+    max_frame_bytes: usize,
 }
 
 impl FrameReader {
-    pub fn new(reader: impl BufRead + 'static) -> Self {
+    pub fn new(reader: impl BufRead + 'static, max_frame_bytes: usize) -> Self {
         Self {
             reader: Box::new(reader),
+            max_frame_bytes,
         }
     }
 
     pub fn read(&mut self) -> Result<Option<Value>> {
-        let mut line = String::new();
+        let mut line = Vec::new();
         loop {
             line.clear();
-            if self.reader.read_line(&mut line)? == 0 {
+            if (&mut self.reader)
+                .take(self.max_frame_bytes as u64 + 1)
+                .read_until(b'\n', &mut line)?
+                == 0
+            {
                 return Ok(None);
             }
+            if line.len() > self.max_frame_bytes {
+                bail!("worker input frame exceeded {} bytes", self.max_frame_bytes);
+            }
+            let line = std::str::from_utf8(&line).context("worker received non-UTF8 JSON")?;
             if !line.trim().is_empty() {
                 return serde_json::from_str(&line)
                     .context("worker received malformed newline JSON")
@@ -53,20 +63,32 @@ pub struct ModuleTransport {
     writer: Mutex<BufWriter<Box<dyn Write + Send>>>,
     callbacks: Mutex<HashMap<String, mpsc::SyncSender<CallbackResult>>>,
     next_callback_sequence: AtomicU64,
+    max_frame_bytes: usize,
 }
 
 impl ModuleTransport {
-    pub fn new(generation: u64, writer: impl Write + Send + 'static) -> Self {
+    pub fn new(
+        generation: u64,
+        writer: impl Write + Send + 'static,
+        max_frame_bytes: usize,
+    ) -> Self {
         Self {
             generation,
             closed: AtomicBool::new(false),
             writer: Mutex::new(BufWriter::new(Box::new(writer))),
             callbacks: Mutex::new(HashMap::new()),
             next_callback_sequence: AtomicU64::new(1),
+            max_frame_bytes,
         }
     }
 
     pub fn write(&self, value: &Value) -> Result<()> {
+        // Reject an oversized result before writing any part of its frame.
+        // Counting streams the canonical JSON without retaining another payload.
+        let mut counter = FrameByteCounter {
+            remaining: self.max_frame_bytes.saturating_sub(1),
+        };
+        serde_json::to_writer(&mut counter, value)?;
         let mut writer = self
             .writer
             .lock()
@@ -150,10 +172,74 @@ impl ModuleTransport {
     }
 }
 
+struct FrameByteCounter {
+    remaining: usize,
+}
+
+impl Write for FrameByteCounter {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        if bytes.len() > self.remaining {
+            return Err(std::io::Error::other(
+                "worker output frame exceeded its configured byte budget",
+            ));
+        }
+        self.remaining -= bytes.len();
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 pub fn rpc_success(id: &str, result: Value) -> Value {
-    json!({"jsonrpc": "2.0", "id": id, "result": result})
+    // The result is already JSON. Move it into the envelope instead of
+    // serializing it into a second Value tree (potentially a full record page).
+    let mut frame = json!({"jsonrpc": "2.0", "id": id});
+    frame["result"] = result;
+    frame
 }
 
 pub fn rpc_error(id: &str, error: ProcessModuleRpcError) -> Value {
     json!({"jsonrpc": "2.0", "id": id, "error": error})
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    struct Capture(Arc<Mutex<Vec<u8>>>);
+    impl Write for Capture {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn success_envelope_preserves_opaque_result_without_copying_its_payload() {
+        let result = json!({"nested": [null, {"text": "a nonempty owned response"}]});
+        let text = result["nested"][1]["text"].as_str().unwrap().as_ptr();
+        let expected =
+            serde_json::to_vec(&json!({"jsonrpc": "2.0", "id": "h:1:9", "result": result}))
+                .unwrap();
+        let frame = rpc_success("h:1:9", result);
+        assert_eq!(serde_json::to_vec(&frame).unwrap(), expected);
+        let actual = frame["result"]["nested"][1]["text"].as_str().unwrap();
+        assert_eq!(actual.as_ptr(), text);
+    }
+
+    #[test]
+    fn oversized_output_is_rejected_before_any_frame_bytes_are_written() {
+        let bytes = Arc::new(Mutex::new(Vec::new()));
+        let transport = ModuleTransport::new(1, Capture(bytes.clone()), 64);
+        assert!(transport.write(&json!({"large":"x".repeat(64)})).is_err());
+        assert!(bytes.lock().unwrap().is_empty());
+        transport.write(&json!({"ok":true})).unwrap();
+        assert_eq!(&*bytes.lock().unwrap(), b"{\"ok\":true}\n");
+    }
 }

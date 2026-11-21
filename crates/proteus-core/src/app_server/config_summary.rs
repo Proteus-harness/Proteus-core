@@ -172,7 +172,7 @@ impl super::AppServerHandle {
         );
         let tools = snapshot.registry.tools.entries();
         let session_settings =
-            super::session_settings::render(mode, &model_ref, &reasoning, &selection);
+            super::session_settings::compose(self, mode, &model_ref, &reasoning, &selection).await;
         let summary = ConfigSummary {
             display_text: render_config_summary(
                 &config,

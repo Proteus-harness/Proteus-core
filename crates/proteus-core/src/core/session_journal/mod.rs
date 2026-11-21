@@ -1,31 +1,31 @@
-mod context;
-pub(crate) mod history_capture;
-mod hooks;
-pub(crate) use hooks::apply_recorded_hook_response;
-mod projection;
+//! Canonical execution facts and host recorders; physical storage is external.
 mod recorder;
-mod storage;
-mod types;
-mod usage;
-
-pub(crate) use usage::UsageProjection;
-
-pub use projection::JournalProjection;
-pub(crate) use projection::JournalValidationState;
-pub use recorder::{SessionExecutionRecorder, SessionToolExecutionRecorder};
-pub use storage::{DEFAULT_BLOB_THRESHOLD_BYTES, JOURNAL_FILE};
-pub use types::*;
-
-pub(crate) use storage::{
-    JournalReadCursor, JournalReadSnapshot, JournalRecordAttribution, JournalResumeState,
-    JournalWriterState, SessionWriteOwnership, ValidatedJournalRead, WriterRetirement,
-    append_record, initialize_writer_resume, initialize_writer_state, journal_path, load_records,
-    load_validated_conversation, load_validated_history, load_validated_history_revision,
-    load_validated_usage,
+pub use proteus_contracts::storage::journal::*;
+pub use proteus_session_semantics::JournalProjection;
+pub(crate) use proteus_session_semantics::{
+    JournalValidationState, history_message_sha256, redacted_history,
 };
-pub(crate) use storage::{history_message_sha256, redacted_history};
-
+pub use recorder::{SessionExecutionRecorder, SessionToolExecutionRecorder};
+pub(crate) mod history_capture {
+    pub(crate) use proteus_session_semantics::HistoryCapture;
+}
+pub(crate) mod hooks {
+    pub(crate) use proteus_session_semantics::journal::hooks::*;
+}
+pub(crate) use crate::core::session_store::remote::snapshot::{
+    RemoteJournalCursor as JournalReadCursor, RemoteJournalResumeState as JournalResumeState,
+    RemoteJournalSnapshot as JournalReadSnapshot, RemoteValidatedRead as ValidatedJournalRead,
+};
+pub(crate) use hooks::apply_recorded_hook_response;
+// The default backend's existing archive constants remain descriptive, never a reader.
+pub const JOURNAL_FILE: &str = "journal.jsonl";
+pub const DEFAULT_BLOB_THRESHOLD_BYTES: usize = 256 * 1024;
 #[cfg(test)]
 mod context_tests;
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod hooks_tests;
+
+pub(crate) use crate::core::session_store::remote::snapshot::is_display_kind;

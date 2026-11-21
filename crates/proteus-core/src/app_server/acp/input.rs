@@ -62,23 +62,27 @@ pub(super) fn permission_mode(id: &SessionModeId) -> Result<PermissionMode> {
         "normal" => Ok(PermissionMode::Normal),
         "plan" => Ok(PermissionMode::Plan),
         "auto" => Ok(PermissionMode::Auto),
+        "full_access" => Ok(PermissionMode::FullAccess),
         _ => Err(invalid("unknown modeId")),
     }
 }
 
 pub(super) fn modes(mode: PermissionMode) -> Result<SessionModeState> {
-    let current = match mode {
-        PermissionMode::Normal => "normal",
-        PermissionMode::Plan => "plan",
-        PermissionMode::Auto => "auto",
-    };
-    Ok(SessionModeState::new(
-        current,
-        vec![
-            SessionMode::new("normal", "Normal").description("Use the configured approval policy"),
-            SessionMode::new("plan", "Plan").description("Read-only planning"),
-            SessionMode::new("auto", "Auto")
-                .description("Automatic permissions under the configured policy"),
-        ],
-    ))
+    let mut available: Vec<_> = PermissionMode::SELECTABLE.into_iter().map(|mode| {
+        let (name, description) = match mode {
+            PermissionMode::Plan => ("Только чтение", "Доступны только инструменты, объявленные как чтение"),
+            PermissionMode::Normal => ("С подтверждением", "Подтверждения и запреты определяются правилами выбранного профиля"),
+            PermissionMode::FullAccess => ("Полный доступ", "Вызовы не требуют подтверждения; явные запреты правил и ограничения среды сохраняются"),
+            PermissionMode::Auto => unreachable!("legacy mode is not selectable"),
+        };
+        SessionMode::new(mode.as_str(), name).description(description)
+    }).collect();
+    if mode == PermissionMode::Auto {
+        available.push(
+            SessionMode::new("auto", "Автоматически (прежний режим)").description(
+                "Разрешены чтение и запись; команды, сеть и опасные инструменты запрещены",
+            ),
+        );
+    }
+    Ok(SessionModeState::new(mode.as_str(), available))
 }

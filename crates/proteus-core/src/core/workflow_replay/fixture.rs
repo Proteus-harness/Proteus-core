@@ -6,7 +6,6 @@ use crate::{
     core::{
         HistoryMutationKind, JournalEntry, JournalRecord, ModelResponseOutcome,
         SessionConfigSnapshot, SessionStore, ToolCallRecordPhase, TurnOpened, TurnSettled,
-        normalize_session_dir_path,
     },
     domain::{
         AgentTask, CallId, ExchangeId, ExecutionId, HistoryCompactionReport, SessionId, ThreadId,
@@ -24,6 +23,8 @@ use model_exchanges::select_exchanges;
 
 #[derive(Debug, Clone)]
 pub(super) struct WorkflowReplayFixture {
+    pub source_store: SessionStore,
+    pub source_snapshot: crate::contracts::StorageSnapshot,
     pub model_context: Vec<crate::contracts::ModelContextObservation>,
     pub interrupted_turns: Vec<crate::contracts::WorkflowHistoryInterruption>,
     pub hooks: Vec<crate::contracts::HookTrace>,
@@ -83,17 +84,18 @@ struct PendingToolInvocation {
 }
 
 pub(super) fn load_fixture(
+    storage: crate::core::StorageService,
     path: &Path,
     options: WorkflowReplayOptions,
 ) -> Result<WorkflowReplayFixture> {
-    let session_dir = normalize_session_dir_path(path.to_path_buf())?;
-    let store = SessionStore::open(session_dir.clone()).with_context(|| {
+    let session_dir = path.to_path_buf();
+    let store = SessionStore::open(storage, session_dir.clone()).with_context(|| {
         format!(
             "failed to open canonical session journal at {}",
             session_dir.display()
         )
     })?;
-    let projection = store.load_projection()?;
+    let (projection, source_snapshot) = store.load_projection_with_snapshot()?;
     let (turn_id, thread_id, execution_id, opened) =
         select_turn(&projection.records, options.turn_id)?;
     let snapshot = parse_snapshot(&opened, turn_id)?;
@@ -141,6 +143,8 @@ pub(super) fn load_fixture(
     )?;
 
     Ok(WorkflowReplayFixture {
+        source_store: store.clone(),
+        source_snapshot,
         hooks,
         interrupted_turns: prior_projection.interrupted_turns,
         model_context: crate::core::model_context::ModelContextState::from_records(

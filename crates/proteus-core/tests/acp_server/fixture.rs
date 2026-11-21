@@ -172,12 +172,20 @@ impl Client {
     }
 
     pub fn store(&self, session: &str) -> SessionStore {
-        let summary = list_workspace_session_summaries(self.dir.path(), &self.cwd)
-            .unwrap()
-            .into_iter()
-            .find(|s| s.session_id.to_string() == session)
-            .unwrap();
-        SessionStore::open(summary.session_dir).unwrap()
+        let summary = list_workspace_session_summaries(
+            session_storage_fixture::storage(std::path::Path::new(".")),
+            self.dir.path(),
+            &self.cwd,
+        )
+        .unwrap()
+        .into_iter()
+        .find(|s| s.session_id.to_string() == session)
+        .unwrap();
+        SessionStore::open(
+            session_storage_fixture::storage(std::path::Path::new(".")),
+            summary.session_dir,
+        )
+        .unwrap()
     }
 }
 
@@ -188,3 +196,6 @@ pub fn text(updates: &[Value]) -> String {
         .filter_map(|v| v["params"]["update"]["content"]["text"].as_str())
         .collect()
 }
+
+#[path = "../support/model.rs"]
+mod session_storage_fixture;

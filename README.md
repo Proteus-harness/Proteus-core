@@ -24,12 +24,17 @@ SDK не требует зависимости от Core runtime или referenc
 сборка с циклом выполнения задач, близким к Codex. Собственные алгоритмы
 и сочетания модулей — основное назначение Proteus.
 
-Для сборки Codex + OpenCode Go есть [один самодостаточный agent.toml](configs/agent.toml):
-все слоты, подключения процессов, модель, policy и обе дочерние роли описаны в нём,
+Основная experimental-сборка владельца хранится в [самодостаточном config.toml](configs/config.toml):
+все слоты, подключения процессов, модель, policy и read-only роль explore описаны в нём,
 включая тексты инструкций. Запуск:
-`proteus --config /path/to/agent.toml --cwd /path/to/project`.
+`proteus --config /path/to/config.toml --cwd /path/to/project`.
 Фрагменты и отдельные role configs для этого варианта не нужны;
 [формат и перенос](docs/guides/configuration.md#самодостаточный-конфиг-агента).
+Профили Pi и OpenCode также поставляются одним файлом и используют тот же
+Go preset `cheap`, сохраняя собственные workflow/tools/prompts/compaction.
+`codex`, `pi` и `opencode` — отдельные reference-сборки; изменения default
+не меняют их состав. Сейчас default использует Codex-shaped slots.
+Для coding-делегирования с отдельным worktree выбирайте `codex-task`.
 
 Развитие идёт через существующие слоты и замену их реализаций. Workflow уже
 может работать без чата и модели. Публичного входа произвольной предметной
@@ -102,7 +107,7 @@ Proteus-modules, затем атомарно публикует их в `~/.prot
 ```bash
 proteus-model-pack-module auth openai_codex login
 cd /path/to/project
-proteus --config codex "Расскажи о структуре этого проекта"
+proteus --config codex-subscription "Расскажи о структуре этого проекта"
 ```
 
 Профили и prompts из `configs/` устанавливаются вместе с CLI. Пользовательские
@@ -126,7 +131,8 @@ app-server; ошибка его завершения сохраняет отве
 к шести выбранным процессам, а не ко всему агенту. Нужны рабочий `/usr/bin/bwrap`,
 user namespaces и явные runtime-пути. Покрытие и подготовка описаны в
 [руководстве конфигурации](docs/guides/configuration.md#рабочий-linux-профиль-restricted).
-Обычный запуск и профиль `codex` сохраняют прежнее поведение.
+Обычный запуск и профиль `codex` используют доверенную сборку с OpenCode Go;
+`restricted` остаётся отдельным подписочным примером с частичной изоляцией.
 Для stdio MCP ограничения включаются отдельно в `tools.mcp_servers[].sandbox`:
 весь сервер получает явные filesystem/network grants, независимо от количества
 его tools. Пример — в [разделе MCP](docs/guides/configuration.md#mcp).
@@ -229,7 +235,7 @@ PATH="$PWD/target/debug:$PATH" ./target/debug/proteus --config examples/configs/
 
 ```bash
 cargo run --locked --release -p proteus-core --example native_scroll_fixture -- \
-  "$HOME/.config/Proteus-agent" /absolute/workspace 5000
+  "$HOME/.config/Proteus-harness" /absolute/workspace 5000
 ```
 
 Для большого чата укажите `50000`. Запись идёт порциями по 1000 сообщений,

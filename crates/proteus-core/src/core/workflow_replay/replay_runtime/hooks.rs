@@ -2,6 +2,7 @@
 use super::super::normalize::{
     calls_equal, messages_equal, outputs_equal, requests_equal, results_equal,
 };
+use super::canonical_rewrite::rewrite_response;
 use super::{ReplayState, mismatch};
 use crate::{
     contracts::{ExecutionHooks, HookEvent, HookInput, HookResponse, HookStepOutcome},
@@ -244,24 +245,23 @@ fn events_equal(actual: &HookEvent, expected: &HookEvent, ids: &HashMap<CallId, 
         (
             HookEvent::BeforeContext {
                 input: a,
+                model_capabilities: ac,
                 output: ao,
                 target: at,
             },
             HookEvent::BeforeContext {
                 input: b,
+                model_capabilities: bc,
                 output: bo,
                 target: bt,
             },
         ) => {
-            a.reason == b.reason
+            ac == bc
+                && a.reason == b.reason
                 && a.token_estimate == b.token_estimate
                 && a.window_tokens == b.window_tokens
                 && messages_equal(&a.messages, &b.messages, ids)
-                && match (&a.request, &b.request) {
-                    (Some(a), Some(b)) => requests_equal(a, b, ids),
-                    (None, None) => true,
-                    _ => false,
-                }
+                && super::super::normalize::preparation_requests_equal(a, b, ids)
                 && messages_equal(&ao.messages, &bo.messages, ids)
                 && ao.changed == bo.changed
                 && ao.summary == bo.summary
@@ -270,7 +270,12 @@ fn events_equal(actual: &HookEvent, expected: &HookEvent, ids: &HashMap<CallId, 
                 && ao.trigger_tokens == bo.trigger_tokens
                 && ao.summary_source == bo.summary_source
                 && ao.skipped_reason == bo.skipped_reason
-                && ao.metadata == bo.metadata
+                && super::super::normalize::estimate_metadata_equal(
+                    &ao.metadata,
+                    &ao.messages,
+                    &bo.metadata,
+                    &bo.messages,
+                )
                 && ao.user_message_replacements == bo.user_message_replacements
                 && at == bt
         }
@@ -359,9 +364,13 @@ fn rewrite_preparation_identities(
     expected: &HookEvent,
     actual: &HookEvent,
 ) -> Result<()> {
-    let HookResponse::ContextPreparation { output } = response else {
+    if !matches!(
+        response,
+        HookResponse::ContextPreparation { .. }
+            | HookResponse::ContextPreparationDiagnostics { .. }
+    ) {
         return Ok(());
-    };
+    }
     let (
         HookEvent::BeforeContext {
             input: expected_input,
@@ -390,56 +399,45 @@ fn rewrite_preparation_identities(
             parts.insert(source_part.part_id, current_part);
         }
     }
-    for message in &mut output.messages {
-        if let Some(current) = messages.get(&message.id) {
-            *message = (*current).clone();
-        } else {
-            for part in &mut message.parts {
-                if let Some(current) = parts.get(&part.part_id) {
-                    *part = (*current).clone();
+    if let HookResponse::ContextPreparation { output } = response {
+        for message in &mut output.messages {
+            if let Some(current) = messages.get(&message.id) {
+                *message = (*current).clone();
+            } else {
+                for part in &mut message.parts {
+                    if let Some(current) = parts.get(&part.part_id) {
+                        *part = (*current).clone();
+                    }
                 }
             }
         }
     }
-    for replacement in &mut output.user_message_replacements {
-        if let Some(current) = messages.get(&replacement.source_message_id) {
-            replacement.source_message_id = current.id;
+    let metadata = match response {
+        HookResponse::ContextPreparation { output } => &mut output.metadata,
+        HookResponse::ContextPreparationDiagnostics { diagnostics } => &mut diagnostics.metadata,
+        _ => unreachable!(),
+    };
+    if let Some(mut estimate) = crate::model_standard::ModelInputEstimate::from_metadata(metadata) {
+        for estimate in &mut estimate.parts {
+            if let Some(current) = parts.get(&estimate.part_id) {
+                estimate.part_id = current.part_id;
+            }
         }
-        if let Some(current) = messages.get(&replacement.replacement_message_id) {
-            replacement.replacement_message_id = current.id;
+        estimate.write_metadata(metadata);
+    }
+    if let HookResponse::ContextPreparation { output } = response {
+        for replacement in &mut output.user_message_replacements {
+            if let Some(current) = messages.get(&replacement.source_message_id) {
+                replacement.source_message_id = current.id;
+            }
+            if let Some(current) = messages.get(&replacement.replacement_message_id) {
+                replacement.replacement_message_id = current.id;
+            }
         }
     }
     Ok(())
 }
 
-fn rewrite_response(
-    response: &HookResponse,
-    ids: &HashMap<CallId, CallId>,
-) -> Result<HookResponse> {
-    let mut value = serde_json::to_value(response)?;
-    rewrite_strings(&mut value, ids);
-    Ok(serde_json::from_value(value)?)
-}
-pub(super) fn rewrite_strings(value: &mut serde_json::Value, ids: &HashMap<CallId, CallId>) {
-    match value {
-        serde_json::Value::String(text) => {
-            if let Some(actual) = ids.get(text) {
-                *text = actual.clone();
-            }
-        }
-        serde_json::Value::Array(values) => {
-            for value in values {
-                rewrite_strings(value, ids);
-            }
-        }
-        serde_json::Value::Object(values) => {
-            for value in values.values_mut() {
-                rewrite_strings(value, ids);
-            }
-        }
-        _ => {}
-    }
-}
 fn boundary_name(event: &HookEvent) -> &'static str {
     match event {
         HookEvent::TurnStarted { .. } => "turn_started",

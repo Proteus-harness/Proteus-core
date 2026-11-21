@@ -7,7 +7,13 @@ use crate::{
 };
 
 async fn resumed_server(root: &std::path::Path, cwd: &std::path::Path) -> AppServerHandle {
-    let store = SessionStore::new(root, cwd, new_session_id()).unwrap();
+    let store = SessionStore::new(
+        crate::test_support::storage(std::path::Path::new(".")),
+        root,
+        cwd,
+        new_session_id(),
+    )
+    .unwrap();
     store
         .append_history(
             new_thread_id(),

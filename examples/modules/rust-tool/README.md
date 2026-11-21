@@ -1,7 +1,7 @@
 # Самостоятельный Rust Tool
 
 Это starter внешнего процессного модуля на experimental
-`proteus-module-sdk 0.1.0-alpha.2`: wire v3 и `tool/v6`. Он не зависит от
+`proteus-module-sdk 0.1.0-alpha.2`: wire v3 и `tool/v7`. Он не зависит от
 reference executable, исходников Proteus-modules, Desktop или Python SDK.
 Python используется только в необязательной команде проверки `smoke.py`.
 

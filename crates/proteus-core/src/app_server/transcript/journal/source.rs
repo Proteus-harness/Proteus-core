@@ -9,10 +9,10 @@ use anyhow::Result;
 use crate::{
     contracts::OperationOwner,
     core::{
-        JournalEntry, JournalKind, JournalReadSnapshot, JournalRecord, ModelResponseOutcome,
-        ToolCallRecordPhase,
+        JournalEntry, JournalReadSnapshot, JournalRecord, ModelResponseOutcome, ToolCallRecordPhase,
     },
     domain::TurnId,
+    model_standard::ContentPart,
 };
 
 use super::{
@@ -26,28 +26,7 @@ pub(crate) fn journal_transcript_from_source(
     source: &mut JournalReadSnapshot,
     live_turn_id: Option<TurnId>,
 ) -> Result<Vec<AppTranscriptMessage>> {
-    transcript_from_scan(
-        |visit| source.scan_selected(is_display_kind, visit),
-        live_turn_id,
-    )
-}
-
-// Full strict validation already hydrated every entry. Repeated display passes
-// may omit unrelated request/hook payloads; the fixed prefix and durable
-// session_seq keep frontier comparisons independent of those omissions.
-pub(super) fn is_display_kind(kind: JournalKind) -> bool {
-    matches!(
-        kind,
-        JournalKind::HistoryMutated
-            | JournalKind::ModelMessageRecorded
-            | JournalKind::ModelResponseRecorded
-            | JournalKind::ToolCallRecorded
-            | JournalKind::ToolResultRecorded
-            | JournalKind::ToolEffectRecorded
-            | JournalKind::SubagentSessionBoundRecorded
-            | JournalKind::TurnOpened
-            | JournalKind::TurnSettled
-    )
+    transcript_from_scan(|visit| source.scan_display(visit), live_turn_id)
 }
 
 pub(super) fn transcript_from_scan(
@@ -55,8 +34,9 @@ pub(super) fn transcript_from_scan(
     live_turn_id: Option<TurnId>,
 ) -> Result<Vec<AppTranscriptMessage>> {
     let mut start = 0;
+    let mut causal_history = true;
     let mut visibility = TranscriptVisibility::default();
-    let mut committed_parts = std::collections::HashSet::new();
+    let mut last_response_with_parts = None;
     let mut final_results = std::collections::HashSet::new();
     let mut subagent_bindings = std::collections::HashMap::new();
     scan(&mut |record| {
@@ -76,11 +56,26 @@ pub(super) fn transcript_from_scan(
         {
             visibility.root_threads.insert(turn, thread);
         }
+        causal_history &= matches!(
+            record.entry,
+            JournalEntry::HistoryMutated(_)
+                | JournalEntry::TurnOpened(_)
+                | JournalEntry::TurnSettled(_)
+        );
         match &record.entry {
-            JournalEntry::HistoryMutated(mutation) => {
-                for message in &mutation.messages {
-                    committed_parts.extend(message.parts.iter().map(|part| part.part_id));
-                }
+            // A hosted card can take its date from a later tool call.
+            JournalEntry::HistoryMutated(mutation) if causal_history && start == 0 => {
+                causal_history = !mutation
+                    .messages
+                    .iter()
+                    .flat_map(|m| &m.parts)
+                    .any(|p| matches!(p.payload, ContentPart::HostedToolActivity { .. }));
+            }
+            JournalEntry::ModelResponseRecorded(item)
+                if let ModelResponseOutcome::Response { response } = &item.outcome
+                    && response.messages.iter().any(|m| !m.parts.is_empty()) =>
+            {
+                last_response_with_parts = Some(record.session_seq);
             }
             JournalEntry::SubagentSessionBoundRecorded(binding) => {
                 subagent_bindings.insert(binding.source_call_id.clone(), binding.clone());
@@ -93,9 +88,32 @@ pub(super) fn transcript_from_scan(
         Ok(())
     })?;
 
+    // Turn opens supply root bindings (already collected); settlements use
+    // their own date. Without a reset or hosted card, history dates are causal:
+    // collecting them before rendering each record gives the same first journal
+    // occurrence as a separate pass, even if the wall clock steps backwards.
+    if causal_history && start == 0 {
+        let mut replay = TranscriptReplay {
+            state: TranscriptProjectionState::default(),
+            visibility,
+            final_results,
+            subagent_bindings,
+        };
+        scan(&mut |record| {
+            replay.state.timestamps.collect_record::<false>(&record);
+            replay.render_record(&record, live_turn_id);
+            Ok(())
+        })?;
+        return Ok(replay.finish());
+    }
+
     // Workflow lifecycle calls, including those before the frontier, can make
     // a replayed model response visible. Nested calls only reveal their own
     // display rows. Timestamp keys only need replayed messages.
+    // Only a replayed model response can consume the committed-part index.
+    // Its evidence may precede a reset or follow the response itself.
+    let need_commits = last_response_with_parts.is_some_and(|seq| seq >= start);
+    let mut committed_parts = std::collections::HashSet::new();
     let mut timestamps = TranscriptTimestamps::default();
     scan(&mut |record| {
         if let JournalEntry::ToolCallRecorded(tool) = &record.entry
@@ -111,22 +129,27 @@ pub(super) fn transcript_from_scan(
                 visibility.workflow_root_calls.insert(tool.call.id.clone());
             }
         }
-        if record.session_seq >= start {
-            match &record.entry {
-                JournalEntry::HistoryMutated(mutation) => {
-                    for message in &mutation.messages {
+        match &record.entry {
+            JournalEntry::HistoryMutated(mutation) => {
+                for message in &mutation.messages {
+                    if need_commits {
+                        for part in &message.parts {
+                            committed_parts.insert(part.part_id);
+                        }
+                    }
+                    if record.session_seq >= start {
                         timestamps.require_message(message);
                     }
                 }
-                JournalEntry::ModelResponseRecorded(response) => {
-                    if let ModelResponseOutcome::Response { response } = &response.outcome {
-                        for message in &response.messages {
-                            timestamps.require_message(message);
-                        }
+            }
+            JournalEntry::ModelResponseRecorded(item) if record.session_seq >= start => {
+                if let ModelResponseOutcome::Response { response } = &item.outcome {
+                    for message in &response.messages {
+                        timestamps.require_message(message);
                     }
                 }
-                _ => {}
             }
+            _ => {}
         }
         Ok(())
     })?;
@@ -185,7 +208,7 @@ pub(super) fn from_records(
     transcript_from_scan(
         |visit| {
             for record in records {
-                if is_display_kind(record.entry.kind()) {
+                if crate::core::is_display_kind(record.entry.kind()) {
                     visit(record.clone())?;
                 }
             }
@@ -198,15 +221,14 @@ pub(super) fn from_records(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        core::{HistoryMutated, JOURNAL_SCHEMA_VERSION},
+        domain::{new_record_id, new_session_id},
+        model_standard::{CanonicalMessage, MessageRole},
+    };
 
-    #[test]
-    fn a_late_scan_error_does_not_return_partially_rendered_rows() {
-        use crate::{
-            core::{HistoryMutated, JOURNAL_SCHEMA_VERSION},
-            domain::{new_record_id, new_session_id},
-            model_standard::{CanonicalMessage, MessageRole},
-        };
-        let record = JournalRecord {
+    fn history(kind: HistoryMutationKind, messages: Vec<CanonicalMessage>) -> JournalRecord {
+        JournalRecord {
             schema_version: JOURNAL_SCHEMA_VERSION,
             record_id: new_record_id(),
             session_seq: 1,
@@ -218,42 +240,127 @@ mod tests {
             entry: JournalEntry::HistoryMutated(HistoryMutated {
                 previous_revision: 0,
                 new_revision: 1,
-                mutation: HistoryMutationKind::Append,
-                messages: vec![CanonicalMessage::text(MessageRole::User, "visible")],
+                mutation: kind,
+                messages,
                 compaction: None,
                 tool_results: vec![],
             }),
-        };
+        }
+    }
+
+    #[test]
+    fn failures_in_every_scan_discard_even_rendered_rows() {
+        for (kind, expected_passes) in [
+            (HistoryMutationKind::Append, 2),
+            (HistoryMutationKind::Replace, 4),
+        ] {
+            let record = history(
+                kind,
+                vec![CanonicalMessage::text(MessageRole::User, "visible")],
+            );
+            for failing_pass in 1..=expected_passes {
+                let mut passes = 0;
+                let error = transcript_from_scan(
+                    |visit| {
+                        passes += 1;
+                        visit(record.clone())?;
+                        anyhow::ensure!(passes != failing_pass, "injected scan failure");
+                        Ok(())
+                    },
+                    None,
+                )
+                .unwrap_err();
+                assert_eq!(passes, failing_pass);
+                assert_eq!(error.to_string(), "injected scan failure");
+            }
+        }
+    }
+
+    fn counted_replay(records: &[JournalRecord]) -> (Vec<AppTranscriptMessage>, usize) {
         let mut passes = 0;
-        let error = transcript_from_scan(
+        let rows = transcript_from_scan(
             |visit| {
                 passes += 1;
-                visit(record.clone())?;
-                anyhow::ensure!(passes != 4, "failure after rendering a row");
+                for record in records {
+                    visit(record.clone())?;
+                }
                 Ok(())
             },
             None,
         )
-        .unwrap_err();
-        assert_eq!(passes, 4);
-        assert_eq!(error.to_string(), "failure after rendering a row");
+        .unwrap();
+        let reference =
+            super::super::TranscriptReplay::new(records, 0).render(records.iter(), None);
+        assert_eq!(
+            serde_json::to_value(&rows).unwrap(),
+            serde_json::to_value(reference).unwrap()
+        );
+        (rows, passes)
     }
 
     #[test]
-    fn scan_errors_in_every_pass_prevent_publication() {
-        for failing_pass in 1..=4 {
-            let mut passes = 0;
-            let error = transcript_from_scan(
-                |_| {
-                    passes += 1;
-                    anyhow::ensure!(passes != failing_pass, "injected scan failure");
-                    Ok(())
+    fn causal_history_dates_survive_rehosting_and_a_clock_step() {
+        let original = CanonicalMessage::text(MessageRole::Assistant, "part one");
+        let mut latest = CanonicalMessage::text(MessageRole::Assistant, "part two");
+        latest.parts.push(original.parts[0].clone());
+        let first = history(HistoryMutationKind::Append, vec![original]);
+        let mut second = history(HistoryMutationKind::Replace, vec![latest]);
+        let JournalEntry::HistoryMutated(mutation) = &mut second.entry else {
+            unreachable!()
+        };
+        let mut report = crate::domain::HistoryCompactionReport::unchanged(0, None);
+        report.changed = true;
+        mutation.compaction = Some(report);
+        mutation.previous_revision = 1;
+        mutation.new_revision = 2;
+        second.session_id = first.session_id;
+        second.session_seq = 2;
+        second.timestamp_ms = 15;
+        let projection =
+            crate::core::JournalProjection::build(first.session_id, vec![first, second]).unwrap();
+        let (rows, passes) = counted_replay(&projection.records);
+        assert_eq!(passes, 2);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[1].text, "part two");
+        assert_eq!(rows[1].timestamp_ms, Some(42));
+    }
+
+    #[test]
+    fn a_hosted_card_can_take_its_date_from_a_future_call() {
+        use crate::domain::{HostedToolActivity, HostedToolStatus, ToolCall, WebSearchAction};
+        let hosted = CanonicalMessage::new(
+            MessageRole::Assistant,
+            vec![ContentPart::HostedToolActivity {
+                activity: HostedToolActivity::WebSearch {
+                    id: "shared".into(),
+                    status: HostedToolStatus::Completed,
+                    action: WebSearchAction::Search {
+                        queries: vec![],
+                        sources: vec![],
+                    },
                 },
-                None,
-            )
-            .unwrap_err();
-            assert_eq!(passes, failing_pass);
-            assert_eq!(error.to_string(), "injected scan failure");
-        }
+            }],
+        );
+        let call = CanonicalMessage::new(
+            MessageRole::Assistant,
+            vec![ContentPart::ToolCall {
+                call: ToolCall::new("shared", "tool", serde_json::json!({})),
+            }],
+        );
+        let first = history(HistoryMutationKind::Append, vec![hosted]);
+        let mut second = history(HistoryMutationKind::Append, vec![call]);
+        let JournalEntry::HistoryMutated(mutation) = &mut second.entry else {
+            unreachable!()
+        };
+        mutation.previous_revision = 1;
+        mutation.new_revision = 2;
+        second.session_id = first.session_id;
+        second.session_seq = 2;
+        second.timestamp_ms = 15;
+        let projection =
+            crate::core::JournalProjection::build(first.session_id, vec![first, second]).unwrap();
+        let (rows, passes) = counted_replay(&projection.records);
+        assert_eq!(passes, 4);
+        assert_eq!(rows[0].timestamp_ms, Some(15));
     }
 }

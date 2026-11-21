@@ -7,9 +7,17 @@ bin_path="${bin_dir}/proteus"
 proteus_home="${PROTEUS_HOME:-${HOME}/.proteus}"
 releases_dir="${proteus_home}/releases"
 current_release="${proteus_home}/current"
-config_home="${PROTEUS_CONFIG_HOME:-${HOME}/.config/Proteus-agent}"
+config_home="${PROTEUS_CONFIG_HOME:-${HOME}/.config/Proteus-harness}"
 configs_dir="${config_home}/configs"
 build_target="${CARGO_TARGET_DIR:-${project_dir}/target}"
+
+# The shipped model and behavior profiles include pinned Node workers.
+for runtime_command in node npm; do
+  if ! command -v "${runtime_command}" >/dev/null 2>&1; then
+    echo "Cannot install Pi/OpenCode runtimes: required command '${runtime_command}' not found" >&2
+    exit 1
+  fi
+done
 
 cargo build --locked --release --manifest-path "${project_dir}/Cargo.toml" \
   --target-dir "${build_target}" \
@@ -64,7 +72,7 @@ chmod 755 "${module_tmp}"
 # Stage the host and independent modules before the atomic snapshot switch.
 mkdir -p "${release_tmp}"
 cp "${build_target}/release/proteus" "${release_tmp}/proteus"
-python3 "${project_dir}/scripts/build_module.py" --profile release --bundle "${release_tmp}"
+python3 "${project_dir}/scripts/build_module.py" --profile release --bundle "${release_tmp}" --node-runtimes
 chmod 755 "${release_tmp}/proteus"
 
 mkdir -p "${releases_dir}"
@@ -115,10 +123,9 @@ install_config() {
 }
 
 install_config "config.toml" "configs/config.toml"
-install_config "agent.toml" "configs/agent.toml"
 install_config "codex.config.toml" "configs/codex.config.toml"
-install_config "restricted.config.toml" "configs/restricted.config.toml"
-install_config "context-search-chatgpt.config.toml" "configs/context-search-chatgpt.config.toml"
+install_config "codex-task.config.toml" "configs/codex-task.config.toml"
+install_config "codex-subscription.config.toml" "configs/codex-subscription.config.toml"
 install_config "codex-explore.config.toml" "configs/codex-explore.config.toml"
 install_config "codex-coder.config.toml" "configs/codex-coder.config.toml"
 install_config "opencode.config.toml" "configs/opencode.config.toml"
@@ -130,6 +137,7 @@ install_config "proteus.provider.example.toml" "configs/proteus.provider.example
 # не перезаписываются).
 mkdir -p "${configs_dir}/fragments"
 mkdir -p "${configs_dir}/prompts"
+mkdir -p "${configs_dir}/fixtures"
 install_managed_config_asset() {
   relative_path="$1"
   source_path="${project_dir}/configs/${relative_path}"
@@ -141,6 +149,7 @@ install_managed_config_asset() {
   fi
   cp "${source_path}" "${dest_path}"
 }
+install_managed_config_asset "fixtures/restricted.toml"
 install_managed_config_asset "fragments/openai-chatgpt.toml"
 install_managed_config_asset "fragments/opencode-go.toml"
 install_managed_config_asset "fragments/codex-runtime.toml"
@@ -169,7 +178,7 @@ echo "Installed: ${bin_path}"
 echo "Snapshot:  ${release_dir}"
 echo "Modules:   ${current_release}/bin"
 echo "Configs:   ${configs_dir}"
-echo "Next:      ${bin_path} --config codex doctor"
+echo "Next:      ${bin_path} doctor"
 case ":${PATH}:" in
   *:"${bin_dir}":*) ;;
   *) echo "Add this to your shell config if needed: export PATH=\"${bin_dir}:\$PATH\"" ;;

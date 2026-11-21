@@ -36,6 +36,12 @@ impl ContextPreparation for RuntimeContextPreparation {
             !self.execution.is_cancelled(),
             "context preparation canceled"
         );
+        let model_capabilities = input
+            .request
+            .as_ref()
+            .zip(self.execution.model.as_ref())
+            .map(|(request, model)| model.capabilities(&request.model))
+            .transpose()?;
         let conversation = match &self.conversation {
             Some(reader) => Some(reader.read().await?),
             None => None,
@@ -53,6 +59,7 @@ impl ContextPreparation for RuntimeContextPreparation {
                 event: HookEvent::BeforeContext {
                     output: ContextPreparationOutput::unchanged(input.messages.clone()),
                     input: input.clone(),
+                    model_capabilities: model_capabilities.clone(),
                     target: target.clone(),
                 },
                 attribution: self.attribution,
@@ -62,6 +69,7 @@ impl ContextPreparation for RuntimeContextPreparation {
             .await?;
         let HookEvent::BeforeContext {
             input: accepted_input,
+            model_capabilities: accepted_capabilities,
             output,
             target: accepted_target,
         } = event
@@ -69,10 +77,15 @@ impl ContextPreparation for RuntimeContextPreparation {
             anyhow::bail!("context preparation hook returned a different event");
         };
         ensure!(
-            accepted_input == input && accepted_target == target,
+            accepted_input == input
+                && accepted_target == target
+                && accepted_capabilities == model_capabilities,
             "context preparation changed bound input or target"
         );
         validate_context_preparation_output(&input, &output)?;
         Ok(ContextPreparationResult { output, target })
     }
 }
+
+#[cfg(test)]
+mod tests;

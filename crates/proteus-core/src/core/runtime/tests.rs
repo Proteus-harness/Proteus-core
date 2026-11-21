@@ -300,6 +300,7 @@ async fn failed_turn_keeps_user_message_in_runtime_and_session_store() {
     let config_path = config_root.path().join("configs").join("config.toml");
     let config = AppConfig::default();
     let runtime = AgentRuntime::builder(config, workspace.path().to_path_buf())
+        .with_session_storage(crate::test_support::storage(std::path::Path::new(".")))
         .with_config_path(Some(&config_path))
         .with_module_catalog(test_catalog())
         .build()
@@ -337,6 +338,7 @@ async fn compaction_replaces_runtime_and_session_history() {
     let config_path = config_root.path().join("configs").join("config.toml");
     let config = AppConfig::default();
     let runtime = AgentRuntime::builder(config, workspace.path().to_path_buf())
+        .with_session_storage(crate::test_support::storage(std::path::Path::new(".")))
         .with_config_path(Some(&config_path))
         .with_module_catalog(test_catalog())
         .build()
@@ -400,6 +402,7 @@ async fn model_exchange_is_recorded_in_session_journal() {
     let config_path = config_root.path().join("configs").join("config.toml");
     let config = AppConfig::default();
     let runtime = AgentRuntime::builder(config, workspace.path().to_path_buf())
+        .with_session_storage(crate::test_support::storage(std::path::Path::new(".")))
         .with_config_path(Some(&config_path))
         .with_module_catalog(test_catalog())
         .build()
@@ -435,6 +438,7 @@ async fn runtime_writes_config_snapshot_when_session_is_persisted() {
     config.permissions.mode = PermissionMode::Auto;
     crate::test_support::select_test_modules(&mut config, "coding.plan_execute_review");
     let runtime = AgentRuntime::builder(config, workspace.path().to_path_buf())
+        .with_session_storage(crate::test_support::storage(std::path::Path::new(".")))
         .with_config_path(Some(&config_path))
         .with_module_catalog(test_catalog())
         .build()
@@ -444,14 +448,13 @@ async fn runtime_writes_config_snapshot_when_session_is_persisted() {
     replace_workflow_for_test(&runtime, Arc::new(DelayedWorkflow)).await;
     runtime.run("persist session".to_owned()).await.unwrap();
 
-    let snapshot_path = runtime
-        .session_dir()
-        .expect("session dir")
-        .join(crate::core::CONFIG_SNAPSHOT_FILE);
-    let value: serde_json::Value = serde_json::from_str(
-        &std::fs::read_to_string(snapshot_path).expect("read config snapshot"),
-    )
-    .expect("config snapshot json");
+    let value = runtime
+        .session_store()
+        .expect("session store")
+        .read_metadata(crate::core::CONFIG_SNAPSHOT_FILE)
+        .expect("read config snapshot")
+        .expect("config snapshot persisted")
+        .value;
 
     assert_eq!(
         value["schema_version"],
@@ -498,7 +501,9 @@ async fn runtime_writes_config_snapshot_when_session_is_persisted() {
         .set_reasoning_effort(Some("high".to_owned()))
         .await
         .unwrap();
-    runtime.set_permission_mode(PermissionMode::Plan).await;
+    runtime
+        .set_permission_mode(PermissionMode::FullAccess)
+        .await;
     runtime.run("after reload".to_owned()).await.unwrap();
 
     let records = runtime
@@ -522,7 +527,10 @@ async fn runtime_writes_config_snapshot_when_session_is_persisted() {
     assert_eq!(turn_snapshot.profile_name, "reloaded-profile");
     assert_eq!(turn_snapshot.model.unwrap().model, "runtime-model-override");
     assert_eq!(turn_snapshot.reasoning.effort.as_deref(), Some("high"));
-    assert_eq!(turn_snapshot.permission_mode_default, PermissionMode::Plan);
+    assert_eq!(
+        turn_snapshot.permission_mode_default,
+        PermissionMode::FullAccess
+    );
 }
 
 #[tokio::test]
@@ -563,7 +571,8 @@ async fn workflow_timeout_zero_disables_runtime_timeout() {
 #[tokio::test]
 async fn reload_assembly_publishes_matching_plan_without_mutating_running_turn() {
     let cwd = tempfile::tempdir().expect("temp dir");
-    let config = AppConfig::default();
+    let mut config = AppConfig::default();
+    crate::test_support::storage_config(&mut config);
     let runtime = Arc::new(
         AgentRuntime::builder(config, cwd.path().to_path_buf())
             .with_module_catalog(test_catalog())

@@ -1,8 +1,180 @@
-include = [
-  "fragments/openai-chatgpt.toml",
-  "fragments/codex-peer-runtime.toml",
-  "fragments/codex-coder-peer.toml",
-]
+# Явная standalone OAuth-роль; основные Go-сборки наследуют модель inline.
+active_provider = "chatgpt"
+
+[module_config.hook.codex_compact]
+
+[module_config.tool.codex_patch]
+reject_self_move = true
+freeform = true
+
+[module_config.context.codex_context]
+search_provider = "rg_search"
+providers = ["project_instructions", "skills", "environment"]
+max_context_bytes = 60000
+max_bytes_per_file = 12000
+project_doc_max_bytes = 32768
+project_instruction_files = ["AGENTS.override.md", "AGENTS.md"]
+
+[module_config.policy.codex_policy]
+allow = ["skill", "search", "read_file", "read_many_files", "list_dir", "find_files", "grep", "git_status", "git_diff", "request_user_input", "update_plan", "apply_patch", "write_file", "write_stdin"]
+allow_sandboxed = ["shell", "exec_command"]
+ask_before = ["lsp_diagnostics", "shell", "exec_command", "request_permissions", "remember_fact"]
+
+[module_config.model.openai_codex]
+implementation = "openai_codex"
+auth_file = "$HOME/.config/Proteus-harness/secrets/chatgpt.json"
+max_input_tokens = 200000
+support_verbosity = true
+default_verbosity = "low"
+prompt_cache = true
+
+[module_config.model.openai_codex.capabilities]
+supports_image_input = true
+supports_parallel_tool_calls = true
+supports_freeform_tools = true
+supports_json_schema = true
+supports_reasoning_config = true
+
+[components.reference-workflow]
+command = "proteus-coding-workflow-module"
+
+[components.reference-workflow.exports.workflow."coding.codex_loop"]
+
+[components.reference-context]
+command = "proteus-context-pack-module"
+
+[components.reference-context.exports.context.codex_context]
+
+[components.rg-search]
+command = "proteus-rg-search-module"
+env_allowlist = ["HOME", "PROTEUS_HOME"]
+
+[components.rg-search.exports.tool.rg_search]
+
+[components.rg-search.exports.context_provider.rg_search]
+
+[components.memory-pack]
+command = "proteus-memory-pack-module"
+env_allowlist = ["HOME", "PROTEUS_HOME"]
+
+[components.memory-pack.exports.tool.jsonl_memory]
+
+[components.codex-patch]
+command = "proteus-codex-patch-module"
+env_allowlist = ["HOME", "PROTEUS_HOME"]
+
+[components.codex-patch.exports.tool.codex_patch]
+
+[components.file-tools]
+command = "proteus-file-tools-module"
+env_allowlist = ["HOME", "PROTEUS_HOME"]
+
+[components.file-tools.exports.tool.file_tools]
+
+[components.git-tools]
+command = "proteus-git-tools-module"
+env_allowlist = ["HOME", "PROTEUS_HOME"]
+
+[components.git-tools.exports.tool.git_tools]
+
+[components.shell-tool]
+command = "proteus-shell-tool-module"
+env_allowlist = ["HOME", "PROTEUS_HOME"]
+
+[components.shell-tool.exports.tool.shell_tools]
+
+[components.plan-tool]
+command = "proteus-plan-tool-module"
+env_allowlist = ["HOME", "PROTEUS_HOME"]
+
+[components.plan-tool.exports.tool.plan_tool]
+
+[components.rust-lsp]
+command = "proteus-rust-lsp-module"
+env_allowlist = ["HOME", "PROTEUS_HOME"]
+
+[components.rust-lsp.exports.tool.rust_lsp]
+
+[components.skill-pack]
+command = "proteus-skill-pack-module"
+env_allowlist = ["HOME", "PROTEUS_HOME"]
+
+[components.skill-pack.exports.tool.skill_tool]
+
+[components.skill-pack.exports.context_provider.skills]
+
+[components.policy-pack]
+command = "proteus-policy-pack-module"
+env_allowlist = ["HOME", "PROTEUS_HOME"]
+
+[components.policy-pack.exports.tool.policy_tools]
+
+[components.policy-pack.exports.policy.codex_policy]
+
+[components.codex-context-preparation]
+command = "proteus-codex-context-preparation-module"
+env_allowlist = ["HOME", "PROTEUS_HOME"]
+
+[components.codex-context-preparation.exports.hook.codex_compact]
+
+[components.codex-context-preparation.exports.hook.codex_base_instructions]
+
+[components.reference-model]
+command = "proteus-model-pack-module"
+env_allowlist = ["HOME", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy"]
+
+[components.reference-model.exports.model.openai_codex]
+
+[modules]
+session_storage = "jsonl"
+hooks = ["codex_compact", "codex_base_instructions"]
+workflow = "coding.codex_loop"
+context = "codex_context"
+policy = "codex_policy"
+
+[agent_control]
+surface = "none"
+
+[app_server]
+approval_timeout_ms = 0
+
+[runtime]
+model_timeout_ms = 10800000
+context_timeout_ms = 30000
+workflow_timeout_ms = 14400000
+
+[event_log]
+path = ".proteus/events.jsonl"
+
+[[instructions]]
+kind = "System"
+priority = 110
+text = "You are a focused coding subagent inside the Proteus harness, working in your own git worktree on a dedicated branch. Implement exactly the change you were asked for — nothing more.\n\nRules:\n- Your cwd is an isolated worktree: edit freely, the parent checkout is untouched.\n- Stay on task: no refactors, cleanups, or extras beyond the request.\n- Verify what you can (build/tests via shell) before finishing.\n- Commit your work to the current branch with a clear message; uncommitted changes also survive, but a commit is preferred.\n- Final answer must be a concise report: what changed (files), how it was verified, and anything the parent must know before merging.\n"
+
+[tools]
+enabled = ["exec_command", "write_stdin", "apply_patch", "update_plan", "request_user_input"]
+
+[permissions]
+mode = "normal"
+
+[providers.chatgpt]
+provider = "openai_codex"
+model = "gpt-5.6-luna"
+stream = true
+reasoning_efforts = []
+
+[providers.chatgpt.reasoning]
+effort = "high"
+summary = true
 
 [profile]
-name = "codex-coder"
+name = "codex-coder-peer"
+entrypoint = false
+
+[components.session-storage]
+command = "proteus-session-storage-module"
+transport.max_frame_bytes = 134217728
+
+[components.session-storage.exports.session_storage.jsonl]
+
+[components.session-storage.exports.session_storage.sqlite]

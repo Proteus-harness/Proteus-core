@@ -17,6 +17,7 @@ pub(crate) enum SessionScope {
 
 pub(super) fn check_session_storage(
     findings: &mut DoctorFindings,
+    config: &proteus_core::core::AppConfig,
     effective_config: Option<&Path>,
     cwd: &Path,
     scope: SessionScope,
@@ -26,15 +27,26 @@ pub(super) fn check_session_storage(
         return;
     };
 
+    let service = match proteus_core::core::ModuleCatalog::selected_session_storage(config, cwd) {
+        Ok(Some(service)) => service,
+        Ok(None) => {
+            findings.ok("session storage: no module selected");
+            return;
+        }
+        Err(error) => {
+            findings.error(format!("session storage: {error:#}"));
+            return;
+        }
+    };
     let config_root = config_store_root(config_path);
     let (label, summaries) = match scope {
         SessionScope::Workspace => (
             format!("workspace {}", cwd.display()),
-            list_session_summaries_for_audit(&config_root, Some(cwd)),
+            list_session_summaries_for_audit(service.clone(), &config_root, Some(cwd)),
         ),
         SessionScope::All => (
             "all workspaces".to_owned(),
-            list_session_summaries_for_audit(&config_root, None),
+            list_session_summaries_for_audit(service.clone(), &config_root, None),
         ),
     };
     if matches!(scope, SessionScope::Workspace) {
@@ -46,7 +58,7 @@ pub(super) fn check_session_storage(
         Ok(summaries) => {
             let mut message_count = 0_usize;
             for summary in &summaries {
-                let messages = SessionStore::open(summary.session_dir.clone())
+                let messages = SessionStore::open(service.clone(), summary.session_dir.clone())
                     .and_then(|store| store.load_messages());
                 match messages {
                     Ok(messages) => message_count += messages.len(),
@@ -76,14 +88,25 @@ mod tests {
 
     use super::*;
 
+    fn storage_config() -> proteus_core::core::AppConfig {
+        let mut config = proteus_core::core::AppConfig::default();
+        crate::test_model::storage_config(&mut config);
+        config
+    }
+
     #[tokio::test]
     async fn unrelated_old_session_only_fails_the_explicit_full_audit() {
         let config_root = tempfile::tempdir().unwrap();
         let workspace = tempfile::tempdir().unwrap();
         let other_workspace = tempfile::tempdir().unwrap();
         let config_path = config_root.path().join("configs/config.toml");
-        let store = SessionStore::new(config_root.path(), other_workspace.path(), new_session_id())
-            .unwrap();
+        let store = SessionStore::new(
+            crate::test_model::storage(std::path::Path::new(".")),
+            config_root.path(),
+            other_workspace.path(),
+            new_session_id(),
+        )
+        .unwrap();
         store
             .append_history(
                 new_thread_id(),
@@ -99,19 +122,27 @@ mod tests {
         let old_bytes = serde_json::to_vec(&value).unwrap();
         std::fs::write(&metadata, &old_bytes).unwrap();
         assert!(
-            list_session_summaries(config_root.path())
-                .unwrap()
-                .is_empty()
+            list_session_summaries(
+                crate::test_model::storage(std::path::Path::new(".")),
+                config_root.path()
+            )
+            .unwrap()
+            .is_empty()
         );
         assert!(
-            list_workspace_session_summaries(config_root.path(), other_workspace.path())
-                .unwrap()
-                .is_empty()
+            list_workspace_session_summaries(
+                crate::test_model::storage(std::path::Path::new(".")),
+                config_root.path(),
+                other_workspace.path()
+            )
+            .unwrap()
+            .is_empty()
         );
 
         let mut current = DoctorFindings::default();
         check_session_storage(
             &mut current,
+            &storage_config(),
             Some(&config_path),
             workspace.path(),
             SessionScope::Workspace,
@@ -122,7 +153,13 @@ mod tests {
             (other_workspace.path(), SessionScope::Workspace),
         ] {
             let mut findings = DoctorFindings::default();
-            check_session_storage(&mut findings, Some(&config_path), cwd, scope);
+            check_session_storage(
+                &mut findings,
+                &storage_config(),
+                Some(&config_path),
+                cwd,
+                scope,
+            );
             assert!(
                 findings.entries.iter().any(|entry| entry.level == "error"
                     && entry.message.contains("schema_version")
@@ -153,6 +190,7 @@ mod tests {
         let mut findings = DoctorFindings::default();
         check_session_storage(
             &mut findings,
+            &storage_config(),
             Some(&config_path),
             workspace.path(),
             SessionScope::Workspace,
@@ -182,6 +220,7 @@ mod tests {
         let mut findings = DoctorFindings::default();
         check_session_storage(
             &mut findings,
+            &storage_config(),
             Some(&config_path),
             workspace.path(),
             SessionScope::Workspace,
@@ -198,8 +237,13 @@ mod tests {
         let config_root = tempfile::tempdir().expect("config root");
         let workspace = tempfile::tempdir().expect("workspace");
         let config_path = config_root.path().join("configs").join("config.toml");
-        let store = SessionStore::new(config_root.path(), workspace.path(), new_session_id())
-            .expect("short store");
+        let store = SessionStore::new(
+            crate::test_model::storage(std::path::Path::new(".")),
+            config_root.path(),
+            workspace.path(),
+            new_session_id(),
+        )
+        .expect("short store");
         store
             .append_history(
                 new_thread_id(),
@@ -212,6 +256,7 @@ mod tests {
         let mut findings = DoctorFindings::default();
         check_session_storage(
             &mut findings,
+            &storage_config(),
             Some(&config_path),
             workspace.path(),
             SessionScope::Workspace,

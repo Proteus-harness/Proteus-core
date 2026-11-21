@@ -51,7 +51,7 @@ cargo run --bin proteus -- --config codex replay workflow \
 ```
 
 `init [coding|codex|full|safe]` создаёт TOML profile в default config file
-(`~/.config/Proteus-agent/configs/config.toml`) или в путь, переданный через
+(`~/.config/Proteus-harness/configs/config.toml`) или в путь, переданный через
 `--config` (явный `.json` получает JSON). Если `--config <name>` передан как bare name, init пишет строгий
 named config `<name>.config.toml` в default config dir. `coding`, `codex` и
 `full` включают real-provider coding profile с reference process tools после
@@ -95,6 +95,13 @@ token отклоняется до запуска runtime и bind.
 после сборки runtime и фактического bind сервер печатает и flush-ит одну JSON
 строку `{"type":"http_ready","origin":"http://127.0.0.1:<port>"}`. Остальные
 строки stdout остаются диагностикой; credential в readiness не входит.
+В этом режиме supervisor может передать абсолютный каталог нужной вкладки в
+`PROTEUS_HTTP_PREFERRED_SESSION`: Core сначала пытается открыть её вместо
+последней сессии workspace. При недоступном адресе действует обычный выбор
+последней непустой сессии проекта либо новой. Сохранённая сессия другого
+проекта не меняет `/bootstrap.cwd` или workspace нового чата без источника.
+Явные `--resume-session` и `--new-session` имеют приоритет. Без
+`--ready-stdout` переменная не участвует в выборе.
 Supervisor передаёт `--token` и нужные `--allow-origin` явно; для проверки
 и завершения есть `/bootstrap` и authenticated `POST /shutdown`.
 [Приложение](https://github.com/Proteus-harness/Proteus-desktop/blob/main/README.md) запускает сервер с собственным
@@ -147,7 +154,7 @@ model settings настраиваются в Proteus до запуска, отд
 | `session/update` | Текст и reasoning, начало/результат tool calls; completed message дополняет streamed prefix, не дублирует его |
 | `session/request_permission` | `allow_once` / `reject_once` через действующий ApprovalTransport; отменённый/неверный ответ не разрешает исполнение |
 | `session/cancel` | Отмена текущего run; после settlement и последних updates исходный prompt получает `stopReason: cancelled` |
-| `session/set_mode` | `normal`, `plan`, `auto` — permission modes Proteus; смена во время активного prompt отклоняется |
+| `session/set_mode` | `plan`, `normal`, `full_access` — permission modes Proteus (`auto` принимается как прежний режим); смена во время активного prompt отклоняется |
 | `session/set_config_option` | Селекторы `model`, `reasoning_effort`, `mode`; полный обновлённый список возвращается в response и `config_option_update` |
 | `session/update: plan` | Успешный tool result с metadata `plan: [{step, status}]` отображается как план; статусы `pending`, `in_progress`, `completed`, пустой список очищает план |
 | EOF/ошибка transport | Все sessions отменяют активные runs и дожидаются записи terminal state |
@@ -215,7 +222,7 @@ CLI REPL и приложение используют общий каталог 
 /usage
 /remember [preference|fact] <content>
 /model [MODEL]
-/mode [normal|plan|auto]
+/mode [normal|plan|full_access]
 ```
 
 Это host-owned служебные команды: они используют существующие backend операции,
@@ -276,10 +283,10 @@ append-ит canonical empty replacement в journal. `/remember` запускае
 
 Если runtime знает путь config-а, относительный `event_log.path` считается от
 config store root, то есть рядом с `sessions`. Для default layout
-`~/.config/Proteus-agent/configs/config.toml` путь `.proteus/events.jsonl` превращается в:
+`~/.config/Proteus-harness/configs/config.toml` путь `.proteus/events.jsonl` превращается в:
 
 ```text
-~/.config/Proteus-agent/.proteus/events.jsonl
+~/.config/Proteus-harness/.proteus/events.jsonl
 ```
 
 Если config path неизвестен, fallback остаётся старым: путь считается от
@@ -382,7 +389,7 @@ history сохраняют раздельные commentary/final items. Клие
 
 ## Хуки Выполнения
 
-Opt-in `modules.hooks` задаёт упорядоченную цепочку process exports `hook/v6`.
+Opt-in `modules.hooks` задаёт упорядоченную цепочку process exports `hook/v8`.
 Core вызывает её в восьми точках: `turn_started`, `before_tool_selection`,
 `before_context`, `before_model`,
 `before_tool`, `after_tool`, `before_stop`, `turn_settled`. Это общая execution boundary: model/tool hooks
@@ -1079,7 +1086,7 @@ store; stdio остаётся привязанным к одной session пр�
   провайдера о частично недоступных данных, например доступе к бюджетам.
   Это discovery без turn, tools и inference exchange; подробный DTO описан в
   [model contract](../architecture/process-module-architecture.md#model-streaming).
-- `GET /config/builder` - snapshot selectable modules/tools/providers и
+- `GET /config/builder` - snapshot selectable modules/tools, provider connections и именованных моделей и
   текущих значений Config Builder;
 - `GET /config/history` - состояния профиля, заменённые сохранениями
   Config Builder, от новых к старым (`ConfigHistory`); откат — обычный
@@ -1351,8 +1358,8 @@ edit, delete, delivery, follow-up и очистку при отмене. `/pendi
 Если runtime знает путь пользовательского конфига, он создаёт session store
 рядом с config home (состав файлов внутри session directory — раздел «Файлы
 Сессии И Durable Snapshots» выше). Для default layout
-`~/.config/Proteus-agent/configs/config.toml` session store живёт в
-`~/.config/Proteus-agent/sessions`. Пустой старт app-server не создаёт session
+`~/.config/Proteus-harness/configs/config.toml` session store живёт в
+`~/.config/Proteus-harness/sessions`. Пустой старт app-server не создаёт session
 directory: она материализуется при первом canonical record (`turn_opened`).
 Поэтому repeated refresh/start UI не засоряет список пустыми sessions.
 
@@ -1387,7 +1394,7 @@ write-state или писать и заново создавать сессию.
 Пример:
 
 ```text
-/home/alice/.config/Proteus-agent/sessions/home|alice|game/1234567890/journal.jsonl
+/home/alice/.config/Proteus-harness/sessions/home|alice|game/1234567890/journal.jsonl
 ```
 
 `encoded-workspace` строится из canonical path рабочего каталога:
@@ -1515,6 +1522,11 @@ validation indexes и одна большая запись остаются ре
 Каждый повторный проход сверяет SHA-256 зафиксированного JSONL-префикса перед
 успешным завершением; замена файла по path или новый append не расширяют snapshot.
 Ошибка любого прохода не публикует частично построенные строки.
+История, состоящая только из history mutations и открытия/завершения ходов,
+рендерится за два прохода, если нет видимого hard reset или hosted activity.
+Остальные журналы сохраняют общий путь. Индекс подтверждённых частей строится
+только при наличии model response с частями после границы replay; при этом
+подтверждения по-прежнему ищутся во всём зафиксированном префиксе.
 
 Внутри одного rendering временный lookup `call_id -> последняя строка` обновляется
 при добавлении каждой tool/hosted card и сбрасывается вместе с display rows.
@@ -1538,7 +1550,11 @@ messages, base}` с последними 50 строками. Для преды�
 ревизии: сервер отвергает несовпадение вместо смешивания страниц. Известная
 клиенту завершённая ревизия остаётся пригодной для просмотра во время нового
 turn, пока её индекс не заменён. Полный `/history` сохраняет прежнюю семантику.
-При утрате или повреждении индекса полный `/history` и страничное чтение
+Страница без `revision` проверяет источник после чтения хешированных строк.
+Если указатель HEAD отстал, но именной индекс текущего источника уже записан,
+сервер читает страницу из этого индекса и снова проверяет источник. Утрата
+самого HEAD не добавляет предварительного открытия снимка к холодному чтению.
+При отсутствии пригодного индекса полный `/history` и страничное чтение
 делают одну попытку строгой проекции. Явно запрошенную ревизию разрешено
 восстановить только при совпадении fingerprint канонического источника до и
 после чтения; новые строки не выдаются под старой ревизией. При невозможности
@@ -1570,7 +1586,13 @@ control characters и некорректные query parameters возвраща
 
 Открытие сохранённой app-server session читает из SQLite только metadata, usage
 и последнюю страницу transcript. Canonical conversation и model context не
-материализуются в idle runtime. При отсутствии индекса первичная строгая
+материализуются в idle runtime. Читатели актуальной conversation и полного
+read model отклоняют уже устаревшую generation до декодирования payload;
+запрос страницы с другой revision также отклоняется до чтения строк.
+Явно запрошенная прежняя revision и stale display остаются доступны до
+замены кеша. Повторная проверка source после чтения сохраняется: append во
+время декодирования не делает результат актуальным.
+При отсутствии индекса первичная строгая
 проекция потоково проверяет полный журнал; её временный пик не ограничен размером
 страницы, но не включает сумму всех старых распакованных payload. Перед исполнением runtime восстанавливает execution state
 под writer lease. После settlement всей цепочки root/follow-up или clear
@@ -1705,7 +1727,7 @@ compactions должна завершаться сохранённым conversat
 resume используют сокращённое представление. Runtime атомарно заменяет историю
 этим snapshot-ом и затем дописывает `new_messages`.
 
-`workflow/v20` также позволяет вернуть `WorkflowFailure` с накопленным history
+`workflow/v22` также позволяет вернуть `WorkflowFailure` с накопленным history
 update. Core проверяет и сохраняет его до settlement со статусом `Error`.
 `coding.codex_loop` использует этот путь: если tool завершился, а следующий
 model call упал, новый turn получает прежний call/result и после перезапуска
@@ -2354,3 +2376,21 @@ app-server session token. Операции обращаются только к 
 Для программ, которым нужен controlling terminal (например `sudo` с вводом
 пароля), исходный `exec_command` должен быть запущен с `tty:true`. Режим
 `tty:false` по умолчанию и существующие права запуска не меняются.
+
+
+### Текущий режим поведения и сохранение профиля
+
+Session setting `behavior_mode` хранит только ID режима и явный permission
+выбор в `behavior-selection.json` текущей сессии. Определение берётся из
+текущего агентского конфига; файл профиля и shared last-choice не меняются.
+При удалении выбранного ID сохранение сначала атомарно записывает session
+tombstone, затем сохраняет профиль и публикует runtime. Ошибка записи metadata
+предотвращает source commit; обычная ошибка source commit восстанавливает
+точные прежние bytes metadata. Ошибка самого rollback возвращается вместе с
+исходной ошибкой. Эти операции удерживают session writer lease и общий lock
+перехода настроек. Это не crash-атомарная транзакция двух файлов: обрыв между
+ними может консервативно сбросить режим раньше сохранения профиля. Он не
+воскрешает удалённый режим после undo, повторного создания ID или reconnect.
+Description-only inventory для редактора остаётся доступным независимо от
+текущего callable-tool allowlist; выполнение использует только ограниченный
+registry, включая direct и nested вызовы.

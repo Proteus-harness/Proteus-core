@@ -33,7 +33,13 @@ async fn load(value: &Value) -> (tempfile::TempDir, std::path::PathBuf, AppConfi
 
 #[tokio::test]
 async fn names_are_declared_once_and_resolve_in_root_and_inline_roles_without_rights_inheritance() {
-    let (_directory, path, root) = load(&source()).await;
+    let mut value = source();
+    value["permissions"]["mode"] = json!("full_access");
+    let (_directory, path, root) = load(&value).await;
+    assert_eq!(
+        root.permissions.mode,
+        crate::domain::PermissionMode::FullAccess
+    );
     let model = root.active_model_config().unwrap();
     assert_eq!(model.model, "large");
     assert_eq!(model.reasoning.effort.as_deref(), Some("xhigh"));
@@ -173,4 +179,61 @@ fn shared_transport_does_not_replace_an_explicit_child_route() {
         child["module_config"]["model"]["fake"]["implementation"],
         "local"
     );
+}
+
+#[test]
+fn inline_role_choice_resolves_in_its_child_catalogue() {
+    let mut inline_choice = source();
+    inline_choice["agent_control"]["roles"] = json!([{
+        "name": "local", "description": "local model",
+        "config": {
+            "model": "child-only",
+            "models": {"child-only": {"provider": "fake", "model": "local-small", "effort": "low"}}
+        }
+    }]);
+    let mut role_choice = inline_choice.clone();
+    let role = &mut role_choice["agent_control"]["roles"][0];
+    let choice = role["config"]
+        .as_object_mut()
+        .unwrap()
+        .remove("model")
+        .unwrap();
+    role["model"] = choice;
+    normalize_model_sources(&mut inline_choice).unwrap();
+    normalize_model_sources(&mut role_choice).unwrap();
+    assert_eq!(role_choice, inline_choice);
+    assert_eq!(
+        role_choice["agent_control"]["roles"][0]["model"]["model"],
+        "local-small"
+    );
+}
+
+#[test]
+fn external_role_choice_still_requires_a_parent_alias() {
+    let mut value = source();
+    value["agent_control"]["roles"] = json!([{
+        "name": "external", "description": "external model", "config": "external.toml",
+        "model": "child-only"
+    }]);
+    assert!(
+        normalize_model_sources(&mut value)
+            .unwrap_err()
+            .to_string()
+            .contains("unknown model alias")
+    );
+}
+
+#[test]
+fn inline_role_choice_keeps_child_shadowing_of_parent_alias() {
+    let mut value = source();
+    value["agent_control"]["roles"] = json!([{
+        "name": "shadow", "description": "local shadow", "model": "primary",
+        "config": {"models": {"primary": {"provider": "fake", "model": "local-small"}}}
+    }]);
+    normalize_model_sources(&mut value).unwrap();
+    assert_eq!(
+        value["agent_control"]["roles"][0]["model"]["model"],
+        "local-small"
+    );
+    assert_eq!(value["providers"]["primary"]["model"], "large");
 }

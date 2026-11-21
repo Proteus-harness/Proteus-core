@@ -6,6 +6,7 @@ import json
 import math
 from pathlib import Path
 import statistics
+from urllib.parse import quote
 
 from common.proc_sampler import PHASE_INTERVAL_POLICY, PhaseIntervals
 
@@ -32,6 +33,13 @@ def cell(values, divisor=1):
 
 def escape(value):
     return str(value).replace('|', '\\|').replace('\n', ' ')
+
+
+def source_link(path):
+    # These are filesystem paths, not URLs with queries or fragments.
+    label = escape(str(path).replace('\\', '\\\\')).replace('[', '\\[').replace(']', '\\]')
+    target = quote(path.as_posix(), safe='/:')
+    return f'[{label}](<{target}>)'
 
 
 def table(headers, rows):
@@ -211,7 +219,7 @@ def main():
                     cell([row.get(key) for row in rows]) for key in ('wall_seconds', 'user_seconds', 'system_seconds', 'rebuilt_artifacts')])
         lines += table(['Фаза', 'Версия', 'n', 'Wall с', 'User с', 'System с', 'Rebuilt artifacts'], build_rows)
     lines += ['## Исключённые кейсы', ''] + ([f'- {escape(item)}' for item in failed] if failed else ['Нет в переданных отчётах.']) + ['']
-    lines += ['## Исходные отчёты', ''] + [f'- {kind}, {side}: [{escape(path)}](<{path}>)' for kind, side, path in sources]
+    lines += ['## Исходные отчёты', ''] + [f'- {kind}, {side}: {source_link(path)}' for kind, side, path in sources]
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open('x') as stream:
         stream.write('\n'.join(lines) + '\n')

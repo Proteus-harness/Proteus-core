@@ -75,7 +75,7 @@ fn binding() -> ProcessComponentExportInitialize {
     ProcessComponentExportInitialize::new(
         "tool",
         "probe",
-        "v6",
+        "v7",
         ProcessModuleComposition::OrderedMany,
         json!({}),
         Vec::<String>::new(),

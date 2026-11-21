@@ -1,6 +1,6 @@
 # Перенос Скриптовых Хуков
 
-Внешний JS/TS component для текущего `hook/v6`, без npm dependencies.
+Внешний JS/TS component для текущего `hook/v8`, без npm dependencies.
 Нужен Node.js **22.18+**: `.mjs` работает как JavaScript, `.ts` — через
 встроенный type stripping. TypeScript syntax с необходимой генерацией кода
 (например, `enum`) требует предварительной сборки в JS. Внешние dependencies
@@ -74,6 +74,8 @@ invocations; shared state обработчиков синхронизирует 
 `console.log` перенаправлен в stderr, чтобы обычный отладочный вывод
 перенесённого кода не ломал protocol stdout. stdout зарезервирован за worker.
 `ctx.completeModel(request)` выполняет вспомогательный canonical model call;
+`ctx.estimateModelInput({model, parts})` локально оценивает Opaque parts через
+выбранный model export и возвращает `null` при отсутствии поддержки;
 `ctx.executeTool(call)` проходит обычный tool registry/policy/approval path.
 Host связывает дочерние операции с текущей invocation, отменой и её сроком.
 Ошибка callback сохраняет typed RPC `data` в `error.data`; повторный throw
@@ -230,7 +232,7 @@ node --test examples/modules/hook-process/tests/*.test.mjs
 ./scripts/test.py -p proteus-core --test hook_runtime --test module_swap
 cargo run -p proteus-module-protocol --features conformance-cli --bin proteus-component-conformance -- \
   --component-id js-hooks \
-  --export '{"slot":"hook","module_id":"ported-pi","contract_version":"v6","module_config":{"entry":"examples/modules/hook-process/entries/pi.ts"}}' \
+  --export '{"slot":"hook","module_id":"ported-pi","contract_version":"v8","module_config":{"entry":"examples/modules/hook-process/entries/pi.ts"}}' \
   --probe-export hook/ported-pi --probe-method hook.invoke \
   --probe-params '{"cwd":"/tmp","attribution":{"execution_id":"00000000-0000-0000-0000-000000000001","agent":null},"conversation":null,"event":{"event":"before_tool","call":{"id":"00000000-0000-0000-0000-000000000002","name":"apply_patch","args":{},"surface":"function","raw_arguments":null},"spec":null,"blocked":null}}' \
   -- node examples/modules/hook-process/worker.mjs

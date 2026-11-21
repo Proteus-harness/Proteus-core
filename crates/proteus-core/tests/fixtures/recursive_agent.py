@@ -12,7 +12,7 @@ from component_runtime import ProtocolError, run_component
 def initialize(params):
     exports = []
     for export in params["exports"]:
-        if (export["slot"], export["module_id"], export["contract_version"]) != ("workflow", "recursive_probe", "v20"):
+        if (export["slot"], export["module_id"], export["contract_version"]) != ("workflow", "recursive_probe", "v22"):
             raise ProtocolError("unexpected recursive workflow")
         exports.append({key: export[key] for key in ("slot", "module_id", "contract_version", "composition")}
                        | {"module_features": [], "config_schema": None})

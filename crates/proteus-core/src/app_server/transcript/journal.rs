@@ -10,7 +10,9 @@ mod source;
 pub(crate) use source::journal_transcript_from_source;
 
 mod append;
-pub(crate) use append::journal_transcript_append_from_source;
+pub(crate) use append::{
+    journal_transcript_append_committed, journal_transcript_append_from_source,
+};
 
 mod timestamps;
 use timestamps::TranscriptTimestamps;

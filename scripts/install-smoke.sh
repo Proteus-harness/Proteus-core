@@ -56,13 +56,22 @@ test ! -e "${bin_dir}/proteus-reference-worker"
 test -L "${runtime_home}/current"
 test -x "${runtime_home}/current/proteus"
 test -x "${runtime_home}/current/bin/proteus-model-pack-module"
+test -x "${runtime_home}/current/bin/proteus-pi-module"
+test -x "${runtime_home}/current/bin/proteus-opencode-module"
+test -f "${runtime_home}/current/share/pi-runtime/tool/pi-tools/worker.mjs"
+test -f "${runtime_home}/current/share/opencode-runtime/workflow/opencode-runtime/worker.mjs"
 test ! -e "${runtime_home}/current/proteus-reference-module"
 test -f "${config_home}/configs/config.toml"
-test -f "${config_home}/configs/agent.toml"
+test ! -e "${config_home}/configs/agent.toml"
 test -f "${config_home}/configs/codex.config.toml"
 test -f "${config_home}/configs/pi.config.toml"
-test -f "${config_home}/configs/restricted.config.toml"
-test -f "${config_home}/configs/context-search-chatgpt.config.toml"
+for profile in codex-task codex-subscription opencode; do
+  test -f "${config_home}/configs/${profile}.config.toml"
+done
+test -f "${config_home}/configs/fixtures/restricted.toml"
+for profile in extended-subscription code-mode restricted context-search-chatgpt; do
+  test ! -e "${config_home}/configs/${profile}.config.toml"
+done
 test -f "${config_home}/configs/codex-explore.config.toml"
 test -f "${config_home}/configs/codex-coder.config.toml"
 test -f "${config_home}/configs/fragments/openai-chatgpt.toml"
@@ -92,14 +101,14 @@ run_and_capture auth-status "${output_dir}/auth-status.txt" \
   "${bin_dir}/proteus-model-pack-module" auth openai_codex status --auth-file "${smoke_root}/chatgpt.json"
 require_text "вход не выполнен" "${output_dir}/auth-status.txt"
 run_and_capture subscription-doctor "${output_dir}/subscription-doctor.txt" \
-  "${proteus}" --config codex doctor
+  "${proteus}" --config codex-subscription doctor
 require_text "openai_codex" "${output_dir}/subscription-doctor.txt"
 
 # Копируем установленный restricted profile с теми же includes и sandbox grants;
 # модель — synthetic fake.
-restricted_config="${config_home}/configs/smoke-restricted.toml"
+restricted_config="${config_home}/configs/fixtures/smoke-restricted.toml"
 printf '%s\n' 'active_provider = "fake"' >"${restricted_config}"
-cat "${config_home}/configs/restricted.config.toml" >>"${restricted_config}"
+cat "${config_home}/configs/fixtures/restricted.toml" >>"${restricted_config}"
 cat >>"${restricted_config}" <<'EOF'
 
 [providers.fake]

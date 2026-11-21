@@ -27,7 +27,7 @@ from component_runtime import (
 )
 
 MODULE_ID = "python_rg"
-CONTRACTS = {"tool": "v6", "context_provider": "v4"}
+CONTRACTS = {"tool": "v7", "context_provider": "v4"}
 active_exports: list[dict[str, Any]] = []
 
 EXPORT_INITIALIZE_FIELDS = {

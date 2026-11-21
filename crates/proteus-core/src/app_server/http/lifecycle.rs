@@ -7,10 +7,7 @@ use serde_json::{Value, json};
 use super::{commands::command_response, state::HttpAppState};
 use crate::{
     app_server::{AgentAppServer, AppServerHandle, StdioOutput},
-    core::{
-        SessionStore, canonicalize_session_dir_path, config_store_root, delete_workspace_session,
-        encode_workspace_path,
-    },
+    core::{canonicalize_session_dir_path, config_store_root, delete_workspace_session},
 };
 
 pub(super) async fn bootstrap(state: &HttpAppState) -> AppBootstrap {
@@ -69,12 +66,19 @@ pub(super) async fn execute_new_session(
                 None,
             ),
         };
+        ensure_storage_binding(state, &config)?;
         let cwd = workspace.unwrap_or(cwd);
-        let next = AgentAppServer::launch(config, cwd, config_path.as_deref()).await?;
+        let next = AgentAppServer::launch_with_storage(
+            config,
+            cwd,
+            config_path.as_deref(),
+            state.storage.clone(),
+        )
+        .await?;
         // Inherit the source session override without changing the published
         // profile that config saves and unrelated reloads use as their baseline.
         if let Some(mode) = permission_mode {
-            next.set_permission_mode(mode).await;
+            next.set_permission_mode(mode).await?;
         }
         next.start_session().await?;
         state.remember_server(next.clone()).await;
@@ -94,7 +98,9 @@ pub(super) async fn execute_delete_session(
     // a blocking filesystem worker is still removing storage.
     let state = state.clone();
     let result = tokio::spawn(async move {
-        let session_dir = canonicalize_session_dir_path(session_dir)?;
+        let session_dir = state
+            .resolve_session_dir(canonicalize_session_dir_path(session_dir)?)
+            .await?;
         let _lifecycle = state.lock_session_lifecycle(&session_dir).await;
         let config_path = state
             .launch
@@ -103,29 +109,37 @@ pub(super) async fn execute_delete_session(
             .ok_or_else(|| anyhow!("HTTP sessions require a config path for storage"))?;
         let live_server = state.server_for_session_dir(&session_dir).await;
         let was_live = live_server.is_some();
+        let storage = state.storage_service()?;
         let workspace = match &live_server {
-            Some(server) => server.cwd.clone(),
-            None if session_dir.try_exists()? => {
-                SessionStore::open(session_dir.clone())?.workspace_path()?
+            Some(server) => {
+                let store = server
+                    .runtime
+                    .session_store()
+                    .cloned()
+                    .ok_or_else(|| anyhow!("session has no storage"))?;
+                let root = config_store_root(config_path);
+                let cwd = server.cwd.clone();
+                tokio::task::spawn_blocking(move || store.validate_owned_delete_scope(&root, &cwd))
+                    .await??;
+                server.cwd.clone()
             }
-            None => return Ok(Some(json!({ "deleted": false }))),
+            None => {
+                let root = config_store_root(config_path);
+                let selected = storage.clone();
+                let path = session_dir.clone();
+                let summaries = tokio::task::spawn_blocking(move || {
+                    crate::core::list_session_summaries(selected, &root)
+                })
+                .await??;
+                let Some(summary) = summaries
+                    .into_iter()
+                    .find(|summary| super::super::paths_equal(&summary.session_dir, &path))
+                else {
+                    return Ok(Some(json!({"deleted": false})));
+                };
+                summary.workspace_path
+            }
         };
-        // A resumed session may belong to another workspace, but deletion must
-        // still stay within this server's configured session store.
-        let name = session_dir
-            .file_name()
-            .ok_or_else(|| anyhow!("invalid session directory"))?;
-        let expected = canonicalize_session_dir_path(
-            config_store_root(config_path)
-                .join("sessions")
-                .join(encode_workspace_path(&workspace)?)
-                .join(name),
-        )?;
-        if expected != session_dir {
-            return Err(anyhow!(
-                "session path is outside configured workspace sessions"
-            ));
-        }
         let deleted = if let Some(server) = live_server {
             // Keep the owner's lease throughout terminal settlement. Removing a
             // cache entry is not ownership release: other handles remain valid
@@ -134,8 +148,13 @@ pub(super) async fn execute_delete_session(
             state.remove_session_server(&session_dir).await;
             server.delete_closed_session().await?
         } else {
-            delete_workspace_session(&config_store_root(config_path), &workspace, session_dir)
-                .await?
+            delete_workspace_session(
+                storage,
+                &config_store_root(config_path),
+                &workspace,
+                session_dir,
+            )
+            .await?
         };
         Ok(Some(json!({ "deleted": deleted || was_live })))
     })
@@ -146,17 +165,22 @@ pub(super) async fn execute_delete_session(
 }
 
 async fn resume_session(state: &HttpAppState, session_dir: PathBuf) -> Result<Value> {
-    let session_dir = canonicalize_session_dir_path(session_dir)?;
+    let session_dir = state
+        .resolve_session_dir(canonicalize_session_dir_path(session_dir)?)
+        .await?;
     let _lifecycle = state.lock_session_lifecycle(&session_dir).await;
     if let Some(existing) = state.server_for_session_dir(&session_dir).await {
         return session_opened(state, &existing).await;
     }
     let launch = &state.launch;
-    let next = AgentAppServer::launch_resumed(
-        current_launch_config(state).await?,
+    let config = current_launch_config(state).await?;
+    ensure_storage_binding(state, &config)?;
+    let next = AgentAppServer::launch_resumed_with_storage(
+        config,
         launch.cwd.clone(),
         launch.config_path.as_deref(),
         session_dir,
+        state.storage_service()?,
     )
     .await?;
     state.remember_server(next.clone()).await;
@@ -191,6 +215,15 @@ pub(super) async fn config_summary_with_activity(
         );
     }
     Ok(summary)
+}
+
+fn ensure_storage_binding(state: &HttpAppState, config: &crate::core::AppConfig) -> Result<()> {
+    anyhow::ensure!(
+        crate::core::session_storage_binding(&state.launch.config)?
+            == crate::core::session_storage_binding(config)?,
+        "session storage configuration changed; restart the HTTP server before opening another session"
+    );
+    Ok(())
 }
 
 /// New admissions reload the published profile before constructing components;

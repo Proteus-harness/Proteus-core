@@ -121,8 +121,13 @@ impl TestJournal {
         let execution_id = new_execution_id();
         let attribution =
             ExecutionAttribution::for_turn(execution_id, session_id, thread_id, turn_id);
-        let store = SessionStore::new(config_dir.path(), workspace.path(), session_id)
-            .expect("session store");
+        let store = SessionStore::new(
+            crate::test_support::storage(workspace.path()),
+            config_dir.path(),
+            workspace.path(),
+            session_id,
+        )
+        .expect("session store");
         let task = AgentTask::new("run replay probe", workspace.path().to_path_buf());
         let user = CanonicalMessage::text(MessageRole::User, task.text.clone());
         let spec = probe_tool_spec();
@@ -468,7 +473,7 @@ async fn successful_turn_replays_model_and_tool_outcomes_without_side_effects() 
 
     let report = replay_workflow(
         journal.store.session_dir(),
-        &AppConfig::default(),
+        &storage_config(),
         &catalog(false),
         WorkflowReplayOptions::default(),
     )
@@ -508,7 +513,7 @@ async fn request_divergence_is_reported_and_stops_before_tool_replay() {
 
     let report = replay_workflow(
         journal.store.session_dir(),
-        &AppConfig::default(),
+        &storage_config(),
         &catalog(true),
         WorkflowReplayOptions::default(),
     )
@@ -535,7 +540,7 @@ async fn multiple_turns_require_an_explicit_turn_id() {
 
     let error = replay_workflow(
         journal.store.session_dir(),
-        &AppConfig::default(),
+        &storage_config(),
         &catalog(false),
         WorkflowReplayOptions::default(),
     )
@@ -548,7 +553,7 @@ async fn multiple_turns_require_an_explicit_turn_id() {
 
     let report = replay_workflow(
         journal.store.session_dir(),
-        &AppConfig::default(),
+        &storage_config(),
         &catalog(false),
         WorkflowReplayOptions {
             turn_id: Some(journal.turn_id),
@@ -557,4 +562,10 @@ async fn multiple_turns_require_an_explicit_turn_id() {
     .await
     .expect("explicit first turn replay");
     assert!(report.comparison.matched, "{:?}", report.comparison.issues);
+}
+
+fn storage_config() -> AppConfig {
+    let mut config = AppConfig::default();
+    crate::test_support::storage_config(&mut config);
+    config
 }

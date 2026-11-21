@@ -130,7 +130,13 @@ async fn context_journal_impl(
     let turn = new_turn_id();
     let execution = new_execution_id();
     let attribution = ExecutionAttribution::for_turn(execution, session, thread, turn);
-    let store = SessionStore::new(config_dir.path(), workspace.path(), session).expect("store");
+    let store = SessionStore::new(
+        crate::test_support::storage(workspace.path()),
+        config_dir.path(),
+        workspace.path(),
+        session,
+    )
+    .expect("store");
     let task = AgentTask::new("read context", workspace.path().into());
     store
         .append_execution_journal_entry(
@@ -237,7 +243,7 @@ async fn replay_context(journal: &TestJournal, probe: ContextProbe) -> WorkflowR
     catalog.register_test_policy(POLICY_ID, Arc::new(ReplayAllowAll));
     replay_workflow(
         journal.store.session_dir(),
-        &AppConfig::default(),
+        &storage_config(),
         &catalog,
         WorkflowReplayOptions::default(),
     )
@@ -412,7 +418,7 @@ async fn discarded_context_calls_cannot_match_a_model_bearing_turn_without_recor
     catalog.register_test_policy(POLICY_ID, Arc::new(ReplayAllowAll));
     let report = replay_workflow(
         journal.store.session_dir(),
-        &AppConfig::default(),
+        &storage_config(),
         &catalog,
         WorkflowReplayOptions::default(),
     )
@@ -445,7 +451,7 @@ async fn incomplete_context_build_cannot_be_used_for_success_or_error_replay() {
             context_journal_impl(&[("pending".into(), bundle("pending", 5))], failure, true).await;
         let error = replay_workflow(
             journal.store.session_dir(),
-            &AppConfig::default(),
+            &storage_config(),
             &catalog(false),
             WorkflowReplayOptions::default(),
         )

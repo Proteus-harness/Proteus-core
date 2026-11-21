@@ -58,25 +58,27 @@ pub(super) fn render(
         "mode",
         "Permissions",
         "mode",
-        format!("{mode:?}").to_lowercase(),
-        vec![
-            choice(
-                "normal",
-                "Normal",
-                Some("Use the configured approval policy".into()),
-            ),
-            choice(
-                "auto",
-                "Auto",
-                Some("Allow actions according to the active policy".into()),
-            ),
-            choice(
-                "plan",
-                "Plan",
-                Some("Read and plan without making changes".into()),
-            ),
-        ],
+        mode.as_str().to_owned(),
+        PermissionMode::SELECTABLE.into_iter().map(|mode| match mode {
+            PermissionMode::Plan => choice(mode.as_str(), "Только чтение",
+                Some("Доступны только инструменты, объявленные как чтение. Остальные вызовы запрещены.".into())),
+            PermissionMode::Normal => choice(mode.as_str(), "С подтверждением",
+                Some("Подтверждения и запреты определяются правилами выбранного профиля.".into())),
+            PermissionMode::FullAccess => choice(mode.as_str(), "Полный доступ",
+                Some("Вызовы не требуют подтверждения. Явные запреты правил и ограничения среды сохраняются.".into())),
+            PermissionMode::Auto => unreachable!("legacy mode is not selectable"),
+        }).collect(),
     )];
+    // Preserve the active legacy value without advertising it as a new choice.
+    if mode == PermissionMode::Auto
+        && let SessionSettingControl::Select { options, .. } = &mut settings[0].control
+    {
+        options.push(choice(
+            "auto",
+            "Автоматически (прежний режим)",
+            Some("Разрешены инструменты чтения и записи; команды, сеть и опасные инструменты запрещены.".into()),
+        ));
+    }
     if summary.error.is_some() {
         return settings;
     }
@@ -124,6 +126,22 @@ pub(super) fn render(
     settings
 }
 
+/// Compose every session setting from an already resolved model selection.
+/// HTTP's local projection must not start a second catalog discovery.
+pub(super) async fn compose(
+    server: &super::AppServerHandle,
+    mode: PermissionMode,
+    active: &Option<ModelRef>,
+    reasoning: &ReasoningConfig,
+    summary: &SelectionSummary,
+) -> Vec<SessionSetting> {
+    let mut settings = render(mode, active, reasoning, summary);
+    if let Some(behavior) = super::session_behavior::setting(server).await {
+        settings.insert(0, behavior);
+    }
+    settings
+}
+
 impl super::AppServerHandle {
     pub async fn session_settings(&self) -> Vec<SessionSetting> {
         let ModelSelection {
@@ -131,7 +149,14 @@ impl super::AppServerHandle {
             reasoning,
             summary,
         } = self.model_selection().await;
-        render(self.permission_mode().await, &active, &reasoning, &summary)
+        compose(
+            self,
+            self.permission_mode().await,
+            &active,
+            &reasoning,
+            &summary,
+        )
+        .await
     }
 
     pub async fn set_session_setting(&self, update: SessionSettingUpdate) -> Result<()> {
@@ -153,7 +178,9 @@ impl super::AppServerHandle {
                 InvalidSessionSetting("select settings require a string value".into()).into(),
             );
         };
-        if !options.iter().any(|option| option.value == value) {
+        // Older clients may still submit their cached legacy mode choice.
+        let legacy_mode = update.id == "mode" && value == PermissionMode::Auto.as_str();
+        if !legacy_mode && !options.iter().any(|option| option.value == value) {
             return Err(InvalidSessionSetting(format!(
                 "value is absent from session setting {:?}",
                 update.id
@@ -163,8 +190,9 @@ impl super::AppServerHandle {
         match update.id.as_str() {
             "mode" => {
                 self.set_permission_mode(serde_json::from_value(serde_json::Value::String(value))?)
-                    .await
+                    .await?
             }
+            "behavior_mode" => self.set_behavior_mode(value).await?,
             "model" => self.set_model_name(value).await?,
             "reasoning_effort" => {
                 self.set_reasoning_effort(value.strip_prefix("effort:").map(str::to_owned))
@@ -173,5 +201,32 @@ impl super::AppServerHandle {
             _ => bail!("unsupported session setting {:?}", update.id),
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn permission_choices_keep_full_access_canonical_and_legacy_auto_distinct() {
+        let summary = SelectionSummary {
+            models: vec![],
+            efforts: vec![],
+            error: None,
+        };
+        for mode in PermissionMode::SELECTABLE
+            .into_iter()
+            .chain([PermissionMode::Auto])
+        {
+            let settings = render(mode, &None, &ReasoningConfig::default(), &summary);
+            let SessionSettingControl::Select { value, options } = &settings[0].control else {
+                panic!("mode select");
+            };
+            assert_eq!(value, mode.as_str());
+            let values: Vec<_> = options.iter().map(|option| option.value.as_str()).collect();
+            assert_eq!(&values[..3], ["plan", "normal", "full_access"]);
+            assert_eq!(values.contains(&"auto"), mode == PermissionMode::Auto);
+        }
     }
 }

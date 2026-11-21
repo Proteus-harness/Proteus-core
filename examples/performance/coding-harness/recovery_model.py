@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Synthetic model/v13 for recovery proofs, with real Core and tool processes."""
+"""Synthetic model/v14 for recovery proofs, with real Core and tool processes."""
 import json
 from pathlib import Path
 import sys
@@ -32,10 +32,10 @@ def capabilities():
 def initialize(params):
     binding, = params["exports"]
     assert binding["slot"] == "model" and binding["module_id"] == "recovery-probe"
-    assert binding["contract_version"] == "v13"
+    assert binding["contract_version"] == "v14"
     CONFIG.update(binding["module_config"])
     return {"protocol_version": "v3", "component_id": params["component_id"], "exports": [{
-        "slot": "model", "module_id": "recovery-probe", "contract_version": "v13",
+        "slot": "model", "module_id": "recovery-probe", "contract_version": "v14",
         "composition": "select_one", "module_features": [], "config_schema": None,
     }]}
 

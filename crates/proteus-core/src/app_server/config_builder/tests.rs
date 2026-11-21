@@ -1,4 +1,5 @@
 mod inline_roles;
+mod model_editor;
 mod model_names;
 mod validation;
 
@@ -32,6 +33,7 @@ async fn concurrent_saves_publish_the_same_profile_as_disk() {
         .await
         .unwrap();
     let snapshot = server.config_builder_snapshot().await;
+    assert_eq!(snapshot.permission_modes, ["plan", "normal", "full_access"]);
     let schema = snapshot.model_modules[0]
         .config_schema
         .as_ref()
@@ -50,6 +52,7 @@ async fn concurrent_saves_publish_the_same_profile_as_disk() {
     for mode in [
         PermissionMode::Plan,
         PermissionMode::Auto,
+        PermissionMode::FullAccess,
         PermissionMode::Normal,
         PermissionMode::Plan,
     ] {
@@ -118,7 +121,10 @@ async fn first_profile_save_does_not_persist_a_session_mode_override() {
     let server = AgentAppServer::launch(config, home.path().into(), Some(&source))
         .await
         .unwrap();
-    server.set_permission_mode(PermissionMode::Plan).await;
+    server
+        .set_permission_mode(PermissionMode::Plan)
+        .await
+        .unwrap();
     assert!(!source.exists());
     assert_eq!(
         server.local_config_summary().await["permission_mode"],

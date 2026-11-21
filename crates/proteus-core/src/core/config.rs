@@ -13,11 +13,18 @@ use super::core_slots::{CORE_SLOT_DESCRIPTORS, CoreSlotSelection, core_slot_desc
 
 pub(crate) const CONFIG_BUILDER_OVERLAY: &str = "config-builder.toml";
 
+mod behavior_modes;
 mod commands;
 mod files;
 mod inputs;
 mod loading;
+mod model_settings;
+#[doc(hidden)]
+pub use behavior_modes::BehaviorSourceMetadata;
 mod models;
+pub(crate) use model_settings::ModelSourceEdits;
+#[doc(hidden)]
+pub use model_settings::{ModelSourceMetadata, SourceModelRole};
 mod reference;
 mod validation;
 pub use commands::PromptCommandConfig;
@@ -33,6 +40,19 @@ pub use reference::{
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AppConfig {
+    /// Source ownership and exact model references; never part of serialized config.
+    #[doc(hidden)]
+    #[serde(skip)]
+    pub model_source: ModelSourceMetadata,
+    #[doc(hidden)]
+    #[serde(skip)]
+    pub behavior_source: BehaviorSourceMetadata,
+    /// Effective-only behavior tool boundary; never accepted from source config.
+    #[doc(hidden)]
+    #[serde(skip)]
+    pub behavior_tools: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub modes: BTreeMap<String, crate::domain::BehaviorModeDefinition>,
     #[serde(default)]
     pub commands: BTreeMap<String, PromptCommandConfig>,
     #[serde(default)]
@@ -71,6 +91,10 @@ impl Default for AppConfig {
     fn default() -> Self {
         let active_provider = "fake".to_owned();
         Self {
+            model_source: ModelSourceMetadata::default(),
+            behavior_source: BehaviorSourceMetadata::default(),
+            behavior_tools: None,
+            modes: BTreeMap::new(),
             commands: BTreeMap::new(),
             profile: ProfileConfig::default(),
             providers: BTreeMap::from([(
@@ -298,7 +322,7 @@ pub struct InstructionSourceConfig {
     pub priority: u8,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ProviderProfileConfig {
     #[serde(default = "default_model_provider")]
@@ -383,6 +407,9 @@ impl Default for ModelConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ModulesConfig {
+    /// Explicit durable session storage. Absence means no persistent session backend.
+    #[serde(default)]
+    pub session_storage: Option<String>,
     /// Explicit execution order of process hook contributions.
     #[serde(default)]
     pub hooks: Vec<String>,
@@ -397,6 +424,7 @@ pub struct ModulesConfig {
 impl Default for ModulesConfig {
     fn default() -> Self {
         Self {
+            session_storage: None,
             hooks: Vec::new(),
             workflow: None,
             context: None,
@@ -428,6 +456,7 @@ impl ModulesConfig {
 
     pub fn get(&self, kind: ModuleKind) -> Option<&str> {
         match kind {
+            ModuleKind::SessionStorage => self.session_storage.as_deref(),
             ModuleKind::Workflow => self.workflow.as_deref(),
             ModuleKind::Context => self.context.as_deref(),
             ModuleKind::Policy => self.policy.as_deref(),
@@ -448,6 +477,7 @@ impl ModulesConfig {
 
     fn set(&mut self, kind: ModuleKind, module_id: String) -> bool {
         match kind {
+            ModuleKind::SessionStorage => self.session_storage = Some(module_id),
             ModuleKind::Workflow => self.workflow = Some(module_id),
             ModuleKind::Context => self.context = Some(module_id),
             ModuleKind::Policy => self.policy = Some(module_id),

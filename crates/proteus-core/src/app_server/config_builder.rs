@@ -1,5 +1,8 @@
+mod behaviors;
 mod component_packages;
 mod inline_source;
+mod model_connections;
+mod models;
 mod persistence;
 mod plugins;
 #[cfg(test)]
@@ -35,26 +38,29 @@ use super::{
 };
 
 pub use proteus_contracts::app_protocol::config_builder::{
-    ConfigBuilderModule, ConfigBuilderModuleSelection, ConfigBuilderProvider, ConfigBuilderSlot,
-    ConfigBuilderSnapshot, ConfigBuilderState, ConfigBuilderTool, ConfigBuilderWarning,
+    ConfigBuilderModelPreset, ConfigBuilderModelRole, ConfigBuilderModule,
+    ConfigBuilderModuleSelection, ConfigBuilderSlot, ConfigBuilderSnapshot, ConfigBuilderState,
+    ConfigBuilderTool, ConfigBuilderWarning,
 };
 
 impl AppServerHandle {
     pub async fn config_builder_snapshot(&self) -> ConfigBuilderSnapshot {
         let (runtime, _, _, mode) = self.runtime.configuration_view().await;
-        let tools = runtime.registry.tools.entries();
+        let tools = &runtime.registry.tool_inventory;
         let topology = build_topology_snapshot(TopologyBuildInput {
             plan: &runtime.assembly_plan,
-            tools: &tools,
+            tools,
             module_epoch: runtime.epoch,
             permission_mode: mode,
             extra_warnings: Vec::new(),
         });
+        let baseline = self.config.read().await;
         let mut snapshot = config_builder_snapshot_from_topology(
             &topology,
-            runtime.assembly_plan.config(),
+            &baseline,
             &runtime.registry.process_tool_specs,
         );
+        drop(baseline);
         if let Some(message) = self.profile_error.lock().await.clone() {
             snapshot.warnings.push(ConfigBuilderWarning {
                 severity: "error".into(),
@@ -113,10 +119,16 @@ impl AppServerHandle {
                 hooks,
                 module_config,
                 tools_enabled,
-                active_provider,
+                model: active_provider.map(Some),
+                models: None,
+                expected_models: None,
+                role_models: None,
+                modes: None,
+                expected_modes: None,
                 permission_mode,
                 addon_settings: None,
                 component_packages: Vec::new(),
+                remove_model_connections: Vec::new(),
             },
         )
         .await
@@ -141,10 +153,16 @@ impl AppServerHandle {
             hooks,
             module_config,
             tools_enabled,
-            active_provider,
+            model,
+            models,
+            expected_models,
+            role_models,
+            modes,
+            expected_modes,
             permission_mode,
             addon_settings,
             component_packages,
+            remove_model_connections,
         } = request;
         let config_path = self
             .config_path
@@ -162,7 +180,39 @@ impl AppServerHandle {
                 self.config.read().await.clone()
             };
         let replaced_state = config_builder_state(&next_config);
-        let component_ids =
+        if let Some(expected) = expected_models {
+            anyhow::ensure!(
+                models.is_some(),
+                "expected_models requires a model catalogue replacement"
+            );
+            anyhow::ensure!(
+                expected == replaced_state.models,
+                "model catalogue changed; refresh settings before saving"
+            );
+        }
+        let model_edits = models::proposal(
+            &next_config,
+            model.as_ref(),
+            models.as_ref(),
+            role_models.as_ref(),
+        )?;
+        let mode_edits =
+            behaviors::proposal(&next_config, modes.as_ref(), expected_modes.as_ref())?;
+        if model_edits.is_some() || mode_edits.is_some() {
+            if model_edits
+                .as_ref()
+                .is_some_and(|edits| matches!(edits.selected, Some(None)))
+            {
+                anyhow::ensure!(
+                    AppConfig::inherited_model_choice_key(config_path)?.is_none(),
+                    "cannot remove an inherited model selection from an additive include wrapper"
+                );
+            }
+            next_config =
+                AppConfig::load_with_settings_edits(config_path, model_edits.as_ref(), mode_edits)
+                    .await?;
+        }
+        let mut component_ids =
             component_packages::apply(&mut next_config, component_packages, &self.cwd)?;
         if let Some(update) = addon_settings {
             if update
@@ -200,12 +250,14 @@ impl AppServerHandle {
         if let Some(tools_enabled) = tools_enabled {
             next_config.tools.enabled = tools_enabled;
         }
-        if let Some(active_provider) = active_provider {
-            next_config.active_provider = Some(active_provider);
-        }
         if let Some(mode) = permission_mode {
             next_config.permissions.mode = mode;
         }
+        component_ids.extend(model_connections::remove(
+            &mut next_config,
+            config_path,
+            &remove_model_connections,
+        )?);
         next_config.validate_semantics()?;
         let target = config_builder_target_path(Some(config_path))
             .context("config target is not available")?;
@@ -245,7 +297,23 @@ pub(super) fn config_builder_state(config: &AppConfig) -> ConfigBuilderState {
             addons: config.addons.clone(),
             mcp_servers: config.tools.mcp_servers.clone(),
         },
-        active_provider: config.active_provider.clone(),
+        model: models::source_choice(config),
+        models: models::presets(config),
+        role_models: models::roles(config)
+            .into_iter()
+            .filter(|role| role.editable)
+            .map(|role| (role.name, role.model))
+            .collect(),
+        model_connections: config
+            .components
+            .values()
+            .flat_map(|component| component.exports())
+            .filter(|(slot, _, _)| *slot == "model")
+            .map(|(_, id, _)| id.to_owned())
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect(),
+        modes: config.modes.clone(),
         permission_mode: permission_mode_str(config.permissions.mode),
         active_modules: config
             .modules
@@ -288,7 +356,7 @@ pub(super) fn config_builder_snapshot_from_topology(
         })
         .collect();
 
-    let (tools, tool_warnings) = plugins::builder_tools(topology, process_tool_specs);
+    let (tools, tool_warnings) = plugins::builder_tools(topology, process_tool_specs, config);
     let plugins = plugins::builder_plugins(config, &tools);
     let state = config_builder_state(config);
     ConfigBuilderSnapshot {
@@ -296,24 +364,41 @@ pub(super) fn config_builder_snapshot_from_topology(
         config_path: topology.config_path.clone(),
         writable: target_path.is_some(),
         target_path: target_path.map(|path| path.display().to_string()),
-        active_provider: state.active_provider,
-        providers: config_builder_providers(config),
+        model: state.model,
+        model_writable: models::choice_writable(config),
+        models: state.models,
+        models_writable: config.model_source.catalogue_writable,
+        modes: state.modes,
+        modes_writable: config.behavior_source.writable,
+        model_roles: models::roles(config),
         model_modules: modules
             .iter()
             .filter(|module| module.slot == "model")
-            .map(config_builder_module)
+            .map(|module| {
+                let mut item = config_builder_module(module);
+                item.active = config
+                    .active_provider
+                    .as_ref()
+                    .and_then(|alias| config.providers.get(alias))
+                    .is_some_and(|preset| preset.provider == module.id);
+                item
+            })
             .collect(),
         permission_mode: state.permission_mode,
-        permission_modes: PERMISSION_MODES
+        permission_modes: PermissionMode::SELECTABLE
             .iter()
-            .map(|&mode| mode.to_owned())
+            .map(|mode| mode.as_str().to_owned())
             .collect(),
         active_modules: state.active_modules,
         hooks: state.hooks,
         hook_modules: modules
             .iter()
             .filter(|module| module.slot == "hook")
-            .map(config_builder_module)
+            .map(|module| {
+                let mut item = config_builder_module(module);
+                item.active = config.modules.hooks.contains(&module.id);
+                item
+            })
             .collect(),
         module_config: state.module_config,
         tools_enabled: state.tools_enabled,
@@ -360,29 +445,9 @@ fn is_config_builder_module_slot(slot: &str) -> bool {
         .is_some_and(|descriptor| descriptor.selection == CoreSlotSelection::ModulesConfig)
 }
 
-const PERMISSION_MODES: [&str; 3] = ["plan", "normal", "auto"];
-
-/// Snake_case-имя PermissionMode через serde: остаётся в согласии с wire
-/// форматом `POST /mode` и `[permissions] mode` без ручного match.
+/// Каноническое имя для `POST /mode` и `[permissions] mode`.
 fn permission_mode_str(mode: PermissionMode) -> String {
-    serde_json::to_value(mode)
-        .ok()
-        .and_then(|value| value.as_str().map(str::to_owned))
-        .unwrap_or_else(|| "normal".to_owned())
-}
-
-fn config_builder_providers(config: &AppConfig) -> Vec<ConfigBuilderProvider> {
-    config
-        .providers
-        .iter()
-        .map(|(id, profile)| ConfigBuilderProvider {
-            id: id.clone(),
-            provider: profile.provider.clone(),
-            model: profile.model.clone(),
-            label: format!("{}/{}", profile.provider, profile.model),
-            active: config.active_provider.as_ref() == Some(id),
-        })
-        .collect()
+    mode.as_str().to_owned()
 }
 
 pub(super) fn validate_config_builder_modules(

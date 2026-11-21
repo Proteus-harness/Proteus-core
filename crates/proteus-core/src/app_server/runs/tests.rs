@@ -11,6 +11,7 @@ async fn bounded<T>(future: impl std::future::Future<Output = T>) -> T {
 
 fn finalization_config() -> crate::core::AppConfig {
     let mut config = crate::core::AppConfig::default();
+    crate::test_support::storage_config(&mut config);
     config.active_provider = None;
     config.providers.clear();
     config.modules.workflow = Some("finalization_probe".into());
@@ -50,7 +51,7 @@ async fn finalization_defers_send_without_blocking_completion_or_cancel() {
         }
         let completion = server
             .runtime
-            .run_reserved_completion(reserved, cancellation.clone())
+            .run_reserved_completion(reserved, cancellation.clone(), true)
             .await
             .unwrap();
         assert_eq!(completion.output().is_some(), successful);
@@ -123,7 +124,7 @@ async fn shutdown_closes_admission_while_send_waits_for_finalization() {
     };
     let completion = server
         .runtime
-        .run_reserved_completion(reserved, CancellationToken::new())
+        .run_reserved_completion(reserved, CancellationToken::new(), true)
         .await
         .unwrap();
     let (settled_tx, settled) = watch::channel(false);

@@ -12,8 +12,8 @@ settings = {}
 def initialize(params):
     global settings
     export = params["exports"][0]
-    if (export["slot"], export["contract_version"], export["composition"]) != ("model", "v13", "select_one"):
-        raise ProtocolError("expected model/v13")
+    if (export["slot"], export["contract_version"], export["composition"]) != ("model", "v14", "select_one"):
+        raise ProtocolError("expected model/v14")
     settings = export["module_config"]
     return {"protocol_version": "v3", "component_id": params["component_id"], "exports": [
         {**{key: export[key] for key in ("slot", "module_id", "contract_version", "composition")},

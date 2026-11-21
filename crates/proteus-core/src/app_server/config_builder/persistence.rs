@@ -122,14 +122,24 @@ pub(super) async fn persist_config_builder_with_components(
     }
 
     let baseline = source_baseline(path).await?;
-    if model_source_changed(config, baseline.as_ref())?.0
+    let model_changes = model_source_changed(config, baseline.as_ref());
+    if model_changes.0
         && doc.get("model").is_none()
         && doc.get("active_provider").is_none()
         && let Some(outer) = &mut outer
     {
         super::inline_source::remove_selected_role_model(outer, &selection)?;
     }
-    persist_toml_model_source(&mut doc, config, baseline.as_ref(), !selection.is_empty())?;
+    persist_toml_model_source(
+        &mut doc,
+        config,
+        baseline.as_ref(),
+        model_changes,
+        !selection.is_empty(),
+        AppConfig::inherited_model_choice_key(path)?,
+    )?;
+    super::models::toml_roles(&mut doc, config, baseline.as_ref())?;
+    super::behaviors::toml(&mut doc, config, baseline.as_ref())?;
     if doc
         .get("permissions")
         .is_none_or(|item| !item.is_table_like())
@@ -160,21 +170,22 @@ pub(super) async fn persist_config_builder_with_components(
     }
     doc["agent_control"]["surface"] = toml_edit::value(config.agent_control.surface.as_str());
 
-    let omit_model_settings = !selection.is_empty()
-        && omitted_model_settings_unchanged(
-            config,
-            baseline.as_ref(),
-            doc.get("module_config")
-                .and_then(|item| item.get("model"))
-                .is_some(),
-        );
+    let preserve_model_settings =
+        !selection.is_empty() && model_settings_unchanged(config, baseline.as_ref());
     let mut module_config_doc = module_config_toml_document(&config.module_config)?;
-    if omit_model_settings {
+    if preserve_model_settings {
         if let Some(table) = module_config_doc
             .get_mut("module_config")
             .and_then(toml_edit::Item::as_table_like_mut)
         {
-            table.remove("model");
+            match doc.get("module_config").and_then(|item| item.get("model")) {
+                Some(local) => {
+                    table.insert("model", local.clone());
+                }
+                None => {
+                    table.remove("model");
+                }
+            }
         }
     }
     if let Some(item) = module_config_doc.as_table().get("module_config") {
@@ -224,7 +235,7 @@ pub(super) async fn persist_config_builder_with_components(
         let components = toml::to_string_pretty(&ComponentsToml {
             components: component_ids
                 .iter()
-                .map(|id| (id, &config.components[id]))
+                .filter_map(|id| config.components.get(id).map(|component| (id, component)))
                 .collect(),
         })
         .context("components cannot be represented as TOML")?
@@ -233,7 +244,18 @@ pub(super) async fn persist_config_builder_with_components(
             doc["components"] = toml_edit::table();
         }
         for id in component_ids {
-            doc["components"][id] = components["components"][id].clone();
+            match components
+                .get("components")
+                .and_then(|components| components.get(id))
+            {
+                Some(component) => doc["components"][id] = component.clone(),
+                None => {
+                    doc["components"]
+                        .as_table_like_mut()
+                        .context("config components must be a table")?
+                        .remove(id);
+                }
+            }
         }
     }
     if let Some(mut source) = outer {
@@ -278,7 +300,8 @@ async fn persist_json_profile(
         Err(error) => return Err(error.into()),
     };
     let baseline = source_baseline(path).await?;
-    if model_source_changed(config, baseline.as_ref())?.0 && !selection.is_empty() {
+    let model_changes = model_source_changed(config, baseline.as_ref());
+    if model_changes.0 && !selection.is_empty() {
         let child = crate::core::selected_config_value_mut(&mut document, &selection)?;
         if child.get("model").is_none() && child.get("active_provider").is_none() {
             let (name, parents) = selection.split_last().unwrap();
@@ -301,21 +324,38 @@ async fn persist_json_profile(
     let root = crate::core::selected_config_value_mut(&mut document, &selection)?
         .as_object_mut()
         .context("config JSON root must be an object")?;
-    persist_json_model_source(root, config, baseline.as_ref(), !selection.is_empty())?;
-    let omit_model_settings = !selection.is_empty()
-        && omitted_model_settings_unchanged(
-            config,
-            baseline.as_ref(),
+    persist_json_model_source(
+        root,
+        config,
+        baseline.as_ref(),
+        model_changes,
+        !selection.is_empty(),
+        AppConfig::inherited_model_choice_key(path)?,
+    )?;
+    super::models::json_roles(root, config, baseline.as_ref())?;
+    super::behaviors::json(root, config, baseline.as_ref())?;
+    let preserve_model_settings =
+        !selection.is_empty() && model_settings_unchanged(config, baseline.as_ref());
+    let local_model_settings = preserve_model_settings
+        .then(|| {
             root.get("module_config")
                 .and_then(|item| item.get("model"))
-                .is_some(),
-        );
+                .cloned()
+        })
+        .flatten();
     for key in ["modules", "module_config", "addons"] {
         root.insert(key.into(), next[key].clone());
     }
-    if omit_model_settings {
+    if preserve_model_settings {
         if let Some(settings) = root.get_mut("module_config").and_then(Value::as_object_mut) {
-            settings.remove("model");
+            match local_model_settings {
+                Some(local) => {
+                    settings.insert("model".into(), local);
+                }
+                None => {
+                    settings.remove("model");
+                }
+            }
         }
     }
     for (section, keys) in [
@@ -339,7 +379,14 @@ async fn persist_json_profile(
             .as_object_mut()
             .context("config JSON components must be an object")?;
         for id in component_ids {
-            components.insert(id.clone(), next["components"][id].clone());
+            match next["components"].get(id) {
+                Some(component) => {
+                    components.insert(id.clone(), component.clone());
+                }
+                None => {
+                    components.remove(id);
+                }
+            }
         }
     }
     atomic_write(&physical, &serde_json::to_vec_pretty(&document)?).await
@@ -358,34 +405,40 @@ async fn source_baseline(path: &Path) -> Result<Option<AppConfig>> {
     AppConfig::load(Some(path)).await.map(Some)
 }
 
-fn omitted_model_settings_unchanged(
-    config: &AppConfig,
-    baseline: Option<&AppConfig>,
-    source_has_model_settings: bool,
-) -> bool {
-    !source_has_model_settings
-        && baseline.is_some_and(|baseline| {
-            config.module_config.get("model") == baseline.module_config.get("model")
-        })
+// Effective settings include parent-owned entries. An unrelated inline save
+// retains exactly the child's authored table, including its absence.
+fn model_settings_unchanged(config: &AppConfig, baseline: Option<&AppConfig>) -> bool {
+    baseline.is_some_and(|baseline| {
+        config.module_config.get("model") == baseline.module_config.get("model")
+    })
 }
 
-fn model_source_changed(config: &AppConfig, baseline: Option<&AppConfig>) -> Result<(bool, bool)> {
+fn model_source_changed(config: &AppConfig, baseline: Option<&AppConfig>) -> (bool, bool) {
     let Some(baseline) = baseline else {
-        return Ok((true, false));
+        return (true, false);
     };
-    Ok((
-        config.active_provider != baseline.active_provider,
-        serde_json::to_value(&config.providers)? != serde_json::to_value(&baseline.providers)?,
-    ))
+    (
+        super::models::source_choice(config) != super::models::source_choice(baseline),
+        config.providers != baseline.providers,
+    )
 }
 
 fn persist_toml_model_source(
     document: &mut toml_edit::DocumentMut,
     config: &AppConfig,
     baseline: Option<&AppConfig>,
+    (choice_changed, presets_changed): (bool, bool),
     inline: bool,
+    inherited_choice: Option<&str>,
 ) -> Result<()> {
-    let (choice_changed, presets_changed) = model_source_changed(config, baseline)?;
+    let choice = super::models::source_choice(config);
+    if let Some(key) = inherited_choice {
+        validate_inherited_model_edit(config, choice_changed, presets_changed)?;
+        if choice_changed {
+            document[key] = toml_edit::value(choice.as_ref().unwrap().clone());
+        }
+        return Ok(());
+    }
     let named = document.get("models").is_some() || document.get("model").is_some();
     let had_providers = document.get("providers").is_some();
     // Unrelated edits must not turn the loader's inherited bootstrap choice
@@ -396,28 +449,25 @@ fn persist_toml_model_source(
         document.remove("active_provider");
         document.remove("providers");
         if presets_changed || had_providers {
-            #[derive(serde::Serialize)]
-            struct Models<'a> {
-                models: &'a BTreeMap<String, crate::core::ProviderProfileConfig>,
-            }
-            let serialized = toml::to_string_pretty(&Models {
-                models: &config.providers,
-            })?
-            .parse::<toml_edit::DocumentMut>()?;
-            document["models"] = serialized["models"].clone();
+            super::models::toml_presets(document, "models", config, baseline)?;
         }
         if source_has_choice || choice_changed || !inline {
-            if let Some(name) = &config.active_provider {
+            if let Some(name) = &choice {
                 document["model"] = toml_edit::value(name.clone());
             } else {
                 document.remove("model");
             }
         }
-    } else if source_has_choice || choice_changed || !inline {
-        if let Some(name) = &config.active_provider {
-            document["active_provider"] = toml_edit::value(name.clone());
-        } else {
-            document.remove("active_provider");
+    } else {
+        if presets_changed {
+            super::models::toml_presets(document, "providers", config, baseline)?;
+        }
+        if source_has_choice || choice_changed || !inline {
+            if let Some(name) = &choice {
+                document["active_provider"] = toml_edit::value(name.clone());
+            } else {
+                document.remove("active_provider");
+            }
         }
     }
     Ok(())
@@ -427,9 +477,18 @@ fn persist_json_model_source(
     source: &mut serde_json::Map<String, Value>,
     config: &AppConfig,
     baseline: Option<&AppConfig>,
+    (choice_changed, presets_changed): (bool, bool),
     inline: bool,
+    inherited_choice: Option<&str>,
 ) -> Result<()> {
-    let (choice_changed, presets_changed) = model_source_changed(config, baseline)?;
+    let choice = super::models::source_choice(config);
+    if let Some(key) = inherited_choice {
+        validate_inherited_model_edit(config, choice_changed, presets_changed)?;
+        if choice_changed {
+            source.insert(key.into(), Value::String(choice.as_ref().unwrap().clone()));
+        }
+        return Ok(());
+    }
     let source_has_choice = source.contains_key("model") || source.contains_key("active_provider");
     let named = source.contains_key("models") || source.contains_key("model");
     let had_providers = source.contains_key("providers");
@@ -437,21 +496,45 @@ fn persist_json_model_source(
         source.remove("active_provider");
         source.remove("providers");
         if presets_changed || had_providers {
-            source.insert("models".into(), serde_json::to_value(&config.providers)?);
+            super::models::json_presets(source, "models", config, baseline)?;
         }
         if source_has_choice || choice_changed || !inline {
-            if let Some(name) = &config.active_provider {
+            if let Some(name) = &choice {
                 source.insert("model".into(), Value::String(name.clone()));
             } else {
                 source.remove("model");
             }
         }
-    } else if source_has_choice || choice_changed || !inline {
-        if let Some(name) = &config.active_provider {
-            source.insert("active_provider".into(), Value::String(name.clone()));
-        } else {
-            source.remove("active_provider");
+    } else {
+        if presets_changed {
+            super::models::json_presets(source, "providers", config, baseline)?;
+        }
+        if source_has_choice || choice_changed || !inline {
+            if let Some(name) = &choice {
+                source.insert("active_provider".into(), Value::String(name.clone()));
+            } else {
+                source.remove("active_provider");
+            }
         }
     }
+    Ok(())
+}
+
+// An additive wrapper cannot delete an inherited selection or safely replace a
+// catalogue's representation. Reject these edits before any atomic_write rather
+// than publish source which normalizes differently (or cannot be reloaded).
+fn validate_inherited_model_edit(
+    config: &AppConfig,
+    choice_changed: bool,
+    presets_changed: bool,
+) -> Result<()> {
+    anyhow::ensure!(
+        !presets_changed,
+        "edit the included model catalogue at its owning source"
+    );
+    anyhow::ensure!(
+        !choice_changed || super::models::source_choice(config).is_some(),
+        "cannot remove an inherited model selection from an additive include wrapper"
+    );
     Ok(())
 }
