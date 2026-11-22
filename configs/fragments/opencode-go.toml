@@ -58,20 +58,6 @@ model = "glm-5.3-flash"
 stream = true
 reasoning_efforts = ["low", "high", "max"]
 
-# GPT-5.6 Luna
-[providers.go_gpt_5_6_luna]
-provider = "opencode_go"
-model = "gpt-5.6-luna"
-stream = true
-reasoning_efforts = ["none", "low", "medium", "high", "xhigh", "max"]
-
-# GPT-6 Luna
-[providers.go_gpt_6_luna]
-provider = "opencode_go"
-model = "gpt-6-luna"
-stream = true
-reasoning_efforts = ["none", "low", "medium", "high", "xhigh", "max"]
-
 # Grok 4.7
 [providers.go_grok_4_7]
 provider = "opencode_go"

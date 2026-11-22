@@ -31,16 +31,12 @@ use crate::{
     domain::PermissionMode,
 };
 
-use super::{
-    AppServerHandle,
-    config_history::{config_history_dir, record_replaced_state},
-    prepare_assembly,
-};
+use super::{AppServerHandle, prepare_assembly};
 
 pub use proteus_contracts::app_protocol::config_builder::{
     ConfigBuilderModelPreset, ConfigBuilderModelRole, ConfigBuilderModule,
-    ConfigBuilderModuleSelection, ConfigBuilderSlot, ConfigBuilderSnapshot, ConfigBuilderState,
-    ConfigBuilderTool, ConfigBuilderWarning,
+    ConfigBuilderModuleSelection, ConfigBuilderSlot, ConfigBuilderSnapshot, ConfigBuilderTool,
+    ConfigBuilderWarning,
 };
 
 impl AppServerHandle {
@@ -179,14 +175,13 @@ impl AppServerHandle {
             } else {
                 self.config.read().await.clone()
             };
-        let replaced_state = config_builder_state(&next_config);
         if let Some(expected) = expected_models {
             anyhow::ensure!(
                 models.is_some(),
                 "expected_models requires a model catalogue replacement"
             );
             anyhow::ensure!(
-                expected == replaced_state.models,
+                expected == models::presets(&next_config),
                 "model catalogue changed; refresh settings before saving"
             );
         }
@@ -270,62 +265,12 @@ impl AppServerHandle {
 
         let assembly =
             prepare_assembly(&next_config, &self.cwd, self.config_path.as_deref()).await?;
-        let (Some(config_path), Some(target_path)) = (
-            self.config_path.as_deref(),
-            config_builder_target_path(self.config_path.as_deref()),
-        ) else {
-            anyhow::bail!("config path is not available; cannot persist config");
-        };
         self.publish_profile(next_config.clone(), assembly, permission_mode, || async {
-            if replaced_state != config_builder_state(&next_config) {
-                record_replaced_state(&config_history_dir(config_path), replaced_state)
-                    .await
-                    .context("failed to record the replaced profile state")?;
-            }
-            persist_config_builder_with_components(&target_path, &next_config, &component_ids).await
+            persist_config_builder_with_components(&target, &next_config, &component_ids).await
         })
         .await?;
 
         Ok(self.config_builder_snapshot().await)
-    }
-}
-
-/// Builder-managed fields of a profile, shared by the snapshot and history.
-pub(super) fn config_builder_state(config: &AppConfig) -> ConfigBuilderState {
-    ConfigBuilderState {
-        addon_settings: proteus_contracts::app_protocol::addons::AppAddonsUpdate {
-            addons: config.addons.clone(),
-            mcp_servers: config.tools.mcp_servers.clone(),
-        },
-        model: models::source_choice(config),
-        models: models::presets(config),
-        role_models: models::roles(config)
-            .into_iter()
-            .filter(|role| role.editable)
-            .map(|role| (role.name, role.model))
-            .collect(),
-        model_connections: config
-            .components
-            .values()
-            .flat_map(|component| component.exports())
-            .filter(|(slot, _, _)| *slot == "model")
-            .map(|(_, id, _)| id.to_owned())
-            .collect::<std::collections::BTreeSet<_>>()
-            .into_iter()
-            .collect(),
-        modes: config.modes.clone(),
-        permission_mode: permission_mode_str(config.permissions.mode),
-        active_modules: config
-            .modules
-            .iter()
-            .map(|(kind, id)| ConfigBuilderModuleSelection {
-                slot: kind.as_str().to_owned(),
-                id: id.to_owned(),
-            })
-            .collect(),
-        hooks: config.modules.hooks.clone(),
-        module_config: config.module_config.clone(),
-        tools_enabled: config.tools.enabled.clone(),
     }
 }
 
@@ -358,17 +303,19 @@ pub(super) fn config_builder_snapshot_from_topology(
 
     let (tools, tool_warnings) = plugins::builder_tools(topology, process_tool_specs, config);
     let plugins = plugins::builder_plugins(config, &tools);
-    let state = config_builder_state(config);
     ConfigBuilderSnapshot {
-        addon_settings: state.addon_settings,
+        addon_settings: proteus_contracts::app_protocol::addons::AppAddonsUpdate {
+            addons: config.addons.clone(),
+            mcp_servers: config.tools.mcp_servers.clone(),
+        },
         config_path: topology.config_path.clone(),
         writable: target_path.is_some(),
         target_path: target_path.map(|path| path.display().to_string()),
-        model: state.model,
+        model: models::source_choice(config),
         model_writable: models::choice_writable(config),
-        models: state.models,
+        models: models::presets(config),
         models_writable: config.model_source.catalogue_writable,
-        modes: state.modes,
+        modes: config.modes.clone(),
         modes_writable: config.behavior_source.writable,
         model_roles: models::roles(config),
         model_modules: modules
@@ -384,13 +331,20 @@ pub(super) fn config_builder_snapshot_from_topology(
                 item
             })
             .collect(),
-        permission_mode: state.permission_mode,
+        permission_mode: permission_mode_str(config.permissions.mode),
         permission_modes: PermissionMode::SELECTABLE
             .iter()
             .map(|mode| mode.as_str().to_owned())
             .collect(),
-        active_modules: state.active_modules,
-        hooks: state.hooks,
+        active_modules: config
+            .modules
+            .iter()
+            .map(|(kind, id)| ConfigBuilderModuleSelection {
+                slot: kind.as_str().to_owned(),
+                id: id.to_owned(),
+            })
+            .collect(),
+        hooks: config.modules.hooks.clone(),
         hook_modules: modules
             .iter()
             .filter(|module| module.slot == "hook")
@@ -400,8 +354,8 @@ pub(super) fn config_builder_snapshot_from_topology(
                 item
             })
             .collect(),
-        module_config: state.module_config,
-        tools_enabled: state.tools_enabled,
+        module_config: config.module_config.clone(),
+        tools_enabled: config.tools.enabled.clone(),
         tools,
         plugins,
         warnings: topology

@@ -9,7 +9,6 @@ fn protected_endpoints_require_session_token_except_health_and_preflight() {
         (Method::GET, "/config/local"),
         (Method::GET, "/model/quota"),
         (Method::GET, "/config/builder"),
-        (Method::GET, "/config/history"),
         (Method::GET, "/inspect/topology"),
         (Method::GET, "/inspect/plan"),
         (Method::GET, "/inspect/topology.mmd"),

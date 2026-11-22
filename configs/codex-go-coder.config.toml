@@ -1,11 +1,11 @@
 # Дочерняя роль Codex с тем же подключением Go.
 include = ["codex-coder.config.toml", "fragments/codex-go-models.toml"]
-active_provider = "go_gpt_5_6_luna"
+model = "go_deepseek_v4_1_flash"
 
 [profile]
 name = "codex-go-coder"
 
-[providers.go_gpt_5_6_luna.reasoning]
+[models.go_deepseek_v4_1_flash.reasoning]
 effort = "high"
 summary = true
 

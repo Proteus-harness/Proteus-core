@@ -178,15 +178,6 @@ for line in sys.stdin:
     assert!(!disabled_result.ok, "disabled MCP tool must not execute");
     let loaded = AppConfig::load(Some(&config_path)).await.unwrap();
     assert_eq!(loaded.addons, update.addons);
-    let revisions = server.config_history().await.unwrap();
-    assert!(
-        revisions.revisions[0]
-            .state
-            .addon_settings
-            .addons
-            .disabled_skills
-            .is_empty()
-    );
     let saved = std::fs::read(&config_path).unwrap();
     let mut invalid: AppAddonsUpdate = update.clone();
     invalid.addons.plugins[0].path = workspace.path().join("missing-plugin");

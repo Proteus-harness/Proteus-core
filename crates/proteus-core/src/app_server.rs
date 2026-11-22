@@ -26,7 +26,6 @@ mod approval_preview;
 mod approvals;
 mod commands;
 mod config_builder;
-mod config_history;
 mod handle;
 mod profile;
 mod profile_watch;
@@ -56,10 +55,9 @@ mod user_inputs;
 
 pub use config_builder::{
     ConfigBuilderModelPreset, ConfigBuilderModelRole, ConfigBuilderModule,
-    ConfigBuilderModuleSelection, ConfigBuilderSlot, ConfigBuilderSnapshot, ConfigBuilderState,
-    ConfigBuilderTool, ConfigBuilderWarning,
+    ConfigBuilderModuleSelection, ConfigBuilderSlot, ConfigBuilderSnapshot, ConfigBuilderTool,
+    ConfigBuilderWarning,
 };
-pub use config_history::{ConfigHistory, ConfigRevision};
 use context_map::{ContextMapInput, build_context_map_snapshot};
 use path_utils::paths_equal;
 #[cfg(test)]

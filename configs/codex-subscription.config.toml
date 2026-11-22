@@ -4,7 +4,7 @@ instructions = []
 
 [providers.chatgpt]
 provider = "openai_codex"
-model = "gpt-5.6-luna"
+model = "gpt-6.2-sol"
 stream = true
 reasoning_efforts = []
 

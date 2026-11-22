@@ -1,5 +1,5 @@
 # Явная standalone OAuth-роль; основные Go-сборки наследуют модель inline.
-active_provider = "chatgpt"
+model = "chatgpt"
 
 [module_config.hook.codex_compact]
 
@@ -155,13 +155,13 @@ enabled = ["skill", "search", "read_file", "read_many_files", "list_dir", "find_
 [permissions]
 mode = "normal"
 
-[providers.chatgpt]
+[models.chatgpt]
 provider = "openai_codex"
-model = "gpt-5.6-luna"
+model = "gpt-6.2-sol"
 stream = true
 reasoning_efforts = []
 
-[providers.chatgpt.reasoning]
+[models.chatgpt.reasoning]
 effort = "high"
 summary = true
 

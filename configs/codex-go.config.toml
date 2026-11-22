@@ -1,6 +1,6 @@
 # Codex workflow, upstream-инструкции и инструменты; провайдер — OpenCode Go.
 include = ["codex.config.toml", "fragments/codex-go-models.toml"]
-active_provider = "go_gpt_5_6_luna"
+model = "go_deepseek_v4_1_flash"
 
 [profile]
 name = "codex-go"
@@ -10,7 +10,7 @@ name = "codex-go"
 [module_config.tool.codex_patch]
 freeform = false
 
-[providers.go_gpt_5_6_luna.reasoning]
+[models.go_deepseek_v4_1_flash.reasoning]
 effort = "high"
 summary = true
 

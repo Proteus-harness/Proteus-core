@@ -875,7 +875,7 @@ response с полным `output.config`. Сейчас доступны `mode`, 
 HTTP app-server владеет реестром живых sessions, а выбранный чат принадлежит
 конкретному клиентскому окну. Глобальной «текущей session» в HTTP API нет.
 Все сессионные GET, включая `/events`, `/config`, `/config/local`, `/model/quota`,
-`/config/builder`, `/config/history`, `/inspect/*`, `/pending`, `/history`, `/conversation`, `/context`, `/usage`
+`/config/builder`, `/inspect/*`, `/pending`, `/history`, `/conversation`, `/context`, `/usage`
 и `/sessions/current`, требуют query `?session_dir=<URL-encoded path>`.
 Ниже пути этих endpoint-ов сокращены; отсутствие адреса является ошибкой,
 а не выбором session по умолчанию. HTTP launch требует настроенного session
@@ -1102,9 +1102,6 @@ store; stdio остаётся привязанным к одной session пр�
   [model contract](../architecture/process-module-architecture.md#model-streaming).
 - `GET /config/builder` - snapshot selectable modules/tools, provider connections и именованных моделей и
   текущих значений Config Builder;
-- `GET /config/history` - состояния профиля, заменённые сохранениями
-  Config Builder, от новых к старым (`ConfigHistory`); откат — обычный
-  `POST /config/builder` с записанным состоянием;
 - `GET /inspect/plan` - безопасная JSON projection точного `AssemblyPlan`
   текущего module epoch;
 - `GET /inspect/topology` - JSON `TopologySnapshot` для diagnostics UI;

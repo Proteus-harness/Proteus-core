@@ -284,16 +284,15 @@ async fn edited_selected_definitions_reapply_atomically_and_deletion_restores_ba
                 .await
                 .is_err()
         );
-        let history = server.config_history().await.unwrap();
-        assert_eq!(history.revisions[0].state.modes, old.modes);
         server
             .set_profile_config(SetConfigBuilderRequest {
-                modes: Some(history.revisions[0].state.modes.clone()),
+                modes: Some(old.modes.clone()),
                 ..Default::default()
             })
             .await
             .unwrap();
         assert_eq!(selected(&server).await, "quiet");
+        assert_eq!(server.config_builder_snapshot().await.modes, old.modes);
         modes.remove("quiet");
         server
             .set_profile_config(SetConfigBuilderRequest {

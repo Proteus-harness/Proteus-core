@@ -62,14 +62,13 @@ async fn launch(
 }
 
 #[tokio::test]
-async fn invalid_save_preserves_disk_live_epoch_and_history_then_valid_save_succeeds() {
+async fn invalid_save_preserves_disk_and_live_epoch_then_valid_save_succeeds() {
     for format in ["toml", "json", "directory", "missing.toml", "missing.json"] {
         let root = tempfile::tempdir().unwrap();
         let (source, target, server) = launch(root.path(), format, fixture_config()).await;
         let disk = std::fs::read(&target).ok();
         let live = serde_json::to_value(&*server.config.read().await).unwrap();
         let epoch = server.runtime.module_epoch().await;
-        let history = serde_json::to_value(server.config_history().await.unwrap()).unwrap();
         for (request, message) in [
             (
                 serde_json::json!({"module_config":{"unknown_slot":{"unused":{"value":1}}}}),
@@ -95,10 +94,6 @@ async fn invalid_save_preserves_disk_live_epoch_and_history_then_valid_save_succ
                 live
             );
             assert_eq!(server.runtime.module_epoch().await, epoch);
-            assert_eq!(
-                serde_json::to_value(server.config_history().await.unwrap()).unwrap(),
-                history
-            );
         }
         server
             .set_config_builder(
@@ -151,7 +146,6 @@ async fn empty_profile_save_remains_model_free_and_cold_loadable() {
             serde_json::to_value(&*server.config.read().await).unwrap(),
             initial
         );
-        assert!(server.config_history().await.unwrap().revisions.is_empty());
         server
             .set_config_builder(
                 BTreeMap::new(),
@@ -280,7 +274,6 @@ async fn watcher_rejects_same_invalid_slot_and_recovers_without_replacing_valid_
                 .module_config
                 .contains_key("unknown_slot")
         );
-        assert!(server.config_history().await.unwrap().revisions.is_empty());
         let mut recovered = config;
         recovered.permissions.mode = PermissionMode::Plan;
         write_config(&source, &recovered);

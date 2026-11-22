@@ -167,7 +167,7 @@ async fn compact_toml_role_tables_remain_valid_after_nested_managed_settings_are
 }
 
 #[test]
-fn root_and_inline_roles_share_one_write_lock_but_keep_distinct_history() {
+fn root_and_inline_roles_share_one_write_lock_and_store_root() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("agent.toml");
     let reader = crate::core::config_reference(&path, "explore/read").unwrap();
@@ -184,6 +184,4 @@ fn root_and_inline_roles_share_one_write_lock_but_keep_distinct_history() {
         crate::core::config_store_root(&path),
         crate::core::config_store_root(&reader)
     );
-    assert_ne!(config_history_dir(&path), config_history_dir(&reader));
-    assert_ne!(config_history_dir(&reader), config_history_dir(&writer));
 }

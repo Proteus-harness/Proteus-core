@@ -56,7 +56,7 @@ async fn launch_named(root: &Path, extension: &str) -> (PathBuf, AppServerHandle
 }
 
 #[tokio::test]
-async fn model_definitions_and_exact_role_choices_round_trip_and_restore_from_history() {
+async fn model_definitions_and_exact_role_choices_round_trip() {
     for extension in ["toml", "json"] {
         let root = tempfile::tempdir().unwrap();
         let (path, server) = launch_named(root.path(), extension).await;
@@ -147,7 +147,6 @@ async fn model_definitions_and_exact_role_choices_round_trip_and_restore_from_hi
             .unwrap();
         let bytes = std::fs::read(&path).unwrap();
         let epoch = server.runtime.module_epoch().await;
-        let history = server.config_history().await.unwrap();
         unused_deleted.remove("fast-check");
         assert!(
             server
@@ -162,14 +161,17 @@ async fn model_definitions_and_exact_role_choices_round_trip_and_restore_from_hi
         );
         assert_eq!(std::fs::read(&path).unwrap(), bytes);
         assert_eq!(server.runtime.module_epoch().await, epoch);
-        assert_eq!(server.config_history().await.unwrap(), history);
-
-        let state = history.revisions.last().unwrap().state.clone();
         let restored = server
             .set_profile_config(SetConfigBuilderRequest {
-                model: Some(state.model),
-                models: Some(state.models),
-                role_models: Some(state.role_models),
+                model: Some(original.model.clone()),
+                models: Some(original.models.clone()),
+                role_models: Some(
+                    original
+                        .model_roles
+                        .iter()
+                        .map(|role| (role.name.clone(), role.model.clone()))
+                        .collect(),
+                ),
                 ..Default::default()
             })
             .await
@@ -187,7 +189,7 @@ async fn model_definitions_and_exact_role_choices_round_trip_and_restore_from_hi
 }
 
 #[tokio::test]
-async fn inherited_catalogue_and_external_roles_are_read_only_without_source_or_history_writes() {
+async fn inherited_catalogue_and_external_roles_are_read_only() {
     let root = tempfile::tempdir().unwrap();
     let (owner, owner_server) = launch_named(root.path(), "json").await;
     owner_server.shutdown().await;
@@ -235,7 +237,6 @@ async fn inherited_catalogue_and_external_roles_are_read_only_without_source_or_
     );
     assert_eq!(std::fs::read(&wrapper).unwrap(), before);
     assert_eq!(std::fs::read(&owner).unwrap(), owner_before);
-    assert!(server.config_history().await.unwrap().revisions.is_empty());
     server.shutdown().await;
 }
 
@@ -276,7 +277,7 @@ async fn inline_child_model_save_moves_outer_role_choice_before_normalization() 
 }
 
 #[tokio::test]
-async fn child_history_restores_inheritance_without_pinning_the_bootstrap_alias() {
+async fn clearing_child_model_restores_inheritance_without_pinning_the_bootstrap_alias() {
     for extension in ["toml", "json"] {
         let root = tempfile::tempdir().unwrap();
         let (path, parent) = launch_named(root.path(), extension).await;
@@ -296,19 +297,9 @@ async fn child_history_restores_inheritance_without_pinning_the_bootstrap_alias(
             .await
             .unwrap();
         assert_eq!(changed.model.as_deref(), Some("cheap"));
-        let old = server
-            .config_history()
-            .await
-            .unwrap()
-            .revisions
-            .last()
-            .unwrap()
-            .state
-            .clone();
-        assert_eq!(old.model, None);
         let restored = server
             .set_profile_config(SetConfigBuilderRequest {
-                model: Some(old.model),
+                model: Some(None),
                 ..Default::default()
             })
             .await
@@ -421,7 +412,6 @@ async fn guarded_model_replacement_rejects_a_stale_window_without_losing_new_ali
         .await
         .unwrap();
     let bytes = std::fs::read(&path).unwrap();
-    let history = second.config_history().await.unwrap();
     let mut second_models = stale.models.clone();
     second_models.insert("added-b".into(), stale.models["cheap"].clone());
     let error = second
@@ -434,7 +424,6 @@ async fn guarded_model_replacement_rejects_a_stale_window_without_losing_new_ali
         .unwrap_err();
     assert!(error.to_string().contains("catalogue changed"));
     assert_eq!(std::fs::read(&path).unwrap(), bytes);
-    assert_eq!(second.config_history().await.unwrap(), history);
     let mut retry = fresh.models.clone();
     retry.insert("added-b".into(), fresh.models["cheap"].clone());
     let result = second
@@ -451,23 +440,12 @@ async fn guarded_model_replacement_rejects_a_stale_window_without_losing_new_ali
 }
 
 #[tokio::test]
-async fn history_restore_preserves_connections_registered_after_the_revision() {
+async fn saving_model_definitions_preserves_registered_connections() {
     use proteus_contracts::app_protocol::http::ComponentPackageInstall;
 
     let root = tempfile::tempdir().unwrap();
     let (path, server) = launch_named(root.path(), "json").await;
     let original = server.config_builder_snapshot().await;
-    server
-        .set_profile_config(SetConfigBuilderRequest {
-            permission_mode: Some(PermissionMode::Plan),
-            ..Default::default()
-        })
-        .await
-        .unwrap();
-    let historical = server.config_history().await.unwrap().revisions[0]
-        .state
-        .clone();
-    assert_eq!(historical.model_connections, ["fake"]);
     server
         .set_profile_config(SetConfigBuilderRequest {
             component_packages: vec![ComponentPackageInstall {
@@ -490,47 +468,29 @@ async fn history_restore_preserves_connections_registered_after_the_revision() {
         })
         .await
         .unwrap();
-    let current = server.config_builder_snapshot().await;
-    let mut restore_config = historical.module_config.clone();
-    // The client restores managed fields, retaining seeds of components that
-    // were registered after this revision because component registration survives.
-    for (id, config) in &current.module_config["model"] {
-        if !historical.model_connections.contains(id) {
-            restore_config
-                .entry("model".into())
-                .or_default()
-                .insert(id.clone(), config.clone());
-        }
-    }
-    let restored = server
+    let mut models = original.models;
+    models.get_mut("cheap").unwrap().model = "small-v2".into();
+    let updated = server
         .set_profile_config(SetConfigBuilderRequest {
-            model: Some(historical.model),
-            models: Some(historical.models),
-            role_models: Some(historical.role_models),
-            permission_mode: Some(PermissionMode::Normal),
-            module_config: restore_config,
+            models: Some(models.clone()),
             ..Default::default()
         })
         .await
         .unwrap();
-    assert_eq!(restored.permission_mode, "normal");
-    assert_eq!(restored.model, original.model);
-    assert_eq!(restored.models, original.models);
+    assert_eq!(updated.model, original.model);
+    assert_eq!(updated.models, models);
     assert_eq!(
-        restored.module_config["model"]["new-model"],
+        updated.module_config["model"]["new-model"],
         json!({"implementation":"fake"})
     );
     assert!(
-        restored
+        updated
             .plugins
             .iter()
             .any(|plugin| plugin.id == "new-connection")
     );
     let loaded = AppConfig::load(Some(&path)).await.unwrap();
-    assert_eq!(loaded.module_config, restored.module_config);
-    assert_eq!(
-        super::super::config_builder_state(&loaded).model_connections,
-        ["fake", "new-model"]
-    );
+    assert_eq!(loaded.module_config, updated.module_config);
+    assert!(loaded.components.contains_key("new-connection"));
     server.shutdown().await;
 }

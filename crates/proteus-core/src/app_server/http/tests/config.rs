@@ -207,75 +207,35 @@ async fn route_config_builder_returns_editable_module_slots() {
 }
 
 #[tokio::test]
-async fn route_config_history_keeps_replaced_states_for_rollback() {
-    let (state, server, _config_dir) = test_state().await;
-    let history = || async {
-        let response = route_request(
-            state.clone(),
-            authed_get_request(&session_uri("/config/history", &server)),
-        )
-        .await
-        .expect("history response");
-        assert_eq!(response.status(), StatusCode::OK);
-        let history: Value =
-            serde_json::from_slice(&response_bytes(response).await).expect("history JSON");
-        history["revisions"]
-            .as_array()
-            .expect("revisions")
-            .iter()
-            .map(|revision| revision["state"].clone())
-            .collect::<Vec<_>>()
-    };
-    let save = |body: Value| async {
-        let response = route_request(
-            state.clone(),
-            authed_json_request(&session_uri("/config/builder", &server), body),
-        )
-        .await
-        .expect("builder response");
-        assert_eq!(response.status(), StatusCode::OK);
-        serde_json::from_slice::<Value>(&response_bytes(response).await).expect("builder JSON")
-    };
-    assert!(history().await.is_empty());
-
-    save(json!({"permission_mode": "auto"})).await;
-    save(json!({"permission_mode": "auto"})).await;
-    let original = history().await;
+async fn route_config_builder_saves_without_recording_settings_history() {
+    let (state, server, config_dir) = test_state().await;
+    let response = route_request(
+        state.clone(),
+        authed_json_request(
+            &session_uri("/config/builder", &server),
+            json!({"permission_mode": "plan"}),
+        ),
+    )
+    .await
+    .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(server.permission_mode().await, PermissionMode::Plan);
     assert_eq!(
-        original.len(),
-        1,
-        "an unchanged save has nothing to roll back"
+        AppConfig::load(Some(&config_dir.path().join("config.toml")))
+            .await
+            .unwrap()
+            .permissions
+            .mode,
+        PermissionMode::Plan
     );
-    assert_eq!(original[0]["permission_mode"], "normal");
-
-    save(json!({"permission_mode": "plan", "tools_enabled": []})).await;
-    let states = history().await;
-    assert_eq!(states.len(), 2);
-    assert_eq!(states[0]["permission_mode"], "auto", "newest first");
-
-    // Rollback is an ordinary builder save of a recorded state.
-    let restored = &states[1];
-    let snapshot = save(json!({
-        "modules": {},
-        "hooks": restored["hooks"],
-        "module_config": restored["module_config"],
-        "tools_enabled": restored["tools_enabled"],
-        "model": restored["model"],
-        "models": restored["models"],
-        "role_models": restored["role_models"],
-        "permission_mode": restored["permission_mode"],
-    }))
-    .await;
-    assert_eq!(snapshot["permission_mode"], "normal");
-    assert_eq!(snapshot["tools_enabled"], restored["tools_enabled"]);
-    assert_eq!(server.permission_mode().await, PermissionMode::Normal);
-    let states = history().await;
-    assert_eq!(states.len(), 3);
-    assert_eq!(
-        states[0]["permission_mode"], "plan",
-        "rollback is reversible"
-    );
-
+    let response = route_request(
+        state,
+        authed_get_request(&session_uri("/config/history", &server)),
+    )
+    .await
+    .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert!(!config_dir.path().join("config-history").exists());
     server.shutdown().await;
 }
 
