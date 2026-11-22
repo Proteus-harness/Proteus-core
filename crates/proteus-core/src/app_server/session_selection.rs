@@ -236,7 +236,10 @@ async fn persist_pair(
 }
 
 pub(super) enum SelectionUpdate {
-    Model(String),
+    Model {
+        model: String,
+        expected_provider: Option<String>,
+    },
     ReasoningEnabled(bool),
     ReasoningEffort(Option<String>),
 }
@@ -249,12 +252,19 @@ impl super::AppServerHandle {
         tokio::spawn(async move {
             let _transition = server.settings_transition.lock().await;
             match update {
-                SelectionUpdate::Model(model) => {
+                SelectionUpdate::Model {
+                    model,
+                    expected_provider,
+                } => {
                     server
                         .runtime
-                        .set_model_name_with_commit(model, |config, model, reasoning| {
-                            server.persist_selection(config, model, reasoning)
-                        })
+                        .set_model_name_with_commit(
+                            model,
+                            expected_provider.as_deref(),
+                            |config, model, reasoning| {
+                                server.persist_selection(config, model, reasoning)
+                            },
+                        )
                         .await
                 }
                 SelectionUpdate::ReasoningEnabled(enabled) => {

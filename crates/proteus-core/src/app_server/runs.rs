@@ -60,6 +60,13 @@ impl RunRegistry {
         anyhow::ensure!(!self.closed, "session is shutting down");
         anyhow::ensure!(!self.command_active, "session has an active command");
         anyhow::ensure!(
+            !self
+                .active
+                .as_ref()
+                .is_some_and(|run| run.info.status == AppRunStatus::CancelRequested),
+            "session is still stopping the previous request"
+        );
+        anyhow::ensure!(
             allow_queue || self.active.is_none(),
             "session already has an active run"
         );

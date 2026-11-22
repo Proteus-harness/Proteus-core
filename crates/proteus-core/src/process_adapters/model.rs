@@ -38,22 +38,6 @@ pub struct ProcessModel {
 }
 
 impl ProcessModel {
-    async fn start_metadata(&self, method: &str) -> Result<Option<InvocationHandle>> {
-        match self
-            .client
-            .start(
-                method,
-                Value::Null,
-                Arc::new(proteus_module_protocol::v3::NoAsyncHostRequests),
-            )
-            .await
-        {
-            Ok(handle) => Ok(Some(handle)),
-            Err(error) if error.kind == ComponentBrokerErrorKind::UnsupportedFeature => Ok(None),
-            Err(error) => Err(error.into()),
-        }
-    }
-
     pub fn new(
         config: ProcessExportConfig,
         cwd: &Path,
@@ -113,6 +97,49 @@ impl ProcessModel {
         let selected = select(&descriptor);
         self.descriptions.lock().unwrap().insert(key, descriptor);
         Ok(selected)
+    }
+}
+
+impl ProcessExportClient {
+    async fn start_model_metadata(&self, method: &str) -> Result<Option<InvocationHandle>> {
+        match self
+            .start(
+                method,
+                Value::Null,
+                Arc::new(proteus_module_protocol::v3::NoAsyncHostRequests),
+            )
+            .await
+        {
+            Ok(handle) => Ok(Some(handle)),
+            Err(error) if error.kind == ComponentBrokerErrorKind::UnsupportedFeature => Ok(None),
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    /// Reads a catalog from the configured export without binding a model.
+    pub(crate) async fn model_catalog(&self) -> Result<Option<crate::contracts::ModelCatalog>> {
+        let method = crate::contracts::PROCESS_MODEL_CATALOG_METHOD;
+        let Some(mut handle) = self
+            .start_model_metadata(method)
+            .await
+            .with_context(|| self.invocation_context(method))?
+        else {
+            return Ok(None);
+        };
+        let mut guard = CancelOnDrop(Some(handle.cancel_handle()));
+        let terminal = handle
+            .result()
+            .await
+            .with_context(|| self.invocation_context(method))?;
+        guard.disarm();
+        let result: Option<crate::contracts::ModelCatalog> = self.decode(method, terminal)?;
+        if let Some(catalog) = &result {
+            if let Err(error) = catalog.validate() {
+                self.reset();
+                bail!("invalid model catalog: {error}");
+            }
+        }
+        Ok(result)
     }
 }
 
@@ -207,32 +234,12 @@ impl Model for ProcessModel {
     }
 
     async fn catalog(&self) -> Result<Option<crate::contracts::ModelCatalog>> {
-        let method = crate::contracts::PROCESS_MODEL_CATALOG_METHOD;
-        let Some(mut handle) = self
-            .start_metadata(method)
-            .await
-            .with_context(|| self.client.invocation_context(method))?
-        else {
-            return Ok(None);
-        };
-        let terminal = handle
-            .result()
-            .await
-            .with_context(|| self.client.invocation_context(method))?;
-        let result: Option<crate::contracts::ModelCatalog> =
-            self.client.decode(method, terminal)?;
-        if let Some(catalog) = &result {
-            if let Err(error) = catalog.validate() {
-                self.client.reset();
-                bail!("invalid model catalog: {error}");
-            }
-        }
-        Ok(result)
+        self.client.model_catalog().await
     }
 
     async fn quota(&self) -> Result<Option<crate::contracts::ModelQuotaSnapshot>> {
         let method = crate::contracts::PROCESS_MODEL_QUOTA_METHOD;
-        let Some(mut handle) = self.start_metadata(method).await? else {
+        let Some(mut handle) = self.client.start_model_metadata(method).await? else {
             return Ok(None);
         };
         let mut guard = CancelOnDrop(Some(handle.cancel_handle()));

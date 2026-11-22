@@ -178,19 +178,30 @@ impl super::AppServerHandle {
         let (snapshot, model_ref, reasoning, mode) = self.runtime.configuration_view().await;
         let module_epoch = snapshot.epoch;
         let config = snapshot.assembly_plan.config().clone();
-        let selection = super::model_selection::selection_summary(
+        let (active_catalog, inactive_options) = tokio::join!(
+            async {
+                if !discover {
+                    return Ok(None);
+                }
+                snapshot.registry.model_catalog().await
+            },
+            super::model_selection::inactive_model_options(
+                &config,
+                model_ref.as_ref(),
+                &snapshot.registry,
+                discover,
+            ),
+        );
+        let mut selection = super::model_selection::selection_summary(
             &config,
             &model_ref,
             &reasoning,
-            if discover {
-                snapshot.registry.model_catalog().await
-            } else {
-                Ok(None)
-            },
+            active_catalog,
         );
         let tools = snapshot.registry.tools.entries();
         let session_settings =
             super::session_settings::compose(self, mode, &model_ref, &reasoning, &selection).await;
+        selection.models.extend(inactive_options);
         let summary = ConfigSummary {
             display_text: render_config_summary(
                 &config,

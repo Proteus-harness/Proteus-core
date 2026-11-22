@@ -237,8 +237,11 @@ impl AppServerHandle {
     }
 
     pub async fn set_model_name(&self, model: String) -> Result<()> {
-        self.update_selection(session_selection::SelectionUpdate::Model(model))
-            .await
+        self.update_selection(session_selection::SelectionUpdate::Model {
+            model,
+            expected_provider: None,
+        })
+        .await
     }
 
     pub async fn set_reasoning_enabled(&self, enabled: bool) -> Result<()> {

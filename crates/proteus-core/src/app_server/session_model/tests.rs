@@ -145,6 +145,118 @@ async fn another_model_on_the_same_bound_route_reuses_worker_and_refreshes_exact
 }
 
 #[tokio::test]
+async fn picker_discovers_both_routes_and_switches_an_identical_model_id() {
+    use proteus_contracts::app_protocol::{
+        config::ConfigSummary,
+        settings::{SessionSettingControl, SessionSettingUpdate},
+    };
+
+    let root = tempfile::tempdir().unwrap();
+    let cwd = tempfile::tempdir().unwrap();
+    let marker = root.path().join("inactive-catalog-started");
+    let release = root.path().join("inactive-catalog-release");
+    let mut baseline = config();
+    let routes = baseline.module_config.get_mut("model").unwrap();
+    for provider in ["first", "second"] {
+        routes.get_mut(provider).unwrap()["catalog"]["models"][1]["id"] = json!("shared");
+    }
+    let second = routes.get_mut("second").unwrap();
+    second["catalog_wait"] = json!(true);
+    second["catalog_marker"] = json!(marker);
+    second["catalog_release"] = json!(release);
+    let server = launch(baseline.clone(), root.path(), cwd.path()).await;
+    let original = std::fs::read(root.path().join("agent.json")).unwrap();
+    let local: ConfigSummary = serde_json::from_value(server.local_config_summary().await).unwrap();
+    assert_eq!(
+        local
+            .model_options
+            .iter()
+            .map(|option| (option.provider.as_str(), option.name.as_str()))
+            .collect::<Vec<_>>(),
+        [("first", "first-default"), ("second", "second-default")]
+    );
+    assert!(!marker.exists());
+
+    std::fs::write(release, "ready").unwrap();
+    let discovered: ConfigSummary = serde_json::from_value(server.config_summary().await).unwrap();
+    assert!(marker.exists());
+    assert_eq!(
+        discovered
+            .model_options
+            .iter()
+            .filter(|option| option.name == "shared")
+            .map(|option| option.provider.as_str())
+            .collect::<Vec<_>>(),
+        ["first", "second"]
+    );
+    let settings = server.session_settings().await;
+    let SessionSettingControl::Select { options, .. } = &settings
+        .iter()
+        .find(|setting| setting.id == "model")
+        .unwrap()
+        .control
+    else {
+        panic!("model setting must be a selector");
+    };
+    assert_eq!(
+        options
+            .iter()
+            .map(|option| option.value.as_str())
+            .collect::<Vec<_>>(),
+        ["first-default", "shared"],
+        "the string selector remains scoped to its current provider"
+    );
+
+    let setting = |value| SessionSettingUpdate {
+        id: "model".into(),
+        value,
+    };
+    server
+        .set_session_setting(setting(json!("shared")))
+        .await
+        .unwrap();
+    assert_eq!(
+        server.runtime.model_ref().await,
+        Some(ModelRef::new("first", "shared"))
+    );
+    assert_eq!(
+        server.runtime.reasoning().await.effort.as_deref(),
+        Some("low")
+    );
+    let defaults = last_files(root.path());
+    server
+        .set_session_setting(setting(json!({"provider": "second", "model": "shared"})))
+        .await
+        .unwrap();
+    assert_eq!(
+        server.runtime.model_ref().await,
+        Some(ModelRef::new("second", "shared"))
+    );
+    assert_eq!(server.runtime.reasoning().await, ReasoningConfig::default());
+    assert_eq!(last_files(root.path()), defaults);
+    assert_eq!(
+        std::fs::read(root.path().join("agent.json")).unwrap(),
+        original
+    );
+    let directory = server.session_dir_path().unwrap();
+    server.shutdown().await;
+    drop(server);
+    let resumed = AgentAppServer::launch_resumed(
+        baseline,
+        cwd.path().into(),
+        Some(&root.path().join("agent.json")),
+        directory,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        resumed.runtime.model_ref().await,
+        Some(ModelRef::new("second", "shared"))
+    );
+    resumed.shutdown().await;
+}
+
+#[tokio::test]
 async fn no_catalog_uses_all_aliases_capability_metadata_for_the_same_physical_model() {
     let root = tempfile::tempdir().unwrap();
     let cwd = tempfile::tempdir().unwrap();

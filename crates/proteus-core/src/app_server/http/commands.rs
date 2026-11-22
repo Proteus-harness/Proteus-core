@@ -184,7 +184,9 @@ pub(super) async fn spawn_send_run(
     let result = server
         .dispatch_user_message(run_id, input, options, cancellation)
         .await;
-    state.emit_session_activity_for_server(&server).await;
+    if result.is_ok() {
+        state.emit_session_activity_for_server(&server).await;
+    }
     result
 }
 

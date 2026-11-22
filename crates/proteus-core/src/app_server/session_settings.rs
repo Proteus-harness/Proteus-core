@@ -160,6 +160,18 @@ impl super::AppServerHandle {
     }
 
     pub async fn set_session_setting(&self, update: SessionSettingUpdate) -> Result<()> {
+        if update.id == "model" && update.value.is_object() {
+            let model: ModelRef = serde_json::from_value(update.value).map_err(|_| {
+                InvalidSessionSetting("model selection requires provider and model".into())
+            })?;
+            if model.provider.trim().is_empty() || model.model.trim().is_empty() {
+                return Err(InvalidSessionSetting(
+                    "model provider and name must not be empty".into(),
+                )
+                .into());
+            }
+            return super::session_model::select(self, model).await;
+        }
         let settings = self.session_settings().await;
         let setting = settings
             .iter()

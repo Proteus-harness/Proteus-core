@@ -87,13 +87,14 @@ impl AgentRuntime {
     }
 
     pub async fn set_model_name(&self, model: String) -> Result<()> {
-        self.set_model_name_with_commit(model, |_, _, _| async { Ok(()) })
+        self.set_model_name_with_commit(model, None, |_, _, _| async { Ok(()) })
             .await
     }
 
     pub(crate) async fn set_model_name_with_commit<F, Fut>(
         &self,
         model: String,
+        expected_provider: Option<&str>,
         commit: F,
     ) -> Result<()>
     where
@@ -108,20 +109,38 @@ impl AgentRuntime {
         let mut model_ref = admission
             .model_ref
             .ok_or_else(|| anyhow::anyhow!("no active model is configured"))?;
-        model_ref.model = model.to_owned();
+        anyhow::ensure!(
+            expected_provider.is_none_or(|provider| provider == model_ref.provider),
+            "model provider changed during selection; retry selection"
+        );
+        let current = model_ref.model == model;
+        let config = snapshot.assembly_plan.config();
         let catalog = snapshot.registry.model_catalog().await?;
+        if expected_provider.is_some() && catalog.is_none() {
+            anyhow::ensure!(
+                current
+                    || config.providers.values().any(|profile| {
+                        profile.provider == model_ref.provider && profile.model == model
+                    }),
+                "model {model:?} is absent from the configured provider models"
+            );
+        }
         let selected = catalog
             .as_ref()
             .map(|catalog| {
                 catalog
                     .models
                     .iter()
-                    .find(|entry| entry.id == model)
+                    .find(|entry| {
+                        entry.id == model
+                            && (expected_provider.is_none() || !entry.hidden || current)
+                    })
                     .ok_or_else(|| {
                         anyhow::anyhow!("model {model:?} is absent from the provider catalog")
                     })
             })
             .transpose()?;
+        model_ref.model = model.to_owned();
         let tools = snapshot.registry.tools_for_model(Some(&model_ref))?;
         let mut reasoning = admission.reasoning;
         if let Some(selected) = selected {
@@ -138,12 +157,7 @@ impl AgentRuntime {
                 reasoning.budget_tokens = None;
             }
         }
-        commit(
-            snapshot.assembly_plan.config().clone(),
-            model_ref.clone(),
-            reasoning.clone(),
-        )
-        .await?;
+        commit(config.clone(), model_ref.clone(), reasoning.clone()).await?;
         let mut state = self.services.execution_state.write().await;
         state.model_ref = Some(model_ref);
         state.runtime.registry.tools = tools;

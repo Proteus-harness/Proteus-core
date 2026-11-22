@@ -1,4 +1,4 @@
-//! Exact delegated-task model routing, scoped to one durable child session.
+//! Exact model routing scoped to one durable session.
 //! The profile and its shared last-choice preference remain the source baseline.
 use anyhow::{Context, Result, ensure};
 use ring::digest::{SHA256, digest};
@@ -26,6 +26,12 @@ pub(super) enum Stored {
     Absent,
     Invalidated,
     Current(Configuration),
+}
+
+#[derive(Clone, Copy)]
+enum Admission {
+    Exact,
+    Picker,
 }
 
 fn binding(config: &AppConfig, model: &ModelRef) -> Result<String> {
@@ -90,7 +96,16 @@ pub(super) async fn prepare(
     baseline: &AppConfig,
     selected: &Configuration,
 ) -> Result<(AppConfig, PreparedAssembly)> {
-    // A parent may choose only a route configured for the child. Rebinding a
+    prepare_with_admission(server, baseline, selected, Admission::Exact).await
+}
+
+async fn prepare_with_admission(
+    server: &AppServerHandle,
+    baseline: &AppConfig,
+    selected: &Configuration,
+    admission: Admission,
+) -> Result<(AppConfig, PreparedAssembly)> {
+    // The caller may choose only a route configured for this session. Rebinding a
     // different adapter requires a real assembly, never just a changed ModelRef.
     let alias = baseline
         .active_provider
@@ -126,7 +141,7 @@ pub(super) async fn prepare(
         reasoning: selected.reasoning.clone(),
     });
     let assembly = prepare_assembly(&effective, &server.cwd, server.config_path.as_deref()).await?;
-    validate(assembly.registry(), baseline, selected).await?;
+    validate(assembly.registry(), baseline, selected, admission).await?;
     Ok((effective, assembly))
 }
 
@@ -134,6 +149,7 @@ async fn validate(
     registry: &RuntimeRegistry,
     baseline: &AppConfig,
     selected: &Configuration,
+    admission: Admission,
 ) -> Result<()> {
     ensure!(
         !selected.model.provider.trim().is_empty() && !selected.model.model.trim().is_empty(),
@@ -160,24 +176,41 @@ async fn validate(
         })
         .flat_map(|profile| profile.reasoning_efforts.iter())
         .collect::<std::collections::BTreeSet<_>>();
-    if let Some(catalog) = registry.model_catalog().await? {
-        let entry = catalog
-            .models
-            .iter()
-            .find(|entry| entry.id == selected.model.model)
-            .context("selected model is absent from the provider catalog")?;
-        if let Some(effort) = &selected.reasoning.effort {
-            ensure!(
-                entry.reasoning_efforts.contains(effort),
-                "unsupported reasoning effort {effort:?} for model {:?}",
-                selected.model.model
-            );
+    match registry.model_catalog().await? {
+        Some(catalog) => {
+            let entry = catalog
+                .models
+                .iter()
+                .find(|entry| {
+                    entry.id == selected.model.model
+                        && (!matches!(admission, Admission::Picker) || !entry.hidden)
+                })
+                .context("selected model is absent from the provider catalog")?;
+            if let Some(effort) = &selected.reasoning.effort {
+                ensure!(
+                    entry.reasoning_efforts.contains(effort),
+                    "unsupported reasoning effort {effort:?} for model {:?}",
+                    selected.model.model
+                );
+            }
         }
-    } else if let Some(effort) = &selected.reasoning.effort {
-        ensure!(
-            declared_efforts.is_empty() || declared_efforts.contains(effort),
-            "unsupported configured reasoning effort {effort:?}"
-        );
+        None => {
+            if matches!(admission, Admission::Picker) {
+                ensure!(
+                    baseline.providers.values().any(|profile| {
+                        profile.provider == selected.model.provider
+                            && profile.model == selected.model.model
+                    }),
+                    "selected model is absent from the configured provider models"
+                );
+            }
+            if let Some(effort) = &selected.reasoning.effort {
+                ensure!(
+                    declared_efforts.is_empty() || declared_efforts.contains(effort),
+                    "unsupported configured reasoning effort {effort:?}"
+                );
+            }
+        }
     }
     if let Some(capabilities) = registry.model_capabilities(&selected.model)? {
         ensure!(
@@ -206,11 +239,55 @@ impl AppServerHandle {
                 reasoning,
                 stream,
             };
-            apply(&server, &baseline, selected, true).await
+            apply(&server, &baseline, selected, true, Admission::Exact).await
         })
         .await
         .context("session model configuration task failed")?
     }
+}
+
+/// The picker sends the full model reference so identical IDs can coexist
+/// across providers. Keep same-provider changes on the ordinary settings path.
+pub(super) async fn select(server: &AppServerHandle, model: ModelRef) -> Result<()> {
+    if server
+        .runtime
+        .model_ref()
+        .await
+        .is_some_and(|active| active.provider == model.provider)
+    {
+        return server
+            .update_selection(super::session_selection::SelectionUpdate::Model {
+                model: model.model,
+                expected_provider: Some(model.provider),
+            })
+            .await;
+    }
+
+    let server = server.clone();
+    tokio::spawn(async move {
+        let baseline = server.config.read().await.clone();
+        let mut profiles = baseline
+            .providers
+            .values()
+            .filter(|profile| profile.provider == model.provider);
+        let first = profiles
+            .next()
+            .context("selected model provider is not configured for this agent")?;
+        let exact = std::iter::once(first)
+            .chain(profiles)
+            .find(|profile| profile.model == model.model);
+        let selected = Configuration {
+            binding: binding(&baseline, &model)?,
+            reasoning: exact
+                .map(|profile| profile.reasoning.clone())
+                .unwrap_or_default(),
+            stream: exact.unwrap_or(first).stream,
+            model,
+        };
+        apply(&server, &baseline, selected, true, Admission::Picker).await
+    })
+    .await
+    .context("session model selection task failed")?
 }
 
 async fn apply(
@@ -218,6 +295,7 @@ async fn apply(
     baseline: &AppConfig,
     selected: Configuration,
     write: bool,
+    admission: Admission,
 ) -> Result<()> {
     let runs = server.runs.lock().await;
     runs.ensure_idle_for_model_configuration()?;
@@ -243,7 +321,7 @@ async fn apply(
             &selected.reasoning,
             selected.stream,
             |snapshot| async move {
-                validate(&snapshot.registry, baseline, &unchanged).await?;
+                validate(&snapshot.registry, baseline, &unchanged, admission).await?;
                 if write {
                     persist(server, unchanged).await?;
                 }
@@ -255,7 +333,8 @@ async fn apply(
         return Ok(());
     }
     let behavior = super::session_behavior::effective(server, baseline).await;
-    let (effective, assembly) = prepare(server, &behavior, &selected).await?;
+    let (effective, assembly) =
+        prepare_with_admission(server, &behavior, &selected, admission).await?;
     let snapshot = SessionConfigSnapshot::from_runtime_config(
         &effective,
         assembly.registry(),
@@ -292,7 +371,7 @@ pub(super) async fn restore(server: &AppServerHandle, fresh: bool) -> Result<()>
     if !fresh {
         let baseline = server.config.read().await.clone();
         if let Stored::Current(selected) = stored(server, &baseline).await? {
-            apply(server, &baseline, selected, false).await?;
+            apply(server, &baseline, selected, false, Admission::Exact).await?;
         }
     }
     Ok(())

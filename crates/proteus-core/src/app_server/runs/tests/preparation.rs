@@ -235,6 +235,17 @@ async fn cancel_remains_responsive_during_blocked_cold_preparation() {
         server.runs.lock().await.snapshot().active.unwrap().status,
         AppRunStatus::CancelRequested
     );
+    let during_cancel = bounded(server.dispatch_user_message(
+        Some("rejected-during-cancel".into()),
+        "retry after cancel".to_owned(),
+        Default::default(),
+        CancellationToken::new(),
+    ))
+    .await;
+    assert!(
+        matches!(during_cancel, Err(error) if error.to_string().contains("still stopping")),
+        "a send during cancellation must be refused before touching the queue"
+    );
     drop(gate);
     assert!(bounded(result).await.unwrap().is_err());
     assert_eq!(std::fs::read(store.journal_path()).unwrap(), before);

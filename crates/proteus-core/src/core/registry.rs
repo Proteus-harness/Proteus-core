@@ -86,6 +86,38 @@ impl RuntimeRegistry {
         }
     }
 
+    /// Reuse the configured component's metadata path without preparing an
+    /// assembly, binding a model, or calling the provider's describe method.
+    pub(crate) async fn inactive_model_catalog(
+        &self,
+        provider: &str,
+    ) -> Result<Option<crate::contracts::ModelCatalog>> {
+        use crate::contracts::PROCESS_MODEL_CONTRACT_VERSION;
+        use crate::process_adapters::ProcessExportClient;
+
+        let Some(export) = self
+            .config_exports
+            .iter()
+            .find(|export| export.slot() == "model" && export.module_id() == provider)
+            .cloned()
+        else {
+            return Ok(None);
+        };
+        let cwd = self.cwd.clone();
+        let timeout = self.runtime_config.model_timeout_ms;
+        let client = tokio::task::spawn_blocking(move || {
+            ProcessExportClient::connect(
+                "model",
+                PROCESS_MODEL_CONTRACT_VERSION,
+                export,
+                &cwd,
+                timeout,
+            )
+        })
+        .await??;
+        client.model_catalog().await
+    }
+
     pub(crate) fn model_capabilities(
         &self,
         model: &ModelRef,
