@@ -360,7 +360,7 @@ pub(super) fn save_model(
         return None;
     }
     let previous = header(store);
-    let conversation = write_section(store, source, &model.conversation.messages)?;
+    let conversation = write_transcript(store, source, &model.conversation.messages)?;
     let transcript = write_transcript(store, source, &model.transcript)?;
     let context = write_section(store, source, &model.conversation.model_context)?;
     let base = previous.as_ref().and_then(|previous| {
