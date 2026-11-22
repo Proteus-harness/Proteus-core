@@ -244,17 +244,16 @@ pub(in crate::core::session_store::remote::view) fn visit_section<T: Deserialize
 
 pub(super) fn valid_section(section: &Section) -> bool {
     section.pages.len() <= MAX_PAGES
-        && section.pages.iter().all(|page| {
-            (1..=PAGE_ROWS).contains(&page.rows)
-                && page.bytes <= SESSION_STORAGE_MAX_CACHE_BYTES
-                && (page.bytes <= NORMAL_PAGE_BYTES || page.rows == 1)
-                && page.hash.len() == 64
-                && page.hash.bytes().all(|byte| byte.is_ascii_hexdigit())
-        })
-        && section
-            .pages
-            .iter()
-            .try_fold(0usize, |rows, page| rows.checked_add(page.rows))
-            == Some(section.rows)
+        && section.pages.iter().try_fold(0usize, |rows, page| {
+            if !(1..=PAGE_ROWS).contains(&page.rows)
+                || page.bytes > SESSION_STORAGE_MAX_CACHE_BYTES
+                || (page.bytes > NORMAL_PAGE_BYTES && page.rows != 1)
+                || page.hash.len() != 64
+                || !page.hash.bytes().all(|byte| byte.is_ascii_hexdigit())
+            {
+                return None;
+            }
+            rows.checked_add(page.rows)
+        }) == Some(section.rows)
         && packs::valid_spans(section)
 }
