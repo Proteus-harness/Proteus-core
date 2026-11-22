@@ -12,6 +12,7 @@ mod model;
 mod policy;
 mod sandbox;
 mod session_storage;
+mod startup_trace;
 mod tool;
 mod workflow;
 

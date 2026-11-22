@@ -19,7 +19,7 @@ use proteus_module_protocol::{
 use serde_json::Value;
 use tokio::sync::{Mutex, mpsc};
 
-use super::{ProcessExportClient, ProcessExportConfig};
+use super::{ProcessExportClient, ProcessExportConfig, startup_trace::{self, Phase}};
 use crate::{
     contracts::{
         MODEL_HOST_EMIT_METHOD, Model, PROCESS_MODEL_CONTRACT_VERSION,
@@ -61,19 +61,17 @@ impl ProcessModel {
         timeout_ms: u64,
         model: ModelRef,
     ) -> Result<Self> {
-        let client = Arc::new(ProcessExportClient::connect(
-            "model",
-            PROCESS_MODEL_CONTRACT_VERSION,
-            config,
-            cwd,
-            timeout_ms,
-        )?);
-        let descriptor: ProcessModelDescriptor = client.invoke_bootstrap(
-            PROCESS_MODEL_DESCRIBE_METHOD,
-            &crate::contracts::ProcessModelDescribeRequest {
-                model: model.clone(),
-            },
-        )?;
+        let client = Arc::new(startup_trace::measure(Phase::ModelInitialize, || {
+            ProcessExportClient::connect("model", PROCESS_MODEL_CONTRACT_VERSION, config, cwd, timeout_ms)
+        })?);
+        let descriptor: ProcessModelDescriptor = startup_trace::measure(Phase::ModelDescribe, || {
+            client.invoke_bootstrap(
+                PROCESS_MODEL_DESCRIBE_METHOD,
+                &crate::contracts::ProcessModelDescribeRequest {
+                    model: model.clone(),
+                },
+            )
+        })?;
         if descriptor.adapter_id.trim().is_empty() {
             client.reset();
             bail!("model describe returned an empty adapter_id");

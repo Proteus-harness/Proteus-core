@@ -26,6 +26,7 @@ use crate::{
 use super::{
     ProcessExportClient, ProcessExportConfig,
     host_rpc::{callback_error, decode, encode},
+    startup_trace::{self, Phase},
 };
 
 const DEFAULT_TIMEOUT_MS: u64 = 30_000;
@@ -42,13 +43,15 @@ impl ProcessContextBuilder {
         providers: Vec<(String, Arc<dyn RepoAwareContextProvider>)>,
     ) -> Result<Self> {
         Ok(Self {
-            client: Arc::new(ProcessExportClient::connect(
-                "context",
-                PROCESS_CONTEXT_CONTRACT_VERSION,
-                config,
-                workspace,
-                DEFAULT_TIMEOUT_MS,
-            )?),
+            client: Arc::new(startup_trace::measure(Phase::ContextInitialize, || {
+                ProcessExportClient::connect(
+                    "context",
+                    PROCESS_CONTEXT_CONTRACT_VERSION,
+                    config,
+                    workspace,
+                    DEFAULT_TIMEOUT_MS,
+                )
+            })?),
             providers,
         })
     }
