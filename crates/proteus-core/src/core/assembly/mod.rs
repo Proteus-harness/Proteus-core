@@ -60,10 +60,6 @@ impl AssemblyPlan {
                 .map(|(kind, id)| (kind.as_str().to_owned(), id.to_owned())),
         );
 
-        let known = catalog_entries
-            .iter()
-            .map(|entry| ((entry.slot.clone(), entry.id.clone()), entry))
-            .collect::<BTreeMap<_, _>>();
         let export_components = configured_export_components(&config);
         let slots = CORE_SLOT_DESCRIPTORS
             .iter()
@@ -72,7 +68,7 @@ impl AssemblyPlan {
                 let module_id = active_modules.get(slot_id).cloned();
                 let entry = module_id
                     .as_ref()
-                    .and_then(|id| known.get(&(slot_id.to_owned(), id.clone())).copied());
+                    .and_then(|id| known_catalog_entry(&catalog_entries, slot_id, id));
                 if let Some(module_id) = &module_id
                     && entry.is_none()
                 {
@@ -88,8 +84,8 @@ impl AssemblyPlan {
                 });
                 let component_id = module_id.as_ref().and_then(|id| {
                     export_components
-                        .get(&(slot_id.to_owned(), id.clone()))
-                        .cloned()
+                        .get(&(slot_id, id.as_str()))
+                        .map(|&owner| owner.to_owned())
                 });
                 AssemblySlotPlan {
                     id: slot_id.to_owned(),
@@ -112,7 +108,7 @@ impl AssemblyPlan {
             checks.push(AssemblyCheck::error("invalid_commands", error.to_string()));
         }
         for id in &config.modules.hooks {
-            if !known.contains_key(&("hook".to_owned(), id.clone())) {
+            if known_catalog_entry(&catalog_entries, "hook", id).is_none() {
                 checks.push(AssemblyCheck::error(
                     "hook_not_registered",
                     format!("active hook is not registered: hook/{id}"),
@@ -275,14 +271,25 @@ impl PreparedAssembly {
     }
 }
 
-fn configured_export_components(config: &AppConfig) -> BTreeMap<(String, String), String> {
+fn known_catalog_entry<'a>(
+    entries: &'a [ModuleCatalogEntrySummary],
+    slot: &str,
+    module_id: &str,
+) -> Option<&'a ModuleCatalogEntrySummary> {
+    // ModuleCatalog::entry_summaries sorts by (slot, id).
+    let key = (slot, module_id);
+    let index = entries
+        .partition_point(|entry| (entry.slot.as_str(), entry.id.as_str()) <= key)
+        .checked_sub(1)?;
+    let entry = entries.get(index)?;
+    ((entry.slot.as_str(), entry.id.as_str()) == key).then_some(entry)
+}
+
+fn configured_export_components(config: &AppConfig) -> BTreeMap<(&str, &str), &str> {
     let mut components = BTreeMap::new();
     for (component_id, component) in &config.components {
         for (slot, module_id, _) in component.exports() {
-            components.insert(
-                (slot.to_owned(), module_id.to_owned()),
-                component_id.clone(),
-            );
+            components.insert((slot, module_id), component_id.as_str());
         }
     }
     components

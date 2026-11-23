@@ -165,7 +165,7 @@ fn validate_component_shapes(config: &AppConfig) -> Result<()> {
     for (component_id, component) in &config.components {
         component.validate_for(component_id, &format!("components.{component_id}"))?;
         for (slot, module_id, _) in component.exports() {
-            if !exports.insert((slot.to_owned(), module_id.to_owned())) {
+            if !exports.insert((slot, module_id)) {
                 bail!("duplicate process component export: {slot}/{module_id}");
             }
         }

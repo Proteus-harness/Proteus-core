@@ -160,7 +160,16 @@ fn walk(root: &Path) -> (Vec<String>, bool) {
 /// a match in the file name beats one spread over directories, a
 /// contiguous match beats a scattered subsequence.
 fn score(terms: &[String], path: &str) -> Option<i64> {
-    let lower = path.to_lowercase();
+    let folded;
+    let lower = if path
+        .bytes()
+        .all(|byte| byte.is_ascii() && !byte.is_ascii_uppercase())
+    {
+        path
+    } else {
+        folded = path.to_lowercase();
+        folded.as_str()
+    };
     let name_start = lower.rfind('/').map_or(0, |index| index + 1);
     let name = &lower[name_start..];
     let mut total = 0;
@@ -174,7 +183,7 @@ fn score(terms: &[String], path: &str) -> Option<i64> {
         } else if lower.contains(term) {
             1000
         } else {
-            subsequence(term, &lower, name_start)?
+            subsequence(term, lower, name_start)?
         };
     }
     Some(total - path.matches('/').count() as i64)

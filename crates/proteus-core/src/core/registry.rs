@@ -250,7 +250,7 @@ impl RuntimeRegistry {
                 .transpose()?,
         };
         Ok(Self {
-            config_exports: catalog.config_exports.clone(),
+            config_exports: catalog.config_exports,
             session_storage,
             hooks,
             cwd: cwd.to_path_buf(),

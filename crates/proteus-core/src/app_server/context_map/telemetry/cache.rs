@@ -122,16 +122,24 @@ pub(super) fn insert(key: Key, source: SourceStamp, telemetry: Arc<Telemetry>) {
         telemetry,
         bytes: count.0,
     });
-    while cache.entries.len() > MAX_ENTRIES
-        || cache.bytes > MAX_BYTES
-        || cache
+    while cache.entries.len() > MAX_ENTRIES || cache.bytes > MAX_BYTES {
+        let old = cache.entries.pop_front().unwrap();
+        cache.bytes -= old.bytes;
+    }
+    // Keep the longest suffix with at most MAX_LOGS distinct paths.
+    let discard = {
+        let mut logs = BTreeSet::new();
+        cache
             .entries
             .iter()
-            .map(|entry| &entry.key.path)
-            .collect::<BTreeSet<_>>()
-            .len()
-            > MAX_LOGS
-    {
+            .rev()
+            .position(|entry| {
+                logs.insert(&entry.key.path);
+                logs.len() > MAX_LOGS
+            })
+            .map_or(0, |keep| cache.entries.len() - keep)
+    };
+    for _ in 0..discard {
         let old = cache.entries.pop_front().unwrap();
         cache.bytes -= old.bytes;
     }

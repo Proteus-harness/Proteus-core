@@ -136,8 +136,7 @@ pub(super) fn scan(root: &Path, pathspecs: &[String]) -> Result<Scan> {
         }
         let (path, original, staged, unstaged, index) = match record.as_bytes().first() {
             Some(b'1') => {
-                let fields: Vec<_> = record.splitn(9, ' ').collect();
-                ensure!(fields.len() == 9, "invalid Git status record");
+                let fields = status_fields::<9>(record)?;
                 let (staged, unstaged) = states(fields[1])?;
                 (
                     fields[8],
@@ -148,8 +147,7 @@ pub(super) fn scan(root: &Path, pathspecs: &[String]) -> Result<Scan> {
                 )
             }
             Some(b'2') => {
-                let fields: Vec<_> = record.splitn(10, ' ').collect();
-                ensure!(fields.len() == 10, "invalid Git status record");
+                let fields = status_fields::<10>(record)?;
                 let Some(original) = records.next() else {
                     ensure!(output.truncated, "incomplete Git rename record");
                     break;
@@ -165,8 +163,7 @@ pub(super) fn scan(root: &Path, pathspecs: &[String]) -> Result<Scan> {
                 )
             }
             Some(b'u') => {
-                let fields: Vec<_> = record.splitn(11, ' ').collect();
-                ensure!(fields.len() == 11, "invalid Git status record");
+                let fields = status_fields::<11>(record)?;
                 let index = (0..3)
                     .map(|i| revision::stage(fields[3 + i], fields[7 + i], (i + 1) as u8))
                     .collect::<String>();
@@ -202,6 +199,18 @@ pub(super) fn scan(root: &Path, pathspecs: &[String]) -> Result<Scan> {
         });
     }
     Ok(scan)
+}
+
+fn status_fields<const N: usize>(record: &str) -> Result<[&str; N]> {
+    let mut parts = record.splitn(N, ' ');
+    let mut fields = [""; N];
+    for field in &mut fields {
+        let Some(part) = parts.next() else {
+            anyhow::bail!("invalid Git status record");
+        };
+        *field = part;
+    }
+    Ok(fields)
 }
 
 impl Scan {
