@@ -9,7 +9,8 @@ use anyhow::Result;
 use crate::{
     contracts::OperationOwner,
     core::{
-        JournalEntry, JournalReadSnapshot, JournalRecord, ModelResponseOutcome, ToolCallRecordPhase,
+        CompactTextRow, DisplayRows, JournalEntry, JournalReadSnapshot, JournalRecord,
+        ModelResponseOutcome, ToolCallRecordPhase,
     },
     domain::TurnId,
     model_standard::ContentPart,
@@ -26,11 +27,26 @@ pub(crate) fn journal_transcript_from_source(
     source: &mut JournalReadSnapshot,
     live_turn_id: Option<TurnId>,
 ) -> Result<Vec<AppTranscriptMessage>> {
+    render_source(source, live_turn_id, false).map(DisplayRows::into_full)
+}
+
+pub(crate) fn journal_transcript_for_startup(
+    source: &mut JournalReadSnapshot,
+) -> Result<DisplayRows> {
+    render_source(source, None, true)
+}
+
+fn render_source(
+    source: &mut JournalReadSnapshot,
+    live_turn_id: Option<TurnId>,
+    allow_compact: bool,
+) -> Result<DisplayRows> {
     if let Some((root_threads, single_record)) = source.take_staged_causal_roots() {
         return render_causal(
             &mut |visit| source.scan_display(visit),
             live_turn_id,
             single_record,
+            allow_compact,
             TranscriptVisibility {
                 root_threads,
                 certified_text_responses: true,
@@ -38,7 +54,7 @@ pub(crate) fn journal_transcript_from_source(
             },
         );
     }
-    transcript_from_scan(|visit| source.scan_display(visit), live_turn_id)
+    transcript_from_scan(|visit| source.scan_display(visit), live_turn_id).map(DisplayRows::Full)
 }
 
 pub(super) fn transcript_from_scan(
@@ -217,8 +233,9 @@ fn render_causal(
     scan: &mut impl FnMut(&mut dyn FnMut(JournalRecord) -> Result<()>) -> Result<()>,
     live_turn_id: Option<TurnId>,
     single_record: bool,
+    allow_compact: bool,
     visibility: TranscriptVisibility,
-) -> Result<Vec<AppTranscriptMessage>> {
+) -> Result<DisplayRows> {
     let mut replay = TranscriptReplay {
         state: TranscriptProjectionState {
             timestamps: TranscriptTimestamps::staged(single_record),
@@ -228,16 +245,47 @@ fn render_causal(
         final_results: Default::default(),
         subagent_bindings: Default::default(),
     };
+    let mut compact = None;
     scan(&mut |mut record| {
         replay.state.timestamps.collect_record::<false>(&record);
         if let JournalEntry::HistoryMutated(mutation) = &mut record.entry
             && mutation.mutation == HistoryMutationKind::Append
         {
             if !(live_turn_id.is_some() && record.turn_id == live_turn_id) {
-                // Only the staged record owns these decoded rows. Release each
-                // row's unused parts and metadata as its display output grows.
-                for mut message in std::mem::take(&mut mutation.messages) {
-                    replay.state.append_staged_message(&mut message);
+                if allow_compact
+                    && replay.state.timestamps.certified_text_append()
+                    && (4_096..=65_536).contains(&mutation.messages.len())
+                    && mutation
+                        .messages
+                        .iter()
+                        .all(|message| message.parts.len() == 1)
+                {
+                    let mut rows = Vec::new();
+                    for mut message in std::mem::take(&mut mutation.messages) {
+                        let timestamp_ms = replay.state.timestamps.message(&message);
+                        if let Some(text) = replay.state.take_staged_text(&mut message.parts[0]) {
+                            rows.push(CompactTextRow {
+                                message_id: message.id,
+                                timestamp_ms,
+                                phase: message.phase,
+                                role: super::super::transcript_role(&message.role),
+                                text,
+                            });
+                        }
+                    }
+                    compact = Some(rows);
+                } else {
+                    if replay.state.timestamps.certified_text_append() {
+                        replay
+                            .state
+                            .transcript
+                            .certify_text_append(mutation.messages.len());
+                    }
+                    // Only the staged record owns these decoded rows. Release each
+                    // row's unused parts and metadata as its display output grows.
+                    for mut message in std::mem::take(&mut mutation.messages) {
+                        replay.state.append_staged_message(&mut message);
+                    }
                 }
             }
         } else {
@@ -245,7 +293,12 @@ fn render_causal(
         }
         Ok(())
     })?;
-    Ok(replay.finish())
+    // A compact row owner is eligible only on a certified one-record scan;
+    // an extra or truncated staged record failed before reaching here.
+    Ok(match compact {
+        Some(rows) => DisplayRows::Text(rows),
+        None => DisplayRows::Full(replay.finish()),
+    })
 }
 
 #[cfg(test)]

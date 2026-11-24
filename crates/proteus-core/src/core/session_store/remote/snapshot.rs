@@ -315,7 +315,7 @@ impl RemoteValidatedRead {
         let mut prefix_history_fingerprints = prefix_seq.filter(|seq| *seq == 0).map(|_| vec![]);
         let mut validation = proteus_session_semantics::JournalValidationState::default();
         let mut usage = proteus_session_semantics::UsageProjection::default();
-        let mut context = proteus_session_semantics::ModelContextProjection::default();
+        let mut context = proteus_session_semantics::ModelContextProjection::current_only();
         let mut next_seq = 1;
         source.scan(|record| {
             let record_seq = record.session_seq;

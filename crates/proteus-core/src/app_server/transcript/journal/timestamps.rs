@@ -160,6 +160,11 @@ impl TranscriptTimestamps {
         }
     }
 
+    /// This is the single staged text-only Append proof, not just equal dates.
+    pub(super) fn certified_text_append(&self) -> bool {
+        self.uniform_message_date.is_some()
+    }
+
     pub(super) fn message(&self, message: &CanonicalMessage) -> Option<i64> {
         if let Some(date) = self.uniform_message_date {
             return Some(date);

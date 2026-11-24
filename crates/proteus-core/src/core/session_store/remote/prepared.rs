@@ -2,12 +2,13 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
+#[cfg(test)]
 use proteus_contracts::app_protocol::AppTranscriptMessage;
 
 use super::{
     RemoteSessionStore, StorageService, catalog,
     snapshot::{RemoteJournalSnapshot, RemoteValidatedRead},
-    view::{RemoteCacheSource, SessionReadView},
+    view::{DisplayRows, RemoteCacheSource, SessionReadView},
 };
 
 pub(crate) struct PreparedSession {
@@ -54,6 +55,7 @@ impl PreparedSession {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn into_display_view(
         self,
         render: impl FnOnce(&mut RemoteJournalSnapshot) -> Result<Vec<AppTranscriptMessage>>,
@@ -62,9 +64,20 @@ impl PreparedSession {
         SessionReadView,
         Option<RemoteCacheSource>,
     )> {
+        self.into_startup_view(|snapshot| render(snapshot).map(DisplayRows::Full))
+    }
+
+    pub(crate) fn into_startup_view(
+        self,
+        render: impl FnOnce(&mut RemoteJournalSnapshot) -> Result<DisplayRows>,
+    ) -> Result<(
+        RemoteSessionStore,
+        SessionReadView,
+        Option<RemoteCacheSource>,
+    )> {
         let (view, cached_source) = match self.history {
             PreparedHistory::Validated(read) => {
-                (self.store.project_validated_view(read, true, render)?, None)
+                (self.store.project_startup_view(read, true, render)?, None)
             }
             PreparedHistory::Cached(source, view) => (view, Some(source)),
         };

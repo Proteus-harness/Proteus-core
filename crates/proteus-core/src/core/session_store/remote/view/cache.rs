@@ -409,28 +409,63 @@ pub(super) fn save_model(
         cursor,
         Cow::Borrowed(&model.conversation.messages),
         Cow::Borrowed(&model.conversation.model_context),
+        RowsRef::Full(&model.transcript),
     )
 }
 
 /// Startup returns a display-only view, never the canonical messages/context.
 /// Keep the already rendered transcript for a potential named-page miss.
-pub(super) fn save_startup_model(
+pub(super) fn save_startup_model<T: CacheRows>(
     store: &RemoteSessionStore,
     source: &RemoteCacheSource,
-    model: &mut SessionReadModel,
+    model: &mut SessionReadModel<T>,
 ) -> Option<()> {
     let messages = Cow::Owned(std::mem::take(&mut model.conversation.messages));
     let context = Cow::Owned(std::mem::take(&mut model.conversation.model_context));
-    save_model_sections(store, source, model, None, messages, context)
+    save_model_sections(
+        store,
+        source,
+        model,
+        None,
+        messages,
+        context,
+        model.transcript.rows_ref(),
+    )
 }
 
-fn save_model_sections(
+#[derive(Clone, Copy)]
+pub(super) enum RowsRef<'a> {
+    Full(&'a [AppTranscriptMessage]),
+    Text(&'a [CompactTextRow]),
+}
+
+pub(super) trait CacheRows {
+    fn rows_ref(&self) -> RowsRef<'_>;
+}
+
+impl CacheRows for Vec<AppTranscriptMessage> {
+    fn rows_ref(&self) -> RowsRef<'_> {
+        RowsRef::Full(self)
+    }
+}
+
+impl CacheRows for DisplayRows {
+    fn rows_ref(&self) -> RowsRef<'_> {
+        match self {
+            DisplayRows::Full(rows) => RowsRef::Full(rows),
+            DisplayRows::Text(rows) => RowsRef::Text(rows),
+        }
+    }
+}
+
+fn save_model_sections<T>(
     store: &RemoteSessionStore,
     source: &RemoteCacheSource,
-    model: &SessionReadModel,
+    model: &SessionReadModel<T>,
     cursor: Option<&RemoteJournalCursor>,
     mut messages: Cow<'_, [CanonicalMessage]>,
     observations: Cow<'_, [ModelContextObservation]>,
+    rows: RowsRef<'_>,
 ) -> Option<()> {
     if !SessionReadModel::matches_parts(store, &model.summary, &model.usage, messages.len()) {
         return None;
@@ -445,17 +480,25 @@ fn save_model_sections(
         }
         Cow::Borrowed(_) => None,
     };
-    let transcript = write_transcript(store, source, &model.transcript)?;
+    let transcript = match rows {
+        RowsRef::Full(rows) => write_transcript(store, source, rows)?,
+        RowsRef::Text(rows) => write_transcript(store, source, rows)?,
+    };
     let context = write_section(store, source, observations.as_ref())?;
     drop(observations);
     let base = previous.and_then(|(old_source, old_transcript)| {
         Some(AppTranscriptBase {
             revision: old_source.revision()?,
-            common_prefix: common_prefix(store, &old_transcript, &transcript, &model.transcript)?,
+            common_prefix: match rows {
+                RowsRef::Full(rows) => common_prefix(store, &old_transcript, &transcript, rows)?,
+                RowsRef::Text(rows) => common_prefix(store, &old_transcript, &transcript, rows)?,
+            },
         })
     });
     let mut tools = BTreeMap::new();
-    update_tools(store, source, &mut tools, &model.transcript)?;
+    if let RowsRef::Full(rows) = rows {
+        update_tools(store, source, &mut tools, rows)?;
+    }
     publish(
         store,
         &Header {
@@ -480,11 +523,11 @@ fn save_model_sections(
     )
 }
 
-fn common_prefix(
+fn common_prefix<T: Serialize>(
     store: &RemoteSessionStore,
     old: &Section,
     new: &Section,
-    rows: &[AppTranscriptMessage],
+    rows: &[T],
 ) -> Option<usize> {
     let mut common = 0;
     for (before, after) in old.pages.iter().zip(&new.pages) {

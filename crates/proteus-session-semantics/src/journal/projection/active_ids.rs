@@ -45,6 +45,14 @@ impl JournalValidationState {
         Ok(())
     }
 
+    pub(super) fn check_replacement_ids(&mut self, messages: &[CanonicalMessage]) -> Result<()> {
+        self.active_ids = None;
+        let mut ids = ActiveIds::default();
+        ids.extend(messages)?;
+        self.active_ids = Some(Arc::new(ids));
+        Ok(())
+    }
+
     pub(super) fn check_active_ids(&mut self, appended: Option<usize>) -> Result<()> {
         // Take the index before checking. A rejected mutation can leave the
         // history invalid; the next operation must then check the whole history.

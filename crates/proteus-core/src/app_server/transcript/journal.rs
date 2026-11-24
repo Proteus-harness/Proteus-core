@@ -7,7 +7,7 @@ use std::borrow::Borrow;
 use crate::core::JournalProjection;
 
 mod source;
-pub(crate) use source::journal_transcript_from_source;
+pub(crate) use source::{journal_transcript_for_startup, journal_transcript_from_source};
 
 mod append;
 pub(crate) use append::{
@@ -23,7 +23,7 @@ use crate::{
         ToolCallRecordPhase, TurnSettled, TurnSettlementStatus,
     },
     domain::{CallId, PartId, ThreadId, ToolCallResolution, TurnId},
-    model_standard::{CanonicalMessage, ContentPart, PartProvenance, PartScope},
+    model_standard::{CanonicalMessage, CanonicalPart, ContentPart, PartProvenance, PartScope},
 };
 
 use super::{
@@ -403,18 +403,9 @@ impl TranscriptProjectionState {
     fn append_staged_message(&mut self, message: &mut CanonicalMessage) {
         let timestamp_ms = self.timestamps.message(message);
         if let [part] = message.parts.as_mut_slice()
-            && let ContentPart::Text { text } = &mut part.payload
+            && matches!(part.payload, ContentPart::Text { .. })
         {
-            if self.seen_parts.insert(part.part_id)
-                && part.scope == PartScope::Conversation
-                && !text.trim().is_empty()
-            {
-                // A row can outlive the scan. Do not retain donor spare capacity.
-                let text = if text.len() == text.capacity() {
-                    std::mem::take(text)
-                } else {
-                    text.as_str().to_owned()
-                };
+            if let Some(text) = self.take_staged_text(part) {
                 super::push_transcript_text(
                     &mut self.transcript,
                     super::transcript_role(&message.role),
@@ -426,6 +417,24 @@ impl TranscriptProjectionState {
         } else {
             self.append_message_at(message, false, timestamp_ms);
         }
+    }
+
+    fn take_staged_text(&mut self, part: &mut CanonicalPart) -> Option<String> {
+        let ContentPart::Text { text } = &mut part.payload else {
+            return None;
+        };
+        if !self.seen_parts.insert(part.part_id)
+            || part.scope != PartScope::Conversation
+            || text.trim().is_empty()
+        {
+            return None;
+        }
+        // A row can outlive the scan. Do not retain donor spare capacity.
+        Some(if text.len() == text.capacity() {
+            std::mem::take(text)
+        } else {
+            text.as_str().to_owned()
+        })
     }
 
     fn append_message_at(

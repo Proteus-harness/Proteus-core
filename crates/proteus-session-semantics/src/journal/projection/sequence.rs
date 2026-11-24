@@ -16,7 +16,7 @@ impl JournalValidationState {
 
     /// Fold an owned journal record in a temporary recovery pass. The observer
     /// receives the original record only after full validation, and before any
-    /// owned append messages are moved. Discard this state on error, just as
+    /// owned append or replacement messages are moved. Discard this state on error, just as
     /// when building a collected projection.
     pub fn apply_sequenced_for_read(
         &mut self,
@@ -27,19 +27,31 @@ impl JournalValidationState {
     ) -> Result<()> {
         check_envelope(session_id, &record, *expected_seq)?;
         if let JournalEntry::HistoryMutated(mutation) = &record.entry
-            && mutation.mutation == HistoryMutationKind::Append
+            && matches!(
+                mutation.mutation,
+                HistoryMutationKind::Append | HistoryMutationKind::Replace
+            )
         {
             self.require_new_record_id(&record)?;
             self.validate_history_mutation(&record, mutation)?;
-            super::facts::validate_history_append(mutation)?;
-            self.check_owned_append_ids(&mutation.messages)?;
-            self.history_revision = mutation.new_revision;
-            self.history_turn = record.turn_id;
+            let replace = mutation.mutation == HistoryMutationKind::Replace;
+            if replace {
+                self.prepare_history_replacement(mutation)?;
+                // The previous conversation is no longer a consumer input.
+                // Drop this recovery owner's reference before indexing or
+                // staging the replacement, as on the borrowed path.
+                self.history = Arc::default();
+                self.check_replacement_ids(&mutation.messages)?;
+            } else {
+                super::facts::validate_history_append(mutation)?;
+                self.check_owned_append_ids(&mutation.messages)?;
+            }
+            self.finish_history_mutation(&record, mutation);
             observe(&record);
             let JournalEntry::HistoryMutated(mutation) = record.entry else {
-                unreachable!("validated append record");
+                unreachable!("validated history mutation");
             };
-            if self.history.is_empty() {
+            if replace || self.history.is_empty() {
                 self.history = Arc::new(mutation.messages);
             } else {
                 Arc::make_mut(&mut self.history).extend(mutation.messages);

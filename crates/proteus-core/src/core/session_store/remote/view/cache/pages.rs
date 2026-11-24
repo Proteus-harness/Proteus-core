@@ -6,7 +6,7 @@ use super::{PAGE_ROWS, RemoteCacheSource, RemoteSessionStore, read_content};
 use crate::core::session_store::json_size::encoded_len;
 
 mod packs;
-use packs::{PackRef, PendingPack};
+use packs::{LeafScratch, PackRef, PendingPack};
 
 const NORMAL_PAGE_BYTES: usize = 4 * 1024 * 1024;
 const MAX_PAGES: usize = 65_536;
@@ -36,6 +36,7 @@ fn write_pages<'a, T: Serialize + 'a>(
     pack_before: usize,
 ) -> Option<()> {
     let mut pending = PendingPack::default();
+    let mut scratch = LeafScratch::default();
     let mut page = Vec::with_capacity(PAGE_ROWS);
     let mut bytes = 2usize;
     let mut submit = |page: &[&T], bytes: usize| {
@@ -50,7 +51,14 @@ fn write_pages<'a, T: Serialize + 'a>(
             rows: page.len(),
             bytes,
         });
-        pending.push(store, source, section, value, section.rows <= pack_before)
+        pending.push(
+            store,
+            source,
+            section,
+            value,
+            section.rows <= pack_before,
+            &mut scratch,
+        )
     };
     for row in rows {
         let row_bytes = encoded_len(row, SESSION_STORAGE_MAX_CACHE_BYTES)?;
@@ -73,6 +81,7 @@ fn write_pages<'a, T: Serialize + 'a>(
     if !page.is_empty() {
         submit(&page, bytes)?;
     }
+    drop(scratch);
     pending.flush(store, source, section)
 }
 

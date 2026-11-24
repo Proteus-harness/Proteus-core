@@ -12,14 +12,41 @@ pub(super) struct TranscriptRows {
     latest_tools: HashMap<String, usize>,
     reasoning_rows: HashMap<crate::domain::MessageId, usize>,
     answer_rows: HashMap<crate::domain::MessageId, usize>,
+    // Only nonzero when the whole staged append is certified text-only.
+    text_append_ceiling: usize,
 }
 
 #[cfg(test)]
 mod tests;
 
 impl TranscriptRows {
+    /// A single text-only append produces at most one row per input message.
+    /// Do not preallocate while all decoded inputs are still owned.
+    pub(super) fn certify_text_append(&mut self, upper: usize) {
+        // Keep the ordinary writer and sizing for short and oversized histories.
+        if (4_096..=65_536).contains(&upper) {
+            debug_assert!(self.rows.is_empty());
+            self.text_append_ceiling = upper;
+        }
+    }
+
+    fn reserve_text_append_tail(&mut self) {
+        let cap = self.rows.capacity();
+        if self.rows.len() == cap
+            && self.text_append_ceiling > cap
+            && self.text_append_ceiling < cap.saturating_mul(2)
+        {
+            // The row already passed filtering; growth is inevitable now.
+            // A refused optional reserve leaves Vec's ordinary growth intact.
+            let _ = self.rows.try_reserve_exact(self.text_append_ceiling - cap);
+        }
+    }
+
     pub(super) fn push(&mut self, row: AppTranscriptMessage) {
-        if row.role == "assistant"
+        if self.text_append_ceiling != 0 {
+            self.reserve_text_append_tail();
+            // No reasoning row can search old answer positions in this append.
+        } else if row.role == "assistant"
             && let Some(id) = row.message_id
         {
             self.answer_rows.entry(id).or_insert(self.rows.len());
@@ -41,6 +68,7 @@ impl TranscriptRows {
         self.latest_tools.clear();
         self.reasoning_rows.clear();
         self.answer_rows.clear();
+        self.text_append_ceiling = 0;
     }
 
     /// Journal part de-duplication happens before this method. Multiple readable

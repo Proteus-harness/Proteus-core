@@ -82,15 +82,7 @@ impl JournalValidationState {
                         Arc::make_mut(&mut self.history).extend(mutation.messages.iter().cloned());
                     }
                     HistoryMutationKind::Replace => {
-                        self.capture = Default::default();
-                        self.capture_owner = None;
-                        if mutation
-                            .compaction
-                            .as_ref()
-                            .is_some_and(|report| !report.changed)
-                        {
-                            bail!("history replacement compaction report must be changed=true");
-                        }
+                        self.prepare_history_replacement(mutation)?;
                         self.history = Arc::new(mutation.messages.clone());
                     }
                     HistoryMutationKind::Checkpoint => {
@@ -119,22 +111,7 @@ impl JournalValidationState {
                     (mutation.mutation == HistoryMutationKind::Append)
                         .then_some(mutation.messages.len()),
                 )?;
-                if mutation
-                    .compaction
-                    .as_ref()
-                    .is_some_and(|report| report.changed)
-                {
-                    if let Some(turn_id) = record.turn_id {
-                        // require_root_turn above already validated this owner.
-                        self.opened_turns
-                            .get_mut(&turn_id)
-                            .expect("validated root turn")
-                            .history_compactions += 1;
-                    }
-                    self.interrupted_turns = Arc::default();
-                }
-                self.history_revision = mutation.new_revision;
-                self.history_turn = record.turn_id;
+                self.finish_history_mutation(record, mutation);
             }
             JournalEntry::ContextRequestRecorded(request) => {
                 let owner = self.require_execution_fact(record)?;
@@ -421,6 +398,45 @@ impl JournalValidationState {
             bail!("only a workflow checkpoint may bind tool results");
         }
         Ok(())
+    }
+
+    pub(super) fn prepare_history_replacement(
+        &mut self,
+        mutation: &super::super::types::HistoryMutated,
+    ) -> Result<()> {
+        self.capture = Default::default();
+        self.capture_owner = None;
+        if mutation
+            .compaction
+            .as_ref()
+            .is_some_and(|report| !report.changed)
+        {
+            bail!("history replacement compaction report must be changed=true");
+        }
+        Ok(())
+    }
+
+    pub(super) fn finish_history_mutation(
+        &mut self,
+        record: &JournalRecord,
+        mutation: &super::super::types::HistoryMutated,
+    ) {
+        if mutation
+            .compaction
+            .as_ref()
+            .is_some_and(|report| report.changed)
+        {
+            if let Some(turn_id) = record.turn_id {
+                // require_root_turn above already validated this owner.
+                self.opened_turns
+                    .get_mut(&turn_id)
+                    .expect("validated root turn")
+                    .history_compactions += 1;
+            }
+            self.interrupted_turns = Arc::default();
+        }
+        self.history_revision = mutation.new_revision;
+        self.history_turn = record.turn_id;
     }
 
     fn capture_tool_result(

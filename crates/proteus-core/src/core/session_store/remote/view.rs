@@ -20,18 +20,20 @@ mod committed;
 mod incremental;
 pub(crate) use committed::CommittedDisplay;
 mod prefix;
+mod text_rows;
 pub(crate) use cache::RemoteCacheSource;
 pub(crate) use prefix::PrefixIdentities;
+pub(crate) use text_rows::{CompactTextRow, DisplayRows};
 
 #[cfg(test)]
 mod tests;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct SessionReadModel {
+pub(crate) struct SessionReadModel<T = Vec<AppTranscriptMessage>> {
     pub summary: AppSessionSummary,
     pub conversation: ConversationSnapshot,
-    pub transcript: Vec<AppTranscriptMessage>,
+    pub transcript: T,
     pub usage: SessionUsageSnapshot,
     #[serde(skip)]
     pub(super) prefix: Option<PrefixIdentities>,
@@ -52,11 +54,11 @@ pub(crate) struct SessionTranscriptAppend {
     pub conversation_appended: usize,
 }
 
-impl SessionReadModel {
+impl<T> SessionReadModel<T> {
     pub(crate) fn from_validated(
         store: &RemoteSessionStore,
         read: RemoteValidatedRead,
-        render: impl FnOnce(&mut RemoteJournalSnapshot) -> Result<Vec<AppTranscriptMessage>>,
+        render: impl FnOnce(&mut RemoteJournalSnapshot) -> Result<T>,
     ) -> Result<Self> {
         let (mut snapshot, state) = read.into_parts();
         let transcript = render(&mut snapshot)?;
@@ -73,7 +75,9 @@ impl SessionReadModel {
             prefix: Some(prefix),
         })
     }
+}
 
+impl SessionReadModel {
     fn matches_parts(
         store: &RemoteSessionStore,
         summary: &AppSessionSummary,
@@ -97,6 +101,17 @@ impl RemoteSessionStore {
         read: RemoteValidatedRead,
         paged: bool,
         render: impl FnOnce(&mut RemoteJournalSnapshot) -> Result<Vec<AppTranscriptMessage>>,
+    ) -> Result<SessionReadView> {
+        self.project_startup_view(read, paged, |snapshot| {
+            render(snapshot).map(DisplayRows::Full)
+        })
+    }
+
+    pub(super) fn project_startup_view(
+        &self,
+        read: RemoteValidatedRead,
+        paged: bool,
+        render: impl FnOnce(&mut RemoteJournalSnapshot) -> Result<DisplayRows>,
     ) -> Result<SessionReadView> {
         let source = RemoteCacheSource::from_cursor(&read.cursor());
         let mut model = SessionReadModel::from_validated(self, read, render)?;
@@ -123,7 +138,7 @@ impl RemoteSessionStore {
                     base: page.base,
                 }),
             ),
-            None => (model.transcript, None),
+            None => (model.transcript.into_full(), None),
         };
         Ok(SessionReadView {
             summary: model.summary,

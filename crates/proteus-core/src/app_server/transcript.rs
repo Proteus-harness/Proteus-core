@@ -13,7 +13,7 @@ use rows::TranscriptRows;
 pub(crate) use journal::journal_transcript_messages;
 pub(crate) use journal::{
     journal_transcript_append_committed, journal_transcript_append_from_source,
-    journal_transcript_from_source,
+    journal_transcript_for_startup, journal_transcript_from_source,
 };
 
 pub use proteus_contracts::app_protocol::{

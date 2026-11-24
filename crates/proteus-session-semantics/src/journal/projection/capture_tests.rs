@@ -266,3 +266,116 @@ fn later_append_id_collisions_keep_active_id_error_precedence() {
         }
     }
 }
+
+#[test]
+fn owned_replacement_keeps_exact_compaction_debt_and_clears_capture() {
+    for compacted in [false, true] {
+        let mut fixture = Fixture::new();
+        let prior = fixture.state.history[0].clone();
+        let previous_interruption = crate::contracts::WorkflowHistoryInterruption {
+            turn_id: new_turn_id(),
+            after_message_id: prior.id,
+        };
+        Arc::make_mut(&mut fixture.state.interrupted_turns).push(previous_interruption);
+        let before_compactions = fixture
+            .state
+            .committed_history(fixture.thread, fixture.turn)
+            .1;
+        let mut replacement = vec![prior, CanonicalMessage::text(MessageRole::User, "next")];
+        let replacement_ptr = replacement.as_ptr();
+        let parts_ptr = replacement[1].parts.as_ptr();
+        let report = compacted.then(|| {
+            let mut report = crate::domain::HistoryCompactionReport::unchanged(2, None);
+            report.changed = true;
+            report
+        });
+        let record = fixture.record(JournalEntry::HistoryMutated(HistoryMutated {
+            previous_revision: fixture.state.history_revision(),
+            new_revision: fixture.state.history_revision() + 1,
+            mutation: HistoryMutationKind::Replace,
+            messages: std::mem::take(&mut replacement),
+            compaction: report,
+            tool_results: Vec::new(),
+        }));
+        let completion =
+            fixture.completion(ToolResult::ok("first".into(), "do not reinsert"), false);
+        let mut stock = fixture.state.clone();
+        let mut owned = fixture.state;
+        let old_history = Arc::downgrade(&owned.history);
+        let (mut stock_seq, mut owned_seq) = (record.session_seq, record.session_seq);
+        stock
+            .apply_sequenced(record.session_id, &record, &mut stock_seq)
+            .unwrap();
+        let mut observed = false;
+        owned
+            .apply_sequenced_for_read(record.session_id, record, &mut owned_seq, |original| {
+                let JournalEntry::HistoryMutated(mutation) = &original.entry else {
+                    panic!("expected replacement");
+                };
+                assert_eq!(mutation.messages.as_ptr(), replacement_ptr);
+                assert!(
+                    old_history.upgrade().is_none(),
+                    "obsolete history must not reach staging"
+                );
+                observed = true;
+            })
+            .unwrap();
+        assert!(observed);
+        assert_eq!(owned_seq, stock_seq);
+        assert_eq!(owned.capture_owner, None);
+        assert!(!owned.capture.contains_call("first"));
+        assert_eq!(owned.history().as_ptr(), replacement_ptr);
+        assert_eq!(owned.history()[1].parts.as_ptr(), parts_ptr);
+        assert_eq!(owned.history(), stock.history());
+        assert_eq!(owned.interrupted_turns(), stock.interrupted_turns());
+        assert_eq!(owned.interrupted_turns().len(), usize::from(!compacted));
+        assert_eq!(
+            owned.committed_history(fixture.thread, fixture.turn).1,
+            before_compactions + usize::from(compacted)
+        );
+        stock.apply(&completion).unwrap();
+        owned.apply(&completion).unwrap();
+        assert_eq!(owned.history_revision(), stock.history_revision());
+        assert_eq!(
+            owned.history().len(),
+            2,
+            "replace detached the old pending capture"
+        );
+        assert_eq!(owned.history(), stock.history());
+    }
+}
+
+#[test]
+fn owned_replacement_rejects_invalid_compaction_before_active_collisions() {
+    for changed in [false, true] {
+        let fixture = Fixture::new();
+        let same = fixture.state.history[0].clone();
+        let mut report = crate::domain::HistoryCompactionReport::unchanged(2, None);
+        report.changed = changed;
+        let record = fixture.record(JournalEntry::HistoryMutated(HistoryMutated {
+            previous_revision: fixture.state.history_revision(),
+            new_revision: fixture.state.history_revision() + 1,
+            mutation: HistoryMutationKind::Replace,
+            messages: vec![same.clone(), same],
+            compaction: Some(report),
+            tool_results: Vec::new(),
+        }));
+        let (mut stock, mut owned) = (fixture.state.clone(), fixture.state);
+        let (mut stock_seq, mut owned_seq) = (record.session_seq, record.session_seq);
+        let error = stock
+            .apply_sequenced(record.session_id, &record, &mut stock_seq)
+            .unwrap_err();
+        assert!(error.to_string().contains(if changed {
+            "duplicate message id"
+        } else {
+            "changed=true"
+        }));
+        let actual = owned
+            .apply_sequenced_for_read(record.session_id, record, &mut owned_seq, |_| {
+                panic!("a rejected replacement cannot be staged");
+            })
+            .unwrap_err();
+        assert_eq!(error.to_string(), actual.to_string());
+        assert_eq!(owned_seq, stock_seq);
+    }
+}
