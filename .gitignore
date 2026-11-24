@@ -6,6 +6,7 @@ target/
 /docs/research/Proteus-audit/
 /sessions/
 /examples/source/
+/examples/performance/results/
 /deferred/
 .env
 secrets.json

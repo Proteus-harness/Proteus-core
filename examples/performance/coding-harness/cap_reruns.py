@@ -42,13 +42,10 @@ def prepare(output):
         assert 'length limit' in json.dumps(result['metrics']['failures'])
         rows.append({'case':case,'arm':'proteus-codex','attempt':1,
                      'baseline':reconnect.relative(source),'baseline_caps':[16384]})
-    old=json.loads((CORE/'examples/performance/results/2026-11-11-deepseek-long.json').read_text())
+    controls = json.loads(reconnect.FROZEN_CASES.read_text())['cap_controls']
     reconnect.write_json(output/'selection.json',{'rows':rows,'model':MODEL,'effort':'high',
                          'timeout_seconds':1200,'concurrency':3,'max_attempts_per_cell':1,
-                         'old_controls':[{'case':row['case'],'source':row['source'],
-                                          'caps':row['audit']['requested_output_limits'],
-                                          'failure_taxonomy':row['failure_taxonomy']}
-                                         for row in old['output_cap_controls']]})
+                         'old_controls':controls})
     reconnect.write_json(output/'frozen-sources-before.json',frozen_sources())
 
 

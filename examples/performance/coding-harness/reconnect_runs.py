@@ -21,7 +21,7 @@ import runner
 HERE = Path(__file__).resolve().parent
 CORE = HERE.parents[2]
 DATA = CORE / 'target/performance/coding-harness'
-BASELINE = CORE / 'examples/performance/results/2026-11-11-deepseek-long.json'
+FROZEN_CASES = HERE / 'reconnect_cases.json'
 MODEL = 'opencode-go/deepseek-v4.1-flash'
 COLD_SOURCE = 'flash_sampler-phase-report_1_proteus-pi'
 COLD_PROMPT = ('Continue the original task in this same session using the recorded tool results and existing changes. '
@@ -40,11 +40,7 @@ def relative(path):
 
 
 def selection():
-    rows = json.loads(BASELINE.read_text())['rows']
-    selected = [{'case': row['case'], 'arm': row['arm'], 'attempt': row['attempt'],
-                 'source': row['source'], 'baseline_pipeline_ok': row['pipeline_ok'],
-                 'baseline_grade': row['grade'], 'baseline_classes': row.get('failure_taxonomy', {}).get('classes', [])}
-                for row in rows if row['arm'].startswith('proteus-') and not row['pass']]
+    selected = json.loads(FROZEN_CASES.read_text())['failed_cases']
     if len(selected) != 10:
         raise ValueError('The frozen comparison requires exactly ten failed Proteus cells')
     for row in selected:
@@ -292,9 +288,7 @@ def cold_job(root, timeout):
 
 def regrade_samplers(root):
     """Offline paired audit; preserve original cases, workspaces and grades."""
-    baseline = json.loads(BASELINE.read_text())
-    sources = {row['source'] for row in baseline['rows'] + baseline.get('socket_retries', [])
-               if row['case']=='sampler-phase-report'}
+    sources = set(json.loads(FROZEN_CASES.read_text())['sampler_sources'])
     sources.update(relative(path.parent) for path in (root/'fresh').glob('*sampler-phase-report*/grading.json'))
     if (root/'cold'/COLD_SOURCE/'grading.json').exists():
         sources.add(relative(root/'cold'/COLD_SOURCE))
