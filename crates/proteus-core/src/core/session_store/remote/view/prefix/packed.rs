@@ -19,12 +19,64 @@ pub(in crate::core::session_store::remote::view) struct Packed<C> {
     calls: C,
 }
 
-fn pack<const N: usize>(records: impl Iterator<Item = [u8; N]>, n: usize) -> String {
-    let mut bytes = Vec::with_capacity(n * N);
-    for item in records {
-        bytes.extend_from_slice(&item);
+impl<C: Serialize> Packed<C> {
+    pub(in crate::core::session_store::remote::view) fn into_bounded_value(self) -> Option<Value> {
+        crate::core::session_store::json_size::encoded_len(&self, LIMIT)?;
+        // Match the derived field order, including when Map preserves insertion order.
+        let mut object = serde_json::Map::with_capacity(7);
+        object.insert("format".to_owned(), Value::from(self.format));
+        object.insert("history".to_owned(), Value::String(self.history));
+        object.insert("turns".to_owned(), Value::String(self.turns));
+        object.insert("exchanges".to_owned(), Value::String(self.exchanges));
+        object.insert("messages".to_owned(), Value::String(self.messages));
+        object.insert("parts".to_owned(), Value::String(self.parts));
+        object.insert("calls".to_owned(), serde_json::to_value(self.calls).ok()?);
+        Some(Value::Object(object))
     }
-    STANDARD.encode(bytes)
+}
+
+fn pack<const N: usize>(records: impl Iterator<Item = [u8; N]>, n: usize) -> String {
+    const BATCH_RECORDS: usize = 48;
+    if n <= BATCH_RECORDS {
+        let mut bytes = Vec::with_capacity(n * N);
+        for item in records {
+            bytes.extend_from_slice(&item);
+        }
+        return STANDARD.encode(bytes);
+    }
+
+    let size = base64::encoded_len(n * N, true).expect("encoded prefix length");
+    let mut output = vec![0; size];
+    let mut written = 0;
+    let mut encode = |batch: &[u8]| {
+        let size = base64::encoded_len(batch.len(), true).expect("encoded prefix batch length");
+        let end = written + size;
+        if end > output.len() {
+            output.resize(end, 0);
+        }
+        STANDARD
+            .encode_slice(batch, &mut output[written..end])
+            .expect("sized prefix batch output");
+        written = end;
+    };
+
+    // Full batches contain a multiple of three bytes. Only the final
+    // partial batch can add Base64 padding.
+    let mut batch = [[0; N]; BATCH_RECORDS];
+    let mut used = 0;
+    for item in records {
+        batch[used] = item;
+        used += 1;
+        if used == BATCH_RECORDS {
+            encode(batch.as_flattened());
+            used = 0;
+        }
+    }
+    if used != 0 {
+        encode(batch[..used].as_flattened());
+    }
+    output.truncate(written);
+    String::from_utf8(output).expect("Base64 is UTF-8")
 }
 
 fn ids(set: &HashSet<Uuid>) -> String {

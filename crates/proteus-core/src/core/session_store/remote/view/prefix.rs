@@ -26,18 +26,11 @@ pub(crate) struct PrefixIdentities {
 
 impl PrefixIdentities {
     pub(crate) fn visit(&mut self, record: &JournalRecord, suffix: bool) -> bool {
-        let mut independent = true;
-        if let Some(turn) = record.turn_id {
-            independent &= identity(&mut self.turns, turn, suffix);
-        }
+        let mut independent = self.visit_turn(record.turn_id, suffix);
         match &record.entry {
             JournalEntry::HistoryMutated(mutation) => {
                 for message in &mutation.messages {
-                    if !suffix {
-                        self.explicit_committed_parts
-                            .extend(message.parts.iter().map(|part| part.part_id));
-                    }
-                    independent &= self.message(message, suffix);
+                    independent &= self.visit_history_message(message, suffix);
                 }
             }
             // Even invisible, uncommitted or hidden model messages determine
@@ -69,6 +62,30 @@ impl PrefixIdentities {
             _ => {}
         }
         independent
+    }
+
+    pub(super) fn visit_owned_prefix(&mut self, record: JournalRecord) {
+        if let JournalEntry::HistoryMutated(mutation) = record.entry {
+            self.visit_turn(record.turn_id, false);
+            for message in mutation.messages {
+                self.visit_history_message(&message, false);
+                // No later prefix visit needs this row's decoded payload.
+            }
+        } else {
+            self.visit(&record, false);
+        }
+    }
+
+    fn visit_turn(&mut self, turn: Option<TurnId>, suffix: bool) -> bool {
+        turn.is_none_or(|turn| identity(&mut self.turns, turn, suffix))
+    }
+
+    fn visit_history_message(&mut self, message: &CanonicalMessage, suffix: bool) -> bool {
+        if !suffix {
+            self.explicit_committed_parts
+                .extend(message.parts.iter().map(|part| part.part_id));
+        }
+        self.message(message, suffix)
     }
 
     fn message(&mut self, message: &CanonicalMessage, suffix: bool) -> bool {

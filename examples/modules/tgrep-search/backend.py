@@ -59,15 +59,25 @@ def normalize_prefix(prefix: str) -> str:
     return prefix
 
 
-def matches_path(path: str, args: dict[str, Any]) -> bool:
-    # Same literal prefix/suffix predicates as canonical SearchQuery.
-    return (
-        not args["starts_with"]
-        or any(path.startswith(normalize_prefix(prefix)) for prefix in args["starts_with"])
-    ) and (
-        not args["ends_with"]
-        or any(path.endswith(suffix) for suffix in args["ends_with"])
-    )
+def matches_path(path: str, args: dict[str, Any],
+                 prepared_prefixes: list[str] | None = None) -> bool:
+    # Same literal predicates and short circuit as canonical SearchQuery.
+    prefixes = args["starts_with"]
+    if prefixes:
+        prepared = [] if prepared_prefixes is None else prepared_prefixes
+        for prefix in prepared:
+            if path.startswith(prefix):
+                break
+        else:
+            # Normalize later prefixes only if a match actually reaches them.
+            for index in range(len(prepared), len(prefixes)):
+                prefix = normalize_prefix(prefixes[index])
+                prepared.append(prefix)
+                if path.startswith(prefix):
+                    break
+            else:
+                return False
+    return not args["ends_with"] or any(path.endswith(suffix) for suffix in args["ends_with"])
 
 
 def search(args: dict[str, Any], cwd: str, config: dict[str, str],
@@ -85,6 +95,7 @@ def search(args: dict[str, Any], cwd: str, config: dict[str, str],
     # not necessarily existing directories; apply them before the global limit.
     command.extend(["--", args["query"], "."])
     chunks: list[dict[str, Any]] = []
+    prepared_prefixes: list[str] = []
     timed_out = threading.Event()
     with tempfile.TemporaryFile(mode="w+t", encoding="utf-8") as stderr:
         try:
@@ -113,7 +124,7 @@ def search(args: dict[str, Any], cwd: str, config: dict[str, str],
                     continue
                 data = event["data"]
                 path = data["path"]["text"].removeprefix("./")
-                if not matches_path(path, args):
+                if not matches_path(path, args, prepared_prefixes):
                     continue
                 line_number = data["line_number"]
                 if not isinstance(line_number, int):

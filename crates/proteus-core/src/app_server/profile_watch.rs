@@ -134,10 +134,12 @@ async fn start_with_polling(handle: &AppServerHandle, path: PathBuf, mut polling
             if failed.as_ref() == Some(&expected) {
                 continue;
             };
-            let current = handle.config.read().await.clone();
-            if expected.config == serde_json::to_vec(&current).unwrap_or_default()
-                && expected.packages == applied.packages
-            {
+            let already_published = {
+                let current = handle.config.read().await.clone();
+                expected.config == serde_json::to_vec(&current).unwrap_or_default()
+                    && expected.packages == applied.packages
+            };
+            if already_published {
                 // A UI save has already published this session; other sessions
                 // still detect the file and go through normal preparation.
                 applied = expected;

@@ -87,9 +87,13 @@ fn rebuild_transcript(
     } else {
         None
     };
-    let (source, model) = store.project_sourced_read_model(named.as_ref(), |snapshot| {
-        journal_transcript_from_source(snapshot, None)
-    })?;
+    // The final source check needs the rendered transcript, not its validated
+    // canonical history and prefix index. Release those owners before worker I/O.
+    let (source, transcript) = store
+        .project_sourced_read_model(named.as_ref(), |snapshot| {
+            journal_transcript_from_source(snapshot, None)
+        })
+        .map(|(source, model)| (source, model.transcript))?;
     anyhow::ensure!(
         SourceFingerprint::try_read(store)? == source,
         "history source changed during recovery; refresh the session snapshot"
@@ -99,7 +103,7 @@ fn rebuild_transcript(
         .ok_or_else(|| anyhow::anyhow!("history source revision is unavailable"))?;
     // Cache writes are best effort (e.g. disk full). The verified in-memory
     // result remains usable without retrying indefinitely or requiring a writer lease.
-    Ok((revision, model.transcript))
+    Ok((revision, transcript))
 }
 
 /// Cold HTTP reads share the same current projection without opening a runtime.
@@ -107,6 +111,18 @@ pub(super) fn current_read_model(store: &SessionStore) -> anyhow::Result<Session
     match store.fresh_read_model() {
         Some(model) => Ok(model),
         None => store.project_read_model(|source| journal_transcript_from_source(source, None)),
+    }
+}
+
+/// Read the current full transcript without retaining unrelated cached sections.
+pub(super) fn current_transcript(
+    store: &SessionStore,
+) -> anyhow::Result<Vec<AppTranscriptMessage>> {
+    match store.fresh_read_transcript() {
+        Some(transcript) => Ok(transcript),
+        None => store
+            .project_read_model(|source| journal_transcript_from_source(source, None))
+            .map(|model| model.transcript),
     }
 }
 

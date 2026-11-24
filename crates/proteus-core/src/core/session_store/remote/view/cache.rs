@@ -1,11 +1,12 @@
 //! Immutable content pages with a source-bound header published last.
-use std::collections::BTreeMap;
+use std::{borrow::Cow, collections::BTreeMap};
 
 use anyhow::{Result, bail, ensure};
 use proteus_contracts::{
     app_protocol::{AppLatestToolState, AppToolState, AppTranscriptBase},
     contracts::{
-        SessionStorageRequest as Request, SessionStorageResponse as Response, StorageSnapshot,
+        ModelContextObservation, SessionStorageRequest as Request,
+        SessionStorageResponse as Response, StorageSnapshot,
     },
     model_standard::CanonicalMessage,
 };
@@ -154,7 +155,7 @@ pub(super) fn write_prefix(
 ) -> Option<String> {
     // Only the latest projection appends to this index. Keep one copy even
     // when old revisions still serve their immutable display pages.
-    let value = bounded_value(&prefix.encode_cache()?)?;
+    let value = prefix.encode_cache()?.into_bounded_value()?;
     let digest = hash(&value)?;
     write_value(store, source, PREFIX, value)?;
     Some(digest)
@@ -251,21 +252,66 @@ pub(super) fn publish(store: &RemoteSessionStore, header: &Header) -> Option<()>
     )
 }
 
-pub(super) fn load_model(store: &RemoteSessionStore) -> Option<SessionReadModel> {
+fn load_cached<T>(
+    store: &RemoteSessionStore,
+    read_conversation: impl FnOnce(&Header) -> Option<(T, usize)>,
+) -> Option<(Header, T, Vec<AppTranscriptMessage>)> {
     let header = fresh_header(store)?;
-    let model = SessionReadModel {
+    let (conversation, message_count) = read_conversation(&header)?;
+    let transcript = read_section(store, &header.transcript, 0, header.transcript.rows)?;
+    (SessionReadModel::matches_parts(store, &header.summary, &header.usage, message_count)
+        && RemoteCacheSource::read(store).as_ref() == Some(&header.source))
+    .then_some((header, conversation, transcript))
+}
+
+pub(super) fn load_model(store: &RemoteSessionStore) -> Option<SessionReadModel> {
+    let (header, conversation, transcript) = load_cached(store, |header| {
+        let messages: Vec<CanonicalMessage> =
+            read_section(store, &header.conversation, 0, header.conversation.rows)?;
+        let message_count = messages.len();
+        let model_context = read_section(store, &header.context, 0, header.context.rows)?;
+        Some((
+            ConversationSnapshot {
+                revision: header.revision,
+                messages,
+                model_context,
+            },
+            message_count,
+        ))
+    })?;
+    Some(SessionReadModel {
         summary: header.summary,
-        conversation: ConversationSnapshot {
-            revision: header.revision,
-            messages: read_section(store, &header.conversation, 0, header.conversation.rows)?,
-            model_context: read_section(store, &header.context, 0, header.context.rows)?,
-        },
-        transcript: read_section(store, &header.transcript, 0, header.transcript.rows)?,
+        conversation,
+        transcript,
         usage: header.usage,
         prefix: None,
-    };
-    (model.matches(store) && RemoteCacheSource::read(store).as_ref() == Some(&header.source))
-        .then_some(model)
+    })
+}
+
+pub(super) fn load_transcript(store: &RemoteSessionStore) -> Option<Vec<AppTranscriptMessage>> {
+    load_cached(store, |header| {
+        // Verify the same typed rows and pages, but keep neither unused output vector.
+        let mut message_count = 0usize;
+        visit_section::<CanonicalMessage>(
+            store,
+            &header.conversation,
+            0,
+            header.conversation.rows,
+            |_| {
+                message_count = message_count.checked_add(1)?;
+                Some(())
+            },
+        )?;
+        visit_section::<ModelContextObservation>(
+            store,
+            &header.context,
+            0,
+            header.context.rows,
+            |_| Some(()),
+        )?;
+        Some(((), message_count))
+    })
+    .map(|(_, _, transcript)| transcript)
 }
 
 pub(super) fn load_view(
@@ -356,22 +402,56 @@ pub(super) fn save_model(
     model: &SessionReadModel,
     cursor: Option<&RemoteJournalCursor>,
 ) -> Option<()> {
-    if !model.matches(store) {
+    save_model_sections(
+        store,
+        source,
+        model,
+        cursor,
+        Cow::Borrowed(&model.conversation.messages),
+        Cow::Borrowed(&model.conversation.model_context),
+    )
+}
+
+/// Startup returns a display-only view, never the canonical messages/context.
+/// Keep the already rendered transcript for a potential named-page miss.
+pub(super) fn save_startup_model(
+    store: &RemoteSessionStore,
+    source: &RemoteCacheSource,
+    model: &mut SessionReadModel,
+) -> Option<()> {
+    let messages = Cow::Owned(std::mem::take(&mut model.conversation.messages));
+    let context = Cow::Owned(std::mem::take(&mut model.conversation.model_context));
+    save_model_sections(store, source, model, None, messages, context)
+}
+
+fn save_model_sections(
+    store: &RemoteSessionStore,
+    source: &RemoteCacheSource,
+    model: &SessionReadModel,
+    cursor: Option<&RemoteJournalCursor>,
+    mut messages: Cow<'_, [CanonicalMessage]>,
+    observations: Cow<'_, [ModelContextObservation]>,
+) -> Option<()> {
+    if !SessionReadModel::matches_parts(store, &model.summary, &model.usage, messages.len()) {
         return None;
     }
-    let previous = header(store);
-    let conversation = write_transcript(store, source, &model.conversation.messages)?;
+    // Only the prior source and transcript participate in prefix comparison.
+    let previous = header(store).map(|header| (header.source, header.transcript));
+    let conversation = write_transcript(store, source, messages.as_ref())?;
+    let early_summary = match &mut messages {
+        Cow::Owned(messages) => {
+            let messages = std::mem::take(messages);
+            Some(crate::core::summarize_context_history(&messages))
+        }
+        Cow::Borrowed(_) => None,
+    };
     let transcript = write_transcript(store, source, &model.transcript)?;
-    let context = write_section(store, source, &model.conversation.model_context)?;
-    let base = previous.as_ref().and_then(|previous| {
+    let context = write_section(store, source, observations.as_ref())?;
+    drop(observations);
+    let base = previous.and_then(|(old_source, old_transcript)| {
         Some(AppTranscriptBase {
-            revision: previous.source.revision()?,
-            common_prefix: common_prefix(
-                store,
-                &previous.transcript,
-                &transcript,
-                &model.transcript,
-            )?,
+            revision: old_source.revision()?,
+            common_prefix: common_prefix(store, &old_transcript, &transcript, &model.transcript)?,
         })
     });
     let mut tools = BTreeMap::new();
@@ -384,7 +464,8 @@ pub(super) fn save_model(
             summary: model.summary.clone(),
             revision: model.conversation.revision,
             usage: model.usage.clone(),
-            context_summary: crate::core::summarize_context_history(&model.conversation.messages),
+            context_summary: early_summary
+                .unwrap_or_else(|| crate::core::summarize_context_history(messages.as_ref())),
             conversation,
             transcript,
             context,
@@ -439,7 +520,17 @@ pub(super) fn update_tools(
         {
             tools.insert(
                 tool.name.clone(),
-                write_content(store, source, &AppToolState::from(tool))?,
+                write_content(
+                    store,
+                    source,
+                    &CompactTool {
+                        call_id: tool.call_id.as_str(),
+                        name: tool.name.as_str(),
+                        status: tool.status.as_str(),
+                        args: &tool.args,
+                        effective_args: tool.effective_args.as_ref(),
+                    },
+                )?,
             );
         }
     }
@@ -479,13 +570,14 @@ pub(super) fn tool_state(store: &RemoteSessionStore, name: &str) -> Option<AppLa
 struct CompactRow {
     tool: Option<CompactTool>,
 }
-#[derive(Deserialize)]
-struct CompactTool {
-    call_id: String,
-    name: String,
-    status: String,
-    args: Value,
-    effective_args: Option<Value>,
+// Mirrors the AppToolState wire shape. Borrow for writes; own fields on rebuild.
+#[derive(Serialize, Deserialize)]
+struct CompactTool<S = String, A = Value> {
+    call_id: S,
+    name: S,
+    status: S,
+    args: A,
+    effective_args: Option<A>,
 }
 
 fn rebuild_tools(

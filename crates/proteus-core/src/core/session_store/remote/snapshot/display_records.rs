@@ -14,6 +14,7 @@ use std::{
 };
 
 const MAX_STAGING_BYTES: u64 = 512 * 1024 * 1024;
+const MAX_RETAINED_FINAL_SCAN_BYTES: usize = 4 * 1024 * 1024;
 // Outliers use the ordinary renderer. The optional staging metadata must not
 // grow in proportion to an arbitrarily long journal.
 const MAX_STAGED_ROOTS: usize = 4096;
@@ -189,6 +190,10 @@ impl DisplayRecords {
         (staged, roots)
     }
 
+    pub(super) fn is_single_record(&self) -> bool {
+        self.count == 1
+    }
+
     pub(super) fn take_causal_roots(&mut self) -> Option<RootBindings> {
         self.causal_roots.take()
     }
@@ -199,14 +204,21 @@ impl DisplayRecords {
     ) -> Result<()> {
         self.file.rewind()?;
         let mut reader = BufReader::new(&mut self.file);
-        let mut count = 0;
+        let mut count = 0usize;
         let mut line = Vec::new();
         while reader.read_until(b'\n', &mut line)? > 0 {
             anyhow::ensure!(
                 line.ends_with(b"\n"),
                 "incomplete transcript staging record"
             );
-            consume(serde_json::from_slice(&line)?)?;
+            let record = serde_json::from_slice(&line)?;
+            // This is only a memory hint: continue to EOF and validate the count.
+            if line.capacity() > MAX_RETAINED_FINAL_SCAN_BYTES
+                && count.checked_add(1) == Some(self.count)
+            {
+                line = Vec::new();
+            }
+            consume(record)?;
             count += 1;
             line.clear();
         }

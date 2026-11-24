@@ -1,6 +1,11 @@
 //! Line counts of changes: one bounded `git diff --numstat` plus capped
 //! reads of untracked files.
-use std::{collections::HashMap, fs, io::Read, path::Path};
+use std::{
+    collections::HashMap,
+    fs,
+    io::{ErrorKind, Read},
+    path::Path,
+};
 
 use anyhow::Result;
 
@@ -96,16 +101,36 @@ fn count_untracked(root: &Path, relative: &str, budget: &mut u64) -> LineCounts 
         return None;
     }
     *budget -= size;
-    let mut bytes = Vec::new();
-    fs::File::open(path)
-        .ok()?
-        .take(MAX_UNTRACKED_FILE_BYTES)
-        .read_to_end(&mut bytes)
-        .ok()?;
-    if bytes.contains(&0) {
-        return None;
+    count_text_lines(fs::File::open(path).ok()?.take(MAX_UNTRACKED_FILE_BYTES))
+}
+
+fn count_text_lines(mut input: impl Read) -> LineCounts {
+    let mut buffer = [0; 8 * 1024];
+    let mut newlines = 0;
+    let mut last = b'\n';
+    let mut binary = false;
+    loop {
+        let len = match input.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(len) => len,
+            Err(error) if error.kind() == ErrorKind::Interrupted => continue,
+            Err(_) => return None,
+        };
+        // Drain the capped input even after finding binary data.
+        if binary {
+            continue;
+        }
+        last = buffer[len - 1];
+        for &byte in &buffer[..len] {
+            match byte {
+                0 => {
+                    binary = true;
+                    break;
+                }
+                b'\n' => newlines += 1,
+                _ => {}
+            }
+        }
     }
-    let newlines = bytes.iter().filter(|byte| **byte == b'\n').count() as u64;
-    let partial = u64::from(bytes.last().is_some_and(|byte| *byte != b'\n'));
-    Some((newlines + partial, 0))
+    (!binary).then_some((newlines + u64::from(last != b'\n'), 0))
 }

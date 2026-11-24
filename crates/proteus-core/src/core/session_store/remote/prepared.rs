@@ -2,7 +2,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
-use proteus_contracts::{app_protocol::AppTranscriptMessage, contracts::StorageSessionDescriptor};
+use proteus_contracts::app_protocol::AppTranscriptMessage;
 
 use super::{
     RemoteSessionStore, StorageService, catalog,
@@ -72,14 +72,19 @@ impl PreparedSession {
     }
 }
 
-fn order_startup_candidates(candidates: &mut [StorageSessionDescriptor]) {
+struct StartupCandidate {
+    updated_at_ms: i64,
+    path: PathBuf,
+}
+
+fn order_startup_candidates(candidates: &mut [StartupCandidate]) {
     use std::cmp::Ordering;
 
-    let order = |left: &StorageSessionDescriptor, right: &StorageSessionDescriptor| {
+    let order = |left: &StartupCandidate, right: &StartupCandidate| {
         right
             .updated_at_ms
             .cmp(&left.updated_at_ms)
-            .then_with(|| right.local_path.cmp(&left.local_path))
+            .then_with(|| right.path.cmp(&left.path))
     };
     // A provider can already emit the required order. Verify that with the
     // Core comparator (including path ties), never trust provider ordering.
@@ -97,13 +102,21 @@ pub(crate) fn prepare_latest_workspace_session(
     config_root: &Path,
     workspace_path: &Path,
 ) -> Result<Option<PreparedSession>> {
-    let mut candidates = catalog::candidates(service.clone(), config_root, Some(workspace_path))?;
-    candidates.retain(|entry| entry.parent_session_id.is_none());
+    let mut candidates: Vec<_> =
+        catalog::candidates(service.clone(), config_root, Some(workspace_path))?
+            .into_iter()
+            .filter(|entry| entry.parent_session_id.is_none())
+            .filter_map(|entry| {
+                Some(StartupCandidate {
+                    updated_at_ms: entry.updated_at_ms,
+                    path: entry.local_path?,
+                })
+            })
+            .collect();
+    // In-place collection can keep the full descriptor buffer's capacity.
+    candidates.shrink_to_fit();
     order_startup_candidates(&mut candidates);
-    for entry in candidates {
-        let Some(path) = entry.local_path else {
-            continue;
-        };
+    for StartupCandidate { path, .. } in candidates {
         let prepared = PreparedSession::from_dir(service.clone(), path.clone()).and_then(|prepared| {
             // An empty saved page can predate an external append. Check the
             // current journal before deciding to skip this candidate.

@@ -27,8 +27,9 @@ use crate::{
 };
 
 use super::{
-    AppTranscriptMessage, TranscriptRows, append_transcript_parts, append_transcript_tool_call,
-    append_transcript_tool_result, finalize_interrupted_tools,
+    AppTranscriptMessage, TranscriptRows, append_owned_transcript_tool_result,
+    append_transcript_parts, append_transcript_tool_call, append_transcript_tool_result,
+    finalize_interrupted_tools,
 };
 
 /// Строит завершённый web transcript из canonical journal. Active streaming
@@ -188,9 +189,12 @@ impl TranscriptReplay {
                 }
             }
             JournalEntry::ToolResultRecorded(tool)
-                if record.turn_id != live_turn_id
-                    && visibility.is_root_record(record.thread_id, record.turn_id)
-                    && visibility.displays_tool(record.turn_id, &tool.result.call_id) =>
+                if visibility.displays_final_result(
+                    record.thread_id,
+                    record.turn_id,
+                    live_turn_id,
+                    &tool.result.call_id,
+                ) =>
             {
                 if state.seen_results.insert(tool.result.call_id.clone()) {
                     state.append_tool_result(&tool.result);
@@ -213,6 +217,22 @@ impl TranscriptReplay {
                 state.append_turn_failure(settled, record.timestamp_ms);
             }
             _ => {}
+        }
+    }
+
+    fn render_final_record(&mut self, record: &mut JournalRecord, live_turn_id: Option<TurnId>) {
+        let JournalEntry::ToolResultRecorded(tool) = &mut record.entry else {
+            self.render_record(record, live_turn_id);
+            return;
+        };
+        if self.visibility.displays_final_result(
+            record.thread_id,
+            record.turn_id,
+            live_turn_id,
+            &tool.result.call_id,
+        ) && self.state.seen_results.insert(tool.result.call_id.clone())
+        {
+            self.state.append_owned_tool_result(&mut tool.result);
         }
     }
 
@@ -326,6 +346,18 @@ impl TranscriptVisibility {
         is_root_record(&self.root_threads, thread_id, turn_id)
     }
 
+    fn displays_final_result(
+        &self,
+        thread_id: Option<ThreadId>,
+        turn_id: Option<TurnId>,
+        live_turn_id: Option<TurnId>,
+        call_id: &str,
+    ) -> bool {
+        turn_id != live_turn_id
+            && self.is_root_record(thread_id, turn_id)
+            && self.displays_tool(turn_id, call_id)
+    }
+
     fn displays_tool(&self, turn_id: Option<TurnId>, call_id: &str) -> bool {
         turn_id
             .and_then(|turn| self.display_tool_calls.get(&turn))
@@ -363,6 +395,45 @@ impl TranscriptProjectionState {
 
     fn append_message(&mut self, message: &CanonicalMessage, hide_compactor_parts: bool) {
         let timestamp_ms = self.timestamps.message(message);
+        self.append_message_at(message, hide_compactor_parts, timestamp_ms);
+    }
+
+    // Staged records have their own decoded payload, separate from canonical
+    // state. Only a lone plain text part can become the row without joining.
+    fn append_staged_message(&mut self, message: &mut CanonicalMessage) {
+        let timestamp_ms = self.timestamps.message(message);
+        if let [part] = message.parts.as_mut_slice()
+            && let ContentPart::Text { text } = &mut part.payload
+        {
+            if self.seen_parts.insert(part.part_id)
+                && part.scope == PartScope::Conversation
+                && !text.trim().is_empty()
+            {
+                // A row can outlive the scan. Do not retain donor spare capacity.
+                let text = if text.len() == text.capacity() {
+                    std::mem::take(text)
+                } else {
+                    text.as_str().to_owned()
+                };
+                super::push_transcript_text(
+                    &mut self.transcript,
+                    super::transcript_role(&message.role),
+                    message,
+                    text,
+                    timestamp_ms,
+                );
+            }
+        } else {
+            self.append_message_at(message, false, timestamp_ms);
+        }
+    }
+
+    fn append_message_at(
+        &mut self,
+        message: &CanonicalMessage,
+        hide_compactor_parts: bool,
+        timestamp_ms: Option<i64>,
+    ) {
         // Keep canonical payloads borrowed: duplicate checkpoints and hidden
         // parts must not be copied merely to discard them before rendering.
         let mut parts = message
@@ -411,8 +482,18 @@ impl TranscriptProjectionState {
     fn append_tool_result(&mut self, result: &crate::domain::ToolResult) {
         let start = self.transcript.rows.len();
         append_transcript_tool_result(&mut self.transcript, result);
+        self.timestamp_appended_tool_result(start, &result.call_id);
+    }
+
+    fn append_owned_tool_result(&mut self, result: &mut crate::domain::ToolResult) {
+        let start = self.transcript.rows.len();
+        append_owned_transcript_tool_result(&mut self.transcript, result);
+        self.timestamp_appended_tool_result(start, &result.call_id);
+    }
+
+    fn timestamp_appended_tool_result(&mut self, start: usize, call_id: &str) {
         if self.transcript.rows.len() > start {
-            self.transcript.rows[start].timestamp_ms = self.timestamps.call(&result.call_id);
+            self.transcript.rows[start].timestamp_ms = self.timestamps.call(call_id);
         }
     }
 

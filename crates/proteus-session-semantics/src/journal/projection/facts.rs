@@ -3,9 +3,7 @@ use super::*;
 
 impl JournalValidationState {
     pub fn apply(&mut self, record: &JournalRecord) -> Result<()> {
-        if self.record_ids.insert(record.record_id).is_some() {
-            bail!("duplicate journal record_id {}", record.record_id);
-        }
+        self.require_new_record_id(record)?;
 
         match &record.entry {
             JournalEntry::HookInvoked(trace) => {
@@ -77,39 +75,10 @@ impl JournalValidationState {
                 }
             }
             JournalEntry::HistoryMutated(mutation) => {
-                reject_execution_id(record)?;
-                if record.turn_id.is_some() {
-                    self.require_root_turn(record)?;
-                }
-                if mutation.previous_revision != self.history_revision {
-                    bail!(
-                        "history revision mismatch: record expects {}, current revision is {}",
-                        mutation.previous_revision,
-                        self.history_revision
-                    );
-                }
-                if mutation.new_revision != mutation.previous_revision.saturating_add(1) {
-                    bail!(
-                        "history revision must increment by one: {} -> {}",
-                        mutation.previous_revision,
-                        mutation.new_revision
-                    );
-                }
-                validate_conversation_messages(&mutation.messages)?;
-                Self::validate_part_id_stability(&mut self.known_parts, &mutation.messages)?;
-                if mutation.mutation != HistoryMutationKind::Checkpoint
-                    && !mutation.tool_results.is_empty()
-                {
-                    bail!("only a workflow checkpoint may bind tool results");
-                }
+                self.validate_history_mutation(record, mutation)?;
                 match mutation.mutation {
                     HistoryMutationKind::Append => {
-                        if mutation.messages.is_empty() {
-                            bail!("history append must contain at least one message");
-                        }
-                        if mutation.compaction.is_some() {
-                            bail!("history append cannot carry a compaction report");
-                        }
+                        validate_history_append(mutation)?;
                         Arc::make_mut(&mut self.history).extend(mutation.messages.iter().cloned());
                     }
                     HistoryMutationKind::Replace => {
@@ -355,7 +324,7 @@ impl JournalValidationState {
                     && let Some(index) = self.capture_tool_result(&tool.result)?
                 {
                     self.history_revision = self.history_revision.saturating_add(1);
-                    self.check_active_ids(None)?;
+                    self.check_captured_active_ids(index)?;
                     Self::validate_part_id_stability(
                         &mut self.known_parts,
                         &self.history[index..index + 1],
@@ -369,8 +338,9 @@ impl JournalValidationState {
                 reject_execution_id(record)?;
                 let turn_id = self.require_root_turn(record)?;
                 if self.capture_owner == record.thread_id.zip(record.turn_id) {
-                    let pending = self
-                        .tool_calls
+                    // Share the lifecycle map, not the pending result payloads.
+                    let tool_calls = self.tool_calls.clone();
+                    let pending = tool_calls
                         .values()
                         .filter(|call| {
                             !call.result
@@ -379,12 +349,11 @@ impl JournalValidationState {
                                         && owner.turn_id == record.turn_id
                                 })
                         })
-                        .filter_map(|call| call.effect.clone())
-                        .collect::<Vec<_>>();
+                        .filter_map(|call| call.effect.as_ref());
                     for result in pending {
-                        if let Some(index) = self.capture_tool_result(&result)? {
+                        if let Some(index) = self.capture_tool_result(result)? {
                             self.history_revision = self.history_revision.saturating_add(1);
-                            self.check_active_ids(None)?;
+                            self.check_captured_active_ids(index)?;
                             Self::validate_part_id_stability(
                                 &mut self.known_parts,
                                 &self.history[index..index + 1],
@@ -415,6 +384,45 @@ impl JournalValidationState {
         Ok(())
     }
 
+    pub(super) fn require_new_record_id(&mut self, record: &JournalRecord) -> Result<()> {
+        if self.record_ids.insert(record.record_id).is_some() {
+            bail!("duplicate journal record_id {}", record.record_id);
+        }
+        Ok(())
+    }
+
+    pub(super) fn validate_history_mutation(
+        &mut self,
+        record: &JournalRecord,
+        mutation: &super::super::types::HistoryMutated,
+    ) -> Result<()> {
+        reject_execution_id(record)?;
+        if record.turn_id.is_some() {
+            self.require_root_turn(record)?;
+        }
+        if mutation.previous_revision != self.history_revision {
+            bail!(
+                "history revision mismatch: record expects {}, current revision is {}",
+                mutation.previous_revision,
+                self.history_revision
+            );
+        }
+        if mutation.new_revision != mutation.previous_revision.saturating_add(1) {
+            bail!(
+                "history revision must increment by one: {} -> {}",
+                mutation.previous_revision,
+                mutation.new_revision
+            );
+        }
+        validate_conversation_messages(&mutation.messages)?;
+        Self::validate_part_id_stability(&mut self.known_parts, &mutation.messages)?;
+        if mutation.mutation != HistoryMutationKind::Checkpoint && !mutation.tool_results.is_empty()
+        {
+            bail!("only a workflow checkpoint may bind tool results");
+        }
+        Ok(())
+    }
+
     fn capture_tool_result(
         &mut self,
         result: &proteus_contracts::domain::ToolResult,
@@ -427,4 +435,16 @@ impl JournalValidationState {
         // before validating only the new payload against all known identities.
         Arc::make_mut(&mut self.capture).record_at(Arc::make_mut(&mut self.history), result)
     }
+}
+
+pub(super) fn validate_history_append(
+    mutation: &super::super::types::HistoryMutated,
+) -> Result<()> {
+    if mutation.messages.is_empty() {
+        bail!("history append must contain at least one message");
+    }
+    if mutation.compaction.is_some() {
+        bail!("history append cannot carry a compaction report");
+    }
+    Ok(())
 }

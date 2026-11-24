@@ -99,11 +99,15 @@ impl HistoryCapture {
                     _ => None,
                 })
                 .ok_or_else(|| anyhow::anyhow!("checkpoint result suffix was changed"))?;
-            ensure!(
-                &binding.message(result.clone()) == message,
-                "checkpoint result suffix was changed"
-            );
-            next.record(&mut history, result)?;
+            let prepared = binding.message(result.clone());
+            ensure!(&prepared == message, "checkpoint result suffix was changed");
+            if result.call_id == binding.call_id {
+                next.record_message_at(&mut history, &result.call_id, |_| prepared)?;
+            } else {
+                // Preserve the ordinary lookup for a mismatched raw call ID.
+                drop(prepared);
+                next.record(&mut history, result)?;
+            }
         }
         Ok((next, history))
     }
@@ -205,10 +209,21 @@ impl HistoryCapture {
         history: &mut Vec<CanonicalMessage>,
         result: &ToolResult,
     ) -> Result<Option<usize>> {
+        self.record_message_at(history, &result.call_id, |binding| {
+            binding.message(result.clone())
+        })
+    }
+
+    fn record_message_at(
+        &mut self,
+        history: &mut Vec<CanonicalMessage>,
+        call_id: &str,
+        message: impl FnOnce(&WorkflowToolResultBinding) -> CanonicalMessage,
+    ) -> Result<Option<usize>> {
         let Some(index) = self
             .calls
             .iter()
-            .position(|(binding, _)| binding.call_id == result.call_id)
+            .position(|(binding, _)| binding.call_id == call_id)
         else {
             return Ok(None);
         };
@@ -223,7 +238,7 @@ impl HistoryCapture {
             "checkpoint history suffix was lost"
         );
         let position = self.base + offset;
-        history.insert(position, binding.message(result.clone()));
+        history.insert(position, message(binding));
         *recorded = true;
         Ok(Some(position))
     }

@@ -316,3 +316,5 @@ fn full_reprojection_compares_changed_archived_leaf_and_preserves_pinned_history
     );
     assert!(store.saved_transcript_page(Some(425), None).is_some());
 }
+
+mod startup_save;

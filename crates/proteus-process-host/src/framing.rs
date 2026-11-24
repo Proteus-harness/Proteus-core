@@ -54,10 +54,18 @@ impl Framing for NewlineJsonFraming {
                 break;
             }
 
-            let bytes_to_take = buffer
-                .iter()
-                .position(|byte| *byte == b'\n')
-                .map_or(buffer.len(), |position| position + 1);
+            // Long continuations usually contain no newline. The byte-slice
+            // predicate skips them without a scalar position search; only
+            // a positive match still requires the exact delimiter position.
+            let bytes_to_take =
+                if !line.is_empty() && buffer.len() >= 1024 && !buffer.contains(&b'\n') {
+                    buffer.len()
+                } else {
+                    buffer
+                        .iter()
+                        .position(|byte| *byte == b'\n')
+                        .map_or(buffer.len(), |position| position + 1)
+                };
             if line.len().saturating_add(bytes_to_take) > self.max_frame_bytes {
                 bail!(
                     "newline JSON frame exceeded {} bytes before newline",

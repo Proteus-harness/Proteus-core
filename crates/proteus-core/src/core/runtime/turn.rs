@@ -11,7 +11,8 @@ use crate::{
 };
 
 use super::{
-    AgentRuntime, ExecutionAdmissionSnapshot, ReservedRunCompletion, prepare_history_update,
+    AgentRuntime, ExecutionAdmissionSnapshot, ReservedRunCompletion,
+    history::prepare_owned_history_update,
     steering::{
         ReservedUserMessage, RootTurnSettlement, SteeringModel, UserMessageReservation,
         weave_deliveries_into_output,
@@ -473,8 +474,8 @@ impl AgentRuntime {
                         .await;
                 }
             };
-        let history_update = match prepare_history_update(
-            &history,
+        let history_update = match prepare_owned_history_update(
+            history,
             &user_message,
             &workflow_output.new_messages,
             workflow_output.history_replacement.as_deref(),

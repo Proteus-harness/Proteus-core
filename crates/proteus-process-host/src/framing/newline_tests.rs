@@ -145,3 +145,30 @@ fn limit_includes_delimiter_and_checks_only_the_current_frame() {
     );
     assert_eq!(reader.position(), 6);
 }
+
+#[test]
+fn long_fragment_search_preserves_limit_errors_and_next_frame() {
+    let frame = format!("{{\"text\":\"{}\"}}\r\n", "Привет 🦀\\n".repeat(4096));
+    let mut bytes = frame.as_bytes().to_vec();
+    bytes.extend_from_slice(b"[]\n");
+    for capacity in [1023, 1024, 1025, 8192, 8193] {
+        for limit in [frame.len() - 1, frame.len()] {
+            for malformed in [false, true] {
+                let mut data = bytes.clone();
+                if malformed {
+                    data[frame.len() - 6] = 0xff;
+                }
+                let mut reference = BufReader::with_capacity(capacity, Cursor::new(&data[..]));
+                let mut current = BufReader::with_capacity(capacity, Cursor::new(&data[..]));
+                let framing = NewlineJsonFraming::new(limit);
+                for _ in 0..2 {
+                    assert_eq!(
+                        framing.read_frame(&mut current).map_err(|e| e.to_string()),
+                        read_reference(&mut reference, limit).map_err(|e| e.to_string())
+                    );
+                    assert_eq!(consumed(&current), consumed(&reference));
+                }
+            }
+        }
+    }
+}

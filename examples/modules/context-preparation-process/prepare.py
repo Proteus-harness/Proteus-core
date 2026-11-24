@@ -157,14 +157,17 @@ def compact(params: Any, strategy: Any) -> dict[str, Any]:
     if len(messages) <= trigger_messages:
         return unchanged(messages, "below_trigger_messages")
 
-    user_indices = [
-        index for index, message in enumerate(messages) if is_user_message(message)
-    ]
-    if not user_indices:
+    retained_users = 0
+    suffix_start = len(messages)
+    for index in range(len(messages) - 1, -1, -1):
+        if is_user_message(messages[index]):
+            suffix_start = index
+            retained_users += 1
+            if retained_users == retain_user_turns:
+                break
+    if not retained_users:
         return unchanged(messages, "no_user_turn_boundary")
 
-    retained_user_count = min(retain_user_turns, len(user_indices))
-    suffix_start = user_indices[-retained_user_count]
     context_prefix = [
         message
         for index, message in enumerate(messages)
@@ -174,7 +177,7 @@ def compact(params: Any, strategy: Any) -> dict[str, Any]:
     if len(retained) >= len(messages):
         return unchanged(messages, "suffix_would_not_reduce_history")
 
-    retained_users = sum(1 for message in retained if is_user_message(message))
+    # The preserved request-only prefix adds no user turns.
     summary = (
         f"Deterministic suffix compaction retained {retained_users} recent user "
         f"turns and dropped {len(messages) - len(retained)} earlier messages."

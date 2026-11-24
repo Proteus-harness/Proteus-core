@@ -88,6 +88,7 @@ fn staged_text_witnesses_preserve_early_rows_and_hidden_root_live_commits() {
     let actual = render_causal(
         &mut |visit| staged.scan(visit),
         Some(live),
+        false,
         TranscriptVisibility {
             root_threads: roots.expect("every response has a positive commit witness"),
             certified_text_responses: true,
@@ -186,4 +187,63 @@ fn staged_text_rejects_tool_activity_before_inside_or_after_response() {
         );
         assert!(DisplayRecords::stage_for_test(&items).1.is_none());
     }
+}
+
+#[test]
+fn staged_mixed_append_still_matches_full_order_and_dates() {
+    use crate::model_standard::{CanonicalPart, MessagePhase, PartProvenance, PartScope};
+
+    let mut assistant = CanonicalMessage::new(
+        MessageRole::Assistant,
+        vec![
+            ContentPart::Text {
+                text: "first 🦀\n".into(),
+            },
+            ContentPart::ReasoningSummary {
+                text: "a separate thought".into(),
+            },
+            ContentPart::Text {
+                text: "second".into(),
+            },
+        ],
+    )
+    .with_phase(MessagePhase::FinalAnswer);
+    assistant.parts.push(CanonicalPart::new(
+        PartProvenance::Runtime,
+        PartScope::Trace,
+        ContentPart::Text {
+            text: "not part of the display".into(),
+        },
+    ));
+    let item = history(
+        HistoryMutationKind::Append,
+        vec![
+            CanonicalMessage::text(MessageRole::User, "  \t\n"),
+            assistant,
+            CanonicalMessage::text(MessageRole::User, "another user"),
+        ],
+    );
+    let items = [item];
+    let (mut staged, roots) = DisplayRecords::stage_for_test(&items);
+    let actual = render_causal(
+        &mut |visit| staged.scan(visit),
+        None,
+        true,
+        TranscriptVisibility {
+            root_threads: roots.expect("history-only stage"),
+            certified_text_responses: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let expected = from_records(&items, None).unwrap();
+    assert_eq!(
+        serde_json::to_vec(&actual).unwrap(),
+        serde_json::to_vec(&expected).unwrap()
+    );
+    assert_eq!(
+        actual.iter().map(|r| r.role.as_str()).collect::<Vec<_>>(),
+        ["reasoning", "assistant", "user"]
+    );
+    assert!(actual.iter().all(|row| row.timestamp_ms == Some(42)));
 }

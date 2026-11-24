@@ -1,9 +1,27 @@
 //! Compact context statistics shared by live reads and the SQLite display index.
+use std::{fmt, path::Path};
+
 use crate::model_standard::{CanonicalMessage, ContentPart, MessageRole};
 use proteus_contracts::app_protocol::AppContextHistorySummary;
 
 fn json_bytes(value: &impl serde::Serialize) -> usize {
     super::json_size::encoded_len(value, usize::MAX).unwrap_or_default()
+}
+
+fn path_display_bytes(path: &Path) -> usize {
+    struct ByteCount(usize);
+
+    impl fmt::Write for ByteCount {
+        fn write_str(&mut self, text: &str) -> fmt::Result {
+            self.0 += text.len();
+            Ok(())
+        }
+    }
+
+    let mut count = ByteCount(0);
+    fmt::write(&mut count, format_args!("{}", path.display()))
+        .expect("counting path display bytes cannot fail");
+    count.0
 }
 
 pub(crate) fn summarize_context_history(messages: &[CanonicalMessage]) -> AppContextHistorySummary {
@@ -31,14 +49,14 @@ pub(crate) fn summarize_context_history(messages: &[CanonicalMessage]) -> AppCon
                         + chunk
                             .path
                             .as_ref()
-                            .map(|path| path.display().to_string().len())
+                            .map(|path| path_display_bytes(path))
                             .unwrap_or_default()
                         + chunk.content.len()
                         + json_bytes(&chunk.metadata);
                 }
                 ContentPart::FileRef { path, content } => {
-                    bytes += path.display().to_string().len()
-                        + content.as_deref().unwrap_or_default().len();
+                    bytes +=
+                        path_display_bytes(path) + content.as_deref().unwrap_or_default().len();
                 }
                 ContentPart::ToolCall { call } => {
                     bytes += call.name.len() + json_bytes(&call.args);

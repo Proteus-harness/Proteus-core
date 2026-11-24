@@ -26,10 +26,11 @@ pub(crate) fn journal_transcript_from_source(
     source: &mut JournalReadSnapshot,
     live_turn_id: Option<TurnId>,
 ) -> Result<Vec<AppTranscriptMessage>> {
-    if let Some(root_threads) = source.take_staged_causal_roots() {
+    if let Some((root_threads, single_record)) = source.take_staged_causal_roots() {
         return render_causal(
             &mut |visit| source.scan_display(visit),
             live_turn_id,
+            single_record,
             TranscriptVisibility {
                 root_threads,
                 certified_text_responses: true,
@@ -203,9 +204,9 @@ pub(super) fn transcript_from_scan(
         final_results,
         subagent_bindings,
     };
-    scan(&mut |record| {
+    scan(&mut |mut record| {
         if record.session_seq >= start {
-            replay.render_record(&record, live_turn_id);
+            replay.render_final_record(&mut record, live_turn_id);
         }
         Ok(())
     })?;
@@ -215,17 +216,33 @@ pub(super) fn transcript_from_scan(
 fn render_causal(
     scan: &mut impl FnMut(&mut dyn FnMut(JournalRecord) -> Result<()>) -> Result<()>,
     live_turn_id: Option<TurnId>,
+    single_record: bool,
     visibility: TranscriptVisibility,
 ) -> Result<Vec<AppTranscriptMessage>> {
     let mut replay = TranscriptReplay {
-        state: TranscriptProjectionState::default(),
+        state: TranscriptProjectionState {
+            timestamps: TranscriptTimestamps::staged(single_record),
+            ..Default::default()
+        },
         visibility,
         final_results: Default::default(),
         subagent_bindings: Default::default(),
     };
-    scan(&mut |record| {
+    scan(&mut |mut record| {
         replay.state.timestamps.collect_record::<false>(&record);
-        replay.render_record(&record, live_turn_id);
+        if let JournalEntry::HistoryMutated(mutation) = &mut record.entry
+            && mutation.mutation == HistoryMutationKind::Append
+        {
+            if !(live_turn_id.is_some() && record.turn_id == live_turn_id) {
+                // Only the staged record owns these decoded rows. Release each
+                // row's unused parts and metadata as its display output grows.
+                for mut message in std::mem::take(&mut mutation.messages) {
+                    replay.state.append_staged_message(&mut message);
+                }
+            }
+        } else {
+            replay.render_record(&record, live_turn_id);
+        }
         Ok(())
     })?;
     Ok(replay.finish())

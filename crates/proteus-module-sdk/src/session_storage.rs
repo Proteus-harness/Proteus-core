@@ -78,6 +78,43 @@ impl<T: SessionStorageModule> Export for SessionStorageExport<T> {
             bail!("session storage display projection was not negotiated");
         }
         request.validate()?;
-        Ok(serde_json::to_value(self.storage.execute(request)?)?)
+        let read_blob = matches!(
+            request,
+            SessionStorageRequest::ReadBlob { .. } | SessionStorageRequest::ReadBlobByHash { .. }
+        );
+        let response = self.storage.execute(request)?;
+        if read_blob {
+            Ok(serialize_blob_response(response, |shell| {
+                serde_json::to_value(shell)
+            })?)
+        } else {
+            Ok(serde_json::to_value(response)?)
+        }
     }
+}
+
+fn serialize_blob_response(
+    mut response: SessionStorageResponse,
+    serialize_shell: impl FnOnce(&SessionStorageResponse) -> serde_json::Result<Value>,
+) -> serde_json::Result<Value> {
+    if let SessionStorageResponse::BlobData { data_base64, .. } = &mut response
+        && !data_base64.is_empty()
+        && data_base64.capacity() == data_base64.len()
+    {
+        // Serde still defines the response shape and key order. Only move a
+        // tight buffer: the transport can hold this Value while waiting to write.
+        let data = std::mem::take(data_base64);
+        if let Ok(mut shell) = serialize_shell(&response)
+            && let Some(slot) = shell.get_mut("data_base64")
+            && slot.as_str() == Some("")
+        {
+            *slot = Value::String(data);
+            return Ok(shell);
+        }
+        let SessionStorageResponse::BlobData { data_base64, .. } = &mut response else {
+            unreachable!("serialization did not change the response variant");
+        };
+        *data_base64 = data;
+    }
+    serde_json::to_value(response)
 }

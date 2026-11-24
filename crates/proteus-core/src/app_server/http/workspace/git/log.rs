@@ -89,26 +89,40 @@ pub(crate) fn log(root: &Path, query: LogQuery) -> Result<Log> {
     // Stopped at the output cap: whatever was not read is still to come.
     result.has_more = output.truncated;
     let text = String::from_utf8_lossy(&output.bytes);
-    let fields: Vec<&str> = text.split('\0').collect();
-    // A trailing record cut at the cap, or the final empty terminator, is incomplete.
-    let (records, _) = fields.as_chunks::<FIELDS>();
-    for [hash, short, parents, author, email, time, refs, summary] in records {
+    for [hash, short, parents, author, email, time, refs, summary] in log_records(&text) {
         if result.entries.len() == query.limit {
             result.has_more = true;
             break;
         }
         result.entries.push(LogEntry {
-            hash: (*hash).to_owned(),
-            short: (*short).to_owned(),
+            hash: hash.to_owned(),
+            short: short.to_owned(),
             parents: parents.split_whitespace().map(str::to_owned).collect(),
-            summary: (*summary).to_owned(),
-            author: (*author).to_owned(),
-            email: (*email).to_owned(),
+            summary: summary.to_owned(),
+            author: author.to_owned(),
+            email: email.to_owned(),
             time: time.parse().context("invalid Git commit time")?,
             refs: decorations(refs),
         });
     }
     Ok(result)
+}
+
+fn log_records(text: &str) -> impl Iterator<Item = [&str; FIELDS]> {
+    // Keep split's final field, including an empty one. Ignore only short groups.
+    let mut fields = text.split('\0');
+    std::iter::from_fn(move || {
+        Some([
+            fields.next()?,
+            fields.next()?,
+            fields.next()?,
+            fields.next()?,
+            fields.next()?,
+            fields.next()?,
+            fields.next()?,
+            fields.next()?,
+        ])
+    })
 }
 
 /// `%D` with `--decorate=full`, e.g. `HEAD -> refs/heads/main, tag: refs/tags/v1`.
