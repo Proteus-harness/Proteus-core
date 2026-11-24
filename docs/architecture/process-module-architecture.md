@@ -1,60 +1,23 @@
 # Процессные Модули И Их Контракты
 
-Документ описывает действующий Component Runtime v2 / wire v3. Агент собирается
-из modules через slots; каждый процессный модуль предоставляет один или
-несколько exports. Совместный процесс нескольких slots — обычный вариант,
-у него нет особого статуса или дополнительных прав.
+Компонент — процесс, запущенный по записи `components.<id>`. Все его exports делят
+жизненный цикл. Запрос указывает конкретный export парой `slot/module_id`.
 
-Текущая внешняя граница:
+| Версия | Что определяет |
+|---|---|
+| Component Runtime v2 | Совместную работу exports в одном процессе, вложенные вызовы и общий перезапуск |
+| Wire v3 | Формат сообщений JSON-RPC, адресацию и идентификаторы запросов в каждом направлении |
+| Версия контракта слота | Данные, методы, обратные вызовы и способ выбора реализаций |
 
-```text
-one active configured component = one process + one shared lifecycle
-one component = one or more exact module exports
-one export = one slot contract + one module_id
-```
-
-`component` — техническое имя записи запуска модуля (`components.<id>`) и её
-общего process lifecycle в текущем config/runtime. Отдельной пользовательской
-сущности поверх модуля оно не вводит. `module_id` называет реализацию
-конкретного slot, а каждый вызов адресуется exact export `slot/module_id`.
-
-Здесь три независимые версии:
-
-- **Component Runtime v2** — host semantics: shared process, multiplexed
-  invocations, host-owned lineage и общий failure domain;
-- **component wire protocol v3** — strict multi-export JSON-RPC handshake,
-  target/lineage каждого вызова и direction-separated ids;
-- **slot-owned contract version** — DTO, module methods, callbacks и
-  composition конкретного slot; версия независима от wire protocol.
-  Текущие версии задаются в `proteus-contracts` и используются общей
-  authority table; каталог — в [modules.md](modules.md).
-
-`proteus-module-protocol::v3::ComponentBroker` является единственной внешней
-границей configured modules. Старый wire v2 удалён; compatibility reader и
-автоматического определения версии нет.
-
-Старые wire v1/v2 не читаются и не определяются автоматически.
-Native ABI также не является запасным путём: dylib loader, `plugin.toml`,
-`abi_stable`, `libloading` и `cdylib` entrypoints удалены.
+Точка подключения — `proteus-module-protocol::v3::ComponentBroker`. Он принимает wire v3.
+[Обмен при запуске](#strict-multi-export-handshake) и [пример подключения модуля](modules.md#как-подключить-модуль).
 
 ## Главный Инвариант
 
-```text
-Core -> Contract -> Module Export Implementation
-
-authority(export invocation) = authority(slot, invocation_context)
-```
-
-`component_id`, `module_id`, binary, язык и каталог исходников не участвуют в
-решении о доступных `host.*` callbacks. Компонент с exports `tool/rg_search` и
-`workflow/coding.single_loop` не получает объединение tool- и workflow-прав:
-каждый request обслуживается с authority только активного export.
-
-Component — deployment/lifecycle boundary, а не новый привилегированный slot.
-Его exports могут делить private state и внутренние helper-функции, но
-host-visible операции, права и composition остаются contract-bound. Нельзя
-вызывать host от имени соседнего export или регистрировать runtime-методы вне
-объявленного slot contract.
+Допустимые обращения к Core задают слот и контекст текущего вызова. Например, если
+процесс предоставляет и инструмент, и workflow, при исполнении инструмента ему доступны
+только методы слота `tool`. Код и внутренние данные процесса могут быть общими.
+[Таблица прав по слотам](#authority-table).
 
 ## Слои Runtime
 

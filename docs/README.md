@@ -1,15 +1,8 @@
 # Документация Proteus
 
-Начните с [главного README](../README.md): он показывает, как запустить Proteus
-и собрать агента из слотов и модулей. Затем прочитайте:
-
-1. [Замысел](product/spec.md) — для чего нужен конструктор и как устроен агент.
-2. [Текущее состояние](product/scope.md) — что уже работает и где проходят границы.
-3. [План](product/roadmap.md) — какие результаты ещё нужны и как понять, что работа завершена.
-
-Для конкретной задачи выберите ближайший документ из таблицы. Если описание
-расходится с кодом, обновите соответствующий справочник. История решений лежит
-в `docs/archive/`; она не заменяет описание действующего устройства.
+Для первого запуска откройте [README](../README.md). Для конкретной задачи выберите строку в таблице.
+[Замысел](product/spec.md), [текущее состояние](product/scope.md) и [план](product/roadmap.md) описывают продукт.
+История решений лежит в `docs/archive/`.
 
 ## Куда Смотреть
 
@@ -17,7 +10,7 @@
 |---|---|
 | Установить и запустить Proteus | [Главный README](../README.md), [запуск на другой машине](guides/second-pc-bootstrap.md) |
 | Собрать и использовать приложение | [Приложение и расширения клиента](https://github.com/Proteus-harness/Proteus-desktop/blob/main/README.md) |
-| Написать или обновить расширение приложения | [Пакеты](https://github.com/Proteus-harness/Proteus-desktop-extensions/blob/main/README.md), [протокол v2](https://github.com/Proteus-harness/Proteus-desktop-extensions/blob/main/PROTOCOL.md) |
+| Написать или обновить расширение приложения | [Пакеты](https://github.com/Proteus-harness/Proteus-desktop-extensions/blob/main/README.md), [протокол расширений](https://github.com/Proteus-harness/Proteus-desktop-extensions/blob/main/PROTOCOL.md) |
 | Настроить профиль, модель и инструменты | [Конфигурация](guides/configuration.md) |
 | Отправить изображение и понять его хранение | [Вход с изображениями](guides/images.md) |
 | Разобраться в устройстве и ответственности частей системы | [Архитектура](architecture/architecture.md) |

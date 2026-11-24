@@ -1,26 +1,11 @@
 # Модули
 
-Агент собирается из слотов и модулей. Слот задаёт, какое поведение нужно
-агенту и как его вызывать: входные и выходные данные, доступные методы,
-порядок выбора, отмену и обработку ошибок. Модуль — отдельная запускаемая
-программа со своей реализацией. Один модуль может реализовать несколько слотов.
+Слот определяет, какие данные принимает реализация и какие операции ей доступны.
+Модуль — запускаемая программа, которая предоставляет одну или несколько реализаций.
+Они делят процесс, а права каждого вызова определяются выбранным слотом и контекстом.
 
-```text
-Агент -> слоты -> модули
-```
-
-Каждый вызов адресован конкретному слоту и реализации. Разрешённые операции
-зависят от контракта слота и условий вызова, а не от имени или языка модуля.
-Несколько слотов одного модуля делят процесс и его жизненный цикл, но каждый
-вызов получает только права своего слота.
-
-Внешние модули работают через Component Runtime v2 и протокол wire v3. У
-`workflow` действует контракт v22, у `hook` — v8, у `tool` — v7, у `model` — v14.
-Хранение сессий использует отдельный `session_storage/v2`.
-Версии и разрешённые методы остальных слотов перечислены в
-[описании процессной границы](process-module-architecture.md). Один процесс
-может обслуживать несколько одновременных и вложенных вызовов. Загрузки
-модулей через dylib в проекте нет.
+Для настройки начните с [таблицы слотов](#слоты-и-их-выбор) и [примера подключения](#как-подключить-модуль).
+Для реализации обмена по wire v3 см. [процессный протокол](process-module-architecture.md).
 
 ## Хранение Сессий
 
@@ -72,22 +57,6 @@ host callbacks. Он обслуживает записи и чтения по fi
 
 ## Слоты И Их Выбор
 
-### Описание Настроек
-
-Каждый process export может вернуть `config_schema` в manifest initialization.
-Это typed `ModuleConfigSchema` из `proteus-contracts`: порядок полей, понятные
-подписи, пояснения, типы значений, defaults и ограничения. Описание принадлежит
-implementation; reference crates держат его рядом с собственной config semantics.
-Core переносит описание в Config Builder, а приложение строит общую форму.
-Особых таблиц параметров для reference module ids в Core и UI нет.
-
-Описание не меняет slot authority, composition, выбор implementation или правила
-сохранения. `null` означает отсутствие формы, пустой `fields` — отсутствие
-настраиваемых параметров. Значения по умолчанию показываются без записи в
-`module_config`; итоговую конфигурацию проверяет сам модуль при сборке.
-Wire shape и правила validation — в
-[process-module-architecture.md](process-module-architecture.md#описание-конфигурации-export).
-
 | Слот | Правило выбора | Где выбирается | Процессный контракт | Примеры имён |
 |---|---|---|---|---|
 | `session_storage` | `select_one` | `modules.session_storage` | да, `session_storage/v2` | `jsonl`, `sqlite` |
@@ -124,6 +93,22 @@ Core сохраняет владельца process tool как typed `ProcessToo
 в topology и Config Builder и не меняет policy/approval/slot authority.
 Builder отдельно показывает обнаруженные выключенные tools; в исполняемый
 `ToolRegistry` и набор кандидатов модели они не попадают.
+
+### Описание Настроек
+
+Каждый process export может вернуть `config_schema` в manifest initialization.
+Это typed `ModuleConfigSchema` из `proteus-contracts`: порядок полей, понятные
+подписи, пояснения, типы значений, defaults и ограничения. Описание принадлежит
+implementation; reference crates держат его рядом с собственной config semantics.
+Core переносит описание в Config Builder, а приложение строит общую форму.
+Особых таблиц параметров для reference module ids в Core и UI нет.
+
+Описание не меняет slot authority, composition, выбор implementation или правила
+сохранения. `null` означает отсутствие формы, пустой `fields` — отсутствие
+настраиваемых параметров. Значения по умолчанию показываются без записи в
+`module_config`; итоговую конфигурацию проверяет сам модуль при сборке.
+Wire shape и правила validation — в
+[process-module-architecture.md](process-module-architecture.md#описание-конфигурации-export).
 
 ## Rust SDK
 
@@ -195,38 +180,9 @@ path = ".proteus/memory.sqlite"
 
 ## Подтверждение Подключения
 
-Core запускает модуль и отправляет ему первое сообщение `initialize`:
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": "h:1:0",
-  "method": "initialize",
-  "params": {
-    "protocol_version": "v3",
-    "component_id": "reference-capabilities",
-    "exports": [
-      {
-        "slot": "context_provider",
-        "module_id": "rg_search",
-        "contract_version": "v4",
-        "composition": "ordered_many",
-        "module_config": {},
-        "host_features": []
-      }
-    ]
-  }
-}
-```
-
-Модуль должен подтвердить ровно тот же набор реализаций слотов. Недостающая,
-лишняя или повторная запись, а также несовпадение `component_id`,
-слота, реализации, версии или правила выбора прерывают сборку конфигурации
-с ошибкой. Каждый последующий вызов указывает конкретную пару
-`slot/module_id`; разрешённые методы модуля и обратные вызовы Core проверяются
-для неё отдельно. Идентификаторы сообщений Core начинаются с
-`h:<generation>:<sequence>`, модуля — с `m:<generation>:<sequence>`;
-`h:<generation>:0` закреплён за `initialize`.
+Core передаёт в `initialize` идентификатор компонента и полный список exports.
+Модуль подтверждает тот же набор, включая версии контрактов и правила выбора.
+Несовпадение прерывает подключение. [Пример запроса и ответа](process-module-architecture.md#strict-multi-export-handshake).
 
 ## Slots По Назначению
 
@@ -715,7 +671,7 @@ hook и tool в JSON и восстанавливает `ModelFailure` из да�
 | Контракт слота | [tool.rs](../../crates/proteus-contracts/src/contracts/tool.rs) и [process_slots.rs](../../crates/proteus-contracts/src/contracts/process_slots.rs) | Общий `tool/v7` принимает `ToolCall` и возвращает `ToolResult`; canonical `SearchQuery` принадлежит [domain/search.rs](../../crates/proteus-contracts/src/domain/search.rs), не отдельному slot. |
 | Подключение выбранного export | [components.rs](../../crates/proteus-core/src/core/module_catalog/components.rs) и [tool.rs](../../crates/proteus-core/src/process_adapters/tool.rs) | Catalog регистрирует process tool provider; `list` обнаруживает `search`, `tools.enabled` включает его. Generic adapter вызывает `invoke`. |
 | Вызов компонента | [client.rs](../../crates/proteus-core/src/process_adapters/client.rs) и [broker.rs](../../crates/proteus-module-protocol/src/v3/broker.rs) | `ProcessExportClient` передаёт typed запрос и ссылку на export в `ComponentBroker`; broker управляет вызовом и общим process lifecycle компонента. |
-| Выбор export внутри модуля | [dispatch.rs](https://github.com/Proteus-harness/Proteus-modules/blob/main/components/process-module/src/dispatch.rs) и [exports.rs](https://github.com/Proteus-harness/Proteus-modules/blob/main/components/process-module/src/exports.rs) | Процессный модуль находит export по `slot/module_id`, проверяет метод и выбирает tool по `call.name`; результат упаковывается в `ProcessToolInvokeResponse`. |
+| Выбор export внутри модуля | [dispatch.rs](https://github.com/Proteus-harness/Proteus-modules/blob/main/components/process-module/src/dispatch.rs) и [exports.rs](https://github.com/Proteus-harness/Proteus-modules/blob/main/components/module-runtime/src/exports.rs) | Процессный модуль находит export по `slot/module_id`, проверяет метод и выбирает tool по `call.name`; результат упаковывается в `ProcessToolInvokeResponse`. |
 | Алгоритм reference-модуля | [rg-search/src/tool.rs](https://github.com/Proteus-harness/Proteus-modules/blob/main/context_provider/rg-search/src/tool.rs) и [lib.rs](https://github.com/Proteus-harness/Proteus-modules/blob/main/context_provider/rg-search/src/lib.rs) | Adapter формирует `SearchQuery` из args/cwd; `run_rg` выполняет поиск. [provider.rs](https://github.com/Proteus-harness/Proteus-modules/blob/main/context_provider/rg-search/src/provider.rs) использует тот же локальный алгоритм для чтения контекста. |
 
 Один configured component может содержать несколько exports и общий процесс,

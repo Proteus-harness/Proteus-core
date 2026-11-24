@@ -1,80 +1,25 @@
 # Архитектура Proteus
 
-Этот документ описывает текущее состояние. Замысел находится в
-[spec.md](../product/spec.md), критерии завершения — в
-[roadmap.md](../product/roadmap.md).
-Возможности и ограничения исполнения вне чата, а также возможное развитие
-описаны отдельно в [execution-runtime.md](execution-runtime.md).
+Как устроен работающий агент, показано ниже. Для выбора компонента есть [таблица слотов](modules.md#слоты-и-их-выбор),
+для запуска без чата — [сценарии исполнения](execution-runtime.md).
 
 ## Инвариант
 
-```text
-Core -> Contract -> Module Implementation
-```
-
-`proteus-core` исполняет tools, context providers, проверку разрешений и workflow,
-но не знает алгоритм конкретного модуля. Интерфейсы и форматы данных
-принадлежат `proteus-contracts`; модули обмениваются сообщениями с Core по
-протоколу v3. Версии контрактов слотов и разрешённые операции приведены в таблице
-[process-module-architecture.md](process-module-architecture.md).
-
-Для каждого вызова:
-
-```text
-authority(module) = authority(slot, invocation_context)
-```
-
-Core определяет допустимые методы модуля, обращения к Core, конфигурацию,
-правила отмены и обработки ошибок по контракту слота и условиям вызова.
-`module_id`, язык программы и расположение исходников не дают дополнительных прав.
+Core вызывает реализацию через контракт слота. Типы данных принадлежат `proteus-contracts`,
+алгоритм — модулю. Для каждого вызова слот и его контекст определяют доступные методы,
+конфигурацию, отмену и обработку ошибок. Разрешённые обращения к Core перечислены
+в [таблице прав](process-module-architecture.md#authority-table).
 
 ## Слои
 
-```text
-Application / Client
-   |
-   | app: HTTP/SSE
-   | product CLI/REPL and AgentControl peers: stdio JSONL
-   v
-AppServer HTTP/stdio
-   |
-   v
-AgentRuntime
-          |-- typed execute_tool -> private admission -> BoundTools
-          `-- Turn path
-          v
-SessionState: Turn / History / Steering / SessionStore
-          |
-          | private admission captures ExecutionAdmissionSnapshot + scope
-          v
-agent execution binding adapter
-          |
-          v
-ExecutionContext
-          |-- ExecutionScope (ExecutionId + cancellation)
-          `-- generic runtime capability handles
-          |
-          v
-AgentWorkflowContext (chat/application wrapper)
-          `-- SessionId / ThreadId / TurnId / agent policy
-          |
-          v
-selected Workflow (controller policy)
-          |
-          v
-WorkflowHostRuntime
-          |
-          +--> Model / Context / Preparation Hooks
-          +--> ToolOrchestrator (agent adapter) -> BoundTools
-          |                                      `-> ToolRegistry / Policy / Approval / Tool
-          +--> Context Providers / AgentControl
-          |
-          v
-process adapters -> ComponentBroker -> InvocationRef tree
-          |
-          v
-external component processes
-```
+Desktop подключается к app-server по HTTP/SSE, CLI и соседние агенты — по stdio.
+`AgentRuntime` фиксирует конфигурацию и создаёт область исполнения для каждого запроса.
+
+| Операция | Путь исполнения |
+|---|---|
+| Ход чата | `AgentWorkflowContext` → выбранный `Workflow` → методы хоста для модели, контекста и инструментов |
+| Прямой вызов инструмента | `AgentRuntime::execute_tool` → `BoundTools` → реестр, политика и подтверждение |
+| Обращение к процессному модулю | Адаптер слота → `ComponentBroker` → конкретный export процесса |
 
 - UI и CLI создают запросы, но не реализуют agent loop. Product CLI/REPL
   запускает локальный `server stdio` и выполняет turns, approvals, typed user
@@ -528,37 +473,11 @@ tool `search`; та же программа может предоставить 
 
 ## Config И Catalog
 
-```toml
-[modules]
-context = "simple"
-
-[tools]
-enabled = ["search"]
-
-[components.reference-capabilities]
-command = "proteus-reference-module"
-
-[components.reference-capabilities.exports.tool.rg_search]
-
-[components.reference-capabilities.exports.context_provider.rg_search]
-
-[components.reference-capabilities.exports.context.simple]
-
-[module_config.context.simple]
-search_provider = "rg_search"
-max_search_results = 50
-```
-
-`ModuleCatalog::from_config`:
-
-1. создаёт пустой каталог без встроенных behavior implementations;
-2. валидирует каждый component и его непустой exact export set;
-3. создаёт один shared launcher и регистрирует process factory каждого export;
-4. отклоняет duplicate identity и unsupported slot;
-5. при сборке registry требует, чтобы выбранный id существовал.
-
-Module config остаётся opaque JSON object для реализации. Core не ветвится по
-`module_id`.
+`ModuleCatalog::from_config` проверяет объявления в `components`. Для каждого процесса
+нужен непустой набор exports, а пара `slot/module_id` уникальна во всём каталоге.
+Все exports компонента используют общий launcher. При сборке Core находит выбранную
+реализацию в каталоге и передаёт ей объект `module_config`.
+[Пример конфигурации с несколькими exports](modules.md#как-подключить-модуль).
 
 ## Отсутствующий Slot
 
@@ -586,43 +505,17 @@ Agent control не является slot-ом: пустой top-level `agent_con
 
 ## Process Boundary
 
-Component config определяет command, args, cwd, allowlisted environment,
-handshake timeout и per-export invocation timeouts. После spawn host отправляет
-`initialize` с:
+При запуске Core и модуль сверяют полный набор exports. Каждый запрос адресован одному
+export. Независимые вызовы могут завершаться в любом порядке. Вложенный вызов внутри
+того же процесса проходит через `ComponentBroker`, который отслеживает родителя,
+глубину и срок выполнения. Отмена адресована вызову. При сбое процесс завершается
+для всех его exports, а следующий вызов запускает его заново.
+[Обмен при запуске](process-module-architecture.md#strict-multi-export-handshake) и
+[обработка отмены и ошибок](process-module-architecture.md#cancellation-и-failure).
 
-- protocol version;
-- component id;
-- полным массивом exports;
-- для каждого export: slot, module id, contract version, composition, module
-  config и host features.
-
-Модуль обязан вернуть manifest с тем же exact export set. Каждый module call
-несёт target export; дальнейшие module и `host.*` methods проверяются общей
-authority table именно активного target. Все exports делят один multiplexed
-broker, reset и lazy restart. Несколько invocation могут быть активны
-одновременно и завершаться не по порядку. Callback в соседний export того же
-component открывает host-owned nested invocation с bounded lineage, depth и
-deadline; direct module-to-module dispatch отсутствует. Cooperative cancel
-адресен, а crash, protocol/resource failure и cancel-grace reset относятся ко
-всему generation. Старые/лишние поля отвергаются.
-
-Process adapter сохраняет parent в локальном callback scope только при вызове
-того же exact broker. Поэтому Core продолжает работать с обычными typed traits
-и не знает wire ids, а другой component не может случайно стать descendant.
-
-Production conformance и topology/journal suites проверяют один component/PID,
-concurrent sibling, targeted cancel и canonical workflow replay.
-Подробнее: [process-module-architecture.md](process-module-architecture.md).
-
-Process boundary задаёт общий lifecycle; по умолчанию module остаётся
-доверенным executable с правами пользователя. Config очищает environment и
-копирует только `PATH` плюс явный `env_allowlist` / `env`. Opt-in
-`components.<id>.sandbox.mode = "restricted"` добавляет Linux launch policy
-для одного configured export: явные filesystem grants, IP-сеть закрыта по
-умолчанию, ошибки setup без trusted fallback. Process host применяет эту
-границу ко всей generation; остальные launch paths её не наследуют.
-Точная семантика и ограничения — в
-[process-module-architecture.md](process-module-architecture.md#os-launch-policy).
+По умолчанию модуль работает с правами пользователя. Для одного export можно включить
+`sandbox.mode = "restricted"`. Параметры окружения, доступа к файлам и сети описаны
+в [режимах запуска](process-module-architecture.md#os-launch-policy).
 
 ## Core-Owned Границы
 
@@ -681,17 +574,6 @@ Module не пишет canonical journal напрямую. Runtime reload стр
 
 ## Проверка Изменений
 
-Минимальный архитектурный gate:
-
-```bash
-cargo fmt --all --check
-./scripts/test.py full
-git diff --check
-```
-
-Full уже включает `module_swap` и conformance процессного модуля; отдельно после него их
-не запускают. Для локального adapter выбирайте соответствующие targets по
-[матрице изменений](../development/testing.md#evidence-matrix).
-
-Изменения клиента дополнительно проверяются его `cargo test`. Точная evidence
-матрица находится в [testing.md](../development/testing.md).
+Для локального адаптера выберите тест по [матрице изменений](../development/testing.md#evidence-matrix).
+Изменения общей архитектуры проверяют `cargo fmt --all --check`, `./scripts/test.py full`
+и `git diff --check`. Полный прогон уже включает замену модуля и проверку процессного протокола.
