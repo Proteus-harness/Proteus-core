@@ -1,11 +1,12 @@
 use proteus_contracts::model_standard::{CanonicalMessage, ContentPart, MessageRole};
 
-pub(super) fn session_preview(messages: &[CanonicalMessage]) -> Option<String> {
-    messages
-        .iter()
-        .filter(|message| message.role == MessageRole::User)
-        .chain(messages.iter())
-        .find_map(|message| {
+pub(in crate::core::session_store::remote::view) fn session_preview(
+    messages: &[CanonicalMessage],
+) -> Option<String> {
+    preferred_preview(
+        messages,
+        |message| &message.role,
+        |message| {
             message.parts.iter().find_map(|part| match &part.payload {
                 ContentPart::Text { text }
                 | ContentPart::Reasoning { text, .. }
@@ -13,7 +14,30 @@ pub(super) fn session_preview(messages: &[CanonicalMessage]) -> Option<String> {
                 ContentPart::ToolResult { result } => preview_text(&result.text_or_status()),
                 _ => None,
             })
-        })
+        },
+    )
+}
+
+pub(in crate::core::session_store::remote::view) fn plain_preview(
+    messages: &[crate::core::session_store::remote::plain_history::PlainHistoryMessage],
+) -> Option<String> {
+    preferred_preview(
+        messages,
+        |message| message.role_and_text().0,
+        |message| preview_text(message.role_and_text().1),
+    )
+}
+
+fn preferred_preview<T>(
+    messages: &[T],
+    role: impl Fn(&T) -> &MessageRole,
+    preview: impl FnMut(&T) -> Option<String>,
+) -> Option<String> {
+    messages
+        .iter()
+        .filter(|message| *role(message) == MessageRole::User)
+        .chain(messages.iter())
+        .find_map(preview)
 }
 
 fn preview_text(text: &str) -> Option<String> {

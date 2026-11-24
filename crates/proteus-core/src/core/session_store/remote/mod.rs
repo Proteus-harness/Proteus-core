@@ -14,6 +14,7 @@ use std::{
 };
 
 pub(crate) mod catalog;
+mod plain_history;
 pub(crate) mod prepared;
 pub(crate) mod snapshot;
 pub(crate) mod view;

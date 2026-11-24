@@ -1,3 +1,5 @@
+use crate::core::transcript_role;
+
 use serde_json::Value;
 
 use crate::{
@@ -355,16 +357,6 @@ fn apply_transcript_tool_result(
         subagent: None,
         streaming: false,
     });
-}
-
-fn transcript_role(role: &MessageRole) -> &'static str {
-    match role {
-        MessageRole::System | MessageRole::Developer => "system",
-        MessageRole::User => "user",
-        MessageRole::Assistant => "assistant",
-        MessageRole::Tool => "system",
-        _ => "system",
-    }
 }
 
 #[cfg(test)]

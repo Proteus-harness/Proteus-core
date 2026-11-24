@@ -10,7 +10,7 @@ use crate::{
     contracts::OperationOwner,
     core::{
         CompactTextRow, DisplayRows, JournalEntry, JournalReadSnapshot, JournalRecord,
-        ModelResponseOutcome, ToolCallRecordPhase,
+        ModelResponseOutcome, StagedRenderRecord, StagedTextRow, ToolCallRecordPhase,
     },
     domain::TurnId,
     model_standard::ContentPart,
@@ -43,7 +43,13 @@ fn render_source(
 ) -> Result<DisplayRows> {
     if let Some((root_threads, single_record)) = source.take_staged_causal_roots() {
         return render_causal(
-            &mut |visit| source.scan_display(visit),
+            &mut |visit| {
+                if allow_compact && single_record && live_turn_id.is_none() {
+                    source.scan_display_capturing_prefix(visit)
+                } else {
+                    source.scan_display(|record| visit(StagedRenderRecord::Journal(record)))
+                }
+            },
             live_turn_id,
             single_record,
             allow_compact,
@@ -230,7 +236,7 @@ pub(super) fn transcript_from_scan(
 }
 
 fn render_causal(
-    scan: &mut impl FnMut(&mut dyn FnMut(JournalRecord) -> Result<()>) -> Result<()>,
+    scan: &mut impl FnMut(&mut dyn FnMut(StagedRenderRecord) -> Result<()>) -> Result<()>,
     live_turn_id: Option<TurnId>,
     single_record: bool,
     allow_compact: bool,
@@ -246,14 +252,48 @@ fn render_causal(
         subagent_bindings: Default::default(),
     };
     let mut compact = None;
-    scan(&mut |mut record| {
+    scan(&mut |input| {
+        let mut record = match input {
+            StagedRenderRecord::Journal(record) => record,
+            StagedRenderRecord::Text(append) => {
+                let timestamp_ms = append.timestamp_ms;
+                replay
+                    .state
+                    .timestamps
+                    .record_staged_text_append(timestamp_ms);
+                let mut rows = Vec::new();
+                for StagedTextRow {
+                    id,
+                    role,
+                    phase,
+                    part_id,
+                    scope,
+                    mut text,
+                } in append.into_rows()
+                {
+                    if let Some(text) = replay
+                        .state
+                        .take_staged_text_value(part_id, scope, &mut text)
+                    {
+                        rows.push(CompactTextRow {
+                            message_id: id,
+                            phase,
+                            role,
+                            text,
+                        });
+                    }
+                }
+                compact = Some(DisplayRows::Text { timestamp_ms, rows });
+                return Ok(());
+            }
+        };
         replay.state.timestamps.collect_record::<false>(&record);
         if let JournalEntry::HistoryMutated(mutation) = &mut record.entry
             && mutation.mutation == HistoryMutationKind::Append
         {
             if !(live_turn_id.is_some() && record.turn_id == live_turn_id) {
                 if allow_compact
-                    && replay.state.timestamps.certified_text_append()
+                    && let Some(timestamp_ms) = replay.state.timestamps.certified_text_append_date()
                     && (4_096..=65_536).contains(&mutation.messages.len())
                     && mutation
                         .messages
@@ -262,20 +302,23 @@ fn render_causal(
                 {
                     let mut rows = Vec::new();
                     for mut message in std::mem::take(&mut mutation.messages) {
-                        let timestamp_ms = replay.state.timestamps.message(&message);
                         if let Some(text) = replay.state.take_staged_text(&mut message.parts[0]) {
                             rows.push(CompactTextRow {
                                 message_id: message.id,
-                                timestamp_ms,
                                 phase: message.phase,
-                                role: super::super::transcript_role(&message.role),
+                                role: message.role,
                                 text,
                             });
                         }
                     }
-                    compact = Some(rows);
+                    compact = Some(DisplayRows::Text { timestamp_ms, rows });
                 } else {
-                    if replay.state.timestamps.certified_text_append() {
+                    if replay
+                        .state
+                        .timestamps
+                        .certified_text_append_date()
+                        .is_some()
+                    {
                         replay
                             .state
                             .transcript
@@ -296,7 +339,7 @@ fn render_causal(
     // A compact row owner is eligible only on a certified one-record scan;
     // an extra or truncated staged record failed before reaching here.
     Ok(match compact {
-        Some(rows) => DisplayRows::Text(rows),
+        Some(rows) => rows,
         None => DisplayRows::Full(replay.finish()),
     })
 }

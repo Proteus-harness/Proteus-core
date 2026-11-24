@@ -8,7 +8,9 @@ use serde::{Deserialize, Serialize};
 
 mod display_records;
 pub(super) use display_records::DisplayRecordWriter;
-pub(crate) use display_records::{DisplayRecords, is_display_kind};
+pub(crate) use display_records::{
+    DisplayRecords, StagedRenderRecord, StagedTextRow, is_display_kind,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -84,6 +86,12 @@ impl RemoteJournalSnapshot {
         Some((records.take_causal_roots()?, records.is_single_record()))
     }
 
+    pub(super) fn has_compact_text_stage(&self) -> bool {
+        self.display_records
+            .as_ref()
+            .is_some_and(DisplayRecords::has_compact_text_hint)
+    }
+
     pub(crate) fn scan_display(
         &mut self,
         consume: impl FnMut(JournalRecord) -> Result<()>,
@@ -93,6 +101,30 @@ impl RemoteJournalSnapshot {
             None => self.scan_from(0, is_display_kind, consume),
         }
     }
+    pub(crate) fn scan_display_capturing_prefix(
+        &mut self,
+        mut consume: impl FnMut(StagedRenderRecord) -> Result<()>,
+    ) -> Result<()> {
+        match &mut self.display_records {
+            Some(records) => records.scan_capturing_prefix(consume),
+            None => self.scan_from(0, is_display_kind, |record| {
+                consume(StagedRenderRecord::Journal(record))
+            }),
+        }
+    }
+
+    pub(super) fn scan_display_prefix(&mut self) -> Result<super::view::PrefixIdentities> {
+        if let Some(records) = &mut self.display_records {
+            return records.scan_prefix();
+        }
+        let mut prefix = super::view::PrefixIdentities::default();
+        self.scan_display(|record| {
+            prefix.visit_owned_prefix(record);
+            Ok(())
+        })?;
+        Ok(prefix)
+    }
+
     fn scan_from(
         &mut self,
         mut after_seq: u64,

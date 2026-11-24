@@ -89,8 +89,8 @@ pub(crate) use session_store::read_cache as session_read_cache;
 pub(crate) use session_store::subscribe_catalog_updates;
 pub(crate) use session_store::{
     CommittedDisplay, CompactTextRow, DisplayRecords, DisplayRows, PrefixIdentities,
-    PreparedSession, SessionReadModel, SessionTranscriptAppend, prepare_latest_workspace_session,
-    session_storage_binding,
+    PreparedSession, SessionReadModel, SessionTranscriptAppend, StagedRenderRecord, StagedTextRow,
+    prepare_latest_workspace_session, session_storage_binding, transcript_role,
 };
 pub use session_store::{
     SessionStore, StorageService, canonicalize_session_dir_path, configured_session_storage,

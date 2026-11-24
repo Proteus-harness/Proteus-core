@@ -423,8 +423,17 @@ impl TranscriptProjectionState {
         let ContentPart::Text { text } = &mut part.payload else {
             return None;
         };
-        if !self.seen_parts.insert(part.part_id)
-            || part.scope != PartScope::Conversation
+        self.take_staged_text_value(part.part_id, part.scope, text)
+    }
+
+    fn take_staged_text_value(
+        &mut self,
+        part_id: PartId,
+        scope: PartScope,
+        text: &mut String,
+    ) -> Option<String> {
+        if !self.seen_parts.insert(part_id)
+            || scope != PartScope::Conversation
             || text.trim().is_empty()
         {
             return None;

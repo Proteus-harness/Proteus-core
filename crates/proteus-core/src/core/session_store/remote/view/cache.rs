@@ -13,8 +13,10 @@ use proteus_contracts::{
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
 
+use super::super::plain_history::PlainHistoryMessage;
 use super::*;
 use crate::core::session_store::remote::snapshot::RemoteJournalCursor;
+pub(super) use preview::{plain_preview, session_preview};
 
 const FORMAT: u32 = 1;
 pub(super) const PAGE_ROWS: usize = 50;
@@ -23,11 +25,11 @@ const PREFIX: &str = "display-view-v1-prefix";
 
 mod pages;
 mod preview;
-use pages::valid_section;
 pub(super) use pages::{
     Section, append_section, extend_known_section, read_section, visit_section, write_section,
     write_transcript,
 };
+use pages::{read_checked_transcript, valid_section, write_transcript_iter};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -155,7 +157,14 @@ pub(super) fn write_prefix(
 ) -> Option<String> {
     // Only the latest projection appends to this index. Keep one copy even
     // when old revisions still serve their immutable display pages.
-    let value = prefix.encode_cache()?.into_bounded_value()?;
+    write_prefix_value(store, source, prefix.encode_cache()?.into_bounded_value()?)
+}
+
+fn write_prefix_value(
+    store: &RemoteSessionStore,
+    source: &RemoteCacheSource,
+    value: Value,
+) -> Option<String> {
     let digest = hash(&value)?;
     write_value(store, source, PREFIX, value)?;
     Some(digest)
@@ -212,19 +221,31 @@ fn matches(store: &RemoteSessionStore, header: &Header) -> bool {
         && header.tools.len() <= 16_384
 }
 
+// Paging may use a section without rescanning it, but only after the
+// complete source and section checks on this owned, immutable header.
+struct CheckedHeader(Header);
+
+impl CheckedHeader {
+    fn read(store: &RemoteSessionStore, key: &str) -> Option<Self> {
+        let header = serde_json::from_value(read_value(store, key)?).ok()?;
+        matches(store, &header).then_some(Self(header))
+    }
+}
+
 pub(super) fn header(store: &RemoteSessionStore) -> Option<Header> {
-    let header = serde_json::from_value(read_value(store, HEAD)?).ok()?;
-    matches(store, &header).then_some(header)
+    CheckedHeader::read(store, HEAD).map(|checked| checked.0)
 }
 
 pub(super) fn header_at_revision(store: &RemoteSessionStore, revision: &str) -> Option<Header> {
+    checked_header_at_revision(store, revision).map(|checked| checked.0)
+}
+
+fn checked_header_at_revision(store: &RemoteSessionStore, revision: &str) -> Option<CheckedHeader> {
     if revision.len() != 64 || !revision.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return None;
     }
-    let header =
-        serde_json::from_value(read_value(store, &format!("display-revision-{revision}"))?).ok()?;
-    (matches(store, &header) && header.source.revision().as_deref() == Some(revision))
-        .then_some(header)
+    let header = CheckedHeader::read(store, &format!("display-revision-{revision}"))?;
+    (header.0.source.revision().as_deref() == Some(revision)).then_some(header)
 }
 
 pub(super) fn fresh_header(store: &RemoteSessionStore) -> Option<Header> {
@@ -325,9 +346,11 @@ pub(super) fn load_view(
 pub(super) fn load_saved_view(
     store: &RemoteSessionStore,
 ) -> Option<(RemoteCacheSource, SessionReadView)> {
-    let header = header(store)?;
-    let start = header.transcript.rows.saturating_sub(PAGE_ROWS);
-    let transcript = read_section(store, &header.transcript, start, header.transcript.rows)?;
+    let checked = CheckedHeader::read(store, HEAD)?;
+    let end = checked.0.transcript.rows;
+    let start = end.saturating_sub(PAGE_ROWS);
+    let transcript = read_checked_transcript(store, &checked, start, end)?;
+    let CheckedHeader(header) = checked;
     let view = SessionReadView {
         summary: header.summary,
         revision: header.revision,
@@ -350,15 +373,15 @@ pub(super) fn transcript_page(
 ) -> Option<AppTranscriptPage> {
     if let Some(revision) = expected {
         // A retained, explicitly named revision can be older than the journal.
-        return page_from_header(store, header_at_revision(store, revision)?, before);
+        return page_from_header(store, checked_header_at_revision(store, revision)?, before);
     }
-    let head = header(store)?;
+    let head = CheckedHeader::read(store, HEAD)?;
     if stale_display {
         return page_from_header(store, head, before);
     }
     // All page content is addressed by hash. Check the complete source identity
     // AFTER the read: an earlier probe adds no proof to a successful final check.
-    let source = head.source.clone();
+    let source = head.0.source.clone();
     let page = page_from_header(store, head, before);
     let current = RemoteCacheSource::read(store)?;
     if source == current {
@@ -368,8 +391,8 @@ pub(super) fn transcript_page(
     // A publisher stores the named index before HEAD. If the last write failed,
     // a complete index for the current source may survive behind an older HEAD.
     // This remains a latest-page request; recheck after reading that index too.
-    let saved = header_at_revision(store, &current.revision()?)?;
-    if saved.source != current {
+    let saved = checked_header_at_revision(store, &current.revision()?)?;
+    if saved.0.source != current {
         return None;
     }
     let page = page_from_header(store, saved, before)?;
@@ -378,15 +401,16 @@ pub(super) fn transcript_page(
 
 fn page_from_header(
     store: &RemoteSessionStore,
-    header: Header,
+    checked: CheckedHeader,
     before: Option<usize>,
 ) -> Option<AppTranscriptPage> {
-    let end = before.unwrap_or(header.transcript.rows);
-    if end > header.transcript.rows {
+    let end = before.unwrap_or(checked.0.transcript.rows);
+    if end > checked.0.transcript.rows {
         return None;
     }
     let start = end.saturating_sub(PAGE_ROWS);
-    let messages = read_section(store, &header.transcript, start, end)?;
+    let messages = read_checked_transcript(store, &checked, start, end)?;
+    let CheckedHeader(header) = checked;
     Some(AppTranscriptPage {
         revision: header.source.revision()?,
         start,
@@ -405,38 +429,88 @@ pub(super) fn save_model(
     save_model_sections(
         store,
         source,
-        model,
+        ReadMetadata {
+            summary: &model.summary,
+            revision: model.conversation.revision,
+            usage: &model.usage,
+        },
         cursor,
-        Cow::Borrowed(&model.conversation.messages),
+        CacheConversation::Borrowed(&model.conversation.messages),
         Cow::Borrowed(&model.conversation.model_context),
         RowsRef::Full(&model.transcript),
+        model.prefix.as_ref().map(CachePrefix::Borrowed),
     )
 }
 
-/// Startup returns a display-only view, never the canonical messages/context.
-/// Keep the already rendered transcript for a potential named-page miss.
+/// A startup projection holds only its returned display row owner and a
+/// disposable independent canonical conversation until that section saves.
+pub(super) struct StartupProjection<'a, T> {
+    pub(super) summary: &'a AppSessionSummary,
+    pub(super) revision: u64,
+    pub(super) usage: &'a SessionUsageSnapshot,
+    pub(super) history: StartupHistory,
+    pub(super) context: Vec<ModelContextObservation>,
+    pub(super) transcript: &'a T,
+    pub(super) prefix: Option<PrefixIdentities>,
+}
+
+pub(super) fn save_startup_projection<T: CacheRows>(
+    store: &RemoteSessionStore,
+    source: &RemoteCacheSource,
+    model: StartupProjection<'_, T>,
+) -> Option<()> {
+    save_model_sections(
+        store,
+        source,
+        ReadMetadata {
+            summary: model.summary,
+            revision: model.revision,
+            usage: model.usage,
+        },
+        None,
+        CacheConversation::Owned(model.history),
+        Cow::Owned(model.context),
+        model.transcript.rows_ref(),
+        model.prefix.map(CachePrefix::Owned),
+    )
+}
+
+#[cfg(test)]
 pub(super) fn save_startup_model<T: CacheRows>(
     store: &RemoteSessionStore,
     source: &RemoteCacheSource,
     model: &mut SessionReadModel<T>,
 ) -> Option<()> {
-    let messages = Cow::Owned(std::mem::take(&mut model.conversation.messages));
-    let context = Cow::Owned(std::mem::take(&mut model.conversation.model_context));
-    save_model_sections(
+    save_startup_projection(
         store,
         source,
-        model,
-        None,
-        messages,
-        context,
-        model.transcript.rows_ref(),
+        StartupProjection {
+            summary: &model.summary,
+            revision: model.conversation.revision,
+            usage: &model.usage,
+            history: StartupHistory::Full(std::mem::take(&mut model.conversation.messages)),
+            context: std::mem::take(&mut model.conversation.model_context),
+            transcript: &model.transcript,
+            prefix: model.prefix.take(),
+        },
     )
+}
+
+pub(super) fn write_plain_conversation(
+    store: &RemoteSessionStore,
+    source: &RemoteCacheSource,
+    rows: &[PlainHistoryMessage],
+) -> Option<Section> {
+    write_transcript_iter(store, source, rows.iter())
 }
 
 #[derive(Clone, Copy)]
 pub(super) enum RowsRef<'a> {
     Full(&'a [AppTranscriptMessage]),
-    Text(&'a [CompactTextRow]),
+    Text {
+        timestamp_ms: i64,
+        rows: &'a [CompactTextRow],
+    },
 }
 
 pub(super) trait CacheRows {
@@ -453,36 +527,100 @@ impl CacheRows for DisplayRows {
     fn rows_ref(&self) -> RowsRef<'_> {
         match self {
             DisplayRows::Full(rows) => RowsRef::Full(rows),
-            DisplayRows::Text(rows) => RowsRef::Text(rows),
+            DisplayRows::Text { timestamp_ms, rows } => RowsRef::Text {
+                timestamp_ms: *timestamp_ms,
+                rows,
+            },
         }
     }
 }
 
-fn save_model_sections<T>(
+enum CachePrefix<'a> {
+    Borrowed(&'a PrefixIdentities),
+    Owned(PrefixIdentities),
+}
+
+impl CachePrefix<'_> {
+    fn write(self, store: &RemoteSessionStore, source: &RemoteCacheSource) -> Option<String> {
+        match self {
+            Self::Borrowed(prefix) => write_prefix(store, source, prefix),
+            Self::Owned(prefix) => {
+                let value = prefix.into_encoded_cache()?.into_bounded_value()?;
+                write_prefix_value(store, source, value)
+            }
+        }
+    }
+}
+
+struct ReadMetadata<'a> {
+    summary: &'a AppSessionSummary,
+    revision: u64,
+    usage: &'a SessionUsageSnapshot,
+}
+
+enum CacheConversation<'a> {
+    Borrowed(&'a [CanonicalMessage]),
+    Owned(StartupHistory),
+}
+
+impl CacheConversation<'_> {
+    fn len(&self) -> usize {
+        match self {
+            Self::Borrowed(rows) => rows.len(),
+            Self::Owned(history) => history.len(),
+        }
+    }
+
+    fn write(&self, store: &RemoteSessionStore, source: &RemoteCacheSource) -> Option<Section> {
+        match self {
+            Self::Borrowed(rows) => write_transcript(store, source, rows),
+            Self::Owned(history) => history.write(store, source),
+        }
+    }
+}
+
+enum SavedContextSummary<'a> {
+    Borrowed(&'a [CanonicalMessage]),
+    Computed(AppContextHistorySummary),
+}
+
+impl SavedContextSummary<'_> {
+    fn finish(self) -> AppContextHistorySummary {
+        match self {
+            Self::Borrowed(rows) => crate::core::summarize_context_history(rows),
+            Self::Computed(summary) => summary,
+        }
+    }
+}
+
+fn save_model_sections(
     store: &RemoteSessionStore,
     source: &RemoteCacheSource,
-    model: &SessionReadModel<T>,
+    metadata: ReadMetadata<'_>,
     cursor: Option<&RemoteJournalCursor>,
-    mut messages: Cow<'_, [CanonicalMessage]>,
+    messages: CacheConversation<'_>,
     observations: Cow<'_, [ModelContextObservation]>,
     rows: RowsRef<'_>,
+    prefix: Option<CachePrefix<'_>>,
 ) -> Option<()> {
-    if !SessionReadModel::matches_parts(store, &model.summary, &model.usage, messages.len()) {
+    if !SessionReadModel::matches_parts(store, metadata.summary, metadata.usage, messages.len()) {
         return None;
     }
     // Only the prior source and transcript participate in prefix comparison.
     let previous = header(store).map(|header| (header.source, header.transcript));
-    let conversation = write_transcript(store, source, messages.as_ref())?;
-    let early_summary = match &mut messages {
-        Cow::Owned(messages) => {
-            let messages = std::mem::take(messages);
-            Some(crate::core::summarize_context_history(&messages))
+    let conversation = messages.write(store, source)?;
+    let context_summary = match messages {
+        CacheConversation::Owned(history) => {
+            // Drop all canonical owners before allocating the display section.
+            SavedContextSummary::Computed(history.context_summary())
         }
-        Cow::Borrowed(_) => None,
+        CacheConversation::Borrowed(messages) => SavedContextSummary::Borrowed(messages),
     };
     let transcript = match rows {
         RowsRef::Full(rows) => write_transcript(store, source, rows)?,
-        RowsRef::Text(rows) => write_transcript(store, source, rows)?,
+        RowsRef::Text { timestamp_ms, rows } => {
+            write_transcript_iter(store, source, rows.iter().map(|row| row.wire(timestamp_ms)))?
+        }
     };
     let context = write_section(store, source, observations.as_ref())?;
     drop(observations);
@@ -490,8 +628,16 @@ fn save_model_sections<T>(
         Some(AppTranscriptBase {
             revision: old_source.revision()?,
             common_prefix: match rows {
-                RowsRef::Full(rows) => common_prefix(store, &old_transcript, &transcript, rows)?,
-                RowsRef::Text(rows) => common_prefix(store, &old_transcript, &transcript, rows)?,
+                RowsRef::Full(rows) => {
+                    common_prefix(store, &old_transcript, &transcript, rows.len(), |i| {
+                        rows.get(i)
+                    })?
+                }
+                RowsRef::Text { timestamp_ms, rows } => {
+                    common_prefix(store, &old_transcript, &transcript, rows.len(), |i| {
+                        rows.get(i).map(|row| row.wire(timestamp_ms))
+                    })?
+                }
             },
         })
     });
@@ -504,21 +650,17 @@ fn save_model_sections<T>(
         &Header {
             format: FORMAT,
             source: source.clone(),
-            summary: model.summary.clone(),
-            revision: model.conversation.revision,
-            usage: model.usage.clone(),
-            context_summary: early_summary
-                .unwrap_or_else(|| crate::core::summarize_context_history(messages.as_ref())),
+            summary: metadata.summary.clone(),
+            revision: metadata.revision,
+            usage: metadata.usage.clone(),
+            context_summary: context_summary.finish(),
             conversation,
             transcript,
             context,
             cursor: cursor.cloned(),
             base,
             tools,
-            prefix: model
-                .prefix
-                .as_ref()
-                .and_then(|index| write_prefix(store, source, index)),
+            prefix: prefix.and_then(|index| index.write(store, source)),
         },
     )
 }
@@ -527,7 +669,8 @@ fn common_prefix<T: Serialize>(
     store: &RemoteSessionStore,
     old: &Section,
     new: &Section,
-    rows: &[T],
+    len: usize,
+    row: impl Fn(usize) -> Option<T>,
 ) -> Option<usize> {
     let mut common = 0;
     for (before, after) in old.pages.iter().zip(&new.pages) {
@@ -538,7 +681,7 @@ fn common_prefix<T: Serialize>(
         let old_rows: Vec<Value> =
             read_section(store, old, common, common.checked_add(before.rows)?)?;
         for old_row in &old_rows {
-            let Some(new_row) = rows.get(common) else {
+            let Some(new_row) = row(common) else {
                 return Some(common);
             };
             if hash(old_row)? != hash(&serde_json::to_value(new_row).ok()?)? {
@@ -546,9 +689,9 @@ fn common_prefix<T: Serialize>(
             }
             common += 1;
         }
-        return Some(common.min(old.rows).min(rows.len()));
+        return Some(common.min(old.rows).min(len));
     }
-    Some(common.min(old.rows).min(rows.len()))
+    Some(common.min(old.rows).min(len))
 }
 
 pub(super) fn update_tools(
@@ -672,6 +815,14 @@ pub(super) fn summary(
     store: &RemoteSessionStore,
     messages: &[CanonicalMessage],
 ) -> Result<AppSessionSummary> {
+    summary_with(store, messages.len(), || session_preview(messages))
+}
+
+pub(super) fn summary_with(
+    store: &RemoteSessionStore,
+    message_count: usize,
+    make_preview: impl FnOnce() -> Option<String>,
+) -> Result<AppSessionSummary> {
     let descriptor = match store.request(Request::Describe {
         session: store.descriptor.session.clone(),
     })? {
@@ -686,9 +837,9 @@ pub(super) fn summary(
         store.session_dir().to_owned(),
         store.session_id(),
         descriptor.workspace_path,
-        messages.len(),
+        message_count,
         u64::try_from(descriptor.updated_at_ms).ok(),
-        preview::session_preview(messages),
+        make_preview(),
     );
     summary.parent_session_id = store.parent_session_id();
     Ok(summary)

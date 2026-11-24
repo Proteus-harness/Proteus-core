@@ -30,13 +30,7 @@ pub(crate) fn summarize_context_history(messages: &[CanonicalMessage]) -> AppCon
     let mut bytes = 0usize;
     for message in messages {
         bytes += json_bytes(&message.metadata) + 4;
-        match message.role {
-            MessageRole::User => summary.user_messages += 1,
-            MessageRole::Assistant => summary.assistant_messages += 1,
-            MessageRole::System | MessageRole::Developer => summary.system_messages += 1,
-            MessageRole::Tool => {}
-            _ => {}
-        }
+        note_role(&mut summary, &message.role);
         for part in &message.parts {
             match &part.payload {
                 ContentPart::Text { text }
@@ -83,6 +77,31 @@ pub(crate) fn summarize_context_history(messages: &[CanonicalMessage]) -> AppCon
     }
     summary.estimated_tokens = estimate_tokens_from_bytes(bytes);
     summary
+}
+
+pub(super) fn summarize_plain_history<'a>(
+    messages: impl ExactSizeIterator<Item = (&'a MessageRole, &'a str)>,
+) -> AppContextHistorySummary {
+    let mut summary = AppContextHistorySummary::default();
+    summary.messages = messages.len();
+    let fixed = json_bytes(&serde_json::Value::Null) + 4;
+    let mut bytes = 0usize;
+    for (role, text) in messages {
+        note_role(&mut summary, role);
+        bytes += fixed + text.len();
+    }
+    summary.estimated_tokens = estimate_tokens_from_bytes(bytes);
+    summary
+}
+
+fn note_role(summary: &mut AppContextHistorySummary, role: &MessageRole) {
+    match role {
+        MessageRole::User => summary.user_messages += 1,
+        MessageRole::Assistant => summary.assistant_messages += 1,
+        MessageRole::System | MessageRole::Developer => summary.system_messages += 1,
+        MessageRole::Tool => {}
+        _ => {}
+    }
 }
 
 fn estimate_tokens_from_bytes(bytes: usize) -> u32 {

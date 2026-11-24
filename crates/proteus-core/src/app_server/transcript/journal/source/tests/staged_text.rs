@@ -86,7 +86,7 @@ fn staged_text_witnesses_preserve_early_rows_and_hidden_root_live_commits() {
 
     let (mut staged, roots) = DisplayRecords::stage_for_test(&items);
     let actual = render_causal(
-        &mut |visit| staged.scan(visit),
+        &mut |visit| staged.scan(|record| visit(StagedRenderRecord::Journal(record))),
         Some(live),
         false,
         true,
@@ -228,7 +228,7 @@ fn staged_mixed_append_still_matches_full_order_and_dates() {
     let items = [item];
     let (mut staged, roots) = DisplayRecords::stage_for_test(&items);
     let actual = render_causal(
-        &mut |visit| staged.scan(visit),
+        &mut |visit| staged.scan(|record| visit(StagedRenderRecord::Journal(record))),
         None,
         true,
         true,

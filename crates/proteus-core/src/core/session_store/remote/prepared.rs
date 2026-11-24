@@ -76,9 +76,10 @@ impl PreparedSession {
         Option<RemoteCacheSource>,
     )> {
         let (view, cached_source) = match self.history {
-            PreparedHistory::Validated(read) => {
-                (self.store.project_startup_view(read, true, render)?, None)
-            }
+            PreparedHistory::Validated(read) => (
+                self.store.project_startup_view(read, true, true, render)?,
+                None,
+            ),
             PreparedHistory::Cached(source, view) => (view, Some(source)),
         };
         Ok((self.store, view, cached_source))

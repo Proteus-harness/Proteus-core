@@ -146,7 +146,7 @@ fn inspect_suffix(
                         independent &= message
                             .parts
                             .iter()
-                            .all(|part| prefix.explicit_committed_parts.contains(&part.part_id));
+                            .all(|part| prefix.has_explicit_part(&part.part_id));
                     }
                     // Only an exact retained canonical prefix may
                     // repeat old identities. Inspect all new parts.

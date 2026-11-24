@@ -3,7 +3,9 @@
 use super::*;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use proteus_contracts::contracts::SESSION_STORAGE_MAX_CACHE_BYTES as LIMIT;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::borrow::Cow;
 use uuid::Uuid;
 
 #[derive(Serialize, Deserialize)]
@@ -95,46 +97,100 @@ fn unpack<const N: usize>(s: String, mut visit: impl FnMut([u8; N]) -> Option<()
     Some(())
 }
 
-impl PrefixIdentities {
-    pub(in crate::core::session_store::remote::view) fn encode_cache(
-        &self,
-    ) -> Option<Packed<&HashSet<CallId>>> {
+// A startup projection does not retain the certificate after cache publication.
+// Lend the same exact input on ordinary/committed saves, or release the
+// startup owners progressively as each fixed-format field is encoded.
+struct PrefixFields<'a> {
+    history: Cow<'a, [[u8; 32]]>,
+    turns: Cow<'a, HashSet<TurnId>>,
+    exchanges: Cow<'a, HashSet<ExchangeId>>,
+    messages: Cow<'a, HashSet<MessageId>>,
+    parts: Cow<'a, HashMap<PartId, bool>>,
+    calls: Cow<'a, HashSet<CallId>>,
+}
+
+impl<'a> PrefixFields<'a> {
+    fn encode(self) -> Option<Packed<Cow<'a, HashSet<CallId>>>> {
+        let Self {
+            history,
+            turns,
+            exchanges,
+            messages,
+            parts,
+            calls,
+        } = self;
         // Bound all binary allocations before creating them. The caller also
         // checks the actual serialized JSON byte count (including escapes).
         let mut left = LIMIT;
         for (count, width) in [
-            (self.history.len(), 32),
-            (self.turns.len(), 16),
-            (self.exchanges.len(), 16),
-            (self.messages.len(), 16),
-            (self.parts.len(), 17),
+            (history.len(), 32),
+            (turns.len(), 16),
+            (exchanges.len(), 16),
+            (messages.len(), 16),
+            (parts.len(), 17),
         ] {
             left = left.checked_sub(base64::encoded_len(count.checked_mul(width)?, true)?)?;
         }
-        for call in &self.calls {
+        for call in calls.iter() {
             left = left.checked_sub(call.len().checked_add(2)?)?;
         }
-        if !self.explicit_committed_parts.is_subset(&self.parts) {
-            return None;
-        }
-        let parts = pack(
-            self.parts.iter().map(|id| {
+        let encoded_parts = pack(
+            parts.iter().map(|(id, explicit)| {
                 let mut record = [0; 17];
                 record[..16].copy_from_slice(id.as_bytes());
-                record[16] = u8::from(self.explicit_committed_parts.contains(id));
+                record[16] = u8::from(*explicit);
                 record
             }),
-            self.parts.len(),
+            parts.len(),
         );
+        drop(parts);
+        let encoded_history = pack(history.iter().copied(), history.len());
+        drop(history);
+        let encoded_turns = ids(&turns);
+        drop(turns);
+        let encoded_exchanges = ids(&exchanges);
+        drop(exchanges);
+        let encoded_messages = ids(&messages);
+        drop(messages);
         Some(Packed {
             format: 1,
-            history: pack(self.history.iter().copied(), self.history.len()),
-            turns: ids(&self.turns),
-            exchanges: ids(&self.exchanges),
-            messages: ids(&self.messages),
-            parts,
-            calls: &self.calls,
+            history: encoded_history,
+            turns: encoded_turns,
+            exchanges: encoded_exchanges,
+            messages: encoded_messages,
+            parts: encoded_parts,
+            calls,
         })
+    }
+}
+
+impl PrefixIdentities {
+    pub(in crate::core::session_store::remote::view) fn encode_cache(
+        &self,
+    ) -> Option<Packed<Cow<'_, HashSet<CallId>>>> {
+        PrefixFields {
+            history: Cow::Borrowed(&self.history),
+            turns: Cow::Borrowed(&self.turns),
+            exchanges: Cow::Borrowed(&self.exchanges),
+            messages: Cow::Borrowed(&self.messages),
+            parts: Cow::Borrowed(&self.parts),
+            calls: Cow::Borrowed(&self.calls),
+        }
+        .encode()
+    }
+
+    pub(in crate::core::session_store::remote::view) fn into_encoded_cache(
+        self,
+    ) -> Option<Packed<Cow<'static, HashSet<CallId>>>> {
+        PrefixFields {
+            history: Cow::Owned(self.history),
+            turns: Cow::Owned(self.turns),
+            exchanges: Cow::Owned(self.exchanges),
+            messages: Cow::Owned(self.messages),
+            parts: Cow::Owned(self.parts),
+            calls: Cow::Owned(self.calls),
+        }
+        .encode()
     }
 
     pub(in crate::core::session_store::remote::view) fn decode_cache(value: Value) -> Option<Self> {
@@ -170,12 +226,12 @@ impl PrefixIdentities {
         }
         unpack(data.parts, |record: [u8; 17]| {
             let id = Uuid::from_slice(&record[..16]).ok()?;
-            result.parts.insert(id).then_some(())?;
-            match record[16] {
-                0 => Some(()),
-                1 => result.explicit_committed_parts.insert(id).then_some(()),
-                _ => None,
-            }
+            let explicit = match record[16] {
+                0 => false,
+                1 => true,
+                _ => return None,
+            };
+            result.parts.insert(id, explicit).is_none().then_some(())
         })?;
         Some(result)
     }

@@ -20,10 +20,12 @@ mod committed;
 mod incremental;
 pub(crate) use committed::CommittedDisplay;
 mod prefix;
+mod startup_history;
 mod text_rows;
 pub(crate) use cache::RemoteCacheSource;
 pub(crate) use prefix::PrefixIdentities;
-pub(crate) use text_rows::{CompactTextRow, DisplayRows};
+use startup_history::StartupHistory;
+pub(crate) use text_rows::{CompactTextRow, DisplayRows, transcript_role};
 
 #[cfg(test)]
 mod tests;
@@ -102,7 +104,7 @@ impl RemoteSessionStore {
         paged: bool,
         render: impl FnOnce(&mut RemoteJournalSnapshot) -> Result<Vec<AppTranscriptMessage>>,
     ) -> Result<SessionReadView> {
-        self.project_startup_view(read, paged, |snapshot| {
+        self.project_startup_view(read, paged, false, |snapshot| {
             render(snapshot).map(DisplayRows::Full)
         })
     }
@@ -111,18 +113,50 @@ impl RemoteSessionStore {
         &self,
         read: RemoteValidatedRead,
         paged: bool,
+        allow_compact_history: bool,
         render: impl FnOnce(&mut RemoteJournalSnapshot) -> Result<DisplayRows>,
     ) -> Result<SessionReadView> {
         let source = RemoteCacheSource::from_cursor(&read.cursor());
-        let mut model = SessionReadModel::from_validated(self, read, render)?;
-        let _ = cache::save_startup_model(self, &source, &mut model);
-        let revision = model.conversation.revision;
+        let (history, transcript, prefix, summary, revision, context, usage) = {
+            let (mut snapshot, state) = read.into_parts();
+            let mut history = StartupHistory::prepare(
+                state.history,
+                allow_compact_history && paged && snapshot.has_compact_text_stage(),
+            );
+            let transcript = render(&mut snapshot)?;
+            let mut prefix = snapshot.scan_display_prefix()?;
+            prefix.history = history.fingerprints()?;
+            let summary = cache::summary_with(self, history.len(), || history.preview())?;
+            let context = state.model_context.snapshot();
+            (
+                history,
+                transcript,
+                prefix,
+                summary,
+                state.history_revision,
+                context,
+                state.usage,
+            )
+            // Preserve snapshot drop/release after Describe and before saving.
+        };
+        let _ = cache::save_startup_projection(
+            self,
+            &source,
+            cache::StartupProjection {
+                summary: &summary,
+                revision,
+                usage: &usage,
+                history,
+                context,
+                transcript: &transcript,
+                prefix: Some(prefix),
+            },
+        );
         // A concurrent projection may have advanced HEAD. Only this immutable
         // revision can provide a page for the model's summary, revision and usage.
         let page = if paged {
             // Keep the complete rendered transcript until the named page is
             // actually available, even when publishing the cache failed.
-            drop(model.prefix);
             source
                 .revision()
                 .and_then(|revision| self.saved_transcript_page(None, Some(&revision)))
@@ -138,12 +172,12 @@ impl RemoteSessionStore {
                     base: page.base,
                 }),
             ),
-            None => (model.transcript.into_full(), None),
+            None => (transcript.into_full(), None),
         };
         Ok(SessionReadView {
-            summary: model.summary,
+            summary,
             revision,
-            usage: model.usage,
+            usage,
             transcript,
             cursor,
         })
@@ -227,11 +261,7 @@ fn display_prefix(
     snapshot: &mut RemoteJournalSnapshot,
     history: &[crate::model_standard::CanonicalMessage],
 ) -> Result<PrefixIdentities> {
-    let mut prefix = PrefixIdentities::default();
-    snapshot.scan_display(|record| {
-        prefix.visit_owned_prefix(record);
-        Ok(())
-    })?;
+    let mut prefix = snapshot.scan_display_prefix()?;
     prefix.history = history
         .iter()
         .map(crate::core::history_message_sha256)

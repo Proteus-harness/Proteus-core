@@ -18,10 +18,10 @@ pub use remote::RemoteSessionStore as SessionStore;
 pub use remote::StorageService;
 pub(crate) use remote::{
     prepared::{PreparedSession, prepare_latest_workspace_session},
-    snapshot::DisplayRecords,
+    snapshot::{DisplayRecords, StagedRenderRecord, StagedTextRow},
     view::{
         CommittedDisplay, CompactTextRow, DisplayRows, PrefixIdentities, SessionReadModel,
-        SessionTranscriptAppend,
+        SessionTranscriptAppend, transcript_role,
     },
 };
 pub use workspace_dir::{decode_workspace_path, encode_workspace_path};

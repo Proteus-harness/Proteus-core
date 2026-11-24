@@ -28,10 +28,10 @@ pub(in crate::core::session_store::remote::view) struct Section {
     packs: Vec<PackRef>,
 }
 
-fn write_pages<'a, T: Serialize + 'a>(
+fn write_pages<T: Serialize>(
     store: &RemoteSessionStore,
     source: &RemoteCacheSource,
-    rows: impl Iterator<Item = &'a T>,
+    rows: impl Iterator<Item = T>,
     section: &mut Section,
     pack_before: usize,
 ) -> Option<()> {
@@ -39,7 +39,7 @@ fn write_pages<'a, T: Serialize + 'a>(
     let mut scratch = LeafScratch::default();
     let mut page = Vec::with_capacity(PAGE_ROWS);
     let mut bytes = 2usize;
-    let mut submit = |page: &[&T], bytes: usize| {
+    let mut submit = |page: &[T], bytes: usize| {
         if section.pages.len() >= MAX_PAGES {
             return None;
         }
@@ -61,7 +61,7 @@ fn write_pages<'a, T: Serialize + 'a>(
         )
     };
     for row in rows {
-        let row_bytes = encoded_len(row, SESSION_STORAGE_MAX_CACHE_BYTES)?;
+        let row_bytes = encoded_len(&row, SESSION_STORAGE_MAX_CACHE_BYTES)?;
         if !page.is_empty()
             && (page.len() == PAGE_ROWS
                 || bytes.saturating_add(row_bytes).saturating_add(1) > NORMAL_PAGE_BYTES)
@@ -100,14 +100,17 @@ pub(in crate::core::session_store::remote::view) fn write_transcript<T: Serializ
     source: &RemoteCacheSource,
     rows: &[T],
 ) -> Option<Section> {
+    write_transcript_iter(store, source, rows.iter())
+}
+
+pub(super) fn write_transcript_iter<T: Serialize>(
+    store: &RemoteSessionStore,
+    source: &RemoteCacheSource,
+    rows: impl ExactSizeIterator<Item = T>,
+) -> Option<Section> {
     let mut section = Section::default();
-    write_pages(
-        store,
-        source,
-        rows.iter(),
-        &mut section,
-        rows.len().saturating_sub(PAGE_ROWS),
-    )?;
+    let pack_before = rows.len().saturating_sub(PAGE_ROWS);
+    write_pages(store, source, rows, &mut section, pack_before)?;
     Some(section)
 }
 
@@ -185,8 +188,29 @@ pub(in crate::core::session_store::remote::view) fn read_section<T: DeserializeO
     start: usize,
     end: usize,
 ) -> Option<Vec<T>> {
+    collect_section(store, section, start, end, false)
+}
+
+// Only for an immutable section of the already checked header. The
+// same decoder still validates bounds, object/leaf hashes and typed rows.
+pub(super) fn read_checked_transcript<T: DeserializeOwned>(
+    store: &RemoteSessionStore,
+    checked: &super::CheckedHeader,
+    start: usize,
+    end: usize,
+) -> Option<Vec<T>> {
+    collect_section(store, &checked.0.transcript, start, end, true)
+}
+
+fn collect_section<T: DeserializeOwned>(
+    store: &RemoteSessionStore,
+    section: &Section,
+    start: usize,
+    end: usize,
+    checked: bool,
+) -> Option<Vec<T>> {
     let mut result = None;
-    visit_section(store, section, start, end, |row| {
+    visit_section_impl(store, section, start, end, checked, |row| {
         result
             .get_or_insert_with(|| Vec::with_capacity(end - start))
             .push(row);
@@ -202,16 +226,39 @@ pub(in crate::core::session_store::remote::view) fn visit_section<T: Deserialize
     section: &Section,
     start: usize,
     end: usize,
+    visit: impl FnMut(T) -> Option<()>,
+) -> Option<()> {
+    visit_section_impl(store, section, start, end, false, visit)
+}
+
+fn visit_section_impl<T: DeserializeOwned>(
+    store: &RemoteSessionStore,
+    section: &Section,
+    start: usize,
+    end: usize,
+    checked: bool,
     mut visit: impl FnMut(T) -> Option<()>,
 ) -> Option<()> {
-    if start > end || end > section.rows || !valid_section(section) {
+    if start > end || end > section.rows || (!checked && !valid_section(section)) {
         return None;
     }
     if start == end {
         return Some(());
     }
-    let mut packs = section.packs.iter().peekable();
-    let (mut index, mut offset) = (0, 0);
+    let (mut index, mut offset, spans) =
+        if checked && start >= section.rows.saturating_sub(PAGE_ROWS) {
+            // Validated pack spans cannot cover any leaf intersecting the latest
+            // PAGE_ROWS. Walk backward only to the first overlapping leaf.
+            let mut offset = section.rows;
+            let index = section.pages.iter().rposition(|page| {
+                offset -= page.rows;
+                offset <= start
+            })?;
+            (index, offset, &[][..])
+        } else {
+            (0, 0, section.packs.as_slice())
+        };
+    let mut packs = spans.iter().peekable();
     while offset < end {
         let pack = packs.next_if(|pack| pack.first == index);
         let count = pack.map_or(1, |p| p.count);

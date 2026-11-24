@@ -160,9 +160,17 @@ impl TranscriptTimestamps {
         }
     }
 
+    pub(super) fn record_staged_text_append(&mut self, timestamp_ms: i64) {
+        // The narrow record checks nonzero sequence and the single-Append
+        // shape before calling us. Consume the same single-record hint.
+        debug_assert!(self.single_staged_record);
+        self.single_staged_record = false;
+        self.uniform_message_date = Some(timestamp_ms);
+    }
+
     /// This is the single staged text-only Append proof, not just equal dates.
-    pub(super) fn certified_text_append(&self) -> bool {
-        self.uniform_message_date.is_some()
+    pub(super) fn certified_text_append_date(&self) -> Option<i64> {
+        self.uniform_message_date
     }
 
     pub(super) fn message(&self, message: &CanonicalMessage) -> Option<i64> {
