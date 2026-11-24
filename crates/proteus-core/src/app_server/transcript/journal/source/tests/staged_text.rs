@@ -89,13 +89,15 @@ fn staged_text_witnesses_preserve_early_rows_and_hidden_root_live_commits() {
         &mut |visit| staged.scan(visit),
         Some(live),
         false,
+        true,
         TranscriptVisibility {
             root_threads: roots.expect("every response has a positive commit witness"),
             certified_text_responses: true,
             ..Default::default()
         },
     )
-    .unwrap();
+    .unwrap()
+    .into_full();
     let expected = from_records(&items, Some(live)).unwrap();
     assert_eq!(
         serde_json::to_value(&actual).unwrap(),
@@ -229,13 +231,15 @@ fn staged_mixed_append_still_matches_full_order_and_dates() {
         &mut |visit| staged.scan(visit),
         None,
         true,
+        true,
         TranscriptVisibility {
             root_threads: roots.expect("history-only stage"),
             certified_text_responses: true,
             ..Default::default()
         },
     )
-    .unwrap();
+    .unwrap()
+    .into_full();
     let expected = from_records(&items, None).unwrap();
     assert_eq!(
         serde_json::to_vec(&actual).unwrap(),
