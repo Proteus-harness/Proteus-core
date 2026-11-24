@@ -263,11 +263,20 @@ pub(super) async fn execute_set_permission_mode(
 pub(super) async fn execute_set_session_setting(
     state: &HttpAppState,
     command: proteus_contracts::app_protocol::http::SetSessionSettingRequest,
+    local_catalog: bool,
 ) -> StdioOutput {
     let result = async {
         let server = server_for_session(state, command.session_dir).await?;
         server.set_session_setting(command.setting).await?;
-        Ok(Some(json!({ "config": server.config_summary().await })))
+        let output = if local_catalog {
+            json!({
+                "config": server.local_config_summary().await,
+                "catalog_pending": true,
+            })
+        } else {
+            json!({ "config": server.config_summary().await })
+        };
+        Ok(Some(output))
     }
     .await;
     command_response(command.id, result)

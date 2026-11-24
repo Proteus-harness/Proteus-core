@@ -862,7 +862,10 @@ category, control}`. У select `control = {type: "select", value, options}`,
 известные формы и обязательные поля остаются строгими.
 `POST /session/setting` принимает `{id, session_dir, setting: {id, value}}`,
 проверяет значение по актуальному описанию и возвращает обычный command
-response с полным `output.config`. Сейчас доступны `mode`, `model` и
+response с полным `output.config`. Параметр `?catalog=local` возвращает
+`output.config` в форме `GET /config/local` и `output.catalog_pending: true`.
+После подтверждения клиент может получить полный каталог отдельным `GET /config`.
+Это не отменяет проверку модели при выборе. Сейчас доступны `mode`, `model` и
 `reasoning_effort` (`_default` снимает явный effort; остальные value имеют
 форму `effort:<имя>`). ACP проецирует тот же список и использует тот же setter.
 Для `model` клиент может передать объект `{provider, model}`, используя

@@ -4,13 +4,9 @@ use proteus_contracts::{
     model_standard::ModelCapabilities,
 };
 
-#[tokio::test]
-async fn local_config_remains_available_while_external_catalog_is_loading() {
-    let config_dir = tempfile::tempdir().unwrap();
-    let marker = config_dir.path().join("catalog-started");
-    let release = config_dir.path().join("catalog-release");
+fn catalog_fixture(marker: &std::path::Path, release: &std::path::Path) -> Value {
     let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/process_model.py");
-    let mut config: AppConfig = serde_json::from_value(json!({
+    json!({
         "active_provider": "fixture",
         "modes": {"review": {"title":"Review"}},
         "providers": {"fixture": {
@@ -33,8 +29,15 @@ async fn local_config_remains_available_while_external_catalog_is_loading() {
                 "default_reasoning_effort": "future"
             }]}
         }}}
-    }))
-    .unwrap();
+    })
+}
+
+#[tokio::test]
+async fn local_config_remains_available_while_external_catalog_is_loading() {
+    let config_dir = tempfile::tempdir().unwrap();
+    let marker = config_dir.path().join("catalog-started");
+    let release = config_dir.path().join("catalog-release");
+    let mut config: AppConfig = serde_json::from_value(catalog_fixture(&marker, &release)).unwrap();
     crate::test_support::storage_config(&mut config);
     let server = AgentAppServer::launch(
         config,
@@ -102,6 +105,68 @@ async fn local_config_remains_available_while_external_catalog_is_loading() {
     assert_eq!(discovered.model_options[0].label, "Discovered model");
     assert_eq!(discovered.reasoning.effort_options, ["high", "future"]);
     assert!(discovered.model_catalog_error.is_none());
+    server.shutdown().await;
+}
+
+#[tokio::test]
+async fn model_setting_can_acknowledge_before_the_inactive_catalog() {
+    let config_dir = tempfile::tempdir().unwrap();
+    let marker = config_dir.path().join("catalog-started");
+    let release = config_dir.path().join("catalog-release");
+    let mut fixture = catalog_fixture(&marker, &release);
+    fixture["active_provider"] = json!("fast");
+    fixture["providers"]["fast"] = json!({"provider":"fast", "model":"initial"});
+    fixture["components"]["independent"]["exports"]["model"]["fast"] = json!({});
+    let mut fast = fixture["module_config"]["model"]["external"].clone();
+    fast["catalog_wait"] = json!(false);
+    fast["catalog"]["models"][0]["id"] = json!("initial");
+    let mut selected = fast["catalog"]["models"][0].clone();
+    selected["id"] = json!("next");
+    fast["catalog"]["models"]
+        .as_array_mut()
+        .unwrap()
+        .push(selected);
+    fixture["module_config"]["model"]["fast"] = fast;
+    let mut config: AppConfig = serde_json::from_value(fixture).unwrap();
+    crate::test_support::storage_config(&mut config);
+    let server = AgentAppServer::launch(
+        config,
+        config_dir.path().to_owned(),
+        Some(&config_dir.path().join("config.toml")),
+    )
+    .await
+    .unwrap();
+    let (shutdown, _) = broadcast::channel(1);
+    let state = HttpAppState::new(server.clone(), shutdown, test_security()).await;
+    let setting = json!({
+        "session_dir": server.session_dir_path().unwrap(),
+        "setting": {"id":"model", "value":{"provider":"fast", "model":"next"}}
+    });
+    let response = tokio::time::timeout(
+        Duration::from_secs(3),
+        route_request(
+            state.clone(),
+            authed_json_request("/session/setting?catalog=local", setting.clone()),
+        ),
+    )
+    .await
+    .expect("local model acknowledgement must not wait for the inactive catalog")
+    .unwrap();
+    let response: Value = serde_json::from_slice(&response_bytes(response).await).unwrap();
+    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(response["output"]["catalog_pending"], true);
+    assert_eq!(response["output"]["config"]["model"]["name"], "next");
+    assert!(!marker.exists());
+
+    std::fs::write(&release, "ready").unwrap();
+    let response = route_request(state, authed_json_request("/session/setting", setting))
+        .await
+        .unwrap();
+    let response: Value = serde_json::from_slice(&response_bytes(response).await).unwrap();
+    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(response["output"]["config"]["model"]["name"], "next");
+    assert!(response["output"].get("catalog_pending").is_none());
+    assert!(marker.exists(), "legacy acknowledgement includes discovery");
     server.shutdown().await;
 }
 

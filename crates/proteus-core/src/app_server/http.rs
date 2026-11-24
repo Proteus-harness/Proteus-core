@@ -322,7 +322,10 @@ where
         (Method::POST, "/session/setting") => {
             match read_json::<SetSessionSettingRequest, _>(request).await {
                 Ok(command) => {
-                    let output = execute_set_session_setting(&state, command).await;
+                    let local_catalog = query
+                        .as_deref()
+                        .is_some_and(|query| query.split('&').any(|pair| pair == "catalog=local"));
+                    let output = execute_set_session_setting(&state, command, local_catalog).await;
                     json_response(StatusCode::OK, &output)
                 }
                 Err(error) => error_response(StatusCode::BAD_REQUEST, &format!("{error:#}")),
