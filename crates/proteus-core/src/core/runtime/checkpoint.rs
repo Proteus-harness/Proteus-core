@@ -19,6 +19,12 @@ use super::{
     steering::{SteeringModel, weave_deliveries_into_failed_history, weave_deliveries_into_output},
 };
 
+fn in_memory_history_changed(history: &[CanonicalMessage], inserted: bool) -> bool {
+    // Capture only inserts. Without an insertion, preserve comparison with an
+    // equal-value clone, including non-reflexive scores in typed history.
+    inserted || history.iter().any(|message| !message.eq(message))
+}
+
 /// Per-invocation binding. The same object records tool facts and explicit
 /// workflow checkpoints; neither module identity nor component location matters.
 pub(super) struct TurnHistoryRecorder {
@@ -77,11 +83,11 @@ impl TurnHistoryRecorder {
             return Ok(());
         }
         let mut history = self.history.lock().await;
-        let previous = history.clone();
+        let mut inserted = false;
         for result in effects.drain(..) {
-            capture.record(&mut history, &result)?;
+            inserted |= capture.record(&mut history, &result)?;
         }
-        if *history != previous {
+        if in_memory_history_changed(&history, inserted) {
             self.revision
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         }
@@ -273,13 +279,8 @@ impl ToolExecutionRecorder for TurnHistoryRecorder {
         if attribution == self.attribution {
             let mut effects = self.pending_effects.lock().await;
             let mut history = self.history.lock().await;
-            let previous = if self.store.is_none() {
-                Some(history.clone())
-            } else {
-                None
-            };
-            capture.record(&mut history, result)?;
-            if previous.is_some_and(|previous| *history != previous) {
+            let inserted = capture.record(&mut history, result)?;
+            if self.store.is_none() && in_memory_history_changed(&history, inserted) {
                 self.revision
                     .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             }

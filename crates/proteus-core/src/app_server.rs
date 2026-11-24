@@ -64,11 +64,11 @@ use path_utils::paths_equal;
 pub(crate) use transcript::journal_transcript_append_committed;
 #[cfg(test)]
 pub(crate) use transcript::journal_transcript_messages;
-use transcript::transcript_messages;
 pub use transcript::{AppTranscriptMessage, AppTranscriptSubagent, AppTranscriptTool};
 pub(crate) use transcript::{
     journal_transcript_append_from_source, journal_transcript_from_source,
 };
+use transcript::{journal_transcript_for_startup, transcript_messages};
 use turn_progress::TurnProgress;
 mod startup;
 
@@ -666,8 +666,7 @@ impl AgentAppServer {
         let mut cached_display_source = None;
         let initial_transcript = if let Some(prepared) = resumed_session {
             let (session_store, model, cached_source) = tokio::task::spawn_blocking(move || {
-                let result = prepared
-                    .into_display_view(|source| journal_transcript_from_source(source, None));
+                let result = prepared.into_startup_view(journal_transcript_for_startup);
                 read_model::release_projection_memory();
                 result
             })

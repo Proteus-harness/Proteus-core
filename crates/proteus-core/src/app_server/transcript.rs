@@ -13,7 +13,7 @@ use rows::TranscriptRows;
 pub(crate) use journal::journal_transcript_messages;
 pub(crate) use journal::{
     journal_transcript_append_committed, journal_transcript_append_from_source,
-    journal_transcript_from_source,
+    journal_transcript_for_startup, journal_transcript_from_source,
 };
 
 pub use proteus_contracts::app_protocol::{
@@ -273,8 +273,18 @@ fn flush_transcript_text(
     let Some(text) = text_parts.take_joined() else {
         return;
     };
+    push_transcript_text(transcript, role, message, text, None);
+}
+
+fn push_transcript_text(
+    transcript: &mut TranscriptRows,
+    role: &str,
+    message: &CanonicalMessage,
+    text: String,
+    timestamp_ms: Option<i64>,
+) {
     transcript.push(AppTranscriptMessage {
-        timestamp_ms: None,
+        timestamp_ms,
         images: Vec::new(),
         message_id: Some(message.id),
         phase: message.phase,
@@ -289,6 +299,30 @@ fn flush_transcript_text(
 fn append_transcript_tool_result(transcript: &mut TranscriptRows, result: &ToolResult) {
     let status = if result.ok { "done" } else { "failed" }.to_owned();
     let result_text = result.text_or_status();
+    apply_transcript_tool_result(transcript, result, status, result_text);
+}
+
+fn append_owned_transcript_tool_result(transcript: &mut TranscriptRows, result: &mut ToolResult) {
+    let status = if result.ok { "done" } else { "failed" }.to_owned();
+    let selected = match &mut result.error {
+        Some(error) if !error.is_empty() => Some(error),
+        _ if !result.output.is_empty() => Some(&mut result.output),
+        _ => None,
+    };
+    // Match the borrowed result's capacity as well as its contents.
+    let result_text = match selected {
+        Some(text) if text.len() == text.capacity() => std::mem::take(text),
+        _ => result.text_or_status(),
+    };
+    apply_transcript_tool_result(transcript, result, status, result_text);
+}
+
+fn apply_transcript_tool_result(
+    transcript: &mut TranscriptRows,
+    result: &ToolResult,
+    status: String,
+    result_text: String,
+) {
     let terminal = result
         .metadata
         .get("tool_terminal")

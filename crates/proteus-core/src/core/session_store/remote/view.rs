@@ -20,18 +20,20 @@ mod committed;
 mod incremental;
 pub(crate) use committed::CommittedDisplay;
 mod prefix;
+mod text_rows;
 pub(crate) use cache::RemoteCacheSource;
 pub(crate) use prefix::PrefixIdentities;
+pub(crate) use text_rows::{CompactTextRow, DisplayRows};
 
 #[cfg(test)]
 mod tests;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct SessionReadModel {
+pub(crate) struct SessionReadModel<T = Vec<AppTranscriptMessage>> {
     pub summary: AppSessionSummary,
     pub conversation: ConversationSnapshot,
-    pub transcript: Vec<AppTranscriptMessage>,
+    pub transcript: T,
     pub usage: SessionUsageSnapshot,
     #[serde(skip)]
     pub(super) prefix: Option<PrefixIdentities>,
@@ -52,11 +54,11 @@ pub(crate) struct SessionTranscriptAppend {
     pub conversation_appended: usize,
 }
 
-impl SessionReadModel {
+impl<T> SessionReadModel<T> {
     pub(crate) fn from_validated(
         store: &RemoteSessionStore,
         read: RemoteValidatedRead,
-        render: impl FnOnce(&mut RemoteJournalSnapshot) -> Result<Vec<AppTranscriptMessage>>,
+        render: impl FnOnce(&mut RemoteJournalSnapshot) -> Result<T>,
     ) -> Result<Self> {
         let (mut snapshot, state) = read.into_parts();
         let transcript = render(&mut snapshot)?;
@@ -73,16 +75,23 @@ impl SessionReadModel {
             prefix: Some(prefix),
         })
     }
+}
 
-    pub(crate) fn matches(&self, store: &RemoteSessionStore) -> bool {
-        self.summary.session_id == store.session_id()
-            && self.summary.parent_session_id == store.parent_session_id()
-            && self.summary.session_dir == store.session_dir()
-            && self.usage.session_id == store.session_id()
-            && self.summary.message_count == self.conversation.messages.len()
+impl SessionReadModel {
+    fn matches_parts(
+        store: &RemoteSessionStore,
+        summary: &AppSessionSummary,
+        usage: &SessionUsageSnapshot,
+        message_count: usize,
+    ) -> bool {
+        summary.session_id == store.session_id()
+            && summary.parent_session_id == store.parent_session_id()
+            && summary.session_dir == store.session_dir()
+            && usage.session_id == store.session_id()
+            && summary.message_count == message_count
             && store
                 .workspace_path()
-                .is_ok_and(|path| path == self.summary.workspace_path)
+                .is_ok_and(|path| path == summary.workspace_path)
     }
 }
 
@@ -93,12 +102,27 @@ impl RemoteSessionStore {
         paged: bool,
         render: impl FnOnce(&mut RemoteJournalSnapshot) -> Result<Vec<AppTranscriptMessage>>,
     ) -> Result<SessionReadView> {
+        self.project_startup_view(read, paged, |snapshot| {
+            render(snapshot).map(DisplayRows::Full)
+        })
+    }
+
+    pub(super) fn project_startup_view(
+        &self,
+        read: RemoteValidatedRead,
+        paged: bool,
+        render: impl FnOnce(&mut RemoteJournalSnapshot) -> Result<DisplayRows>,
+    ) -> Result<SessionReadView> {
         let source = RemoteCacheSource::from_cursor(&read.cursor());
-        let model = SessionReadModel::from_validated(self, read, render)?;
-        self.save_read_model(&source, &model);
+        let mut model = SessionReadModel::from_validated(self, read, render)?;
+        let _ = cache::save_startup_model(self, &source, &mut model);
+        let revision = model.conversation.revision;
         // A concurrent projection may have advanced HEAD. Only this immutable
         // revision can provide a page for the model's summary, revision and usage.
         let page = if paged {
+            // Keep the complete rendered transcript until the named page is
+            // actually available, even when publishing the cache failed.
+            drop(model.prefix);
             source
                 .revision()
                 .and_then(|revision| self.saved_transcript_page(None, Some(&revision)))
@@ -114,11 +138,11 @@ impl RemoteSessionStore {
                     base: page.base,
                 }),
             ),
-            None => (model.transcript, None),
+            None => (model.transcript.into_full(), None),
         };
         Ok(SessionReadView {
             summary: model.summary,
-            revision: model.conversation.revision,
+            revision,
             usage: model.usage,
             transcript,
             cursor,
@@ -127,6 +151,10 @@ impl RemoteSessionStore {
 
     pub(crate) fn fresh_read_model(&self) -> Option<SessionReadModel> {
         cache::load_model(self)
+    }
+
+    pub(crate) fn fresh_read_transcript(&self) -> Option<Vec<AppTranscriptMessage>> {
+        cache::load_transcript(self)
     }
 
     pub(crate) fn project_read_model(
@@ -201,7 +229,7 @@ fn display_prefix(
 ) -> Result<PrefixIdentities> {
     let mut prefix = PrefixIdentities::default();
     snapshot.scan_display(|record| {
-        prefix.visit(&record, false);
+        prefix.visit_owned_prefix(record);
         Ok(())
     })?;
     prefix.history = history

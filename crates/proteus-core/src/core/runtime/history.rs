@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::{borrow::Cow, collections::HashSet};
 
 mod compacted_user;
 
@@ -17,6 +17,42 @@ pub(crate) struct PreparedHistoryUpdate {
 
 pub(crate) fn prepare_history_update(
     current_history: &[CanonicalMessage],
+    persisted_user_message: &CanonicalMessage,
+    new_messages: &[CanonicalMessage],
+    history_replacement: Option<&[CanonicalMessage]>,
+    compactions: &[HistoryCompactionReport],
+    runtime_user_messages: &HashSet<MessageId>,
+) -> Result<PreparedHistoryUpdate> {
+    prepare_successful_update(
+        Cow::Borrowed(current_history),
+        persisted_user_message,
+        new_messages,
+        history_replacement,
+        compactions,
+        runtime_user_messages,
+    )
+}
+
+pub(super) fn prepare_owned_history_update(
+    current_history: Vec<CanonicalMessage>,
+    persisted_user_message: &CanonicalMessage,
+    new_messages: &[CanonicalMessage],
+    history_replacement: Option<&[CanonicalMessage]>,
+    compactions: &[HistoryCompactionReport],
+    runtime_user_messages: &HashSet<MessageId>,
+) -> Result<PreparedHistoryUpdate> {
+    prepare_successful_update(
+        Cow::Owned(current_history),
+        persisted_user_message,
+        new_messages,
+        history_replacement,
+        compactions,
+        runtime_user_messages,
+    )
+}
+
+fn prepare_successful_update(
+    current_history: Cow<'_, [CanonicalMessage]>,
     persisted_user_message: &CanonicalMessage,
     new_messages: &[CanonicalMessage],
     history_replacement: Option<&[CanonicalMessage]>,
@@ -51,7 +87,7 @@ pub(crate) fn prepare_failed_history_update(
         "workflow failure returned an empty history update"
     );
     prepare_update(
-        current_history,
+        Cow::Borrowed(current_history),
         persisted_user_message,
         new_messages,
         history_replacement,
@@ -61,7 +97,7 @@ pub(crate) fn prepare_failed_history_update(
 }
 
 fn prepare_update(
-    current_history: &[CanonicalMessage],
+    current_history: Cow<'_, [CanonicalMessage]>,
     persisted_user_message: &CanonicalMessage,
     new_messages: &[CanonicalMessage],
     history_replacement: Option<&[CanonicalMessage]>,
@@ -94,7 +130,7 @@ fn prepare_update(
         }
         (true, Some(replacement)) => {
             compacted_user::validate_current_user(
-                current_history,
+                current_history.as_ref(),
                 persisted_user_message,
                 replacement,
                 compactions,
@@ -108,8 +144,17 @@ fn prepare_update(
             })
         }
         (false, None) => {
-            let mut final_messages = Vec::with_capacity(current_history.len() + new_messages.len());
-            final_messages.extend_from_slice(current_history);
+            let mut final_messages = match current_history {
+                Cow::Borrowed(prefix) => {
+                    let mut messages = Vec::with_capacity(prefix.len() + new_messages.len());
+                    messages.extend_from_slice(prefix);
+                    messages
+                }
+                Cow::Owned(mut prefix) => {
+                    prefix.reserve_exact(new_messages.len());
+                    prefix
+                }
+            };
             final_messages.extend_from_slice(new_messages);
             Ok(PreparedHistoryUpdate {
                 final_messages,

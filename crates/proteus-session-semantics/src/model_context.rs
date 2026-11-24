@@ -91,7 +91,7 @@ impl ModelContextState {
     /// replayed turn. Root TurnOpened lineage survives resume with a new thread;
     /// detached and child executions cannot affect the shared conversation.
     pub fn from_records(records: &[JournalRecord], before_turn: Option<TurnId>) -> Self {
-        let mut projection = projection::ModelContextProjection::default();
+        let mut projection = projection::ModelContextProjection::current_only();
         for record in records {
             if matches!(record.entry, JournalEntry::TurnOpened(_))
                 && before_turn.is_some_and(|turn| record.turn_id == Some(turn))

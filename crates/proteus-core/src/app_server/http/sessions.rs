@@ -143,7 +143,7 @@ pub(super) async fn history_json(
     let storage = state.storage_service()?;
     tokio::task::spawn_blocking(move || {
         let store = SessionStore::open(storage, session_dir)?;
-        Ok(crate::app_server::read_model::current_read_model(&store)?.transcript)
+        crate::app_server::read_model::current_transcript(&store)
     })
     .await
     .map_err(|error| anyhow!("cold history task failed: {error}"))?

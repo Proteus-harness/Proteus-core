@@ -3,7 +3,7 @@
 use std::{collections::HashMap, hash::Hash, num::NonZeroU64};
 
 use crate::{
-    core::{JournalEntry, JournalRecord, ModelResponseOutcome},
+    core::{HistoryMutationKind, JournalEntry, JournalRecord, ModelResponseOutcome},
     domain::{CallId, MessageId, PartId},
     model_standard::{CanonicalMessage, ContentPart},
 };
@@ -24,9 +24,18 @@ pub(super) struct TranscriptTimestamps {
     messages: HashMap<MessageId, RecordedAt>,
     parts: HashMap<PartId, RecordedAt>,
     calls: HashMap<CallId, RecordedAt>,
+    single_staged_record: bool,
+    uniform_message_date: Option<i64>,
 }
 
 impl TranscriptTimestamps {
+    pub(super) fn staged(single_record: bool) -> Self {
+        Self {
+            single_staged_record: single_record,
+            ..Self::default()
+        }
+    }
+
     #[cfg(test)]
     pub(super) fn from_projection(projection: &JournalProjection) -> Self {
         Self::for_records(&projection.records, 0)
@@ -91,6 +100,23 @@ impl TranscriptTimestamps {
             ),
             timestamp_ms: record.timestamp_ms,
         };
+        // Keep the normal sequence check above. The staged count is only a
+        // hint; scan still reads to EOF and validates the actual count.
+        self.uniform_message_date = None;
+        if std::mem::take(&mut self.single_staged_record)
+            && let JournalEntry::HistoryMutated(mutation) = &record.entry
+            && mutation.mutation == HistoryMutationKind::Append
+            && mutation.compaction.is_none()
+            && mutation.tool_results.is_empty()
+            && mutation
+                .messages
+                .iter()
+                .flat_map(|message| &message.parts)
+                .all(|part| matches!(part.payload, ContentPart::Text { .. }))
+        {
+            self.uniform_message_date = Some(at.timestamp_ms);
+            return;
+        }
         match &record.entry {
             JournalEntry::HistoryMutated(mutation) => {
                 for message in &mutation.messages {
@@ -134,7 +160,15 @@ impl TranscriptTimestamps {
         }
     }
 
+    /// This is the single staged text-only Append proof, not just equal dates.
+    pub(super) fn certified_text_append(&self) -> bool {
+        self.uniform_message_date.is_some()
+    }
+
     pub(super) fn message(&self, message: &CanonicalMessage) -> Option<i64> {
+        if let Some(date) = self.uniform_message_date {
+            return Some(date);
+        }
         self.messages
             .get(&message.id)
             .into_iter()

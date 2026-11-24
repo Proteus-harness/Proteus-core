@@ -21,6 +21,7 @@ effort = "high"
 summary = true
 
 [module_config.model.opencode]
+implementation = "opencode_go"
 provider = "opencode-go"
 
 [module_config.model.openai_codex]
@@ -145,7 +146,7 @@ env_allowlist = ["HOME", "PROTEUS_HOME"]
 [components.codex-context-preparation.exports.hook.codex_base_instructions]
 
 [components.opencode-model]
-command = "proteus-opencode-module"
+command = "proteus-model-pack-module"
 env_allowlist = ["HOME", "XDG_DATA_HOME", "PATH", "OPENCODE_API_KEY", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy"]
 
 [components.opencode-model.exports.model.opencode]

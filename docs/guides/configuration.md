@@ -1233,6 +1233,9 @@ Core не знает алгоритма. При смене export согласу
 
 ## Instructions
 
+Каждая запись `[[instructions]]` задаёт тип (`kind`), приоритет (`priority`) и один
+источник текста. Используйте `file` для файла или `text` для строки в конфигурации.
+
 ```toml
 [[instructions]]
 kind = "System"
@@ -1241,37 +1244,18 @@ priority = 100
 
 [[instructions]]
 kind = "Developer"
-text = "Prefer small, verified changes."
+text = "Отвечай по-русски."
 priority = 50
 ```
 
-Entry задаёт ровно одно из `file` и `text`. Relative file path считается
-от config file. Runtime превращает entries в ordered canonical
-`InstructionBlock` list.
+Core читает файл при загрузке. Относительный путь отсчитывается от каталога конфигурации.
+Отсутствующий файл вызывает ошибку. Блоки `InstructionBlock` сохраняют порядок
+записей, тип и приоритет. При восстановлении отдельного профиля Config Builder
+сохраняет исходные пути и встроенный текст. Файлы по этим путям должны оставаться доступны.
 
-Если Config Builder восстанавливает отсутствующий standalone profile из
-загруженной конфигурации, file-backed entries сохраняют `file`, а не копию
-уже прочитанного `text`. Inline entries сохраняют свой текст и порядок.
-Это восстановление по прежнему пути: оно не переносит relative references
-и не восстанавливает отсутствующие prompt assets. Существующие source entries
-и directory overlays при обычном Save не переписываются этим преобразованием.
-
-Packaged `opencode-default.md` сохраняется как настраиваемый пример, но профиль
-`opencode` его не использует. `proteus-opencode-module` импортирует pinned
-`@opencode/core@2.0.22`: native system template и model plugins выполняются
-перед каждым запросом. Context получает native AGENTS/date/environment;
-workflow и compaction используют upstream SessionStep/SessionCompaction.
-Описание ограничений и установка находятся в
-`Proteus-modules/workflow/opencode-runtime/README.md`. Это перенесённые slots,
-а не заявление о полной эквивалентности всему OpenCode. При сравнении
-фиксируйте код handlers, npm lock, инструменты и project context.
-
-Общие правила держите в prompt, локальные соглашения — в `AGENTS.md`,
-инструкции отдельного workflow — в skill. Описывайте результат и условия
-применения; не требуйте читать все справочники или повторять уже успешные
-проверки независимо от задачи. Этот подход соответствует рекомендациям
-[OpenAI по prompts и skills](https://developers.openai.com/blog/rethinking-skills-and-prompts-for-gpt-6-astra).
-Сокращение текста само по себе не доказывает улучшения качества модели.
+Профиль `opencode` получает системные инструкции из `@opencode/core`.
+Файл `prompts/opencode-default.md` поставляется как пример для собственного профиля.
+[Устройство профиля OpenCode](https://github.com/Proteus-harness/Proteus-modules/blob/main/workflow/opencode-runtime/README.md).
 
 ### Skills
 

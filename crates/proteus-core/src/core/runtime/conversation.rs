@@ -45,12 +45,15 @@ impl ConversationReader for TurnConversation {
             return tokio::task::spawn_blocking(move || store.conversation_snapshot()).await?;
         }
         let context = self.context.lock().await;
+        // Do not duplicate resident history while a store revision is pending or fails.
+        let stored_revision = match &self.store {
+            Some(store) => Some(store.history_revision().await?),
+            None => None,
+        };
         Ok(ConversationSnapshot {
             messages: messages.clone(),
-            revision: match &self.store {
-                Some(store) => store.history_revision().await?,
-                None => self.revision.load(std::sync::atomic::Ordering::SeqCst),
-            },
+            revision: stored_revision
+                .unwrap_or_else(|| self.revision.load(std::sync::atomic::Ordering::SeqCst)),
             model_context: context.snapshot(),
         })
     }

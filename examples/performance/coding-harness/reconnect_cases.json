@@ -1,0 +1,250 @@
+{
+  "failed_cases": [
+    {
+      "case": "schemelike-metacircular-eval",
+      "arm": "proteus-pi",
+      "attempt": 1,
+      "source": "target/performance/coding-harness/long-flash-01/flash_schemelike-metacircular-eval_1_proteus-pi",
+      "baseline_pipeline_ok": false,
+      "baseline_grade": false,
+      "baseline_classes": [
+        "transport_or_cli_failure",
+        "solution_rejected_by_tests"
+      ]
+    },
+    {
+      "case": "schemelike-metacircular-eval",
+      "arm": "proteus-opencode",
+      "attempt": 1,
+      "source": "target/performance/coding-harness/long-flash-01/flash_schemelike-metacircular-eval_1_proteus-opencode",
+      "baseline_pipeline_ok": false,
+      "baseline_grade": false,
+      "baseline_classes": [
+        "transport_or_cli_failure",
+        "solution_rejected_by_tests"
+      ]
+    },
+    {
+      "case": "schemelike-metacircular-eval",
+      "arm": "proteus-codex",
+      "attempt": 1,
+      "source": "target/performance/coding-harness/long-flash-01/flash_schemelike-metacircular-eval_1_proteus-codex",
+      "baseline_pipeline_ok": false,
+      "baseline_grade": true,
+      "baseline_classes": [
+        "transport_or_cli_failure"
+      ]
+    },
+    {
+      "case": "journal-segments",
+      "arm": "proteus-pi",
+      "attempt": 1,
+      "source": "target/performance/coding-harness/long-flash-01/flash_journal-segments_1_proteus-pi",
+      "baseline_pipeline_ok": true,
+      "baseline_grade": false,
+      "baseline_classes": [
+        "solution_rejected_by_tests"
+      ]
+    },
+    {
+      "case": "journal-segments",
+      "arm": "proteus-opencode",
+      "attempt": 1,
+      "source": "target/performance/coding-harness/long-flash-01/flash_journal-segments_1_proteus-opencode",
+      "baseline_pipeline_ok": false,
+      "baseline_grade": false,
+      "baseline_classes": [
+        "agent_deadline",
+        "solution_rejected_by_tests"
+      ]
+    },
+    {
+      "case": "journal-segments",
+      "arm": "proteus-codex",
+      "attempt": 1,
+      "source": "target/performance/coding-harness/long-flash-01/flash_journal-segments_1_proteus-codex",
+      "baseline_pipeline_ok": false,
+      "baseline_grade": false,
+      "baseline_classes": [
+        "model_output_limit",
+        "solution_rejected_by_tests"
+      ]
+    },
+    {
+      "case": "sampler-phase-report",
+      "arm": "proteus-pi",
+      "attempt": 1,
+      "source": "target/performance/coding-harness/long-flash-01/flash_sampler-phase-report_1_proteus-pi",
+      "baseline_pipeline_ok": false,
+      "baseline_grade": true,
+      "baseline_classes": [
+        "transport_or_cli_failure"
+      ]
+    },
+    {
+      "case": "sampler-phase-report",
+      "arm": "proteus-codex",
+      "attempt": 1,
+      "source": "target/performance/coding-harness/long-flash-01/flash_sampler-phase-report_1_proteus-codex",
+      "baseline_pipeline_ok": false,
+      "baseline_grade": false,
+      "baseline_classes": [
+        "transport_or_cli_failure",
+        "solution_rejected_by_tests"
+      ]
+    },
+    {
+      "case": "ledger-recovery",
+      "arm": "proteus-codex",
+      "attempt": 1,
+      "source": "target/performance/coding-harness/long-flash-01/flash_ledger-recovery_1_proteus-codex",
+      "baseline_pipeline_ok": false,
+      "baseline_grade": false,
+      "baseline_classes": [
+        "model_output_limit",
+        "solution_rejected_by_tests"
+      ]
+    },
+    {
+      "case": "go-review",
+      "arm": "proteus-pi",
+      "attempt": 2,
+      "source": "target/performance/coding-harness/long-flash-01/flash_go-review_2_proteus-pi",
+      "baseline_pipeline_ok": true,
+      "baseline_grade": false,
+      "baseline_classes": [
+        "solution_rejected_by_tests"
+      ]
+    }
+  ],
+  "sampler_sources": [
+    "target/performance/coding-harness/long-flash-01/flash_sampler-phase-report_1_opencode",
+    "target/performance/coding-harness/long-flash-01/flash_sampler-phase-report_1_pi",
+    "target/performance/coding-harness/long-flash-01/flash_sampler-phase-report_1_proteus-codex",
+    "target/performance/coding-harness/long-flash-01/flash_sampler-phase-report_1_proteus-opencode",
+    "target/performance/coding-harness/long-flash-01/flash_sampler-phase-report_1_proteus-pi",
+    "target/performance/coding-harness/long-socket-retry-01/flash_sampler-phase-report_1_proteus-codex",
+    "target/performance/coding-harness/long-socket-retry-01/flash_sampler-phase-report_1_proteus-pi"
+  ],
+  "cap_controls": [
+    {
+      "case": "journal-segments",
+      "source": "target/performance/coding-harness/long-cap-control/validated/flash_journal-segments_1_proteus-codex-cap384000",
+      "caps": [
+        384000
+      ],
+      "failure_taxonomy": {
+        "classes": [
+          "transport_or_cli_failure",
+          "solution_rejected_by_tests"
+        ],
+        "failed_tests": [
+          "test_roundtrip_preserves_bytes_blobs_and_reader_api",
+          "test_cli_empty_and_existing_output",
+          "test_invalid_row_limits_leave_no_output[0]",
+          "test_invalid_row_limits_leave_no_output[-1]",
+          "test_invalid_row_limits_leave_no_output[True]",
+          "test_invalid_row_limits_leave_no_output[1.5]",
+          "test_invalid_row_limits_leave_no_output[2]",
+          "test_invalid_row_limits_leave_no_output[None]",
+          "test_invalid_legacy_cannot_publish_partial_archive[sequence]",
+          "test_invalid_legacy_cannot_publish_partial_archive[blob]",
+          "test_invalid_legacy_cannot_publish_partial_archive[truncated]",
+          "test_invalid_legacy_cannot_publish_partial_archive[blank]",
+          "test_invalid_legacy_cannot_publish_partial_archive[storage]",
+          "test_invalid_legacy_cannot_publish_partial_archive[schema]",
+          "test_manifest_types_strict[version-True]",
+          "test_manifest_types_strict[version-2]",
+          "test_manifest_types_strict[version-1]",
+          "test_manifest_types_strict[segments-value3]",
+          "test_manifest_types_strict[extra-1]",
+          "test_segment_metadata_strict[relative_path-../escape]",
+          "test_segment_metadata_strict[relative_path-/tmp/file]",
+          "test_segment_metadata_strict[relative_path-segments/000003.jsonl]",
+          "test_segment_metadata_strict[bytes-True]",
+          "test_segment_metadata_strict[bytes--1]",
+          "test_segment_metadata_strict[bytes-3]",
+          "test_segment_metadata_strict[first_seq-True]",
+          "test_segment_metadata_strict[first_seq-99]",
+          "test_segment_metadata_strict[last_seq-999]",
+          "test_segment_metadata_strict[sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa]",
+          "test_segment_metadata_strict[extra-1]",
+          "test_segment_validated_before_first_record_yield",
+          "test_symlinks_rejected_even_for_in_tree_targets[segment]",
+          "test_symlinks_rejected_even_for_in_tree_targets[segment-dir]",
+          "test_symlinks_rejected_even_for_in_tree_targets[blob]",
+          "test_symlinks_rejected_even_for_in_tree_targets[blob-dir]",
+          "test_ambiguous_and_missing_formats",
+          "test_existing_consumers_and_public_helpers"
+        ],
+        "semantic_requirements": [
+          "filesystem_path_validation",
+          "journal_format_validation",
+          "compatibility_regression",
+          "input_validation"
+        ],
+        "notes": [],
+        "error_codes": [
+          "UND_ERR_SOCKET"
+        ]
+      }
+    },
+    {
+      "case": "ledger-recovery",
+      "source": "target/performance/coding-harness/long-cap-control/validated/flash_ledger-recovery_1_proteus-codex-cap384000",
+      "caps": [
+        384000
+      ],
+      "failure_taxonomy": {
+        "classes": [
+          "transport_or_cli_failure",
+          "solution_rejected_by_tests"
+        ],
+        "failed_tests": [
+          "test_public_release_suite",
+          "test_codec_independent_unicode_and_nested_json",
+          "test_codec_rejects_invalid_sequence[0]",
+          "test_codec_rejects_invalid_sequence[-1]",
+          "test_codec_rejects_invalid_sequence[True]",
+          "test_codec_rejects_invalid_sequence[1.5]",
+          "test_codec_rejects_invalid_sequence[1]",
+          "test_invalid_append_is_read_only[obj0]",
+          "test_invalid_append_is_read_only[obj1]",
+          "test_invalid_append_is_read_only[obj2]",
+          "test_invalid_append_is_read_only[obj3]",
+          "test_invalid_append_is_read_only[obj4]",
+          "test_invalid_append_is_read_only[obj5]",
+          "test_invalid_append_is_read_only[obj6]",
+          "test_new_open_is_read_only_and_copy_isolation",
+          "test_torn_tail_preserved_until_append",
+          "test_checksum_and_gap_are_corruption",
+          "test_duplicate_disk_frame_consumes_sequence_without_reapplying",
+          "test_snapshot_prefix_replay_after_interruption",
+          "test_failed_snapshot_replace_preserves_all_previous_bytes",
+          "test_append_and_snapshot_fsync",
+          "test_bad_snapshot_is_never_silently_reinitialized[bad0]",
+          "test_bad_snapshot_is_never_silently_reinitialized[bad1]",
+          "test_bad_snapshot_is_never_silently_reinitialized[bad2]",
+          "test_bad_snapshot_is_never_silently_reinitialized[bad3]",
+          "test_process_writers_lock_reload_and_deduplicate",
+          "test_migration_validates_before_effects_and_preserves_source",
+          "test_cli_json_null_missing_and_conflict",
+          "test_boolean_and_number_ids_are_different_events",
+          "test_nonjson_cycle_rejected_before_any_persistence"
+        ],
+        "semantic_requirements": [
+          "atomicity_or_recovery",
+          "journal_format_validation",
+          "concurrency_or_deduplication",
+          "sampler_aggregation",
+          "compatibility_regression",
+          "input_validation"
+        ],
+        "notes": [],
+        "error_codes": [
+          "UND_ERR_SOCKET"
+        ]
+      }
+    }
+  ]
+}

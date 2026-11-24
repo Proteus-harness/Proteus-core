@@ -71,6 +71,17 @@ impl UsageProjection {
         self.revision = record.session_seq;
     }
 
+    /// Finalize a temporary fold without duplicating its requests. Drop any
+    /// geometric spare capacity before returning the detached view.
+    pub fn into_snapshot(self, session_id: SessionId) -> SessionUsageSnapshot {
+        SessionUsageSnapshot {
+            session_id,
+            revision: self.revision,
+            latest_turn_id: self.latest_turn_id,
+            requests: self.requests.into_boxed_slice().into_vec(),
+        }
+    }
+
     pub fn snapshot(&self, session_id: SessionId) -> SessionUsageSnapshot {
         SessionUsageSnapshot {
             session_id,

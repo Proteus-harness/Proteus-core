@@ -47,6 +47,10 @@ async fn standalone_reference_profiles_share_go_without_replacing_native_behavio
             config.process_export_config("model", "opencode").unwrap()["provider"],
             "opencode-go"
         );
+        assert_eq!(
+            config.process_export_config("model", "opencode").unwrap()["implementation"],
+            "opencode_go"
+        );
         assert_eq!(config.modules.workflow.as_deref(), Some(workflow));
         assert_eq!(config.modules.context.as_deref(), Some(context));
         assert_eq!(config.tools.enabled, tools);

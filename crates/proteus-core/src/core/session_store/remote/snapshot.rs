@@ -76,8 +76,12 @@ impl RemoteJournalSnapshot {
     }
     pub(crate) fn take_staged_causal_roots(
         &mut self,
-    ) -> Option<std::collections::HashMap<TurnId, crate::domain::ThreadId>> {
-        self.display_records.as_mut()?.take_causal_roots()
+    ) -> Option<(
+        std::collections::HashMap<TurnId, crate::domain::ThreadId>,
+        bool,
+    )> {
+        let records = self.display_records.as_mut()?;
+        Some((records.take_causal_roots()?, records.is_single_record()))
     }
 
     pub(crate) fn scan_display(
@@ -311,18 +315,25 @@ impl RemoteValidatedRead {
         let mut prefix_history_fingerprints = prefix_seq.filter(|seq| *seq == 0).map(|_| vec![]);
         let mut validation = proteus_session_semantics::JournalValidationState::default();
         let mut usage = proteus_session_semantics::UsageProjection::default();
-        let mut context = proteus_session_semantics::ModelContextProjection::default();
+        let mut context = proteus_session_semantics::ModelContextProjection::current_only();
         let mut next_seq = 1;
         source.scan(|record| {
-            validation.apply_sequenced(store.session_id(), &record, &mut next_seq)?;
-            usage.apply(&record);
-            context.apply(&record);
-            if let Some(display) = &mut display
-                && is_display_kind(record.entry.kind())
-            {
-                display.push(&record);
-            }
-            if prefix_seq == Some(record.session_seq) {
+            let record_seq = record.session_seq;
+            validation.apply_sequenced_for_read(
+                store.session_id(),
+                record,
+                &mut next_seq,
+                |record| {
+                    usage.apply(record);
+                    context.apply(record);
+                    if let Some(display) = &mut display
+                        && is_display_kind(record.entry.kind())
+                    {
+                        display.push(record);
+                    }
+                },
+            )?;
+            if prefix_seq == Some(record_seq) {
                 prefix_history_fingerprints = Some(
                     validation
                         .history()
@@ -346,7 +357,7 @@ impl RemoteValidatedRead {
                 model_context: context.snapshot(),
                 messages: validation.into_history(),
             },
-            usage: usage.snapshot(store.session_id()),
+            usage: usage.into_snapshot(store.session_id()),
         };
         Ok((
             Self {

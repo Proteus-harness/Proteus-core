@@ -9,6 +9,7 @@ summary = true
 effort = "high"
 
 [module_config.model.opencode]
+implementation = "opencode_go"
 provider = "opencode-go"
 
 [module_config.workflow.pi_loop]
@@ -54,7 +55,7 @@ command = "proteus-policy-pack-module"
 [components.policy.exports.policy.codex_policy]
 
 [components.opencode-model]
-command = "proteus-opencode-module"
+command = "proteus-model-pack-module"
 env_allowlist = ["HOME", "XDG_DATA_HOME", "PATH", "OPENCODE_API_KEY", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy"]
 
 [components.opencode-model.exports.model.opencode]
