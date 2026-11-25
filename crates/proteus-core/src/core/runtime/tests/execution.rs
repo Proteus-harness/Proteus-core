@@ -115,10 +115,10 @@ async fn pre_canceled_top_level_tool_never_reaches_the_implementation() {
         .expect("runtime");
     {
         let mut state = runtime.services.execution_state.write().await;
-        state.runtime.registry.tools = one_tool_registry(Arc::new(GrantingTool {
+        state.registry_mut().tools = one_tool_registry(Arc::new(GrantingTool {
             attributions: attributions.clone(),
         }));
-        state.runtime.registry.policy = Arc::new(AllowPolicy);
+        state.registry_mut().policy = Arc::new(AllowPolicy);
     }
     let cancellation = CancellationToken::new();
     cancellation.cancel();
@@ -148,12 +148,12 @@ async fn top_level_tool_keeps_its_snapshot_across_reload() {
     let proceed = Arc::new(Notify::new());
     {
         let mut state = runtime.services.execution_state.write().await;
-        state.runtime.registry.tools = one_tool_registry(Arc::new(BlockingLabeledTool {
+        state.registry_mut().tools = one_tool_registry(Arc::new(BlockingLabeledTool {
             label: "old",
             started: started.clone(),
             proceed: proceed.clone(),
         }));
-        state.runtime.registry.policy = Arc::new(AllowPolicy);
+        state.registry_mut().policy = Arc::new(AllowPolicy);
     }
 
     let running = tokio::spawn({
@@ -233,11 +233,11 @@ async fn admitted_top_level_tool_freezes_permission_mode() {
     runtime.set_permission_mode(PermissionMode::Auto).await;
     {
         let mut state = runtime.services.execution_state.write().await;
-        state.runtime.registry.tools = one_tool_registry(Arc::new(BlockingWriteTool {
+        state.registry_mut().tools = one_tool_registry(Arc::new(BlockingWriteTool {
             started: started.clone(),
             proceed: proceed.clone(),
         }));
-        state.runtime.registry.policy = Arc::new(AskPolicy);
+        state.registry_mut().policy = Arc::new(AskPolicy);
     }
 
     let running = tokio::spawn({
@@ -305,9 +305,9 @@ async fn top_level_tool_does_not_wait_for_the_turn_run_lock() {
     let proceed = Arc::new(Notify::new());
     {
         let mut state = runtime.services.execution_state.write().await;
-        state.runtime.registry.tools = one_tool_registry(Arc::new(LabeledTool("detached")));
-        state.runtime.registry.policy = Arc::new(AllowPolicy);
-        state.runtime.registry.workflow = Arc::new(BlockingWorkflow {
+        state.registry_mut().tools = one_tool_registry(Arc::new(LabeledTool("detached")));
+        state.registry_mut().policy = Arc::new(AllowPolicy);
+        state.registry_mut().workflow = Arc::new(BlockingWorkflow {
             started: started.clone(),
             proceed: proceed.clone(),
         });
@@ -406,10 +406,10 @@ async fn every_top_level_operation_gets_fresh_grants_and_attribution() {
         .expect("runtime");
     {
         let mut state = runtime.services.execution_state.write().await;
-        state.runtime.registry.tools = one_tool_registry(Arc::new(GrantingTool {
+        state.registry_mut().tools = one_tool_registry(Arc::new(GrantingTool {
             attributions: attributions.clone(),
         }));
-        state.runtime.registry.policy = policy.clone();
+        state.registry_mut().policy = policy.clone();
     }
 
     for call_id in ["grant-a", "grant-b"] {

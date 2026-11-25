@@ -111,7 +111,7 @@ pub struct RuntimeSnapshot {
 
 #[derive(Clone)]
 struct RuntimeExecutionState {
-    runtime: RuntimeSnapshot,
+    runtime: Arc<RuntimeSnapshot>,
     permission_mode: PermissionMode,
     model_ref: Option<ModelRef>,
     reasoning: ReasoningConfig,
@@ -297,7 +297,7 @@ impl AgentRuntime {
         )
     }
 
-    async fn snapshot(&self) -> RuntimeSnapshot {
+    async fn snapshot(&self) -> Arc<RuntimeSnapshot> {
         self.services.execution_state.read().await.runtime.clone()
     }
 

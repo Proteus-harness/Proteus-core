@@ -3,10 +3,10 @@
 
 use std::sync::{Arc, Mutex};
 
-use tokio::sync::{broadcast, watch};
+use tokio::sync::{broadcast, mpsc, watch};
 use uuid::Uuid;
 
-use super::{AppPendingRequests, AppQueuedUserMessage, AppServerEvent};
+use super::{AppPendingRequests, AppQueuedUserMessage, AppServerEvent, StdioOutput};
 
 mod binding_refresh;
 mod session;
@@ -18,13 +18,20 @@ use session::{SequencedEvent, SessionView};
 pub(super) struct AppEventPublisher(Arc<Inner>);
 
 struct Inner {
-    events: broadcast::Sender<AppServerEvent>,
-    sequenced: broadcast::Sender<SequencedEvent>,
+    output: EventOutput,
     view: Mutex<SessionView>,
     pending: Mutex<Pending>,
     updates: watch::Sender<AppPendingRequests>,
     queue: Option<watch::Receiver<QueuedMessagesSnapshot>>,
     binding_refresh: Mutex<binding_refresh::State>,
+}
+
+enum EventOutput {
+    Session {
+        events: broadcast::Sender<AppServerEvent>,
+        sequenced: broadcast::Sender<SequencedEvent>,
+    },
+    ProcessPeer(Mutex<Option<mpsc::WeakSender<StdioOutput>>>),
 }
 
 struct Pending {
@@ -98,10 +105,35 @@ impl AppEventPublisher {
         session_id: SessionId,
         queue: Option<watch::Receiver<QueuedMessagesSnapshot>>,
     ) -> Self {
+        Self::with_output(
+            session_id,
+            queue,
+            EventOutput::Session {
+                events: broadcast::channel(capacity).0,
+                sequenced: broadcast::channel(capacity).0,
+            },
+        )
+    }
+
+    pub(super) fn for_process_peer(
+        session_id: SessionId,
+        output: &mpsc::Sender<StdioOutput>,
+    ) -> Self {
+        Self::with_output(
+            session_id,
+            None,
+            EventOutput::ProcessPeer(Mutex::new(Some(output.downgrade()))),
+        )
+    }
+
+    fn with_output(
+        session_id: SessionId,
+        queue: Option<watch::Receiver<QueuedMessagesSnapshot>>,
+        output: EventOutput,
+    ) -> Self {
         let snapshot = AppPendingRequests::new(session_id, Uuid::new_v4().to_string());
         let publisher = Self(Arc::new(Inner {
-            events: broadcast::channel(capacity).0,
-            sequenced: broadcast::channel(capacity).0,
+            output,
             view: Mutex::new(SessionView::new(session_id, snapshot.stream_id.clone())),
             pending: Mutex::new(Pending {
                 snapshot: snapshot.clone(),
@@ -125,14 +157,19 @@ impl AppEventPublisher {
     }
 
     pub(super) fn subscribe(&self) -> broadcast::Receiver<AppServerEvent> {
-        self.0.events.subscribe()
+        let EventOutput::Session { events, .. } = &self.0.output else {
+            unreachable!("process peers forward to their stdio writer");
+        };
+        events.subscribe()
     }
 
     pub(super) fn subscribe_session(&self) -> AppSubscription {
-        let events = self.0.sequenced.subscribe();
+        let EventOutput::Session { sequenced, .. } = &self.0.output else {
+            unreachable!("process peers have no display snapshot");
+        };
         AppSubscription {
             publisher: self.clone(),
-            events,
+            events: sequenced.subscribe(),
             pending: self.subscribe_pending(),
             initial: true,
             resync: true,
@@ -157,6 +194,9 @@ impl AppEventPublisher {
         &self,
         event: AppServerEvent,
     ) -> Result<usize, broadcast::error::SendError<AppServerEvent>> {
+        if !self.projects_transcript() {
+            return Ok(0);
+        }
         let idle = matches!(&event, AppServerEvent::ExecutionUpdated { execution } if execution.active.is_none());
         let result = self.send_with_history(event, None);
         if idle {
@@ -165,11 +205,59 @@ impl AppEventPublisher {
         result
     }
 
+    pub(super) fn projects_transcript(&self) -> bool {
+        matches!(self.0.output, EventOutput::Session { .. })
+    }
+
+    pub(super) fn detach_process_peer(&self) {
+        if let EventOutput::ProcessPeer(output) = &self.0.output {
+            output.lock().expect("process peer output lock").take();
+        }
+    }
+
+    /// Peer events and command replies share one ordered writer queue. Interactive
+    /// requests wait for queue space and cannot be overwritten by runtime events.
+    pub(super) async fn send_required(&self, event: AppServerEvent) -> anyhow::Result<()> {
+        match &self.0.output {
+            EventOutput::ProcessPeer(output) => {
+                let writer = {
+                    let route = output.lock().expect("process peer output lock");
+                    let Some(writer) = route.as_ref() else {
+                        // A retired session can still have a background producer.
+                        return Ok(());
+                    };
+                    writer.upgrade()
+                };
+                let writer = writer
+                    .ok_or_else(|| anyhow::anyhow!("process peer stdout writer is closed"))?;
+                let permit = writer
+                    .reserve()
+                    .await
+                    .map_err(|_| anyhow::anyhow!("process peer stdout writer is closed"))?;
+                let route = output.lock().expect("process peer output lock");
+                if route.is_some() {
+                    // Retiring a session fences writers that were waiting for space.
+                    permit.send(StdioOutput::Event {
+                        event: Box::new(event),
+                    });
+                }
+                Ok(())
+            }
+            EventOutput::Session { .. } => {
+                let _ = self.send(event);
+                Ok(())
+            }
+        }
+    }
+
     fn send_with_history(
         &self,
         event: AppServerEvent,
         history: Option<super::read_model::CompletedTranscript>,
     ) -> Result<usize, broadcast::error::SendError<AppServerEvent>> {
+        let EventOutput::Session { events, sequenced } = &self.0.output else {
+            return Ok(0);
+        };
         let mut view = self.0.view.lock().expect("session view lock");
         if let Some(history) = history {
             view.history = Ok(Arc::new(history));
@@ -206,11 +294,11 @@ impl AppEventPublisher {
             }
             _ => false,
         };
-        let _ = self.0.sequenced.send(SequencedEvent {
+        let _ = sequenced.send(SequencedEvent {
             seq: view.seq,
             event: event.clone(),
         });
-        let result = self.0.events.send(event);
+        let result = events.send(event);
         if changed || queue_changed {
             self.publish_pending(&mut pending);
         }

@@ -1,6 +1,6 @@
 //! The view is updated inline with event delivery, before a producer can move
 //! on. A subscription snapshot and its sequence are sampled under that same lock.
-use super::{AppEventPublisher, AppServerEvent};
+use super::{AppEventPublisher, AppServerEvent, EventOutput};
 use crate::app_server::read_model::CompletedTranscript;
 use crate::app_server::{AppTranscriptMessage, TurnProgress};
 use crate::{
@@ -195,6 +195,9 @@ impl AppEventPublisher {
     }
 
     pub(in crate::app_server) fn publish_snapshot(&self) -> Result<()> {
+        let EventOutput::Session { events, sequenced } = &self.0.output else {
+            return Ok(());
+        };
         loop {
             let parts = self
                 .0
@@ -216,11 +219,11 @@ impl AppEventPublisher {
                 continue;
             }
             view.seq = previous_seq + 1;
-            let _ = self.0.sequenced.send(SequencedEvent {
+            let _ = sequenced.send(SequencedEvent {
                 seq: view.seq,
                 event: copy,
             });
-            let _ = self.0.events.send(event);
+            let _ = events.send(event);
             return Ok(());
         }
     }
@@ -275,6 +278,16 @@ pub(in crate::app_server) struct RuntimeEventSink(pub OnceLock<AppEventPublisher
 impl EventSink for RuntimeEventSink {
     async fn append(&self, envelope: EventEnvelope) -> Result<()> {
         if let Some(events) = self.0.get() {
+            if !events.projects_transcript() {
+                if crate::core::process_peer_observes(&envelope.event) {
+                    events
+                        .send_required(AppServerEvent::Runtime {
+                            envelope: Box::new(envelope),
+                        })
+                        .await?;
+                }
+                return Ok(());
+            }
             let child_bound = matches!(
                 envelope.event,
                 crate::domain::Event::SubagentSessionBound { .. }

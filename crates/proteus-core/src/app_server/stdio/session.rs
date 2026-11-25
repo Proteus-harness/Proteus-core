@@ -10,7 +10,11 @@ use super::super::{AppServerEvent, AppServerHandle, StdioOutput};
 pub(super) async fn start_bridge(
     server: &AppServerHandle,
     output: &mpsc::Sender<StdioOutput>,
-) -> Result<(JoinHandle<()>, AppSubagentSession)> {
+) -> Result<(Option<JoinHandle<()>>, AppSubagentSession)> {
+    if !server.events.projects_transcript() {
+        server.start_session().await?;
+        return Ok((None, session_identity(server)?));
+    }
     // Session snapshots can subsume the startup event before the subscriber
     // gets scheduled. Capture that one authoritative event on the raw stream,
     // then let the ordinary session subscription provide snapshots/deltas.
@@ -20,12 +24,7 @@ pub(super) async fn start_bridge(
     // start_session awaits publication. Fresh sessions therefore have their
     // event queued now; populated resumed sessions deliberately emit no second
     // SessionStarted and use their existing authoritative runtime identity.
-    let identity = AppSubagentSession {
-        session_id: server.session_id(),
-        session_dir: server
-            .session_dir_path()
-            .context("stdio session has no durable directory")?,
-    };
+    let identity = session_identity(server)?;
     loop {
         match bootstrap.try_recv() {
             Ok(event)
@@ -68,10 +67,21 @@ pub(super) async fn start_bridge(
             }
         }
     });
-    Ok((bridge, identity))
+    Ok((Some(bridge), identity))
 }
 
-pub(super) async fn stop_bridge(bridge: JoinHandle<()>) {
-    bridge.abort();
-    let _ = bridge.await;
+fn session_identity(server: &AppServerHandle) -> Result<AppSubagentSession> {
+    Ok(AppSubagentSession {
+        session_id: server.session_id(),
+        session_dir: server
+            .session_dir_path()
+            .context("stdio session has no durable directory")?,
+    })
+}
+
+pub(super) async fn stop_bridge(bridge: Option<JoinHandle<()>>) {
+    if let Some(bridge) = bridge {
+        bridge.abort();
+        let _ = bridge.await;
+    }
 }

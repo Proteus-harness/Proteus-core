@@ -2,6 +2,7 @@ use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     sync::{Arc, Mutex as StdMutex, Weak},
+    time::Duration,
 };
 
 use tokio::sync::{Mutex, OwnedMutexGuard, broadcast};
@@ -9,6 +10,8 @@ use tokio::sync::{Mutex, OwnedMutexGuard, broadcast};
 use crate::core::AppConfig;
 
 use super::{AppServerEvent, AppServerHandle, AppSessionActivity, security::HttpSecurity};
+
+const WORKER_IDLE_TIMEOUT: Duration = Duration::from_secs(15);
 
 #[derive(Clone)]
 pub(super) struct HttpLaunchContext {
@@ -208,14 +211,12 @@ impl HttpAppState {
         let Some(server) = self.server_for_session_dir(session_dir).await else {
             return;
         };
-        let session_dir = session_key(session_dir.to_path_buf());
-        let activity = self.activity_for_server(&server).await;
-        let _ = self
-            .activity_events
-            .send(AppServerEvent::SessionActivityUpdated {
-                session_dir: session_dir.to_path_buf(),
-                activity,
-            });
+        publish_activity(
+            &self.activity_events,
+            &server,
+            session_key(session_dir.to_path_buf()),
+        )
+        .await;
     }
 
     pub(super) async fn emit_session_activity_for_server(&self, server: &AppServerHandle) {
@@ -237,28 +238,88 @@ impl HttpAppState {
             }
         }
 
-        let state = self.clone();
+        let registry = Arc::downgrade(&self.session_servers);
+        let watched = Arc::downgrade(&server.inner);
+        let activity = self.activity_events.clone();
+        let mut shutdown = self.shutdown.subscribe();
         let mut events = server.subscribe();
         tokio::spawn(async move {
+            let registered_server = async || {
+                let registry = registry.upgrade()?;
+                let servers = registry.lock().await;
+                servers
+                    .get(&session_dir)
+                    .filter(|server| Arc::as_ptr(&server.inner) == watched.as_ptr())
+                    .cloned()
+            };
+            let Some(server) = registered_server().await else {
+                return;
+            };
+            let mut idle = server.watch_worker_idle().await;
+            drop(server);
+            let mut reclaim_since = *idle.borrow_and_update();
             loop {
-                match events.recv().await {
-                    Ok(event) => {
-                        let should_stop = matches!(event, AppServerEvent::Shutdown);
-                        if app_event_affects_session_activity(&event) {
-                            state.emit_session_activity_for_dir(&session_dir).await;
+                let wait_until_idle = async move {
+                    match reclaim_since {
+                        Some(since) => tokio::time::sleep_until(since + WORKER_IDLE_TIMEOUT).await,
+                        None => std::future::pending().await,
+                    }
+                };
+                tokio::select! {
+                    biased;
+                    _ = shutdown.recv() => break,
+                    changed = idle.changed() => {
+                        if changed.is_err() {
+                            break;
                         }
-                        if should_stop {
+                        reclaim_since = *idle.borrow_and_update();
+                    }
+                    _ = wait_until_idle => {
+                        let since = reclaim_since.take();
+                        let Some(server) = registered_server().await else {
+                            break;
+                        };
+                        if let Err(error) = server.release_idle_component_workers_since(since).await {
+                            eprintln!("warning: could not release idle component workers: {error:#}");
+                        }
+                    }
+                    received = events.recv() => {
+                        let (update, stop) = match received {
+                            Ok(event) => (
+                                app_event_affects_session_activity(&event),
+                                matches!(event, AppServerEvent::Shutdown),
+                            ),
+                            Err(broadcast::error::RecvError::Lagged(_)) => (true, false),
+                            Err(broadcast::error::RecvError::Closed) => break,
+                        };
+                        if update {
+                            let Some(server) = registered_server().await else {
+                                break;
+                            };
+                            publish_activity(&activity, &server, session_dir.clone()).await;
+                        }
+                        if stop {
                             break;
                         }
                     }
-                    Err(broadcast::error::RecvError::Lagged(_)) => {
-                        state.emit_session_activity_for_dir(&session_dir).await;
-                    }
-                    Err(broadcast::error::RecvError::Closed) => break,
                 }
             }
         });
     }
+}
+
+async fn publish_activity(
+    activity_events: &broadcast::Sender<AppServerEvent>,
+    server: &AppServerHandle,
+    session_dir: PathBuf,
+) {
+    let activity = server
+        .session_activity(server.running_run_ids().await)
+        .await;
+    let _ = activity_events.send(AppServerEvent::SessionActivityUpdated {
+        session_dir,
+        activity,
+    });
 }
 
 fn app_event_affects_session_activity(event: &AppServerEvent) -> bool {

@@ -121,8 +121,7 @@ async fn completion_review_checkpoint_and_continuation_share_delivered_steering(
                 .execution_state
                 .write()
                 .await
-                .runtime
-                .registry
+                .registry_mut()
                 .hooks = vec![("review".into(), reviewer.clone())];
             let call = ToolCall::new("call-steer-review", "probe", serde_json::json!({}));
             let first = CanonicalModelResponse::new(

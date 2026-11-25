@@ -98,7 +98,7 @@ impl EventSink for RuntimeEventSink {
 
 async fn replace_model_for_test(runtime: &AgentRuntime, model: Arc<dyn Model>) {
     let mut state = runtime.services.execution_state.write().await;
-    state.runtime.registry.replace_model_for_test(model);
+    state.registry_mut().replace_model_for_test(model);
 }
 
 #[async_trait]

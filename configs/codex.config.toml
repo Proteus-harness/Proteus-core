@@ -41,16 +41,19 @@ ask_before = ["lsp_diagnostics", "shell", "exec_command", "request_permissions",
 
 [components.reference-workflow]
 command = "proteus-coding-workflow-module"
+release_when_idle = true
 
 [components.reference-workflow.exports.workflow."coding.codex_loop"]
 
 [components.reference-context]
 command = "proteus-context-pack-module"
+release_when_idle = true
 
 [components.reference-context.exports.context.codex_context]
 
 [components.rg-search]
 command = "proteus-rg-search-module"
+release_when_idle = true
 env_allowlist = ["HOME", "PROTEUS_HOME"]
 
 [components.rg-search.exports.tool.rg_search]
@@ -71,12 +74,14 @@ env_allowlist = ["HOME", "PROTEUS_HOME"]
 
 [components.file-tools]
 command = "proteus-file-tools-module"
+release_when_idle = true
 env_allowlist = ["HOME", "PROTEUS_HOME"]
 
 [components.file-tools.exports.tool.file_tools]
 
 [components.git-tools]
 command = "proteus-git-tools-module"
+release_when_idle = true
 env_allowlist = ["HOME", "PROTEUS_HOME"]
 
 [components.git-tools.exports.tool.git_tools]
@@ -101,6 +106,7 @@ env_allowlist = ["HOME", "PROTEUS_HOME"]
 
 [components.skill-pack]
 command = "proteus-skill-pack-module"
+release_when_idle = true
 env_allowlist = ["HOME", "PROTEUS_HOME"]
 
 [components.skill-pack.exports.tool.skill_tool]
@@ -109,6 +115,7 @@ env_allowlist = ["HOME", "PROTEUS_HOME"]
 
 [components.policy-pack]
 command = "proteus-policy-pack-module"
+release_when_idle = true
 env_allowlist = ["HOME", "PROTEUS_HOME"]
 
 [components.policy-pack.exports.tool.policy_tools]
@@ -117,6 +124,7 @@ env_allowlist = ["HOME", "PROTEUS_HOME"]
 
 [components.codex-context-preparation]
 command = "proteus-codex-context-preparation-module"
+release_when_idle = true
 env_allowlist = ["HOME", "PROTEUS_HOME"]
 
 [components.codex-context-preparation.exports.hook.codex_compact]

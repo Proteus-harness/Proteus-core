@@ -28,6 +28,7 @@ use crate::contracts::{
 use super::{AgentControlConfig, AgentControlSurface};
 use history::HistoryNotifier;
 use process::ProcessAgentControl;
+pub(crate) use process::{PROCESS_PEER_EVENTS_ENV, process_peer_observes};
 
 pub(crate) use task::{TASK_TOOL, calls_are_parallel_eligible};
 

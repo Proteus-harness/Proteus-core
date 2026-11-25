@@ -18,11 +18,11 @@ use super::{AgentRuntime, RuntimeSnapshot};
 /// inputs/results, never the registry or a broad ambient service context.
 #[derive(Clone)]
 pub(super) struct ExecutionAdmissionSnapshot {
-    pub(super) runtime: RuntimeSnapshot,
+    pub(super) runtime: Arc<RuntimeSnapshot>,
     pub(super) permission_mode: PermissionMode,
     pub(super) model_ref: Option<ModelRef>,
     pub(super) reasoning: ReasoningConfig,
-    pub(super) config_snapshot: Option<SessionConfigSnapshot>,
+    pub(super) config_snapshot: Option<Arc<SessionConfigSnapshot>>,
 }
 
 /// One top-level admission: exactly one immutable snapshot and one scope.
@@ -81,7 +81,7 @@ impl AgentRuntime {
             permission_mode,
             model_ref: state.model_ref.clone(),
             reasoning: state.reasoning.clone(),
-            config_snapshot,
+            config_snapshot: config_snapshot.map(Arc::new),
         }
     }
 

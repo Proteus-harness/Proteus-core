@@ -54,6 +54,7 @@ impl ChildProcess {
             .args(extra_args)
             .arg("server")
             .arg("stdio")
+            .env(super::PROCESS_PEER_EVENTS_ENV, "1")
             .env(super::config::DEPTH_BUDGET_ENV, depth_budget.to_string())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

@@ -149,7 +149,9 @@ impl AppServerHandle {
     }
 
     pub(super) fn publish_user_message_reservation(&self, reservation: &UserMessageReservation) {
-        if let UserMessageReservation::Start(reserved) = reservation {
+        if self.events.projects_transcript()
+            && let UserMessageReservation::Start(reserved) = reservation
+        {
             let _ = self.events.send(AppServerEvent::UserMessageSubmitted {
                 text: reserved.text.clone(),
                 images: reserved
@@ -169,6 +171,9 @@ impl AppServerHandle {
         &self,
         completion: Result<ReservedRunCompletion>,
     ) -> Result<AgentOutput> {
+        if !self.events.projects_transcript() {
+            return completion.and_then(ReservedRunCompletion::into_result);
+        }
         match completion {
             Ok(completion) => {
                 if let Some(output) = completion.output() {
@@ -473,6 +478,7 @@ impl AgentAppServer {
             None,
             None,
             None,
+            None,
         ))
         .await
     }
@@ -482,6 +488,7 @@ impl AgentAppServer {
         cwd: PathBuf,
         config_path: Option<&Path>,
         parent_session_id: crate::domain::SessionId,
+        peer_output: Option<&tokio::sync::mpsc::Sender<StdioOutput>>,
     ) -> Result<AppServerHandle> {
         Box::pin(Self::launch_inner(
             config,
@@ -491,6 +498,7 @@ impl AgentAppServer {
             None,
             Some(parent_session_id),
             None,
+            peer_output,
         ))
         .await
     }
@@ -529,6 +537,7 @@ impl AgentAppServer {
             resumed,
             None,
             storage,
+            None,
         ))
         .await
     }
@@ -559,6 +568,7 @@ impl AgentAppServer {
             None,
             None,
             storage,
+            None,
         ))
         .await
     }
@@ -594,6 +604,7 @@ impl AgentAppServer {
             Some(resumed),
             None,
             Some(storage),
+            None,
         ))
         .await
     }
@@ -613,6 +624,7 @@ impl AgentAppServer {
             None,
             None,
             None,
+            None,
         ))
         .await
     }
@@ -625,6 +637,7 @@ impl AgentAppServer {
         resumed_session: Option<crate::core::PreparedSession>,
         parent_session_id: Option<crate::domain::SessionId>,
         storage: Option<StorageService>,
+        peer_output: Option<&tokio::sync::mpsc::Sender<StdioOutput>>,
     ) -> Result<AppServerHandle> {
         if let Some(session_store) = resumed_session.as_ref() {
             cwd = session_store.workspace_path()?;
@@ -691,18 +704,24 @@ impl AgentAppServer {
         }
         let runtime = Arc::new(builder.build_async().await?);
         session_selection::restore(&runtime, &config, config_path, selection_is_new).await?;
-        let events = AppEventPublisher::new(
-            1024,
-            runtime.session_id(),
-            Some(runtime.subscribe_queued_user_messages()),
-        );
+        let events = match peer_output {
+            Some(output) => AppEventPublisher::for_process_peer(runtime.session_id(), output),
+            None => {
+                let events = AppEventPublisher::new(
+                    1024,
+                    runtime.session_id(),
+                    Some(runtime.subscribe_queued_user_messages()),
+                );
+                let transcript = match initial_transcript {
+                    Some(transcript) => transcript,
+                    None => completed_transcript(runtime.clone()).await?,
+                };
+                events.attach_runtime(&runtime, transcript);
+                events
+            }
+        };
         let pending_approvals = Arc::new(Mutex::new(HashMap::new()));
         let pending_user_inputs = Arc::new(Mutex::new(HashMap::new()));
-        let transcript = match initial_transcript {
-            Some(transcript) => transcript,
-            None => completed_transcript(runtime.clone()).await?,
-        };
-        events.attach_runtime(&runtime, transcript);
         assert!(runtime_events.0.set(events.clone()).is_ok());
         approvals::spawn_approval_forwarder(
             approval_rx,

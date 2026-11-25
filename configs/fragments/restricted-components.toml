@@ -5,6 +5,7 @@
 
 [components.reference-workflow]
 command = "proteus-coding-workflow-module"
+release_when_idle = true
 cwd = "/usr"
 
 [components.reference-workflow.sandbox]
@@ -18,6 +19,7 @@ network = false
 
 [components.reference-context]
 command = "proteus-context-pack-module"
+release_when_idle = true
 
 [components.reference-context.sandbox]
 mode = "restricted"
@@ -30,6 +32,7 @@ network = false
 
 [components.reference-policy]
 command = "proteus-policy-pack-module"
+release_when_idle = true
 cwd = "/usr"
 
 [components.reference-policy.sandbox]
@@ -43,6 +46,7 @@ network = false
 
 [components.reference-compact]
 command = "proteus-codex-context-preparation-module"
+release_when_idle = true
 cwd = "/usr"
 
 [components.reference-compact.sandbox]
@@ -56,6 +60,7 @@ network = false
 
 [components.reference-search-tool]
 command = "proteus-rg-search-module"
+release_when_idle = true
 
 [components.reference-search-tool.sandbox]
 mode = "restricted"
@@ -68,6 +73,7 @@ network = false
 
 [components.reference-search-provider]
 command = "proteus-rg-search-module"
+release_when_idle = true
 
 [components.reference-search-provider.sandbox]
 mode = "restricted"
@@ -92,12 +98,14 @@ env_allowlist = ["HOME", "PROTEUS_HOME"]
 
 [components.file-tools]
 command = "proteus-file-tools-module"
+release_when_idle = true
 env_allowlist = ["HOME", "PROTEUS_HOME"]
 
 [components.file-tools.exports.tool.file_tools]
 
 [components.git-tools]
 command = "proteus-git-tools-module"
+release_when_idle = true
 env_allowlist = ["HOME", "PROTEUS_HOME"]
 
 [components.git-tools.exports.tool.git_tools]
@@ -122,6 +130,7 @@ env_allowlist = ["HOME", "PROTEUS_HOME"]
 
 [components.skill-pack]
 command = "proteus-skill-pack-module"
+release_when_idle = true
 env_allowlist = ["HOME", "PROTEUS_HOME"]
 
 [components.skill-pack.exports.tool.skill_tool]
@@ -130,6 +139,7 @@ env_allowlist = ["HOME", "PROTEUS_HOME"]
 
 [components.policy-pack]
 command = "proteus-policy-pack-module"
+release_when_idle = true
 env_allowlist = ["HOME", "PROTEUS_HOME"]
 
 [components.policy-pack.exports.tool.policy_tools]

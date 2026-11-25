@@ -12,7 +12,10 @@ use crate::{
 };
 use anyhow::{Result, anyhow};
 use proteus_contracts::app_protocol::{AppExecutionState, AppRun, AppRunStatus};
-use tokio::sync::{oneshot, watch};
+use tokio::{
+    sync::{oneshot, watch},
+    time::Instant,
+};
 
 mod operations;
 
@@ -26,6 +29,7 @@ pub(super) struct RunRegistry {
     closed: bool,
     command_active: bool,
     operations: std::collections::HashMap<String, StandaloneOperation>,
+    worker_idle_since: Option<watch::Sender<Option<Instant>>>,
 }
 
 pub(super) struct RunningRun {
@@ -47,6 +51,19 @@ struct StandaloneOperation {
 impl RunRegistry {
     fn is_idle(&self) -> bool {
         !self.closed && self.active.is_none() && !self.command_active && self.operations.is_empty()
+    }
+
+    fn publish_worker_idle(&self) {
+        if let Some(idle_since) = &self.worker_idle_since {
+            let idle = self.is_idle();
+            idle_since.send_if_modified(|since| {
+                if idle == since.is_some() {
+                    return false;
+                }
+                *since = idle.then(Instant::now);
+                true
+            });
+        }
     }
 
     pub(super) fn ensure_idle_for_model_configuration(&self) -> Result<()> {
@@ -92,6 +109,7 @@ impl RunRegistry {
         }
     }
     fn publish(&self, server: &AppServerHandle) {
+        self.publish_worker_idle();
         let _ = server.events.send(AppServerEvent::ExecutionUpdated {
             execution: self.snapshot(),
         });
@@ -105,14 +123,37 @@ impl AppServerHandle {
         let mut runs = self.runs.lock().await;
         anyhow::ensure!(runs.is_idle(), "new session requires an idle session");
         runs.closed = true;
+        runs.publish_worker_idle();
         Ok(())
     }
 
-    /// Called after child stdio turns. Hold admission until broker retirement
-    /// completes so a follow-up cannot race the just-settled turn's release.
     pub(super) async fn release_idle_component_workers(&self) -> Result<usize> {
+        self.release_idle_component_workers_since(None).await
+    }
+
+    pub(super) async fn watch_worker_idle(&self) -> watch::Receiver<Option<Instant>> {
+        let mut runs = self.runs.lock().await;
+        let since = runs.is_idle().then(Instant::now);
+        runs.worker_idle_since
+            .get_or_insert_with(|| watch::channel(since).0)
+            .subscribe()
+    }
+
+    /// Hold admission until broker retirement completes. Verify the HTTP
+    /// watcher's deadline belongs to the current idle period under that lock.
+    pub(super) async fn release_idle_component_workers_since(
+        &self,
+        expected_idle_since: Option<Instant>,
+    ) -> Result<usize> {
         let runs = self.runs.lock().await;
-        if !runs.is_idle() {
+        if !runs.is_idle()
+            || expected_idle_since.is_some_and(|expected| {
+                runs.worker_idle_since
+                    .as_ref()
+                    .and_then(|idle| *idle.borrow())
+                    != Some(expected)
+            })
+        {
             return Ok(0);
         }
         self.runtime.release_idle_component_workers().await
@@ -127,6 +168,9 @@ impl AppServerHandle {
             return Err(anyhow!("cannot clear history while a run is active"));
         }
         self.runtime.clear_history().await?;
+        if !self.events.projects_transcript() {
+            return Ok(());
+        }
         // The replacement is already durable. Cache failure must not report a
         // failed clear, but a successful projection prevents old data resurfacing.
         if let Err(error) = completed_transcript(self.runtime.clone()).await {
@@ -204,19 +248,24 @@ impl AppServerHandle {
         let (tx, rx) = oneshot::channel();
         let server = self.clone();
         tokio::spawn(async move {
+            let capture_display = server.events.projects_transcript();
             // Keep the runtime reservation until its terminal state has been
             // published under the admission lock. A new send cannot overtake it.
             let mut completion = server
                 .runtime
-                .run_reserved_completion(reserved, cancellation.clone(), true)
+                .run_reserved_completion(reserved, cancellation.clone(), capture_display)
                 .await;
             // The reservation remains held until the registry publishes the
             // terminal state, so no next turn can overtake this projection.
-            let display = completion
-                .as_mut()
-                .ok()
-                .and_then(|result| result.display.take());
-            let history = completed_transcript_from_commit(server.runtime.clone(), display).await;
+            let history = if capture_display {
+                let display = completion
+                    .as_mut()
+                    .ok()
+                    .and_then(|result| result.display.take());
+                Some(completed_transcript_from_commit(server.runtime.clone(), display).await)
+            } else {
+                None
+            };
             let mut runs = server.runs.lock().await;
             let failed_queued = if server.events.has_unstarted_input() {
                 match completion.as_mut() {
@@ -230,7 +279,9 @@ impl AppServerHandle {
             } else {
                 Vec::new()
             };
-            server.events.finish_run_progress(history, failed_queued);
+            if let Some(history) = history {
+                server.events.finish_run_progress(history, failed_queued);
+            }
             let result = server.publish_turn_completion(completion);
             let (status, error) = match &result {
                 Ok(_) => (AppRunStatus::Success, None),

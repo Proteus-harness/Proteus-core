@@ -332,11 +332,11 @@ impl AgentRuntimeBuilder {
                 storage,
                 cwd,
                 execution_state: RwLock::new(RuntimeExecutionState {
-                    runtime: RuntimeSnapshot::new(
+                    runtime: Arc::new(RuntimeSnapshot::new(
                         ModuleEpoch::initial(),
                         assembly,
                         config_snapshot,
-                    ),
+                    )),
                     permission_mode,
                     model_ref,
                     reasoning,

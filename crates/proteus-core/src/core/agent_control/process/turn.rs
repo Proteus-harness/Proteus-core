@@ -305,6 +305,18 @@ pub(super) fn should_forward_child_event(event: &Event) -> bool {
     )
 }
 
+pub(crate) fn process_peer_observes(event: &Event) -> bool {
+    should_forward_child_event(event)
+        || matches!(
+            event,
+            Event::SessionStarted { .. }
+                | Event::TurnStarted { .. }
+                | Event::ModelRequestPrepared { .. }
+                | Event::AssistantTextDelta { .. }
+                | Event::ModelResponseReceived { .. }
+        )
+}
+
 pub(super) async fn drive_turn(
     child: &mut ChildProcess,
     forwarder: &ChildEventForwarder<'_>,

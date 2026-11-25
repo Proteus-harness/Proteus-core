@@ -27,7 +27,7 @@ impl AgentRuntime {
         commit: F,
     ) -> Result<bool>
     where
-        F: FnOnce(super::RuntimeSnapshot) -> Fut,
+        F: FnOnce(Arc<super::RuntimeSnapshot>) -> Fut,
         Fut: std::future::Future<Output = Result<()>>,
     {
         let _guard = self.services.reload_lock.lock().await;
@@ -46,8 +46,9 @@ impl AgentRuntime {
         let mut state = self.services.execution_state.write().await;
         state.model_ref = Some(model.clone());
         state.reasoning = reasoning.clone();
-        state.runtime.registry.tools = tools;
-        state.runtime.registry.model_config = Some(crate::core::ModelConfig {
+        let registry = state.registry_mut();
+        registry.tools = tools;
+        registry.model_config = Some(crate::core::ModelConfig {
             provider: model.provider.clone(),
             model: model.model.clone(),
             stream,
@@ -59,16 +60,16 @@ impl AgentRuntime {
     pub(crate) async fn configuration_view(
         &self,
     ) -> (
-        super::RuntimeSnapshot,
+        Arc<super::RuntimeSnapshot>,
         Option<crate::domain::ModelRef>,
         crate::domain::ReasoningConfig,
         crate::domain::PermissionMode,
     ) {
-        let state = self.capture_execution_snapshot().await;
+        let state = self.services.execution_state.read().await;
         (
-            state.runtime,
-            state.model_ref,
-            state.reasoning,
+            state.runtime.clone(),
+            state.model_ref.clone(),
+            state.reasoning.clone(),
             state.permission_mode,
         )
     }
@@ -159,8 +160,9 @@ impl AgentRuntime {
         }
         commit(config.clone(), model_ref.clone(), reasoning.clone()).await?;
         let mut state = self.services.execution_state.write().await;
+        drop(snapshot);
         state.model_ref = Some(model_ref);
-        state.runtime.registry.tools = tools;
+        state.registry_mut().tools = tools;
         state.reasoning = reasoning;
         Ok(())
     }
@@ -177,8 +179,9 @@ impl AgentRuntime {
             state.runtime.epoch == snapshot.epoch,
             "model provider changed during selection; retry selection"
         );
+        drop(snapshot);
         state.model_ref = Some(model_ref);
-        state.runtime.registry.tools = tools;
+        state.registry_mut().tools = tools;
         Ok(())
     }
 
@@ -318,9 +321,10 @@ impl AgentRuntime {
         );
         let tools = snapshot.registry.tools_for_model(Some(&model))?;
         let mut state = self.services.execution_state.write().await;
+        drop(snapshot);
         state.model_ref = Some(model);
         state.reasoning = reasoning;
-        state.runtime.registry.tools = tools;
+        state.registry_mut().tools = tools;
         Ok(())
     }
 
@@ -330,6 +334,12 @@ impl AgentRuntime {
 }
 
 impl RuntimeExecutionState {
+    // A running turn keeps the registry originally admitted for it, even if
+    // another caller changes the selected model or reloads tools.
+    pub(super) fn registry_mut(&mut self) -> &mut RuntimeRegistry {
+        &mut Arc::make_mut(&mut self.runtime).registry
+    }
+
     fn configured_reasoning(&self) -> ReasoningConfig {
         // Defaults belong to the published assembly, not the runtime's first
         // provider. Reading them under execution_state preserves reload rollback.

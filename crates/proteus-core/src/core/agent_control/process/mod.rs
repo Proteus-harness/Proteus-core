@@ -31,6 +31,9 @@ mod run_turn;
 #[cfg(test)]
 mod tests;
 mod turn;
+pub(crate) use turn::process_peer_observes;
+
+pub(crate) const PROCESS_PEER_EVENTS_ENV: &str = "PROTEUS_PROCESS_PEER_EVENTS";
 
 use std::{
     collections::HashMap,

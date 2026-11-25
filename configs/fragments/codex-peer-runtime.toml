@@ -37,30 +37,6 @@ workflow_timeout_ms = 14400000
 [event_log]
 path = ".proteus/events.jsonl"
 
-[components.reference-workflow]
-release_when_idle = true
-
-[components.reference-context]
-release_when_idle = true
-
-[components.rg-search]
-release_when_idle = true
-
-[components.file-tools]
-release_when_idle = true
-
-[components.git-tools]
-release_when_idle = true
-
-[components.skill-pack]
-release_when_idle = true
-
-[components.policy-pack]
-release_when_idle = true
-
-[components.codex-context-preparation]
-release_when_idle = true
-
 [components.session-storage]
 command = "proteus-session-storage-module"
 transport.max_frame_bytes = 134217728

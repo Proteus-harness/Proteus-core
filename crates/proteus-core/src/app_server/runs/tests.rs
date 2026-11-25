@@ -201,3 +201,62 @@ async fn rotation_reserves_only_idle_registry_and_closes_future_admission() {
     assert!(server.close_idle_runs().await.is_err());
     server.shutdown().await;
 }
+
+#[tokio::test]
+async fn worker_reclamation_ignores_a_deadline_from_an_earlier_idle_period() {
+    let root = tempfile::tempdir().unwrap();
+    let mut config = finalization_config();
+    let workflow = config.components.get_mut("finalization").unwrap();
+    let mut descriptor = serde_json::to_value(&workflow).unwrap();
+    descriptor["release_when_idle"] = true.into();
+    *workflow = serde_json::from_value(descriptor).unwrap();
+    let server = crate::app_server::AgentAppServer::launch(config, root.path().into(), None)
+        .await
+        .unwrap();
+
+    let mut idle = server.watch_worker_idle().await;
+    let expired = idle.borrow_and_update().unwrap();
+    server
+        .register_test_run("active", CancellationToken::new())
+        .await;
+    assert!(idle.borrow_and_update().is_none());
+    assert_eq!(
+        server
+            .release_idle_component_workers_since(Some(expired))
+            .await
+            .unwrap(),
+        0
+    );
+    {
+        let mut runs = server.runs.lock().await;
+        runs.active = None;
+        runs.publish_worker_idle();
+    }
+    let settled = idle.borrow_and_update().unwrap();
+    assert!(settled > expired);
+    assert_eq!(
+        server
+            .release_idle_component_workers_since(Some(expired))
+            .await
+            .unwrap(),
+        0,
+        "a quick run must still restart the idle interval"
+    );
+    assert_eq!(
+        server
+            .release_idle_component_workers_since(Some(settled))
+            .await
+            .unwrap(),
+        1
+    );
+    server.close_idle_runs().await.unwrap();
+    assert!(idle.borrow_and_update().is_none());
+    assert_eq!(
+        server
+            .release_idle_component_workers_since(Some(settled))
+            .await
+            .unwrap(),
+        0
+    );
+    server.shutdown().await;
+}

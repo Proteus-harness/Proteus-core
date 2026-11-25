@@ -195,7 +195,7 @@ impl AgentRuntime {
         if cancellation.is_cancelled() {
             return Err(TurnAbort::Canceled.into());
         }
-        let config_snapshot = snapshot.config_snapshot.clone();
+        let config_snapshot = snapshot.config_snapshot.as_deref();
         if let Some(session_store) = &self.session.session_store {
             let (base_history_revision, _) = session_store.execution_state().await?;
             session_store
@@ -206,19 +206,13 @@ impl AgentRuntime {
                         task: task.clone(),
                         base_history_revision,
                         module_epoch: snapshot.runtime.epoch.as_u64(),
-                        config_snapshot: serde_json::to_value(config_snapshot.as_ref())?,
+                        config_snapshot: serde_json::to_value(config_snapshot)?,
                     }),
                 )
                 .await?;
         }
         let result = self
-            .run_opened_turn(
-                reserved,
-                execution_scope.clone(),
-                snapshot.clone(),
-                config_snapshot,
-                task,
-            )
+            .run_opened_turn(reserved, execution_scope.clone(), &snapshot, task)
             .await;
         let settlement = match &result {
             Ok(output) => crate::core::TurnSettled {
@@ -297,8 +291,7 @@ impl AgentRuntime {
         &self,
         reserved: ReservedUserMessage,
         execution_scope: ExecutionScope,
-        snapshot: ExecutionAdmissionSnapshot,
-        config_snapshot: Option<SessionConfigSnapshot>,
+        snapshot: &ExecutionAdmissionSnapshot,
         task: AgentTask,
     ) -> Result<AgentOutput> {
         let turn_id = reserved.turn_id;
@@ -321,7 +314,11 @@ impl AgentRuntime {
             )
             .await?;
         let history = self
-            .persist_current_user_message(turn_id, &user_message, config_snapshot.as_ref())
+            .persist_current_user_message(
+                turn_id,
+                &user_message,
+                snapshot.config_snapshot.as_deref(),
+            )
             .await?;
         if let Some(kind) = reserved.delivery {
             self.services
@@ -347,7 +344,7 @@ impl AgentRuntime {
                 .await?;
         }
         let mut workflow_context = self
-            .bind_agent_workflow_context(execution_scope, &snapshot, turn_id)
+            .bind_agent_workflow_context(execution_scope, snapshot, turn_id)
             .await?;
         self.notify_turn_started(&workflow_context, &task, &history)
             .await;
@@ -383,7 +380,7 @@ impl AgentRuntime {
             revision: self.session.history_revision.clone(),
             model_context: self.session.model_context.clone(),
             interrupted_turns: self.session.interrupted_turns.clone(),
-            initial_history: history.clone(),
+            initial_history: history,
             current_user: user_message.clone(),
             steering: steering_model.clone(),
             tools: workflow_context.tool_recorder.clone(),
@@ -399,7 +396,7 @@ impl AgentRuntime {
         let workflow = crate::core::reviewed_workflow::run(
             snapshot.runtime.registry.workflow.as_ref(),
             task.clone(),
-            history.clone(),
+            checkpoint_recorder.initial_history.clone(),
             workflow_context,
             Some(checkpoint_recorder.as_ref()),
         );
@@ -442,7 +439,7 @@ impl AgentRuntime {
                     .fail_turn_with_progress(
                         turn_id,
                         error,
-                        &history,
+                        &checkpoint_recorder.initial_history,
                         &user_message,
                         &delivery_records,
                     )
@@ -474,6 +471,11 @@ impl AgentRuntime {
                         .await;
                 }
             };
+        // An external workflow may still retain its recorder after returning.
+        let history = match Arc::try_unwrap(checkpoint_recorder) {
+            Ok(recorder) => recorder.initial_history,
+            Err(shared) => shared.initial_history.clone(),
+        };
         let history_update = match prepare_owned_history_update(
             history,
             &user_message,

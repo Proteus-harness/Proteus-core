@@ -80,7 +80,7 @@ impl AgentRuntime {
         // writers share reload_lock; publication after commit is infallible.
         commit().await?;
         let mut state = self.services.execution_state.write().await;
-        state.runtime = runtime;
+        state.runtime = Arc::new(runtime);
         state.model_ref = model_ref;
         if let Some(permission_mode) = permission_mode {
             state.permission_mode = permission_mode;

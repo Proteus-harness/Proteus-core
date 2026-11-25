@@ -103,7 +103,7 @@ struct SnapshotProbeWorkflow {
 }
 async fn replace_workflow_for_test(runtime: &AgentRuntime, workflow: Arc<dyn Workflow>) {
     let mut state = runtime.services.execution_state.write().await;
-    state.runtime.registry.workflow = workflow;
+    state.registry_mut().workflow = workflow;
 }
 
 #[async_trait]

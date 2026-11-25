@@ -172,9 +172,9 @@ async fn check_repeated_callback_effects(concurrent: bool) {
                     Arc::new(AppendEffectTool(effects.clone())),
                 )
                 .unwrap();
-            state.runtime.registry.tools = tools;
-            state.runtime.registry.policy = Arc::new(AllowEffects);
-            state.runtime.registry.workflow = Arc::new(RepeatedCallbackWorkflow { concurrent });
+            state.registry_mut().tools = tools;
+            state.registry_mut().policy = Arc::new(AllowEffects);
+            state.registry_mut().workflow = Arc::new(RepeatedCallbackWorkflow { concurrent });
         }
         let error = runtime.run("exercise callbacks".into()).await.unwrap_err();
         assert!(

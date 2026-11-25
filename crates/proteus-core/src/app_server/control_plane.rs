@@ -76,6 +76,6 @@ impl AppServerHandle {
         )
         .await;
         resolve_pending_user_inputs_empty(self.pending_user_inputs.clone(), &self.events).await;
-        let _ = self.events.send(AppServerEvent::Shutdown);
+        let _ = self.events.send_required(AppServerEvent::Shutdown).await;
     }
 }

@@ -8,6 +8,63 @@ use crate::{
 mod active_followup;
 
 #[tokio::test]
+async fn process_peer_interactions_wait_for_the_writer_and_cannot_cross_rotation() {
+    let (writer, mut stdout) = mpsc::channel(1);
+    let events = AppEventPublisher::for_process_peer(crate::domain::new_session_id(), &writer);
+    let sink = RuntimeEventSink::default();
+    assert!(sink.0.set(events.clone()).is_ok());
+    let context = EventContext::new(
+        events.pending_snapshot().session_id,
+        new_thread_id(),
+        Some(new_turn_id()),
+    );
+    sink.append(EventEnvelope::new(
+        context.clone(),
+        1,
+        Event::TurnStarted {
+            session_id: context.session_id,
+            thread_id: context.thread_id,
+            turn_id: context.turn_id.unwrap(),
+        },
+    ))
+    .await
+    .unwrap();
+    events.publish_snapshot().unwrap();
+
+    let requested = || AppServerEvent::UserInputRequested {
+        request: Box::new(crate::contracts::UserInputRequest::new(
+            "tool",
+            "/workspace".into(),
+            Vec::new(),
+        )),
+    };
+    let input = events.send_required(requested());
+    tokio::pin!(input);
+    assert!(futures_util::poll!(&mut input).is_pending());
+    assert!(matches!(
+        stdout.recv().await,
+        Some(StdioOutput::Event { event })
+            if matches!(event.as_ref(), AppServerEvent::Runtime { envelope }
+                if matches!(&envelope.event, Event::TurnStarted { .. }))
+    ));
+    input.await.unwrap();
+
+    let retired = events.send_required(requested());
+    tokio::pin!(retired);
+    assert!(futures_util::poll!(&mut retired).is_pending());
+    events.detach_process_peer();
+    assert!(matches!(
+        stdout.recv().await,
+        Some(StdioOutput::Event { event }) if matches!(*event, AppServerEvent::UserInputRequested { .. })
+    ));
+    retired.await.unwrap();
+    assert!(matches!(
+        stdout.try_recv(),
+        Err(mpsc::error::TryRecvError::Empty)
+    ));
+}
+
+#[tokio::test]
 async fn failed_prestart_keeps_validated_prefix_and_ephemeral_input_until_retry_or_clear() {
     use crate::model_standard::{CanonicalMessage, ContentPart, MessageRole};
     use proteus_contracts::app_protocol::{AppExecutionState, AppRun, AppRunStatus};

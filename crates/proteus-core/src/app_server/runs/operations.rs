@@ -35,13 +35,18 @@ impl AppServerHandle {
                     settled,
                 },
             );
+            runs.publish_worker_idle();
         }
         let server = self.clone();
         // The session registry owns cancellation and a settlement receiver even
         // when the transport drops this response consumer.
         let operation = tokio::spawn(async move {
             let result = server.runtime.execute_tool(call, cancellation).await;
-            server.runs.lock().await.operations.remove(&id);
+            {
+                let mut runs = server.runs.lock().await;
+                runs.operations.remove(&id);
+                runs.publish_worker_idle();
+            }
             settled_tx.send_replace(true);
             result
         });

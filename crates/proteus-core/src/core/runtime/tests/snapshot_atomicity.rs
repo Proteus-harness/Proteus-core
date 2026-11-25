@@ -178,11 +178,10 @@ async fn admitted_turn_freezes_registry_and_effective_settings_until_settlement(
     );
     {
         let mut state = runtime.services.execution_state.write().await;
-        state.runtime.registry.workflow = workflow.clone();
-        state.runtime.registry.policy = Arc::new(AskPolicy);
+        state.registry_mut().workflow = workflow.clone();
+        state.registry_mut().policy = Arc::new(AskPolicy);
         state
-            .runtime
-            .registry
+            .registry_mut()
             .replace_model_for_test(Arc::new(LabeledModel("provider-a")));
     }
     let model_a = ModelRef::new("provider-a", "model-a");

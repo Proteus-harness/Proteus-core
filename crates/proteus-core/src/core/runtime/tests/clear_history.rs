@@ -93,8 +93,7 @@ async fn clear_transaction_case(cancel_caller: bool, fail: bool) {
         .execution_state
         .write()
         .await
-        .runtime
-        .registry
+        .registry_mut()
         .replace_model_for_test(model.clone());
     runtime.run("existing history".into()).await.unwrap();
     let before = runtime.history().await.unwrap();

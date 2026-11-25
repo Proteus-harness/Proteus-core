@@ -77,9 +77,15 @@ pub(super) async fn register_pending_user_input(
             resolve: resolve_tx,
         },
     );
-    let _ = events.send(AppServerEvent::UserInputRequested {
-        request: Box::new(request),
-    });
+    let delivered = events
+        .send_required(AppServerEvent::UserInputRequested {
+            request: Box::new(request),
+        })
+        .await;
+    if delivered.is_err() {
+        pending.remove(&request_id);
+        return;
+    }
     drop(pending);
     tokio::spawn(watch_pending_user_input(
         request_id,

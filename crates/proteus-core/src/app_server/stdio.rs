@@ -27,13 +27,24 @@ pub async fn run_stdio_app_server(
 ) -> Result<()> {
     let original_config = config.clone();
     let original_cwd = cwd.clone();
+    let (output_tx, mut output_rx) = mpsc::channel::<StdioOutput>(256);
+    let peer_output = (parent_session_id.is_some()
+        && std::env::var_os(crate::core::PROCESS_PEER_EVENTS_ENV).as_deref()
+            == Some(std::ffi::OsStr::new("1")))
+    .then_some(&output_tx);
     let mut server = if let Some(parent_session_id) = parent_session_id {
         anyhow::ensure!(
             fresh_session && resume_session_dir.is_none(),
             "parent session requires a fresh stdio session"
         );
-        super::AgentAppServer::launch_child(config, cwd, config_path.as_deref(), parent_session_id)
-            .await?
+        super::AgentAppServer::launch_child(
+            config,
+            cwd,
+            config_path.as_deref(),
+            parent_session_id,
+            peer_output,
+        )
+        .await?
     } else {
         super::startup::launch_selected(
             config,
@@ -44,8 +55,6 @@ pub async fn run_stdio_app_server(
         )
         .await?
     };
-    let (output_tx, mut output_rx) = mpsc::channel::<StdioOutput>(256);
-
     let (mut bridge, _) = session::start_bridge(&server, &output_tx).await?;
 
     let writer = tokio::spawn(async move {
@@ -106,6 +115,7 @@ pub async fn run_stdio_app_server(
                 // Do not publish the retired runtime's Shutdown to the next
                 // logical task. Release it before launching replacement modules.
                 session::stop_bridge(bridge).await;
+                server.events.detach_process_peer();
                 server.shutdown().await;
                 drop(server);
                 let replacement = async {
@@ -116,6 +126,7 @@ pub async fn run_stdio_app_server(
                                 original_cwd.clone(),
                                 config_path.as_deref(),
                                 parent,
+                                peer_output,
                             )
                             .await?
                         }
@@ -392,7 +403,9 @@ pub async fn run_stdio_app_server(
     // Keep EOF semantics: service requests admitted before disconnect finish
     // normally; session-owned commands and tools already settled in shutdown.
     while commands.join_next().await.is_some() {}
-    let _ = bridge.await;
+    if let Some(bridge) = bridge {
+        let _ = bridge.await;
+    }
     drop(output_tx);
     writer.await??;
     Ok(())

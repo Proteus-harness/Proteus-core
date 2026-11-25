@@ -37,6 +37,7 @@ pub(crate) mod workflow_host;
 mod workflow_replay;
 
 pub use agent_control::AgentControlRuntime;
+pub(crate) use agent_control::{PROCESS_PEER_EVENTS_ENV, process_peer_observes};
 pub use approval::HeadlessApprovalTransport;
 pub use assembly::{
     ASSEMBLY_PLAN_SCHEMA_VERSION, AssemblyCheck, AssemblyCheckSeverity, AssemblyComponentPlan,

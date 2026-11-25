@@ -83,9 +83,15 @@ pub(super) async fn register_pending_approval(
             resolve: resolve_tx,
         },
     );
-    let _ = events.send(AppServerEvent::ApprovalRequested {
-        request: Box::new(app_request),
-    });
+    let delivered = events
+        .send_required(AppServerEvent::ApprovalRequested {
+            request: Box::new(app_request),
+        })
+        .await;
+    if delivered.is_err() {
+        pending.remove(&approval_id);
+        return;
+    }
     drop(pending);
     tokio::spawn(watch_pending_approval(
         approval_id,

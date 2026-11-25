@@ -889,7 +889,7 @@ timeout_ms = 60000
 | `env_allowlist` | parent env names, разрешённые child process |
 | `env` | scoped literal env; перекрывает allowlist |
 | `handshake_timeout_ms` | единый initialize timeout: подготовка, запись и ответ |
-| `release_when_idle` | разрешает дочернему stdio Core завершать процесс после ответа и запускать заново по требованию. По умолчанию выключено |
+| `release_when_idle` | разрешает завершить процесс компонента через 15 секунд простоя HTTP-сессии или после ответа дочернего stdio Core. При следующем вызове процесс запускается заново. По умолчанию выключено |
 | `transport.max_frame_bytes` | максимальный размер кадра только этого component; по умолчанию 8 MiB, допустимо 1–128 MiB |
 | `description` | fallback observability text для exports |
 | `exports.<slot>.<module_id>` | непустая exact export map, обязательно |
