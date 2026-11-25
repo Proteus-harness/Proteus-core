@@ -99,7 +99,7 @@ def main():
             scope = {'native': 'GUI', 'idle': 'HTTP backends', 'active': 'AgentControl'}[kind]
             scenario = f'{scope}: {messages} сообщений × {peers} сессий'
             model_rows = row.get('model_history_rows', report.get('model_history_rows'))
-            if kind == 'active':
+            if kind == 'active' or (kind == 'native' and model_rows is not None):
                 scenario += f': model history {model_rows if model_rows is not None else messages}'
             measurement = row if kind == 'native' else row.get('measurement', {})
             wrong_mode = kind != 'native' and row.get('mode', report.get('mode')) != (

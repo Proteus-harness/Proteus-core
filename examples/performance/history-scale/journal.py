@@ -115,8 +115,12 @@ def seed_summary(session, expected_rows, text_repeats, model_history_rows=None,
             if text(message) != expected or message["role"] != ("User" if index % 2 == 0 else "Assistant"):
                 raise ValueError(f"typed fixture text/role mismatch at row {index}")
         count, sha = message_digest(messages)
-        active = messages[-model_history_rows:] if model_history_rows is not None else messages
-        active_count, active_sha = message_digest(active)
+        if model_history_rows is None:
+            active = messages
+            active_count, active_sha = count, sha
+        else:
+            active = messages[-model_history_rows:]
+            active_count, active_sha = message_digest(active)
         seed = dict(rows=count, display_rows=count, messages_sha256=sha, session_id=record["session_id"],
                     model_history_rows=active_count, model_messages_sha256=active_sha,
                     model_ids=[message["id"] for message in active], seed_compaction=None,
