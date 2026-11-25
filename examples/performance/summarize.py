@@ -149,16 +149,19 @@ def main():
                     samples_path = Path(row.get('path', path.parent)) / 'samples.jsonl'
                     if samples_path.is_file():
                         phase_intervals = PhaseIntervals()
+                        memory_keys = ('rss_kib', 'pss_kib', 'swap_pss_kib', 'pss_swap_kib')
+                        sample_keys = memory_keys + ('interval_cpu_percent_one_core', 'interval_seconds')
                         samples = []
                         for line in samples_path.read_text().splitlines():
                             item = json.loads(line)
                             eligible = phase_intervals.observe(item)
                             if item.get('type') == 'sample' and item.get('phase') == 'resident_idle':
-                                item['phase_interval_eligible'] = eligible
-                                samples.append(item)
+                                sample = {key: item[key] for key in sample_keys if key in item}
+                                sample['phase_interval_eligible'] = eligible
+                                samples.append(sample)
                         if samples:
                             values = {key: statistics.median(item[key] for item in samples)
-                                      for key in ('rss_kib','pss_kib','swap_pss_kib','pss_swap_kib')}
+                                      for key in memory_keys}
                             intervals = [item for item in samples if item['phase_interval_eligible']]
                             values.update(peak_rss=max(item['rss_kib'] for item in samples),
                                           peak_pss_swap=max(item['pss_swap_kib'] for item in samples),
