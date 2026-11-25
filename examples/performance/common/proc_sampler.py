@@ -15,6 +15,8 @@ from typing import Callable
 
 
 MEMORY_KEYS = ("Rss", "Pss", "SwapPss", "Private_Clean", "Private_Dirty")
+PSS_TYPES = ("Pss_Anon", "Pss_File", "Pss_Shmem")
+ROLLUP_KEYS = MEMORY_KEYS + PSS_TYPES
 IO_KEYS = ("rchar", "wchar", "syscr", "syscw", "read_bytes", "write_bytes", "cancelled_write_bytes")
 COUNTERS = ("cpu_ticks", "minor_faults", "major_faults") + IO_KEYS
 # Keep executable identity for Extensions' retired-process check and preserve
@@ -102,7 +104,7 @@ class Tree:
                 try:
                     for line in (path / filename).read_text().splitlines():
                         key, sep, value = line.partition(":")
-                        if sep and (key in MEMORY_KEYS or key in IO_KEYS or key in ("VmHWM", "Threads")):
+                        if sep and (key in ROLLUP_KEYS or key in IO_KEYS or key in ("VmHWM", "Threads")):
                             row[key] = int(value.split()[0])
                 except (OSError, ValueError) as error:
                     row["errors"][filename] = str(error)
@@ -121,7 +123,7 @@ class Tree:
                 return None
             row.update(after)
             if row["state"] in ("Z", "X", "x"):
-                row.update({field: 0 for field in MEMORY_KEYS})
+                row.update({field: 0 for field in ROLLUP_KEYS})
             previous = self.last.get((pid, start))
             row["group"] = (previous["group"] if previous is not None and not row["exe"] else
                             self.root_group if pid == self.root and start == self.root_start else self.classifier(row))
@@ -240,6 +242,10 @@ class Tree:
             "private_kib": total("Private_Clean") + total("Private_Dirty"),
             "private_clean_kib": total("Private_Clean"),
             "private_dirty_kib": total("Private_Dirty"),
+            # Older kernels may omit these fields. A partial sum would make
+            # changed process coverage look like a change in resident memory.
+            **{field.lower() + "_kib": total(field) if all(field in row for row in rows) else None
+               for field in PSS_TYPES},
             "memory_incomplete_pids": [row["pid"] for row in rows
                                        if any(row.get(field) is None for field in MEMORY_KEYS)],
         }

@@ -80,6 +80,25 @@ class SamplerTests(unittest.TestCase):
             self.assertEqual(tree.totals()["observed_processes"], 2)
             self.assertEqual(tree.totals()["cpu_ticks"], 7)
 
+    def test_pss_breakdown_requires_coverage_and_distinguishes_zero(self):
+        with tempfile.TemporaryDirectory() as directory:
+            proc = Path(directory)
+            (proc / "uptime").write_text("1000.0 0\n")
+            self.fake_process(proc, 100, 1, 100, 100, 80)
+            self.fake_process(proc, 101, 100, 200, 200, 100)
+            tree = Tree(100, proc=proc)
+            for pid, anon, file in ((100, 75, 5), (101, 70, 30)):
+                with (proc / str(pid) / "smaps_rollup").open("a") as rollup:
+                    rollup.write(f"Pss_Anon: {anon} kB\nPss_File: {file} kB\nPss_Shmem: 0 kB\n")
+            sample = tree.sample()
+            self.assertEqual((sample["pss_anon_kib"], sample["pss_file_kib"], sample["pss_shmem_kib"]),
+                             (145, 35, 0))
+            self.fake_process(proc, 101, 100, 200, 200, 100)
+            sample = tree.sample()
+            self.assertIsNone(sample["pss_anon_kib"])
+            self.assertEqual(sample["pss_kib"], 180)
+            self.assertEqual(sample["groups"]["gui"]["pss_file_kib"], 5)
+
     def test_jsonl_markers_and_missing_memory(self):
         with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as temporary:
             proc = Path(temporary)
