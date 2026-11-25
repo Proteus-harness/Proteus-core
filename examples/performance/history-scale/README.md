@@ -63,6 +63,7 @@ python3 examples/performance/history-scale/run.py --help
 python3 examples/performance/history-scale/run.py \
   --mode resume-idle \
   --binary /absolute/before/bin/proteus \
+  --storage /absolute/before/bin/proteus-session-storage-module \
   --module /absolute/before/bin/proteus-reference-module \
   --seeder /absolute/bin/session_index_fixture \
   --fixtures /absolute/performance/shared-history \
@@ -96,6 +97,7 @@ CoW недоступен. Стенд не удаляет и не подчища�
 python3 examples/performance/history-scale/run.py \
   --mode agent-control \
   --binary /absolute/after/bin/proteus \
+  --storage /absolute/after/bin/proteus-session-storage-module \
   --module /absolute/after/bin/proteus-reference-module \
   --seeder /absolute/bin/session_index_fixture \
   --driver /absolute/bin/multiagent_perf \
@@ -115,6 +117,7 @@ python3 examples/performance/history-scale/run.py \
 python3 examples/performance/history-scale/run.py \
   --mode agent-control --model-history-rows 100 \
   --binary /absolute/after/bin/proteus \
+  --storage /absolute/after/bin/proteus-session-storage-module \
   --module /absolute/after/bin/proteus-reference-module \
   --seeder /absolute/new/bin/session_index_fixture \
   --driver /absolute/bin/multiagent_perf \
@@ -128,6 +131,18 @@ python3 examples/performance/history-scale/run.py \
 `history_mode` и `model_history_rows`; seed summaries хранят отдельные counts,
 IDs и digests display/model corpora. Следующие turns закономерно расширяют
 активную историю; дальнейшие автоматические compactions выключены.
+
+Оба стенда Core принимают `--storage /absolute/bin/proteus-session-storage-module`.
+По умолчанию берётся одноимённый JSONL-воркер рядом с `--binary`.
+Путь проверяется до начала прогона; стенд записывает исходный SHA-256 файла.
+Новые синтетические корпуса сохраняют SHA-256 и путь воркера, создавшего журнал.
+У старого корпуса эти сведения могут отсутствовать. Можно повторно использовать
+неизменный корпус для сравнения двух сборок с разными воркерами чтения.
+
+Выбранный воркер входит в итог PSS/CPU/I/O при совпадении наблюдаемого пути
+исполняемого файла с выбранным. Не сравнивайте
+их со старыми итогами, исключавшими этот процесс: повторите оба прогона
+с одним и тем же охватом измерения.
 
 ## Проверяемые границы и результаты
 
@@ -186,7 +201,7 @@ partial samples, `failure.log` и failed report; следующие случаи
 отдельно. Папка общих fixtures хранит исходные canonical файлы и seed summaries.
 
 Память/CPU/IO снимает `../common/proc_sampler.py`. Основные показатели относятся
-только к actual Core backends и reference modules; Python supervisor/exec
+только к actual Core backends, reference modules и выбранным session-storage workers; Python supervisor/exec
 adapter и Rust driver явно сгруппированы как controller и не входят в
 `subject`. Если процесс из дерева исчез между перечислением и чтением его
 памяти, проба сохраняется с ID и временем запуска пропущенного процесса.
@@ -264,6 +279,7 @@ CARGO_BUILD_JOBS=2 cargo build --locked --release -p proteus-core \
 python3 examples/performance/history-scale/run.py \
   --mode resume-idle --memory-trace \
   --binary /absolute/diagnostic/proteus \
+  --storage /absolute/diagnostic/proteus-session-storage-module \
   --module /absolute/ready/proteus-reference-module \
   --seeder /absolute/diagnostic/session_index_fixture \
   --output /absolute/new-output --fixtures /absolute/new-fixtures \
@@ -304,6 +320,7 @@ runtime на запись. Используется только текущий 
 python3 examples/performance/history-scale/clone_read.py \
   --source-spec /absolute/private-source.json \
   --binary /absolute/diagnostic/proteus \
+  --storage /absolute/diagnostic/proteus-session-storage-module \
   --module /absolute/ready/proteus-reference-module \
   --output /absolute/new-private-output --memory-trace \
   --idle-seconds 2 --interval .05 --max-pss-mib 3072 --timeout 180

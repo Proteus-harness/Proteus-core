@@ -190,6 +190,7 @@ class PreservationTests(unittest.TestCase):
                             relative_session="sessions/workspace/seed", seed_summary=str(summary),
                             canonical_files={"journal.jsonl": digest(journal)})])
             args = SimpleNamespace(link_fixtures=True, mode="resume-idle", module=Path(sys.executable),
+                                   storage=root / "synthetic-storage",
                                    binary=Path(sys.executable), delay_ms=500, rounds=1, peers=1)
             manifest = prepare_case(args, fixtures, root / "case", 1)
             copied = Path(next(iter(manifest["entries"].values()))["session_dir"]) / "journal.jsonl"

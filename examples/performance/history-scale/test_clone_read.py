@@ -40,7 +40,8 @@ class CloneInventoryTests(unittest.TestCase):
         self.output = self.root / "output"
         self.output.mkdir(mode=0o700)
         self.args = SimpleNamespace(source_spec=self.spec, output=self.output,
-                                    module=Path(sys.executable).resolve(), deadline=time.monotonic() + 10)
+                                    module=Path(sys.executable).resolve(), storage=self.root / "synthetic-storage",
+                                    deadline=time.monotonic() + 10)
 
     def test_exact_writer_temporary_is_hashed_privately_and_not_copied(self):
         self.temporary.write_bytes(b"unfinished synthetic blob")

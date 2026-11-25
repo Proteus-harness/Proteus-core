@@ -17,7 +17,7 @@ from urllib.request import ProxyHandler, Request, build_opener
 import uuid
 from types import SimpleNamespace
 
-from fixtures import profile, write_json
+from fixtures import profile, storage_executable, write_json
 from measurement import Metrics, Tree, classifier, cleanup, save_partial
 from journal import digest
 
@@ -191,7 +191,7 @@ def clone_source(args, private):
         raise ValueError("canonical copy hash mismatch or concurrent source change")
     config = args.output / "config/configs/clone.toml"
     config.parent.mkdir(mode=0o700)
-    contents = profile(args.module, 1)
+    contents = profile(args.module, 1, args.storage)
     contents = contents.replace('path = ".proteus/events.jsonl"',
                                 "path = " + json.dumps(str(args.output / "events.jsonl")))
     contents = contents.replace('enabled = ["read_file"]', 'enabled = []')
@@ -277,6 +277,7 @@ def validate_memory_trace(path, cycles, tree):
 def run(args):
     args.output.mkdir(mode=0o700, parents=True, exist_ok=False)
     report = {"status": "failed", "binary_sha256": digest(args.binary), "module_sha256": digest(args.module),
+              "storage_sha256": digest(args.storage),
               "source_spec_sha256": digest(args.source_spec), "cycles": {},
               "content_artifacts": "private canonical clone and private runtime stderr only; no snapshot/stdout content artifacts",
               "http_operations": ["GET /health", "GET /events", "POST /shutdown"]}
@@ -431,6 +432,8 @@ def main():
     parser.add_argument("--source-spec", type=Path, required=True)
     parser.add_argument("--binary", type=Path, required=True)
     parser.add_argument("--module", type=Path, required=True)
+    parser.add_argument("--storage", type=Path,
+                        help="JSONL worker; defaults to proteus-session-storage-module beside --binary")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--memory-trace", action="store_true")
     parser.add_argument("--idle-seconds", type=float, default=2)
@@ -448,6 +451,7 @@ def main():
             if not path.is_file() or (name != "source_spec" and not os.access(path, os.X_OK)):
                 raise ValueError("invalid input")
             setattr(args, name, path)
+        args.storage = storage_executable(args.binary, args.module, args.storage)
         args.output = args.output.resolve()
         if args.output.exists():
             raise ValueError("output must be new")

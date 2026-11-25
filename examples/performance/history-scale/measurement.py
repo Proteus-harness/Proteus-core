@@ -13,11 +13,14 @@ from proc_sampler import PHASE_INTERVAL_POLICY, Recorder, Tree, table
 
 
 def classifier(args):
+    backend = str(args.binary)
+    modules = (str(args.module), str(args.storage))
+
     def classify(row):
         executable = row.get("exe", "")
-        if executable == str(args.binary):
+        if executable == backend:
             return "backend"
-        if executable == str(args.module):
+        if executable in modules:
             return "modules"
         # The short Python exec adapter belongs to launch overhead, not Core.
         return "controller"
@@ -104,7 +107,7 @@ class Metrics:
         return dict(phases=phases, phase_interval_policy=PHASE_INTERVAL_POLICY, subject_observed_counters=counters,
                     sampled_peak_pss_swap_kib=max((sample["pss_swap_kib"] for sample in self.small), default=0),
                     sampled_peak_rss_kib=max((sample["rss_kib"] for sample in self.small), default=0),
-                    sampling_scope="actual Core backends + reference modules; Python/driver control overhead separately grouped",
+                    sampling_scope="actual Core backends + reference and selected session-storage modules; Python/driver control overhead separately grouped",
                     full_tree=self.tree.totals())
 
     def close(self):

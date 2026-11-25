@@ -8,7 +8,7 @@ import subprocess
 import sys
 import traceback
 
-from fixtures import HERE, prepare_case, prepare_fixtures, write_json
+from fixtures import HERE, prepare_case, prepare_fixtures, storage_executable, write_json
 from journal import digest
 
 ROOT = HERE.parents[2]
@@ -36,6 +36,8 @@ def arguments():
     parser.add_argument("--mode", choices=("resume-idle", "agent-control"), default="resume-idle")
     parser.add_argument("--binary", type=Path, required=True)
     parser.add_argument("--module", type=Path, required=True)
+    parser.add_argument("--storage", type=Path,
+                        help="JSONL worker; defaults to proteus-session-storage-module beside --binary")
     parser.add_argument("--seeder", type=Path, required=True)
     parser.add_argument("--driver", type=Path, default=ROOT / "target/release/examples/multiagent_perf")
     parser.add_argument("--output", type=Path, required=True)
@@ -87,6 +89,10 @@ def arguments():
         if not path.is_file() or not os.access(path, os.X_OK):
             parser.error(f"{name} must be an executable file: {path}")
         setattr(args, name, path)
+    try:
+        args.storage = storage_executable(args.binary, args.module, args.storage)
+    except (OSError, ValueError) as error:
+        parser.error(f"invalid --storage: {error}")
     args.output = args.output.resolve()
     args.fixtures = (args.fixtures or args.output / "fixtures").resolve()
     return args
@@ -108,7 +114,7 @@ def main():
     args.env.pop("PROTEUS_MEMORY_TRACE", None)
     if args.memory_trace:
         args.env["PROTEUS_MEMORY_TRACE"] = str(args.output / "memory-trace.jsonl")
-    names = ["binary", "module", "seeder"] + (["driver"] if args.mode == "agent-control" else [])
+    names = ["binary", "module", "storage", "seeder"] + (["driver"] if args.mode == "agent-control" else [])
     binaries = {name: dict(path=str(getattr(args, name)), sha256=digest(getattr(args, name))) for name in names}
     sources = {str(path.relative_to(ROOT)): digest(path) for path in sorted(HERE.glob("*.py"))}
     driver_source = HERE.parent / "multi-agent/driver.rs"
@@ -117,7 +123,7 @@ def main():
                      for key, value in vars(args).items() if key != "env"}
     write_json(args.output / "invocation.json", dict(arguments=configuration, binaries=binaries, sources=sources,
                allocator_environment={key: args.env.get(key) for key in ("MALLOC_ARENA_MAX", "MALLOC_TRIM_THRESHOLD_", "GLIBC_TUNABLES")}))
-    fixtures = prepare_fixtures(args)
+    fixtures = prepare_fixtures(args, storage_record=binaries["storage"])
     results = []
     if args.mode == "resume-idle":
         from resume_idle import run

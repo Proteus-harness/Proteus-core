@@ -15,7 +15,16 @@ def write_json(path, value):
     Path(path).write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n")
 
 
-def prepare_fixtures(args):
+def storage_executable(binary, module, storage):
+    candidate = (storage or binary.with_name("proteus-session-storage-module")).resolve(strict=True)
+    if not candidate.is_file() or not os.access(candidate, os.X_OK):
+        raise ValueError("storage must be an executable file")
+    if candidate in (binary, module):
+        raise ValueError("storage must resolve to a different executable than binary and module")
+    return candidate
+
+
+def prepare_fixtures(args, *, storage_record=None):
     root = args.fixtures
     path = root / "fixtures.json"
     spec = dict(version=1, messages=args.messages, peers=args.peers, text_repeats=args.text_repeats,
@@ -38,6 +47,8 @@ def prepare_fixtures(args):
                 if digest(Path(item["session_dir"]) / relative) != sha:
                     raise ValueError("immutable source fixture changed")
         return manifest
+    if storage_record is None:
+        storage_record = dict(path=str(args.storage), sha256=digest(args.storage))
     root.mkdir(parents=True, exist_ok=False)
     workspace = root / "workspace"
     workspace.mkdir()
@@ -59,7 +70,7 @@ def prepare_fixtures(args):
             environment.pop("PROTEUS_MEMORY_TRACE", None)
             seeded = subprocess.run(command,
                                     check=True, capture_output=True, text=True, timeout=args.timeout,
-                                    env=environment)
+                                    env={**environment, "PROTEUS_TEST_SESSION_STORAGE_MODULE": str(args.storage)})
             (config_root.parent / "seeder.stdout.json").write_text(seeded.stdout)
             (config_root.parent / "seeder.stderr.log").write_text(seeded.stderr)
             info = json.loads(seeded.stdout)
@@ -85,15 +96,17 @@ def prepare_fixtures(args):
                                  seed_summary=str(summary_path), canonical_files=canonical))
     manifest = dict(spec=spec, workspace=str(workspace), sessions=sessions,
                     seeder=dict(path=str(args.seeder), sha256=digest(args.seeder)),
+                    seed_storage=storage_record,
                     payload_sha256=digest(workspace / "payload.txt"))
     write_json(path, manifest)
     return manifest
 
 
-def profile(module, delay_ms):
+def profile(module, delay_ms, storage):
     # Intentionally no compactor: its model-window clamp would shrink the corpus.
     # Fake accepts oversized context; this is not a real-provider context test.
     command = json.dumps(str(module))
+    storage_command = json.dumps(str(storage), ensure_ascii=False).replace("\x7f", r"\u007f")
     return f'''active_provider = "fake"
 [providers.fake]
 provider = "fake"
@@ -103,7 +116,12 @@ stream = true
 workflow = "coding.codex_loop"
 context = "codex_context"
 policy = "allow_all"
+session_storage = "jsonl"
 hooks = []
+[components.session-storage]
+command = {storage_command}
+transport.max_frame_bytes = 134217728
+[components.session-storage.exports.session_storage.jsonl]
 [components.reference-model]
 command = {command}
 [components.reference-model.exports.model.fake]
@@ -159,7 +177,7 @@ def prepare_case(args, fixtures, case, rows):
             return target_file
         shutil.copytree(source["session_dir"], session, copy_function=clone_file)
         config = configs / "peer.toml"
-        config.write_text(profile(args.module, args.delay_ms))
+        config.write_text(profile(args.module, args.delay_ms, args.storage))
         seed = json.loads(Path(source["seed_summary"]).read_text())
         entries[str(config)] = dict(peer=source["peer"], session_dir=str(session),
                                    source_seed=str(source["seed_summary"]),
@@ -170,7 +188,7 @@ def prepare_case(args, fixtures, case, rows):
         raise ValueError("expected exactly one distinct seeded session per peer")
     parent = case / "parent-config" / "configs" / "parent.toml"
     parent.parent.mkdir(parents=True)
-    parent.write_text(profile(args.module, args.delay_ms))
+    parent.write_text(profile(args.module, args.delay_ms, args.storage))
     manifest = dict(version=1, binary=str(args.binary), workspace=fixtures["workspace"],
                     entries=entries, launch_log=str(case / "launcher.jsonl"),
                     parent_config=str(parent), rounds=args.rounds,

@@ -1,6 +1,7 @@
 """Post-measurement canonical journal verification, one record/blob at a time."""
 import hashlib
 import json
+from itertools import islice
 from pathlib import Path
 
 
@@ -56,6 +57,14 @@ def message_digest(messages):
     return count, value.hexdigest()
 
 
+def _request_history_digest(messages):
+    # Hash the prefix without copying a decoded JSON array. Keep the old
+    # slicing semantics for all other shapes.
+    if type(messages) is list:
+        return message_digest(islice(messages, max(0, len(messages) - 1)))
+    return message_digest(messages[:-1])
+
+
 def seed_summary(session, expected_rows, text_repeats, model_history_rows=None,
                  seed_model_requests=0, request_payload_kib=0):
     if model_history_rows is not None and not 1 <= model_history_rows <= expected_rows:
@@ -72,7 +81,7 @@ def seed_summary(session, expected_rows, text_repeats, model_history_rows=None,
             exchange = payload["exchange_id"]
             messages = payload["request"]["messages"]
             if (exchange in requests or len(requests) >= seed_model_requests or not messages
-                    or message_digest(messages[:-1]) != (seed["model_history_rows"], seed["model_messages_sha256"])):
+                    or _request_history_digest(messages) != (seed["model_history_rows"], seed["model_messages_sha256"])):
                 raise ValueError("synthetic request lost canonical history or duplicated an exchange")
             extra = messages[-1]
             content = text(extra)
