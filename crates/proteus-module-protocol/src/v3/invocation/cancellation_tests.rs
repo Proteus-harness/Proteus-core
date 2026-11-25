@@ -7,7 +7,7 @@ fn invocation(
     capacity: usize,
 ) -> (
     InvocationHandle,
-    mpsc::Receiver<ControlCommand>,
+    signal::CommandReceiver<ControlCommand>,
     oneshot::Sender<InvocationTerminal>,
 ) {
     let wake = proteus_process_host::ProcessWake::default();

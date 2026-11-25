@@ -1,7 +1,7 @@
 use std::{
     sync::{
         atomic::{AtomicBool, Ordering},
-        mpsc::{Receiver, TryRecvError},
+        mpsc::TryRecvError,
     },
     time::Instant,
 };
@@ -17,6 +17,7 @@ use super::{
         InvocationRef, InvocationTerminal, StartMeta,
     },
     pending::{LoopState, PendingInvocation, WorkerGeneration},
+    signal::CommandReceiver,
     wire,
 };
 
@@ -27,8 +28,8 @@ const MAX_FRAMES_PER_TICK: usize = 32;
 impl LoopState {
     pub(super) fn run(
         &mut self,
-        root_rx: Receiver<RootCommand>,
-        control_rx: Receiver<ControlCommand>,
+        root_rx: CommandReceiver<RootCommand>,
+        control_rx: CommandReceiver<ControlCommand>,
         stopped: &AtomicBool,
     ) {
         'broker: loop {
