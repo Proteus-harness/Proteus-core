@@ -8,6 +8,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 if __package__:
     from .proc_sampler import Recorder, Tree
@@ -138,6 +139,26 @@ class SamplerTests(unittest.TestCase):
                 except ProcessLookupError:
                     pass
             process.stdout.close()
+
+    def test_records_owned_identity_lost_between_census_and_observation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            proc = Path(temporary)
+            (proc / "uptime").write_text("1000.0 0\n")
+            self.fake_process(proc, 100, 1, 100, 100, 80)
+            self.fake_process(proc, 101, 100, 200, 200, 100)
+            tree = Tree(100, proc=proc)
+            observe = tree._observe
+
+            def observe_after_pid_reuse(pid, start_ticks):
+                if pid == 101:
+                    self.fake_process(proc, 101, 100, 999, 999, 999)
+                return observe(pid, start_ticks)
+
+            with patch.object(tree, "_observe", side_effect=observe_after_pid_reuse):
+                sample = tree.sample()
+            self.assertEqual(sample["memory_unobserved_owned"], [{"pid": 101, "start_ticks": 200}])
+            self.assertEqual(sample["memory_incomplete_pids"], [101])
+            self.assertEqual(sample["rss_kib"], 100)
 
     def test_transient_io_failure_does_not_inflate_next_interval(self):
         with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as temporary:

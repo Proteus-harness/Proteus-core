@@ -188,7 +188,10 @@ partial samples, `failure.log` и failed report; следующие случаи
 Память/CPU/IO снимает `../common/proc_sampler.py`. Основные показатели относятся
 только к actual Core backends и reference modules; Python supervisor/exec
 adapter и Rust driver явно сгруппированы как controller и не входят в
-`subject`. Полное дерево также сохранено. RSS повторно считает shared pages;
+`subject`. Если процесс из дерева исчез между перечислением и чтением его
+памяти, проба сохраняется с ID и временем запуска пропущенного процесса.
+Случай завершается ошибкой, кроме пропуска корневого процесса контроллера.
+Полное дерево также сохранено. RSS повторно считает shared pages;
 PSS+SwapPss делит их пропорционально. Отдельно есть SwapPss, private память,
 sampled peaks, resident medians и CPU weighted mean по длительности интервалов
 (100% — одно ядро). `VmHWM` разных процессов не складывается в пик дерева.
@@ -196,8 +199,8 @@ sampled peaks, resident medians и CPU weighted mean по длительност
 CPU median/peak, weighted mean и phase interval counters включают только
 интервалы, целиком начинающиеся не раньше последней наблюдённой метки фазы
 (`whole-observed-interval/v1`). Общая проверка используется и при записи subject
-сводки, и при чтении raw full-tree samples в `../summarize.py`. Память и её пики
-сохраняются по всем выборкам. Нет пригодных интервалов: CPU равен `null`/`н/д`,
+сводки, и при чтении raw full-tree samples в `../summarize.py`. В пики памяти
+`subject` входят только пробы с учтёнными процессами. Нет пригодных интервалов: CPU равен `null`/`н/д`,
 а не измеренному нулю. Суммы counters по пустому множеству остаются нулевыми,
 поэтому читать их нужно вместе с `eligible_interval_samples` и
 `observed_interval_seconds`, не как стоимость всей фазы.

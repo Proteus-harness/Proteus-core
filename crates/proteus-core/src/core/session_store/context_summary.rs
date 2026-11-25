@@ -3,9 +3,21 @@ use std::{fmt, path::Path};
 
 use crate::model_standard::{CanonicalMessage, ContentPart, MessageRole};
 use proteus_contracts::app_protocol::AppContextHistorySummary;
+use serde_json::Value;
+
+const NULL_JSON_BYTES: usize = b"null".len();
 
 fn json_bytes(value: &impl serde::Serialize) -> usize {
     super::json_size::encoded_len(value, usize::MAX).unwrap_or_default()
+}
+
+// Null is the canonical default metadata; its JSON representation is literal.
+fn metadata_bytes(value: &Value) -> usize {
+    if value.is_null() {
+        NULL_JSON_BYTES
+    } else {
+        json_bytes(value)
+    }
 }
 
 fn path_display_bytes(path: &Path) -> usize {
@@ -29,7 +41,7 @@ pub(crate) fn summarize_context_history(messages: &[CanonicalMessage]) -> AppCon
     summary.messages = messages.len();
     let mut bytes = 0usize;
     for message in messages {
-        bytes += json_bytes(&message.metadata) + 4;
+        bytes += metadata_bytes(&message.metadata) + 4;
         note_role(&mut summary, &message.role);
         for part in &message.parts {
             match &part.payload {
@@ -46,7 +58,7 @@ pub(crate) fn summarize_context_history(messages: &[CanonicalMessage]) -> AppCon
                             .map(|path| path_display_bytes(path))
                             .unwrap_or_default()
                         + chunk.content.len()
-                        + json_bytes(&chunk.metadata);
+                        + metadata_bytes(&chunk.metadata);
                 }
                 ContentPart::FileRef { path, content } => {
                     bytes +=
@@ -59,7 +71,7 @@ pub(crate) fn summarize_context_history(messages: &[CanonicalMessage]) -> AppCon
                     summary.tool_results += 1;
                     bytes += result.output.len()
                         + result.error.as_deref().unwrap_or_default().len()
-                        + json_bytes(&result.metadata)
+                        + metadata_bytes(&result.metadata)
                         + result.content.iter().map(json_bytes).sum::<usize>();
                 }
                 ContentPart::Patch { patch } => {
@@ -84,7 +96,7 @@ pub(super) fn summarize_plain_history<'a>(
 ) -> AppContextHistorySummary {
     let mut summary = AppContextHistorySummary::default();
     summary.messages = messages.len();
-    let fixed = json_bytes(&serde_json::Value::Null) + 4;
+    let fixed = NULL_JSON_BYTES + 4;
     let mut bytes = 0usize;
     for (role, text) in messages {
         note_role(&mut summary, role);

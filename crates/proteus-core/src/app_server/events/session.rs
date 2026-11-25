@@ -42,8 +42,16 @@ struct SnapshotParts {
 
 impl SnapshotParts {
     fn into_snapshot(self) -> AppSessionSnapshot {
-        let mut transcript = self.history.messages.clone();
-        transcript.extend(self.progress);
+        let transcript = if self.history.messages.is_empty()
+            && self.progress.len() == self.progress.capacity()
+        {
+            self.progress
+        } else {
+            let mut rows = Vec::with_capacity(self.history.messages.len() + self.progress.len());
+            rows.extend_from_slice(&self.history.messages);
+            rows.extend(self.progress);
+            rows
+        };
         AppSessionSnapshot {
             session_id: self.session_id,
             stream_id: self.stream_id,

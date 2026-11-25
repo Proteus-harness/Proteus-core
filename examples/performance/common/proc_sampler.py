@@ -148,10 +148,12 @@ class Tree:
         deltas = {field: 0 for field in COUNTERS}
         cpu_missing_baselines = []
         alive = set()
+        unobserved_owned = []
         elapsed = None if self.previous_ns is None else (started_ns - self.previous_ns) / 1e9
         for pid in sorted(roots):
             row = self._observe(pid, current[pid]["start_ticks"])
             if row is None:
+                unobserved_owned.append(dict(pid=pid, start_ticks=current[pid]["start_ticks"]))
                 continue
             identity = (pid, row["start_ticks"])
             lifetime_prior = self.last.get(identity)
@@ -210,6 +212,12 @@ class Tree:
                                            for pid, start in sorted(self.previous_alive - alive)],
             "scan_duration_seconds": (time.monotonic_ns() - started_ns) / 1e9,
         }
+        # Save the census identity, not the replacement PID generation. These
+        # members have no trustworthy memory row or observed per-role group.
+        result["memory_unobserved_owned"] = unobserved_owned
+        if unobserved_owned:
+            result["memory_incomplete_pids"].extend(item["pid"] for item in unobserved_owned)
+            result["memory_incomplete_pids"].sort()
         for key in self.peaks:
             if result[key] >= self.peaks[key]:
                 self.peaks[key] = result[key]

@@ -23,10 +23,10 @@ def verify_case(path, mode, preflight=False):
                 seed_journals = list(source.rglob("journal.jsonl"))
                 if len(seed_journals) != 1:
                     raise ValueError("expected exactly one original seed journal")
-                expected = seed_journals[0].read_bytes()
-                with file.open("rb") as stream:
-                    if stream.read(len(expected)) != expected:
-                        raise ValueError("original canonical journal prefix changed")
+                with seed_journals[0].open("rb") as seed_stream, file.open("rb") as stream:
+                    while chunk := seed_stream.read(64 * 1024):
+                        if stream.read(len(chunk)) != chunk:
+                            raise ValueError("original canonical journal prefix changed")
             elif digest(file) != original:
                 raise ValueError(f"canonical seed file changed: {file}")
         if preflight:

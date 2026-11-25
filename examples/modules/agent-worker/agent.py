@@ -295,7 +295,7 @@ def execute_tools(
     return results
 
 
-def message_text(message: dict[str, Any]) -> str:
+def message_text_parts(message: dict[str, Any]) -> list[str]:
     texts: list[str] = []
     for part in message.get("parts", []):
         payload = part.get("payload") if isinstance(part, dict) else None
@@ -303,15 +303,17 @@ def message_text(message: dict[str, Any]) -> str:
             body = payload["Text"]
             if isinstance(body, dict) and isinstance(body.get("text"), str):
                 texts.append(body["text"])
-    return "\n\n".join(texts)
+    return texts
 
 
-def response_output_message(response: dict[str, Any]) -> dict[str, Any]:
+def response_output_text(response: dict[str, Any]) -> str:
     messages = response["messages"]
     for message in reversed(messages):
-        if message_text(message).strip():
-            return message
-    return messages[-1]
+        texts = message_text_parts(message)
+        # The separator is whitespace, so classify parts without joining.
+        if any(text and not text.isspace() for text in texts):
+            return "\n\n".join(texts)
+    return "\n\n".join(message_text_parts(messages[-1]))
 
 
 def run_workflow(
@@ -398,8 +400,7 @@ def run_workflow(
         persistent_new = list(prior_progress["new_messages"])
 
         if response["finish_reason"] == "Stop":
-            assistant = response_output_message(response)
-            text = message_text(assistant)
+            text = response_output_text(response)
             output = {
                 "text": text,
                 "metadata": {

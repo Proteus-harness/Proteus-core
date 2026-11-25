@@ -79,6 +79,15 @@ impl TranscriptRows {
         }
         if let Some(index) = self.reasoning_rows.get(&message_id) {
             let row = &mut self.rows[*index];
+            let capacity = row.text.capacity();
+            if capacity >= 8
+                && row.text.len() == capacity
+                && text.len() >= capacity.saturating_mul(3)
+            {
+                // Both pushes would grow this row. The final size dominates
+                // both growth steps; keep that capacity and request it once.
+                let _ = row.text.try_reserve(text.len() + 1);
+            }
             row.text.push('\n');
             row.text.push_str(text);
             return;

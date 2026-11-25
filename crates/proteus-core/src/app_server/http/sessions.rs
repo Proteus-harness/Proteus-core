@@ -38,8 +38,7 @@ pub(super) async fn session_summaries(
     let mut summaries = Vec::new();
 
     for mut summary in stored_summaries {
-        let session_dir = summary.session_dir.clone();
-        let session_key = canonical_session_key(session_dir.clone());
+        let session_key = canonical_session_key(summary.session_dir.clone());
         seen.insert(session_key.clone());
         if let Some(activity) = activity_by_dir.get(&session_key) {
             summary = summary.with_activity(activity.clone());
@@ -68,6 +67,8 @@ pub(super) async fn session_summaries(
         }
     }
 
+    // Canonical keys are only needed while merging live sessions.
+    drop(seen);
     summaries.sort_by(|left, right| {
         right
             .updated_at_ms

@@ -43,13 +43,22 @@ class Metrics:
                                         for field in ("cpu_ticks", "read_bytes", "write_bytes", "rchar", "wchar")}
         event["subject"] = subject
         self.log.write(event)
-        self.small.append(dict(phase=event["phase"], monotonic_ns=event["monotonic_ns"],
-                               interval_seconds=event["interval_seconds"],
-                               phase_interval_eligible=event["phase_interval_eligible"], **subject))
+        # Only the exact configured controller root has a known exclusion
+        # without an observed row. A non-root can have exec'd into the subject.
+        controller = ((event["root_pid"], event["root_start_ticks"])
+                      if self.tree.root_group == "controller" else None)
+        unobserved = [item for item in event["memory_unobserved_owned"]
+                      if (item["pid"], item["start_ticks"]) != controller]
+        if not unobserved:
+            self.small.append(dict(phase=event["phase"], monotonic_ns=event["monotonic_ns"],
+                                   interval_seconds=event["interval_seconds"],
+                                   phase_interval_eligible=event["phase_interval_eligible"], **subject))
         if subject["pss_swap_kib"] > self.args.max_pss_mib * 1024:
             raise MemoryError(f"subject PSS+SwapPss exceeded {self.args.max_pss_mib} MiB")
         if subject["memory_incomplete_pids"]:
             raise RuntimeError(f"incomplete subject memory sample: {subject['memory_incomplete_pids']}")
+        if unobserved:
+            raise RuntimeError(f"unobserved owned processes: {unobserved}")
         if time.monotonic() - self.started > self.args.timeout:
             raise TimeoutError(f"case exceeded {self.args.timeout} seconds")
         return subject

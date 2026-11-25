@@ -1,4 +1,7 @@
-use proteus_contracts::model_standard::{CanonicalMessage, ContentPart, MessageRole};
+use proteus_contracts::{
+    domain::ToolResult,
+    model_standard::{CanonicalMessage, ContentPart, MessageRole},
+};
 
 pub(in crate::core::session_store::remote::view) fn session_preview(
     messages: &[CanonicalMessage],
@@ -11,7 +14,7 @@ pub(in crate::core::session_store::remote::view) fn session_preview(
                 ContentPart::Text { text }
                 | ContentPart::Reasoning { text, .. }
                 | ContentPart::ReasoningSummary { text } => preview_text(text),
-                ContentPart::ToolResult { result } => preview_text(&result.text_or_status()),
+                ContentPart::ToolResult { result } => preview_tool_result(result),
                 _ => None,
             })
         },
@@ -38,6 +41,18 @@ fn preferred_preview<T>(
         .filter(|message| *role(message) == MessageRole::User)
         .chain(messages.iter())
         .find_map(preview)
+}
+
+fn preview_tool_result(result: &ToolResult) -> Option<String> {
+    // text_or_status chooses nonempty fields before formatting compound content.
+    // Borrow the direct value until preview_text trims and truncates it.
+    if let Some(error) = result.error.as_deref().filter(|error| !error.is_empty()) {
+        return preview_text(error);
+    }
+    if !result.output.is_empty() {
+        return preview_text(&result.output);
+    }
+    preview_text(&result.text_or_status())
 }
 
 fn preview_text(text: &str) -> Option<String> {

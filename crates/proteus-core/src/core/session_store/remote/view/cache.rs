@@ -789,13 +789,18 @@ fn rebuild_tools(
                     args: tool.args,
                     effective_args: tool.effective_args,
                 };
-                if state.name == name {
-                    requested = Some(state.clone());
+                let is_requested = state.name == name;
+                if is_requested {
+                    // Release the previous match before serializing its replacement.
+                    drop(requested.take());
                 }
                 tools.insert(
                     state.name.clone(),
                     write_content(store, &header.source, &state)?,
                 );
+                if is_requested {
+                    requested = Some(state);
+                }
             }
             Some(())
         },

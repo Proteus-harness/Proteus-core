@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import sys
+from itertools import islice
 from pathlib import Path
 from types import MappingProxyType
 from collections.abc import Mapping
@@ -168,14 +169,11 @@ def compact(params: Any, strategy: Any) -> dict[str, Any]:
     if not retained_users:
         return unchanged(messages, "no_user_turn_boundary")
 
-    context_prefix = [
-        message
-        for index, message in enumerate(messages)
-        if index < suffix_start and is_context_message(message)
-    ]
-    retained = context_prefix + messages[suffix_start:]
-    if len(retained) >= len(messages):
+    source = iter(messages)
+    retained = [message for message in islice(source, suffix_start) if is_context_message(message)]
+    if len(retained) == suffix_start:
         return unchanged(messages, "suffix_would_not_reduce_history")
+    retained.extend(source)
 
     # The preserved request-only prefix adds no user turns.
     summary = (

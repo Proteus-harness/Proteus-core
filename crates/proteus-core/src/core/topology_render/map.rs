@@ -154,10 +154,10 @@ fn tool_state(tool: &ToolTopology) -> &'static str {
     }
 }
 
-fn edge_counts(edges: &[TopologyEdge]) -> Vec<(String, usize)> {
-    let mut counts = BTreeMap::<String, usize>::new();
+fn edge_counts(edges: &[TopologyEdge]) -> Vec<(&str, usize)> {
+    let mut counts = BTreeMap::new();
     for edge in edges {
-        *counts.entry(edge.kind.clone()).or_default() += 1;
+        *counts.entry(edge.kind.as_str()).or_default() += 1;
     }
     counts.into_iter().collect()
 }
