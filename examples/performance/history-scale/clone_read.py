@@ -74,16 +74,25 @@ class PrivateTree(Tree):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.sampled_backend_identities = set()
+        self._redaction_pending = False
 
     def sample(self, phase=None):
+        # A failed sample can leave partially updated retained rows behind.
+        recover = getattr(self, "_redaction_pending", True)
+        self._redaction_pending = True
         event = super().sample(phase)
+        observed = event["processes"]
         self.sampled_backend_identities.update(
-            (row["pid"], row["start_ticks"]) for row in event["processes"]
+            (row["pid"], row["start_ticks"]) for row in observed
             if row["group"] == "backend")
-        for row in [*event["processes"], *self.last.values()]:
-            row["argv"] = []
-            row["argv_redacted"] = True
-            row["errors"] = {key: "unavailable" for key in row.get("errors", {})}
+        retained = self.last.values() if recover else (
+            self.last[(row["pid"], row["start_ticks"])] for row in observed)
+        for rows in (observed, retained):
+            for row in rows:
+                row["argv"] = []
+                row["argv_redacted"] = True
+                row["errors"] = {key: "unavailable" for key in row.get("errors", {})}
+        self._redaction_pending = False
         return event
 
 

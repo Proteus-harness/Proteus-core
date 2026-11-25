@@ -17,6 +17,9 @@ from typing import Callable
 MEMORY_KEYS = ("Rss", "Pss", "SwapPss", "Private_Clean", "Private_Dirty")
 IO_KEYS = ("rchar", "wchar", "syscr", "syscw", "read_bytes", "write_bytes", "cancelled_write_bytes")
 COUNTERS = ("cpu_ticks", "minor_faults", "major_faults") + IO_KEYS
+# Keep executable identity for Extensions' retired-process check and preserve
+# errors for PrivateTree's redaction. Other live details stay on the event.
+_LIFETIME_FIELDS = frozenset(("pid", "start_ticks", "name", "exe", "group", "errors", "VmHWM") + COUNTERS)
 GROUPS = ("gui", "backend", "modules", "extensions", "other")
 PHASE_INTERVAL_POLICY = "whole-observed-interval/v1"
 
@@ -178,7 +181,7 @@ class Tree:
                                                      if elapsed else None)
             # Preserve last observed cumulative counters across a permission/read
             # failure, but never reuse old resident-memory values in live totals.
-            retained = dict(row)
+            retained = {key: value for key, value in row.items() if key in _LIFETIME_FIELDS}
             for field in COUNTERS + ("VmHWM",):
                 if field not in retained and lifetime_prior is not None and field in lifetime_prior:
                     retained[field] = lifetime_prior[field]
