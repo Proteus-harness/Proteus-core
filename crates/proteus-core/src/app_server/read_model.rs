@@ -136,7 +136,7 @@ pub(super) fn project_committed_transcript(
             super::transcript::journal_transcript_append_committed,
         )
     {
-        release_projection_memory();
+        crate::release_unused_allocator_pages();
         return Ok(CompletedTranscript {
             messages: view.transcript,
             cursor: view.cursor,
@@ -162,23 +162,10 @@ pub(super) fn project_completed_transcript(
     })();
     #[cfg(feature = "memory-diagnostics")]
     crate::memory_diagnostics::point("completed.full_model_dropped", &[]);
-    release_projection_memory();
+    crate::release_unused_allocator_pages();
     #[cfg(feature = "memory-diagnostics")]
     crate::memory_diagnostics::point("completed.after_trim", &[]);
     result
-}
-
-pub(super) fn release_projection_memory() {
-    #[cfg(all(target_os = "linux", target_env = "gnu"))]
-    {
-        unsafe extern "C" {
-            fn malloc_trim(pad: usize) -> std::ffi::c_int;
-        }
-        // SAFETY: glibc's thread-safe hint releases only unused allocator pages;
-        // it takes no pointers and cannot move or invalidate live allocations.
-        // This runs once per completed blocking projection, never per event.
-        unsafe { malloc_trim(0) };
-    }
 }
 
 pub(super) fn refresh_in_background(

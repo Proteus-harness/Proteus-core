@@ -31,7 +31,7 @@ impl super::SessionState {
         drop(history);
         #[cfg(feature = "memory-diagnostics")]
         crate::memory_diagnostics::point("release.before_trim", &[]);
-        release_unused_pages();
+        crate::release_unused_allocator_pages();
         #[cfg(feature = "memory-diagnostics")]
         crate::memory_diagnostics::point("release.after_trim", &[]);
     }
@@ -54,16 +54,5 @@ impl super::AgentRuntime {
             .registry
             .release_idle_component_workers()
             .await
-    }
-}
-
-fn release_unused_pages() {
-    #[cfg(all(target_os = "linux", target_env = "gnu"))]
-    {
-        unsafe extern "C" {
-            fn malloc_trim(pad: usize) -> std::ffi::c_int;
-        }
-        // No live allocation is moved; this only returns free glibc pages.
-        unsafe { malloc_trim(0) };
     }
 }

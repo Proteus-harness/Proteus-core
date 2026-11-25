@@ -101,7 +101,7 @@ pub(super) async fn execute_delete_session(
         let session_dir = state
             .resolve_session_dir(canonicalize_session_dir_path(session_dir)?)
             .await?;
-        let _lifecycle = state.lock_session_lifecycle(&session_dir).await;
+        let lifecycle = state.lock_session_lifecycle(&session_dir).await;
         let config_path = state
             .launch
             .config_path
@@ -156,6 +156,13 @@ pub(super) async fn execute_delete_session(
             )
             .await?
         };
+        drop(lifecycle);
+        // Our handle has been dropped and its registry entry removed. Return
+        // unused pages on the blocking pool after releasing the path gate.
+        #[cfg(all(target_os = "linux", target_env = "gnu"))]
+        if deleted && was_live {
+            let _ = tokio::task::spawn_blocking(crate::release_unused_allocator_pages).await;
+        }
         Ok(Some(json!({ "deleted": deleted || was_live })))
     })
     .await

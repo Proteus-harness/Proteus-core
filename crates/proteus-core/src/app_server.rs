@@ -680,7 +680,7 @@ impl AgentAppServer {
         let initial_transcript = if let Some(prepared) = resumed_session {
             let (session_store, model, cached_source) = tokio::task::spawn_blocking(move || {
                 let result = prepared.into_startup_view(journal_transcript_for_startup);
-                read_model::release_projection_memory();
+                crate::release_unused_allocator_pages();
                 result
             })
             .await
