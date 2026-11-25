@@ -2,6 +2,7 @@
 use super::{AppServerHandle, prepare_assembly};
 use crate::core::{AppConfig, ConfigInputs};
 use anyhow::Result;
+use ring::digest::{Context as Digest, SHA256, digest};
 use std::{
     path::{Path, PathBuf},
     time::{Duration, Instant},
@@ -28,22 +29,37 @@ fn metadata_allows_skip(
 #[cfg(test)]
 mod tests;
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(PartialEq, Eq)]
 struct Fingerprint {
-    config: Vec<u8>,
-    packages: Vec<u8>,
+    config: [u8; 32],
+    packages: [u8; 32],
+}
+
+fn config_digest(config: &AppConfig) -> Result<[u8; 32]> {
+    let hash = digest(&SHA256, &serde_json::to_vec(config)?);
+    Ok(hash.as_ref().try_into().expect("SHA-256 length"))
 }
 
 impl Fingerprint {
     fn new(config: &AppConfig, cwd: &Path) -> Result<Self> {
+        let mut packages = Digest::new(&SHA256);
+        for documents in crate::core::agent_plugins::fingerprint_documents(&config.addons, cwd) {
+            // Fixed-width digests preserve package order and boundaries. Only
+            // one package's metadata is live while computing the fingerprint.
+            packages.update(digest(&SHA256, &serde_json::to_vec(&documents)?).as_ref());
+        }
         Ok(Self {
-            config: serde_json::to_vec(config)?,
-            packages: crate::core::agent_plugins::fingerprint(&config.addons, cwd),
+            config: config_digest(config)?,
+            packages: packages
+                .finish()
+                .as_ref()
+                .try_into()
+                .expect("SHA-256 length"),
         })
     }
 }
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(PartialEq, Eq)]
 enum Input {
     Valid(Fingerprint),
     Invalid(String),
@@ -57,9 +73,12 @@ pub(super) async fn start(handle: &AppServerHandle) {
 }
 
 async fn start_with_polling(handle: &AppServerHandle, path: PathBuf, mut polling: Polling) {
-    let config = handle.config.read().await.clone();
-    let Ok(mut applied) = Fingerprint::new(&config, &handle.cwd) else {
-        return;
+    let (mut applied, mut addons) = {
+        let config = handle.config.read().await.clone();
+        let Ok(applied) = Fingerprint::new(&config, &handle.cwd) else {
+            return;
+        };
+        (applied, config.addons.clone())
     };
     let owner = std::sync::Arc::downgrade(&handle.inner);
     let stop = handle.profile_stop.clone();
@@ -72,7 +91,6 @@ async fn start_with_polling(handle: &AppServerHandle, path: PathBuf, mut polling
         let mut failed = None;
         let mut inputs: Option<ConfigInputs> = None;
         let mut pending = false;
-        let mut addons = config.addons.clone();
         let mut source_seen = physical.exists();
         loop {
             let mut poll = tokio::select! {
@@ -100,21 +118,24 @@ async fn start_with_polling(handle: &AppServerHandle, path: PathBuf, mut polling
             let mut observed = ConfigInputs::watching();
             let input = match AppConfig::load_observed(Some(&path), &mut observed).await {
                 Ok(config) => {
-                    addons = config.addons.clone();
-                    observed.observe_plugins(&addons, &handle.cwd);
-                    match Fingerprint::new(&config, &handle.cwd) {
+                    observed.observe_plugins(&config.addons, &handle.cwd);
+                    let fingerprint = Fingerprint::new(&config, &handle.cwd);
+                    addons = config.addons;
+                    match fingerprint {
                         Ok(value) => Input::Valid(value),
                         Err(error) => Input::Invalid(format!("{error:#}")),
                     }
                 }
-                Err(error) => Input::Invalid(format!("{error:#}")),
+                Err(error) => {
+                    observed.observe_plugins(&addons, &handle.cwd);
+                    Input::Invalid(format!("{error:#}"))
+                }
             };
-            observed.observe_plugins(&addons, &handle.cwd);
             inputs = Some(observed);
             // Editors may temporarily write an incomplete file. A stable failure
             // is reported once; it never replaces the last validated assembly.
             if seen.as_ref() != Some(&input) {
-                seen = Some(input.clone());
+                seen = Some(input);
                 pending = true;
                 continue;
             }
@@ -136,8 +157,8 @@ async fn start_with_polling(handle: &AppServerHandle, path: PathBuf, mut polling
             };
             let already_published = {
                 let current = handle.config.read().await.clone();
-                expected.config == serde_json::to_vec(&current).unwrap_or_default()
-                    && expected.packages == applied.packages
+                expected.packages == applied.packages
+                    && config_digest(&current).is_ok_and(|digest| digest == expected.config)
             };
             if already_published {
                 // A UI save has already published this session; other sessions
@@ -173,13 +194,13 @@ async fn refresh(handle: &AppServerHandle, path: &Path, expected: &Fingerprint) 
     if &Fingerprint::new(&config, &handle.cwd)? != expected {
         return Ok(false);
     };
-    let assembly = prepare_assembly(&config, &handle.cwd, Some(path)).await?;
+    let assembly = prepare_assembly(config.into(), &handle.cwd, Some(path)).await?;
     let current = AppConfig::load(Some(path)).await?;
     if &Fingerprint::new(&current, &handle.cwd)? != expected {
         return Ok(false);
     };
     handle
-        .publish_profile(config, assembly, None, || async { Ok(()) })
+        .publish_profile(assembly, None, || async { Ok(()) })
         .await?;
     Ok(true)
 }

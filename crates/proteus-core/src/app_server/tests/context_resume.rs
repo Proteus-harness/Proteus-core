@@ -49,7 +49,7 @@ async fn resume_and_probe(
     old_thread: crate::domain::ThreadId,
 ) -> Vec<ModelContextObservation> {
     let handle = AgentAppServer::launch_resumed_with_storage(
-        crate::test_model::config(),
+        crate::test_model::config().into(),
         store.workspace_path().unwrap(),
         Some(config_path),
         store.session_dir().to_path_buf(),

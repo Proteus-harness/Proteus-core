@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, path::PathBuf};
+use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
 
 use serde::Serialize;
 
@@ -29,7 +29,7 @@ pub struct AssemblyPlan {
     pub tools: AssemblyToolsPlan,
     pub checks: Vec<AssemblyCheck>,
     #[serde(skip)]
-    pub(super) config: AppConfig,
+    pub(super) config: Arc<AppConfig>,
     #[serde(skip)]
     pub(super) catalog_entries: Vec<ModuleCatalogEntrySummary>,
     #[serde(skip)]

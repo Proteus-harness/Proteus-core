@@ -418,13 +418,13 @@ async fn deleted_selection_metadata_rolls_back_on_source_failure_and_blocks_save
     let metadata = store.session_dir().join(".storage-metadata.json");
     let source = std::fs::read(&path).unwrap();
     let epoch = server.runtime.module_epoch().await;
-    let mut config = server.config.read().await.clone();
+    let mut config = server.config.read().await.as_ref().clone();
     config.modes.remove("quiet");
-    let assembly = prepare_assembly(&config, root.path(), Some(&path))
+    let assembly = prepare_assembly(config.clone().into(), root.path(), Some(&path))
         .await
         .unwrap();
     let error = server
-        .publish_profile(config.clone(), assembly, None, || async {
+        .publish_profile(assembly, None, || async {
             anyhow::bail!("synthetic source failure")
         })
         .await
@@ -463,7 +463,7 @@ async fn deleted_selection_metadata_rolls_back_on_source_failure_and_blocks_save
 async fn deletion_while_closed_is_durable_before_a_definition_is_restored() {
     let root = tempfile::tempdir().unwrap();
     let (path, server) = setup(root.path(), "json").await;
-    let original = server.config.read().await.clone();
+    let original = server.config.read().await.as_ref().clone();
     select(&server, "quiet").await.unwrap();
     let session = server.session_dir_path().unwrap();
     server.shutdown().await;

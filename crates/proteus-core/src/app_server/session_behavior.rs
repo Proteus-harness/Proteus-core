@@ -2,6 +2,7 @@
 //! the current profile remains the authority for every overlay definition.
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 use super::{AppServerEvent, AppServerHandle, prepare_assembly};
 use crate::{
@@ -91,20 +92,20 @@ pub(super) async fn effective(server: &AppServerHandle, baseline: &AppConfig) ->
 
 pub(super) async fn prepare(
     server: &AppServerHandle,
-    config: &AppConfig,
+    config: &Arc<AppConfig>,
     selected: &Selection,
-) -> Result<(AppConfig, PreparedAssembly)> {
-    let effective = overlay(config, selected);
+) -> Result<PreparedAssembly> {
+    let effective = if *selected == Selection::default() {
+        config.clone()
+    } else {
+        Arc::new(overlay(config, selected))
+    };
     effective.validate_semantics()?;
     match super::session_model::stored(server, config).await? {
         super::session_model::Stored::Current(model) => {
             super::session_model::prepare(server, &effective, &model).await
         }
-        _ => {
-            let assembly =
-                prepare_assembly(&effective, &server.cwd, server.config_path.as_deref()).await?;
-            Ok((effective, assembly))
-        }
+        _ => prepare_assembly(effective, &server.cwd, server.config_path.as_deref()).await,
     }
 }
 
@@ -196,12 +197,14 @@ async fn apply(server: &AppServerHandle, selected: Selection, write: bool) -> Re
         );
     }
     let selected = resolved(selected, &baseline);
-    let (effective, assembly) = prepare(server, &baseline, &selected).await?;
+    let assembly = prepare(server, &baseline, &selected).await?;
+    let effective = assembly.plan().config();
+    let mode = effective.permissions.mode;
     let (_, model, reasoning, _) = server.runtime.configuration_view().await;
     let snapshot = SessionConfigSnapshot::from_runtime_config(
-        &effective,
+        effective,
         assembly.registry(),
-        effective.permissions.mode,
+        mode,
         server.runtime.approval_available(),
     );
     let report = server
@@ -210,7 +213,7 @@ async fn apply(server: &AppServerHandle, selected: Selection, write: bool) -> Re
             assembly,
             Some(snapshot),
             model,
-            Some(effective.permissions.mode),
+            Some(mode),
             Some(reasoning),
             || async {
                 if write {

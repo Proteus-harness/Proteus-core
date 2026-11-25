@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
 use anyhow::{Context as _, Result, anyhow};
 use proteus_contracts::app_protocol::{AppBootstrap, http::SessionOpened};
@@ -235,10 +235,10 @@ fn ensure_storage_binding(state: &HttpAppState, config: &crate::core::AppConfig)
 
 /// New admissions reload the published profile before constructing components;
 /// existing sessions retain their immutable execution/configuration snapshot.
-async fn current_launch_config(state: &HttpAppState) -> Result<crate::core::AppConfig> {
+async fn current_launch_config(state: &HttpAppState) -> Result<Arc<crate::core::AppConfig>> {
     match state.launch.config_path.as_deref() {
         Some(path) if state.launch.profile_was_present || path.try_exists()? => {
-            crate::core::AppConfig::load(Some(path)).await
+            crate::core::AppConfig::load(Some(path)).await.map(Arc::new)
         }
         Some(_) => Ok(state.launch.config.clone()),
         None => Ok(state.launch.config.clone()),

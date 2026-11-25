@@ -25,7 +25,7 @@ use super::{
 /// (headless approval, jsonl event log derived from the config, no session
 /// persistence) so callers only override what they actually want to change.
 pub struct AgentRuntimeBuilder {
-    config: AppConfig,
+    config: Arc<AppConfig>,
     cwd: PathBuf,
     module_catalog: Option<ModuleCatalog>,
     config_path: Option<PathBuf>,
@@ -44,6 +44,10 @@ pub struct AgentRuntimeBuilder {
 
 impl AgentRuntimeBuilder {
     pub fn new(config: AppConfig, cwd: PathBuf) -> Self {
+        Self::from_shared_config(config.into(), cwd)
+    }
+
+    pub(crate) fn from_shared_config(config: Arc<AppConfig>, cwd: PathBuf) -> Self {
         Self {
             config,
             cwd,

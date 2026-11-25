@@ -95,7 +95,7 @@ pub(super) async fn prepare(
     server: &AppServerHandle,
     baseline: &AppConfig,
     selected: &Configuration,
-) -> Result<(AppConfig, PreparedAssembly)> {
+) -> Result<PreparedAssembly> {
     prepare_with_admission(server, baseline, selected, Admission::Exact).await
 }
 
@@ -104,7 +104,7 @@ async fn prepare_with_admission(
     baseline: &AppConfig,
     selected: &Configuration,
     admission: Admission,
-) -> Result<(AppConfig, PreparedAssembly)> {
+) -> Result<PreparedAssembly> {
     // The caller may choose only a route configured for this session. Rebinding a
     // different adapter requires a real assembly, never just a changed ModelRef.
     let alias = baseline
@@ -140,9 +140,10 @@ async fn prepare_with_admission(
         stream: selected.stream,
         reasoning: selected.reasoning.clone(),
     });
-    let assembly = prepare_assembly(&effective, &server.cwd, server.config_path.as_deref()).await?;
+    let assembly =
+        prepare_assembly(effective.into(), &server.cwd, server.config_path.as_deref()).await?;
     validate(assembly.registry(), baseline, selected, admission).await?;
-    Ok((effective, assembly))
+    Ok(assembly)
 }
 
 async fn validate(
@@ -309,7 +310,8 @@ async fn apply(
         None => None,
     };
     ensure!(
-        serde_json::to_value(&*server.config.read().await)? == serde_json::to_value(baseline)?,
+        serde_json::to_value(server.config.read().await.as_ref())?
+            == serde_json::to_value(baseline)?,
         "profile changed during model configuration; retry selection"
     );
     let _transition = server.settings_transition.lock().await;
@@ -333,10 +335,9 @@ async fn apply(
         return Ok(());
     }
     let behavior = super::session_behavior::effective(server, baseline).await;
-    let (effective, assembly) =
-        prepare_with_admission(server, &behavior, &selected, admission).await?;
+    let assembly = prepare_with_admission(server, &behavior, &selected, admission).await?;
     let snapshot = SessionConfigSnapshot::from_runtime_config(
-        &effective,
+        assembly.plan().config(),
         assembly.registry(),
         server.permission_mode().await,
         server.runtime.approval_available(),

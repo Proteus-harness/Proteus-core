@@ -351,7 +351,7 @@ async fn exact_configuration_rebinds_provider_and_preserves_source_and_permissio
             .all(|entry| entry.id.starts_with("second-"))
     );
     assert_eq!(
-        serde_json::to_value(&*server.config.read().await).unwrap(),
+        serde_json::to_value(server.config.read().await.as_ref()).unwrap(),
         serde_json::to_value(baseline).unwrap()
     );
     assert_eq!(
@@ -485,11 +485,15 @@ async fn profile_refresh_keeps_scoped_binding_until_its_source_route_is_changed(
         .await
         .unwrap();
     baseline.runtime.context_timeout_ms += 1;
-    let assembly = prepare_assembly(&baseline, cwd.path(), Some(&root.path().join("agent.json")))
-        .await
-        .unwrap();
+    let assembly = prepare_assembly(
+        baseline.clone().into(),
+        cwd.path(),
+        Some(&root.path().join("agent.json")),
+    )
+    .await
+    .unwrap();
     server
-        .publish_profile(baseline.clone(), assembly, None, || async { Ok(()) })
+        .publish_profile(assembly, None, || async { Ok(()) })
         .await
         .unwrap();
     assert_eq!(
@@ -510,11 +514,15 @@ async fn profile_refresh_keeps_scoped_binding_until_its_source_route_is_changed(
         "second"
     );
     baseline.providers.get_mut("main").unwrap().model = "first-other".into();
-    let assembly = prepare_assembly(&baseline, cwd.path(), Some(&root.path().join("agent.json")))
-        .await
-        .unwrap();
+    let assembly = prepare_assembly(
+        baseline.clone().into(),
+        cwd.path(),
+        Some(&root.path().join("agent.json")),
+    )
+    .await
+    .unwrap();
     server
-        .publish_profile(baseline, assembly, None, || async { Ok(()) })
+        .publish_profile(assembly, None, || async { Ok(()) })
         .await
         .unwrap();
     assert_eq!(

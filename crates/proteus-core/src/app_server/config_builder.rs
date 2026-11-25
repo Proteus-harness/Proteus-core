@@ -17,6 +17,7 @@ pub(super) use transaction::path_lock;
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 use anyhow::{Context, Result, anyhow};
@@ -173,7 +174,7 @@ impl AppServerHandle {
             if tokio::fs::try_exists(crate::core::physical_config_path(config_path)).await? {
                 AppConfig::load(Some(config_path)).await?
             } else {
-                self.config.read().await.clone()
+                self.config.read().await.as_ref().clone()
             };
         if let Some(expected) = expected_models {
             anyhow::ensure!(
@@ -263,9 +264,10 @@ impl AppServerHandle {
             validate_module_config_toml(&next_config.module_config)?;
         }
 
+        let next_config = Arc::new(next_config);
         let assembly =
-            prepare_assembly(&next_config, &self.cwd, self.config_path.as_deref()).await?;
-        self.publish_profile(next_config.clone(), assembly, permission_mode, || async {
+            prepare_assembly(next_config.clone(), &self.cwd, self.config_path.as_deref()).await?;
+        self.publish_profile(assembly, permission_mode, || async {
             persist_config_builder_with_components(&target, &next_config, &component_ids).await
         })
         .await?;

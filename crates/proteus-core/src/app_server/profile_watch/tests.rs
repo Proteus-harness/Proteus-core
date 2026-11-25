@@ -6,6 +6,30 @@ use crate::{
     domain::{PermissionMode, ToolCall, new_call_id},
 };
 
+#[test]
+fn package_fingerprint_tracks_semantic_changes_and_keeps_only_digests() {
+    let root = tempfile::tempdir().unwrap();
+    let mut config = crate::test_model::config();
+    config
+        .addons
+        .plugins
+        .push(crate::domain::AgentPluginConfig {
+            path: root.path().to_owned(),
+            enabled: false,
+            data_key: None,
+        });
+    let manifest = root.path().join("plugin.json");
+    std::fs::write(&manifest, r#"{"name":"test","version":"1"}"#).unwrap();
+    let original = Fingerprint::new(&config, root.path()).unwrap();
+    std::fs::write(&manifest, r#"{ "name": "test", "version": "1" }"#).unwrap();
+    assert!(original == Fingerprint::new(&config, root.path()).unwrap());
+    std::fs::write(root.path().join("mcp.json"), r#"{"servers":{}}"#).unwrap();
+    let changed = Fingerprint::new(&config, root.path()).unwrap();
+    assert_ne!(original.packages, changed.packages);
+    assert_eq!(original.config, changed.config);
+    assert_eq!(std::mem::size_of::<Fingerprint>(), 64);
+}
+
 async fn next_reload(events: &mut tokio::sync::broadcast::Receiver<AppServerEvent>) {
     tokio::time::timeout(Duration::from_secs(5), async {
         loop {

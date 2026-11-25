@@ -304,11 +304,12 @@ async fn route_reload_and_cold_resume_agree_on_global_model_and_reasoning() {
 
         // An unrelated refresh must not discard the user's selection.
         config.runtime.context_timeout_ms += 1;
-        let assembly = super::super::prepare_assembly(&config, cwd.path(), Some(&path))
-            .await
-            .unwrap();
+        let assembly =
+            super::super::prepare_assembly(config.clone().into(), cwd.path(), Some(&path))
+                .await
+                .unwrap();
         server
-            .publish_profile(config.clone(), assembly, None, || async { Ok(()) })
+            .publish_profile(assembly, None, || async { Ok(()) })
             .await
             .unwrap();
         assert_eq!(server.runtime.model_ref().await, ui_model);
@@ -332,11 +333,12 @@ async fn route_reload_and_cold_resume_agree_on_global_model_and_reasoning() {
             _ => unreachable!(),
         }
         let configured = config.selected_model_config().unwrap().unwrap();
-        let assembly = super::super::prepare_assembly(&config, cwd.path(), Some(&path))
-            .await
-            .unwrap();
+        let assembly =
+            super::super::prepare_assembly(config.clone().into(), cwd.path(), Some(&path))
+                .await
+                .unwrap();
         server
-            .publish_profile(config.clone(), assembly, None, || async { Ok(()) })
+            .publish_profile(assembly, None, || async { Ok(()) })
             .await
             .unwrap();
         let hot_model = server.runtime.model_ref().await;
@@ -387,11 +389,11 @@ async fn profile_without_a_persistent_path_keeps_its_live_selection_on_route_rel
         .unwrap()
         .get_mut("fake")
         .unwrap()["stream_delay_ms"] = 2.into();
-    let assembly = super::super::prepare_assembly(&config, cwd.path(), None)
+    let assembly = super::super::prepare_assembly(config.into(), cwd.path(), None)
         .await
         .unwrap();
     server
-        .publish_profile(config, assembly, None, || async { Ok(()) })
+        .publish_profile(assembly, None, || async { Ok(()) })
         .await
         .unwrap();
     assert_eq!(server.runtime.model_ref().await, model);

@@ -1,11 +1,14 @@
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use super::{AgentAppServer, AppServerHandle};
 use crate::core::AppConfig;
 use anyhow::Result;
 
 pub(super) async fn launch_selected(
-    config: AppConfig,
+    config: Arc<AppConfig>,
     cwd: PathBuf,
     config_path: Option<&Path>,
     resume: Option<PathBuf>,
@@ -16,11 +19,11 @@ pub(super) async fn launch_selected(
         "fresh session conflicts with explicit resume"
     );
     if let Some(session_dir) = resume {
-        AgentAppServer::launch_resumed(config, cwd, config_path, session_dir).await
+        AgentAppServer::launch_resumed_shared(config, cwd, config_path, session_dir).await
     } else if fresh {
-        AgentAppServer::launch(config, cwd, config_path).await
+        AgentAppServer::launch_shared(config, cwd, config_path).await
     } else {
-        AgentAppServer::launch_or_resume_latest(config, cwd, config_path).await
+        AgentAppServer::launch_or_resume_latest_shared(config, cwd, config_path).await
     }
 }
 
@@ -35,12 +38,13 @@ pub(super) async fn launch_http_selected(
     preferred: Option<PathBuf>,
 ) -> Result<(AppServerHandle, PathBuf)> {
     let Some(path) = preferred.filter(|p| p.is_absolute() && resume.is_none() && !fresh) else {
-        let server = launch_selected(config, cwd, config_path, resume, fresh).await?;
+        let server = launch_selected(config.into(), cwd, config_path, resume, fresh).await?;
         let workspace = server.cwd.clone();
         return Ok((server, workspace));
     };
 
-    let storage = super::selected_storage(&config, &cwd)
+    let config = Arc::new(config);
+    let storage = super::selected_storage(config.clone(), &cwd)
         .await?
         .ok_or_else(|| anyhow::anyhow!("no session storage module is selected"))?;
     let attempt = async {
@@ -91,7 +95,7 @@ mod tests {
         let config_path = dir.path().join("config.toml");
         let config = crate::test_model::config();
         let original = launch_selected(
-            config.clone(),
+            config.clone().into(),
             dir.path().to_owned(),
             Some(&config_path),
             None,
@@ -105,7 +109,7 @@ mod tests {
             .unwrap();
         let old_id = original.session_id();
         let resumed = launch_selected(
-            config.clone(),
+            config.clone().into(),
             dir.path().to_owned(),
             Some(&config_path),
             None,
@@ -116,7 +120,7 @@ mod tests {
         assert_eq!(resumed.session_id(), old_id);
         assert!(!resumed.runtime.history().await.unwrap().is_empty());
         let fresh = launch_selected(
-            config.clone(),
+            config.clone().into(),
             dir.path().to_owned(),
             Some(&config_path),
             None,
@@ -128,7 +132,7 @@ mod tests {
         assert!(fresh.runtime.history().await.unwrap().is_empty());
         assert!(
             launch_selected(
-                config,
+                config.into(),
                 dir.path().to_owned(),
                 Some(&config_path),
                 original.session_dir_path(),

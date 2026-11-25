@@ -108,13 +108,15 @@ async fn shared_catalog_prompt_expansion_and_module_commands_keep_policy_cancel_
         command(&state, &server, "args", "/history unexpected").await,
         StdioOutput::Response { ok: false, .. }
     ));
-    server.config.write().await.commands.insert(
-        "echo".into(),
-        crate::core::PromptCommandConfig {
-            description: "Forward arguments".into(),
-            prompt: "$ARGUMENTS".into(),
-        },
-    );
+    Arc::make_mut(&mut *server.config.write().await)
+        .commands
+        .insert(
+            "echo".into(),
+            crate::core::PromptCommandConfig {
+                description: "Forward arguments".into(),
+                prompt: "$ARGUMENTS".into(),
+            },
+        );
     assert!(matches!(
         command(&state, &server, "empty-prompt", "/echo").await,
         StdioOutput::Response { ok: false, .. }
@@ -123,15 +125,19 @@ async fn shared_catalog_prompt_expansion_and_module_commands_keep_policy_cancel_
         matches!(output(command(&state, &server, "echo", "/echo payload").await), CommandOutput::Prompt {text} if text == "payload")
     );
     for name in ["exit", "quit", "help"] {
-        server.config.write().await.commands.insert(
-            name.into(),
-            crate::core::PromptCommandConfig {
-                description: "Conflicting command".into(),
-                prompt: "Payload".into(),
-            },
-        );
+        Arc::make_mut(&mut *server.config.write().await)
+            .commands
+            .insert(
+                name.into(),
+                crate::core::PromptCommandConfig {
+                    description: "Conflicting command".into(),
+                    prompt: "Payload".into(),
+                },
+            );
         assert!(server.command_catalog().await.is_err());
-        server.config.write().await.commands.remove(name);
+        Arc::make_mut(&mut *server.config.write().await)
+            .commands
+            .remove(name);
     }
     let mut events = server.subscribe();
     for (id, args, approved) in [

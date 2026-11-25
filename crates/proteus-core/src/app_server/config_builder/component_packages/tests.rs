@@ -306,7 +306,7 @@ async fn component_packages_failed_prepare_keeps_runtime_and_profile_unchanged()
     assert!(format!("{error:#}").contains("unsupported"));
     assert_eq!(std::fs::read(&profile).unwrap(), before);
     assert_eq!(
-        serde_json::to_value(&*server.config.read().await).unwrap(),
+        serde_json::to_value(server.config.read().await.as_ref()).unwrap(),
         serde_json::to_value(&initial).unwrap()
     );
     assert_eq!(

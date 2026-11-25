@@ -15,7 +15,7 @@ const WORKER_IDLE_TIMEOUT: Duration = Duration::from_secs(15);
 
 #[derive(Clone)]
 pub(super) struct HttpLaunchContext {
-    pub(super) config: AppConfig,
+    pub(super) config: Arc<AppConfig>,
     pub(super) cwd: PathBuf,
     pub(super) config_path: Option<PathBuf>,
     pub(super) profile_was_present: bool,

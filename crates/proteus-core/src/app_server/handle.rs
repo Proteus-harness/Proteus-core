@@ -19,7 +19,7 @@ pub struct AppServerHandle {
 pub struct AppServerState {
     pub(super) runtime: Arc<AgentRuntime>,
     pub(super) storage: Option<crate::core::StorageService>,
-    pub(super) config: Arc<RwLock<AppConfig>>,
+    pub(super) config: RwLock<Arc<AppConfig>>,
     pub(super) config_path: Option<PathBuf>,
     pub(super) cwd: PathBuf,
     pub(super) events: AppEventPublisher,

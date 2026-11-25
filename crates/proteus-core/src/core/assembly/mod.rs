@@ -1,6 +1,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 use anyhow::{Result, bail};
@@ -23,6 +24,15 @@ pub use types::*;
 impl AssemblyPlan {
     pub fn resolve(
         config: AppConfig,
+        config_path: Option<&Path>,
+        cwd: PathBuf,
+        catalog: &ModuleCatalog,
+    ) -> Result<Self> {
+        Self::resolve_shared(config.into(), config_path, cwd, catalog)
+    }
+
+    fn resolve_shared(
+        config: Arc<AppConfig>,
         config_path: Option<&Path>,
         cwd: PathBuf,
         catalog: &ModuleCatalog,
@@ -186,6 +196,10 @@ impl AssemblyPlan {
         &self.config
     }
 
+    pub(crate) fn shared_config(&self) -> Arc<AppConfig> {
+        self.config.clone()
+    }
+
     pub fn cwd(&self) -> &Path {
         &self.cwd
     }
@@ -220,8 +234,7 @@ impl PreparedAssembly {
         cwd: PathBuf,
         config_path: Option<&Path>,
     ) -> Result<Self> {
-        let catalog = ModuleCatalog::from_config(&config)?;
-        Self::from_catalog(config, cwd, config_path, catalog)
+        Self::from_catalog_with_storage(config.into(), cwd, config_path, None, None)
     }
 
     pub fn from_catalog(
@@ -237,7 +250,7 @@ impl PreparedAssembly {
     }
 
     pub(crate) fn from_catalog_with_storage(
-        config: AppConfig,
+        config: Arc<AppConfig>,
         cwd: PathBuf,
         config_path: Option<&Path>,
         catalog: Option<ModuleCatalog>,
@@ -247,7 +260,7 @@ impl PreparedAssembly {
             Some(catalog) => catalog,
             None => ModuleCatalog::from_config(&config)?,
         };
-        let plan = AssemblyPlan::resolve(config, config_path, cwd, &catalog)?;
+        let plan = AssemblyPlan::resolve_shared(config, config_path, cwd, &catalog)?;
         plan.ensure_valid()?;
         let registry = RuntimeRegistry::from_plan_with_storage(&plan, catalog, storage)?;
         Ok(Self { plan, registry })

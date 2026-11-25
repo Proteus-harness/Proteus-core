@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
 use anyhow::Result;
 use serde_json::Value;
@@ -25,7 +25,7 @@ pub async fn run_stdio_app_server(
     fresh_session: bool,
     parent_session_id: Option<crate::domain::SessionId>,
 ) -> Result<()> {
-    let original_config = config.clone();
+    let original_config = Arc::new(config);
     let original_cwd = cwd.clone();
     let (output_tx, mut output_rx) = mpsc::channel::<StdioOutput>(256);
     let peer_output = (parent_session_id.is_some()
@@ -38,7 +38,7 @@ pub async fn run_stdio_app_server(
             "parent session requires a fresh stdio session"
         );
         super::AgentAppServer::launch_child(
-            config,
+            original_config.clone(),
             cwd,
             config_path.as_deref(),
             parent_session_id,
@@ -47,7 +47,7 @@ pub async fn run_stdio_app_server(
         .await?
     } else {
         super::startup::launch_selected(
-            config,
+            original_config.clone(),
             cwd,
             config_path.as_deref(),
             resume_session_dir,
@@ -131,7 +131,7 @@ pub async fn run_stdio_app_server(
                             .await?
                         }
                         None => {
-                            super::AgentAppServer::launch(
+                            super::AgentAppServer::launch_shared(
                                 original_config.clone(),
                                 original_cwd.clone(),
                                 config_path.as_deref(),

@@ -3,6 +3,72 @@ use std::collections::BTreeMap;
 
 use super::*;
 
+#[tokio::test]
+async fn baseline_profile_is_shared_with_the_runtime_across_publication() {
+    let workspace = tempfile::tempdir().unwrap();
+    let config = AppConfig {
+        active_provider: None,
+        ..AppConfig::default()
+    };
+    let server = AgentAppServer::launch(config, workspace.path().into(), None)
+        .await
+        .unwrap();
+    let baseline = server.config.read().await.clone();
+    let previous = server.runtime.configuration_view().await.0;
+    assert!(std::ptr::eq(
+        baseline.as_ref(),
+        previous.assembly_plan.config()
+    ));
+
+    let mut next = baseline.as_ref().clone();
+    next.profile.name = "updated profile".into();
+    next.modes.insert(
+        "alternate".into(),
+        crate::domain::BehaviorModeDefinition {
+            instructions: Some("Use alternate instructions".into()),
+            ..Default::default()
+        },
+    );
+    let assembly = super::super::prepare_assembly(next.into(), workspace.path(), None)
+        .await
+        .unwrap();
+    server
+        .publish_profile(assembly, None, || async { Ok(()) })
+        .await
+        .unwrap();
+
+    let active = server.runtime.configuration_view().await.0;
+    let published = server.config.read().await.clone();
+    assert!(std::ptr::eq(
+        published.as_ref(),
+        active.assembly_plan.config()
+    ));
+    assert_eq!(published.profile.name, "updated profile");
+    assert_eq!(
+        previous.assembly_plan.config().profile.name,
+        baseline.profile.name
+    );
+    assert_ne!(
+        previous.assembly_plan.config().profile.name,
+        published.profile.name
+    );
+    server.set_behavior_mode("alternate".into()).await.unwrap();
+    let overlay = server.runtime.configuration_view().await.0;
+    assert_eq!(overlay.assembly_plan.config().instructions.len(), 1);
+    assert!(published.instructions.is_empty());
+
+    server
+        .set_behavior_mode(session_behavior::DEFAULT.into())
+        .await
+        .unwrap();
+    let restored = server.runtime.configuration_view().await.0;
+    assert!(std::ptr::eq(
+        published.as_ref(),
+        restored.assembly_plan.config()
+    ));
+    server.shutdown().await;
+}
+
 async fn saved_startup_store(root: &Path, workspace: &Path, text: &str) -> SessionStore {
     let store = SessionStore::new(
         crate::test_support::storage(std::path::Path::new(".")),
@@ -30,7 +96,7 @@ async fn stale_saved_transcript_refreshes_through_the_session_stream_without_a_t
     let config = root.path().join("config.toml");
     let store = saved_startup_store(root.path(), workspace.path(), "old display").await;
     let first = AgentAppServer::launch_resumed_with_storage(
-        crate::test_model::config(),
+        crate::test_model::config().into(),
         workspace.path().into(),
         Some(&config),
         store.session_dir().into(),
@@ -49,7 +115,7 @@ async fn stale_saved_transcript_refreshes_through_the_session_stream_without_a_t
         .unwrap();
     let before = std::fs::read(store.journal_path()).unwrap();
     let reopened = AgentAppServer::launch_resumed_with_storage(
-        crate::test_model::config(),
+        crate::test_model::config().into(),
         workspace.path().into(),
         Some(&config),
         store.session_dir().into(),
@@ -95,7 +161,7 @@ async fn clear_persists_empty_view_but_external_append_makes_it_a_resume_candida
     let config = root.path().join("config.toml");
     let store = saved_startup_store(root.path(), workspace.path(), "before clear").await;
     let handle = AgentAppServer::launch_resumed_with_storage(
-        crate::test_model::config(),
+        crate::test_model::config().into(),
         workspace.path().into(),
         Some(&config),
         store.session_dir().into(),
@@ -146,7 +212,7 @@ async fn clear_persists_empty_view_but_external_append_makes_it_a_resume_candida
         .unwrap();
     assert_eq!(view.summary.message_count, 1);
     let reopened = AgentAppServer::launch_or_resume_latest_with_storage(
-        crate::test_model::config(),
+        crate::test_model::config().into(),
         workspace.path().into(),
         Some(&config),
         Some(store.storage_service()),
@@ -252,7 +318,7 @@ async fn launch_or_resume_latest_uses_last_non_empty_workspace_session() {
     let preserved = saved_bytes(incompatible.session_dir());
 
     let handle = AgentAppServer::launch_or_resume_latest_with_storage(
-        crate::test_model::config(),
+        crate::test_model::config().into(),
         cwd.path().to_path_buf(),
         Some(&config_path),
         Some(saved_store.storage_service()),
@@ -312,7 +378,7 @@ async fn launch_or_resume_latest_starts_fresh_when_all_persisted_sessions_are_un
     );
     assert!(
         AgentAppServer::launch_resumed_with_storage(
-            crate::test_model::config(),
+            crate::test_model::config().into(),
             cwd.path().to_path_buf(),
             Some(&config_path),
             old_metadata.session_dir().to_path_buf(),

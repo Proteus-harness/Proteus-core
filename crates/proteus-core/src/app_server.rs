@@ -11,11 +11,11 @@ use tokio::sync::{Mutex, RwLock, broadcast};
 use crate::{
     contracts::{CancellationToken, EventSink, FilteredEventSink, is_streaming_delta},
     core::{
-        AgentRuntime, AppConfig, AssemblyPlan, ChannelApprovalTransport, ChannelUserInputTransport,
-        FanoutEventSink, JsonlEventStore, ModuleCatalog, PreparedAssembly, ReservedRunCompletion,
-        SessionStore, StorageService, TopologyBuildInput, TopologySnapshot, UserMessageReservation,
-        build_topology_snapshot, config_store_root, delete_workspace_session,
-        list_session_summaries, list_workspace_session_summaries,
+        AgentRuntime, AgentRuntimeBuilder, AppConfig, AssemblyPlan, ChannelApprovalTransport,
+        ChannelUserInputTransport, FanoutEventSink, JsonlEventStore, ModuleCatalog,
+        PreparedAssembly, ReservedRunCompletion, SessionStore, StorageService, TopologyBuildInput,
+        TopologySnapshot, UserMessageReservation, build_topology_snapshot, config_store_root,
+        delete_workspace_session, list_session_summaries, list_workspace_session_summaries,
     },
     domain::{AgentOutput, PermissionMode, SessionId, new_thread_id},
 };
@@ -454,8 +454,7 @@ impl AppServerHandle {
     }
 }
 
-async fn selected_storage(config: &AppConfig, cwd: &Path) -> Result<Option<StorageService>> {
-    let config = config.clone();
+async fn selected_storage(config: Arc<AppConfig>, cwd: &Path) -> Result<Option<StorageService>> {
     let cwd = cwd.to_owned();
     tokio::task::spawn_blocking(move || ModuleCatalog::selected_session_storage(&config, &cwd))
         .await
@@ -467,6 +466,14 @@ pub struct AgentAppServer;
 impl AgentAppServer {
     pub async fn launch(
         config: AppConfig,
+        cwd: PathBuf,
+        config_path: Option<&Path>,
+    ) -> Result<AppServerHandle> {
+        Self::launch_shared(config.into(), cwd, config_path).await
+    }
+
+    async fn launch_shared(
+        config: Arc<AppConfig>,
         cwd: PathBuf,
         config_path: Option<&Path>,
     ) -> Result<AppServerHandle> {
@@ -483,8 +490,8 @@ impl AgentAppServer {
         .await
     }
 
-    pub(crate) async fn launch_child(
-        config: AppConfig,
+    async fn launch_child(
+        config: Arc<AppConfig>,
         cwd: PathBuf,
         config_path: Option<&Path>,
         parent_session_id: crate::domain::SessionId,
@@ -508,12 +515,20 @@ impl AgentAppServer {
         cwd: PathBuf,
         config_path: Option<&Path>,
     ) -> Result<AppServerHandle> {
-        let storage = selected_storage(&config, &cwd).await?;
+        Self::launch_or_resume_latest_shared(config.into(), cwd, config_path).await
+    }
+
+    async fn launch_or_resume_latest_shared(
+        config: Arc<AppConfig>,
+        cwd: PathBuf,
+        config_path: Option<&Path>,
+    ) -> Result<AppServerHandle> {
+        let storage = selected_storage(config.clone(), &cwd).await?;
         Self::launch_or_resume_latest_with_storage(config, cwd, config_path, storage).await
     }
 
     pub(crate) async fn launch_or_resume_latest_with_storage(
-        config: AppConfig,
+        config: Arc<AppConfig>,
         cwd: PathBuf,
         config_path: Option<&Path>,
         storage: Option<StorageService>,
@@ -548,14 +563,23 @@ impl AgentAppServer {
         config_path: Option<&Path>,
         session_dir: PathBuf,
     ) -> Result<AppServerHandle> {
-        let storage = selected_storage(&config, &cwd)
+        Self::launch_resumed_shared(config.into(), cwd, config_path, session_dir).await
+    }
+
+    async fn launch_resumed_shared(
+        config: Arc<AppConfig>,
+        cwd: PathBuf,
+        config_path: Option<&Path>,
+        session_dir: PathBuf,
+    ) -> Result<AppServerHandle> {
+        let storage = selected_storage(config.clone(), &cwd)
             .await?
             .ok_or_else(|| anyhow!("no session storage module is selected"))?;
         Self::launch_resumed_with_storage(config, cwd, config_path, session_dir, storage).await
     }
 
     pub(crate) async fn launch_with_storage(
-        config: AppConfig,
+        config: Arc<AppConfig>,
         cwd: PathBuf,
         config_path: Option<&Path>,
         storage: Option<StorageService>,
@@ -574,7 +598,7 @@ impl AgentAppServer {
     }
 
     pub(crate) async fn launch_resumed_with_storage(
-        config: AppConfig,
+        config: Arc<AppConfig>,
         cwd: PathBuf,
         config_path: Option<&Path>,
         session_dir: PathBuf,
@@ -590,7 +614,7 @@ impl AgentAppServer {
     }
 
     async fn launch_prepared_with_storage(
-        config: AppConfig,
+        config: Arc<AppConfig>,
         cwd: PathBuf,
         config_path: Option<&Path>,
         resumed: crate::core::PreparedSession,
@@ -617,7 +641,7 @@ impl AgentAppServer {
         module_catalog: ModuleCatalog,
     ) -> Result<AppServerHandle> {
         Box::pin(Self::launch_inner(
-            config,
+            config.into(),
             cwd,
             config_path,
             Some(module_catalog),
@@ -630,7 +654,7 @@ impl AgentAppServer {
     }
 
     async fn launch_inner(
-        config: AppConfig,
+        config: Arc<AppConfig>,
         mut cwd: PathBuf,
         config_path: Option<&Path>,
         module_catalog: Option<ModuleCatalog>,
@@ -665,7 +689,7 @@ impl AgentAppServer {
         let approval_timeout = Duration::from_millis(config.app_server.approval_timeout_ms);
         let (approval_transport, approval_rx) = ChannelApprovalTransport::new(32);
         let (user_input_transport, user_input_rx) = ChannelUserInputTransport::new(32);
-        let mut builder = AgentRuntime::builder(config.clone(), cwd)
+        let mut builder = AgentRuntimeBuilder::from_shared_config(config.clone(), cwd)
             .with_config_path(config_path)
             .with_event_sink(event_sink)
             .with_approval(Arc::new(approval_transport))
@@ -741,9 +765,8 @@ impl AgentAppServer {
             inner: Arc::new(AppServerState {
                 runtime,
                 storage,
-                // Publish the same original profile used for startup selection;
-                // only the runtime builder needs an independent owned copy.
-                config: Arc::new(RwLock::new(config)),
+                // The assembly can share this immutable profile until a settings overlay is applied.
+                config: RwLock::new(config),
                 config_path: config_path_snapshot,
                 cwd: cwd_snapshot,
                 events,
@@ -795,26 +818,25 @@ async fn completed_transcript_from_commit(
 
 async fn reload_tools_config(
     config_path: Option<&Path>,
-    current: &RwLock<AppConfig>,
-) -> Result<AppConfig> {
+    current: &RwLock<Arc<AppConfig>>,
+) -> Result<Arc<AppConfig>> {
     let mut config = current.read().await.clone();
     if let Some(path) = config_path {
         let loaded = AppConfig::load(Some(path)).await?;
-        config.tools = loaded.tools;
+        Arc::make_mut(&mut config).tools = loaded.tools;
     }
     Ok(config)
 }
 
 async fn prepare_assembly(
-    config: &AppConfig,
+    config: Arc<AppConfig>,
     cwd: &Path,
     config_path: Option<&Path>,
 ) -> Result<PreparedAssembly> {
-    let config = config.clone();
     let cwd = cwd.to_path_buf();
     let config_path = config_path.map(Path::to_path_buf);
     tokio::task::spawn_blocking(move || {
-        PreparedAssembly::from_config(config, cwd, config_path.as_deref())
+        PreparedAssembly::from_catalog_with_storage(config, cwd, config_path.as_deref(), None, None)
     })
     .await
     .map_err(|error| anyhow!("assembly builder blocking task failed: {error}"))?

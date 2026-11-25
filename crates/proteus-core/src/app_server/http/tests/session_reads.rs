@@ -29,7 +29,7 @@ async fn paged_snapshot_full_history_and_revision_checked_pages_agree() {
     let store = faults.store(store);
     let before = std::fs::read(store.journal_path()).unwrap();
     let server = AgentAppServer::launch_resumed_with_storage(
-        crate::test_model::config(),
+        crate::test_model::config().into(),
         cwd.path().into(),
         Some(&config),
         store.session_dir().into(),
@@ -157,7 +157,7 @@ async fn route_history_can_read_requested_cold_session_without_changing_live_reg
         .expect("append saved history");
     let faults = crate::app_server::read_model::faults::CacheFaults::default();
     let server = AgentAppServer::launch_with_storage(
-        crate::test_model::config(),
+        crate::test_model::config().into(),
         cwd.path().to_path_buf(),
         Some(&config_path),
         Some(faults.wrap(saved_store.service.clone())),

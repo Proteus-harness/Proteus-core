@@ -615,7 +615,7 @@ async fn http_rejects_storage_binding_drift_before_new_or_cold_resume() {
     let config_path = state.launch.config_path.as_ref().unwrap();
     let initial_count = state.all_servers().await.len();
     for change in ["selection", "command", "config", "transport", "export"] {
-        let mut changed = serde_json::to_value(&baseline).unwrap();
+        let mut changed = serde_json::to_value(baseline.as_ref()).unwrap();
         match change {
             "selection" => changed["modules"]["session_storage"] = Value::Null,
             "command" => {
@@ -663,16 +663,15 @@ async fn http_rejects_storage_binding_drift_before_new_or_cold_resume() {
 #[tokio::test]
 async fn http_source_session_must_match_pinned_storage_but_model_settings_may_change() {
     let (state, server, _root) = test_state().await;
-    server.config.write().await.runtime.context_timeout_ms += 1;
+    Arc::make_mut(&mut *server.config.write().await)
+        .runtime
+        .context_timeout_ms += 1;
     let opened = execute_new_session(&state, None, server.session_dir_path(), None).await;
     assert!(
         matches!(opened, StdioOutput::Response { ok: true, .. }),
         "{opened:?}"
     );
-    server
-        .config
-        .write()
-        .await
+    Arc::make_mut(&mut *server.config.write().await)
         .module_config
         .entry("session_storage".into())
         .or_default()

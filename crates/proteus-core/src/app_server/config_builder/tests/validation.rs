@@ -67,7 +67,7 @@ async fn invalid_save_preserves_disk_and_live_epoch_then_valid_save_succeeds() {
         let root = tempfile::tempdir().unwrap();
         let (source, target, server) = launch(root.path(), format, fixture_config()).await;
         let disk = std::fs::read(&target).ok();
-        let live = serde_json::to_value(&*server.config.read().await).unwrap();
+        let live = serde_json::to_value(server.config.read().await.as_ref()).unwrap();
         let epoch = server.runtime.module_epoch().await;
         for (request, message) in [
             (
@@ -90,7 +90,7 @@ async fn invalid_save_preserves_disk_and_live_epoch_then_valid_save_succeeds() {
             );
             assert_eq!(std::fs::read(&target).ok(), disk, "{format}: disk changed");
             assert_eq!(
-                serde_json::to_value(&*server.config.read().await).unwrap(),
+                serde_json::to_value(server.config.read().await.as_ref()).unwrap(),
                 live
             );
             assert_eq!(server.runtime.module_epoch().await, epoch);
@@ -143,7 +143,7 @@ async fn empty_profile_save_remains_model_free_and_cold_loadable() {
         let cold = AppConfig::load(Some(&source)).await.unwrap();
         assert_eq!(serde_json::to_value(cold).unwrap(), initial, "{format}");
         assert_eq!(
-            serde_json::to_value(&*server.config.read().await).unwrap(),
+            serde_json::to_value(server.config.read().await.as_ref()).unwrap(),
             initial
         );
         server

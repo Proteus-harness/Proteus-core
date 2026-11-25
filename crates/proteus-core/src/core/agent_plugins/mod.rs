@@ -21,37 +21,33 @@ pub(crate) struct ResolvedAddons {
 
 /// Read only fixed package metadata, with the same containment as loading.
 /// Skill bodies are invocation-time data owned by the provider, not registry wiring.
-pub(crate) fn fingerprint(config: &AddonConfig, cwd: &Path) -> Vec<u8> {
-    let documents = config
-        .plugins
-        .iter()
-        .map(|plugin| {
-            let path = crate::core::expand_user_path(&plugin.path);
-            let path = if path.is_absolute() {
-                path
-            } else {
-                cwd.join(path)
-            };
-            match path.canonicalize() {
-                Ok(root) => ["plugin.json", "mcp.json"]
-                    .iter()
-                    .map(|name| {
-                        if *name == "mcp.json"
-                            && std::fs::symlink_metadata(root.join(name)).is_err()
-                        {
-                            return serde_json::Value::Null;
-                        }
-                        match paths::read_json(&root, name) {
-                            Ok(value) => value,
-                            Err(error) => serde_json::json!({"error":format!("{error:#}")}),
-                        }
-                    })
-                    .collect::<Vec<_>>(),
-                Err(error) => vec![serde_json::json!({"error":error.to_string()})],
-            }
-        })
-        .collect::<Vec<_>>();
-    serde_json::to_vec(&documents).expect("JSON values serialize")
+pub(crate) fn fingerprint_documents<'a>(
+    config: &'a AddonConfig,
+    cwd: &'a Path,
+) -> impl Iterator<Item = Vec<serde_json::Value>> + 'a {
+    config.plugins.iter().map(move |plugin| {
+        let path = crate::core::expand_user_path(&plugin.path);
+        let path = if path.is_absolute() {
+            path
+        } else {
+            cwd.join(path)
+        };
+        match path.canonicalize() {
+            Ok(root) => ["plugin.json", "mcp.json"]
+                .iter()
+                .map(|name| {
+                    if *name == "mcp.json" && std::fs::symlink_metadata(root.join(name)).is_err() {
+                        return serde_json::Value::Null;
+                    }
+                    match paths::read_json(&root, name) {
+                        Ok(value) => value,
+                        Err(error) => serde_json::json!({"error":format!("{error:#}")}),
+                    }
+                })
+                .collect::<Vec<_>>(),
+            Err(error) => vec![serde_json::json!({"error":error.to_string()})],
+        }
+    })
 }
 
 pub(crate) fn resolve(config: &AddonConfig, cwd: &Path) -> ResolvedAddons {
