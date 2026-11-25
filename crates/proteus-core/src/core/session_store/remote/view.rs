@@ -242,7 +242,6 @@ impl RemoteSessionStore {
         cache::transcript_page(self, before, revision, false)
     }
 
-    #[cfg(test)]
     pub(crate) fn saved_display_page(&self) -> Option<AppTranscriptPage> {
         cache::transcript_page(self, None, None, true)
     }

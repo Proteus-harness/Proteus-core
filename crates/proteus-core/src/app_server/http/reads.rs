@@ -61,6 +61,10 @@ async fn read(state: &HttpAppState, path: &str, query: Option<&str>) -> Result<H
             StatusCode::OK,
             &super::sessions::history_page_json(state, query).await?,
         ),
+        "/history/cached-tail" => json_response(
+            StatusCode::OK,
+            &super::sessions::cached_history_tail_json(state, query).await?,
+        ),
         "/history/tool-state" => json_response(
             StatusCode::OK,
             &super::sessions::tool_state_json(state, query).await?,

@@ -17,6 +17,7 @@ use crate::app_server::{
     AppContextMapSnapshot, AppServerHandle, AppSessionActivity, AppSessionSummary,
     AppTranscriptMessage,
 };
+use proteus_contracts::app_protocol::AppTranscriptPage;
 
 pub(super) async fn session_summaries(
     state: &HttpAppState,
@@ -248,7 +249,7 @@ pub(super) async fn usage_json(
 pub(super) async fn history_page_json(
     state: &HttpAppState,
     query: Option<&str>,
-) -> Result<proteus_contracts::app_protocol::AppTranscriptPage> {
+) -> Result<AppTranscriptPage> {
     let dir = state
         .resolve_session_dir(canonicalize_session_dir_path(required_session_query(
             query,
@@ -271,6 +272,18 @@ pub(super) async fn history_page_json(
     })
     .await
     .map_err(|error| anyhow!("history page task failed: {error}"))?
+}
+
+/// Read the same provisional tail as resume, without opening the journal.
+pub(super) async fn cached_history_tail_json(
+    state: &HttpAppState,
+    query: Option<&str>,
+) -> Result<Option<AppTranscriptPage>> {
+    let dir = canonicalize_session_dir_path(required_session_query(query)?)?;
+    let storage = state.storage_service()?;
+    tokio::task::spawn_blocking(move || SessionStore::open(storage, dir).ok()?.saved_display_page())
+        .await
+        .map_err(|error| anyhow!("saved history preview task failed: {error}"))
 }
 
 pub(super) async fn server_for_session(

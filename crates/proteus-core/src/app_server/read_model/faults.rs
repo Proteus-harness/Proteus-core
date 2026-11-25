@@ -10,14 +10,17 @@ use anyhow::Result;
 use async_trait::async_trait;
 use std::sync::{
     Arc,
-    atomic::{AtomicU8, Ordering},
+    atomic::{AtomicU8, AtomicUsize, Ordering},
 };
 
 #[derive(Clone, Default)]
-pub(crate) struct CacheFaults(Arc<AtomicU8>);
+pub(crate) struct CacheFaults {
+    mode: Arc<AtomicU8>,
+    journal_reads: Arc<AtomicUsize>,
+}
 impl CacheFaults {
     pub(crate) fn set(&self, name: &str) {
-        self.0.store(
+        self.mode.store(
             match name {
                 "none" => 0,
                 "missing" => 1,
@@ -28,6 +31,9 @@ impl CacheFaults {
             },
             Ordering::SeqCst,
         );
+    }
+    pub(crate) fn journal_reads(&self) -> usize {
+        self.journal_reads.load(Ordering::SeqCst)
     }
     pub(crate) fn wrap(&self, inner: StorageService) -> StorageService {
         Arc::new(FaultStorage {
@@ -46,7 +52,16 @@ struct FaultStorage {
 }
 impl FaultStorage {
     fn intercept(&self, request: &Request) -> Option<Response> {
-        match (self.faults.0.load(Ordering::SeqCst), request) {
+        if matches!(
+            request,
+            Request::OpenSnapshot { .. }
+                | Request::OpenDisplaySnapshot { .. }
+                | Request::ReadRecords { .. }
+                | Request::ReadDisplayRecords { .. }
+        ) {
+            self.faults.journal_reads.fetch_add(1, Ordering::SeqCst);
+        }
+        match (self.faults.mode.load(Ordering::SeqCst), request) {
             (1 | 4, Request::ReadCache { .. }) => Some(Response::Metadata { document: None }),
             (2, Request::ReadCache { .. }) => Some(Response::Metadata {
                 document: Some(StorageMetadataDocument {

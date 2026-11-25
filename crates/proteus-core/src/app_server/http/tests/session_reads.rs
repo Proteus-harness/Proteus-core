@@ -155,15 +155,29 @@ async fn route_history_can_read_requested_cold_session_without_changing_live_reg
         )
         .await
         .expect("append saved history");
-    let server = AgentAppServer::launch(
+    let faults = crate::app_server::read_model::faults::CacheFaults::default();
+    let server = AgentAppServer::launch_with_storage(
         crate::test_model::config(),
         cwd.path().to_path_buf(),
         Some(&config_path),
+        Some(faults.wrap(saved_store.service.clone())),
     )
     .await
     .expect("app server");
     let (shutdown, _) = broadcast::channel(1);
     let state = HttpAppState::new(server.clone(), shutdown, test_security()).await;
+
+    let preview = format!(
+        "/history/cached-tail?session_dir={}",
+        saved_store.session_dir().display()
+    );
+    let reads = faults.journal_reads();
+    let response = route_request(state.clone(), authed_get_request(&preview))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response_bytes(response).await.as_ref(), b"null");
+    assert_eq!(faults.journal_reads(), reads);
 
     let response = route_request(
         state.clone(),
@@ -187,6 +201,29 @@ async fn route_history_can_read_requested_cold_session_without_changing_live_reg
         transcript[0].get("text").and_then(Value::as_str),
         Some("saved cold history")
     );
+    let reads_after_rebuild = faults.journal_reads();
+    assert!(reads_after_rebuild > reads);
+    let response = route_request(state.clone(), authed_get_request(&preview))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let page: proteus_contracts::app_protocol::AppTranscriptPage =
+        serde_json::from_slice(&response_bytes(response).await).unwrap();
+    assert_eq!((page.start, page.total), (0, 1));
+    assert_eq!(
+        serde_json::to_value(page.messages).unwrap(),
+        Value::Array(transcript)
+    );
+    assert_eq!(faults.journal_reads(), reads_after_rebuild);
+    faults.set("checksum");
+    let response = route_request(state.clone(), authed_get_request(&preview))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response_bytes(response).await.as_ref(), b"null");
+    assert_eq!(faults.journal_reads(), reads_after_rebuild);
+    faults.set("none");
+
     let analysis = route_request(
         state.clone(),
         authed_get_request(&format!(
