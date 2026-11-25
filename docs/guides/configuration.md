@@ -889,6 +889,7 @@ timeout_ms = 60000
 | `env_allowlist` | parent env names, разрешённые child process |
 | `env` | scoped literal env; перекрывает allowlist |
 | `handshake_timeout_ms` | единый initialize timeout: подготовка, запись и ответ |
+| `release_when_idle` | разрешает дочернему stdio Core завершать процесс после ответа и запускать заново по требованию. По умолчанию выключено |
 | `transport.max_frame_bytes` | максимальный размер кадра только этого component; по умолчанию 8 MiB, допустимо 1–128 MiB |
 | `description` | fallback observability text для exports |
 | `exports.<slot>.<module_id>` | непустая exact export map, обязательно |
@@ -1626,9 +1627,14 @@ tools, policy и содержательные ограничения не нас
 bounds. Поставляемые `config.toml` и `codex.config.toml` описывают read-only
 explorer inline. Named `codex-explore` и `codex-coder` остаются отдельными
 примерами полных peers; их tool surfaces и policy находятся в child profiles.
-После завершения задачи пул может сохранять дочерний Core с его активными
-модулями для следующего обращения по `task_id`. Общий предел таких процессов
-задаёт `max_idle_processes`. Параметр роли `max_processes` ограничивает параллельное исполнение.
+После ответа пул сохраняет дочерний Core, историю сессии и выбранную модель
+для продолжения по тому же `task_id`. В штатных ролях Codex процессы файловых
+и Git-инструментов и других компонентов с `release_when_idle = true`
+завершаются в простое и запускаются при следующем обращении. Модель и
+хранилище сессий остаются запущенными. Живой терминал роли coder также
+доступен при продолжении. Общий предел простаивающих дочерних Core задаёт
+`max_idle_processes`. После вытеснения самого Core прежний `task_id` истекает.
+Параметр роли `max_processes` ограничивает параллельное исполнение.
 При заданном `max_summary_bytes` родитель удерживает UTF-8-префикс ответа
 в этом бюджете, в том числе во время получения текста для частичного результата.
 `codex-task.config.toml` явно выбирает task facade и inline coder с worktree.

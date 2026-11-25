@@ -282,7 +282,6 @@ impl LoopState {
         let pending = std::mem::take(&mut self.pending);
         self.queued_roots.clear();
         self.pending_callback_counts.clear();
-        self.used_callback_ids.clear();
         self.active_roots = 0;
         self.active_nested = 0;
         for (_, mut invocation) in pending {
@@ -296,6 +295,11 @@ impl LoopState {
         }
         self.last_failure = Some(failure);
         self.last_failure_reason = reason.map(bounded_failure_reason);
+        self.advance_generation();
+    }
+
+    pub(super) fn advance_generation(&mut self) {
+        self.used_callback_ids.clear();
         self.generation = self.generation.saturating_add(1);
         self.next_host_sequence = 1;
     }

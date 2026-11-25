@@ -197,6 +197,7 @@ pub async fn run_stdio_app_server(
                     }
                     Ok(SendDispatch::Started(result)) => {
                         let tx = output_tx.clone();
+                        let pooled_child = parent_session_id.is_some().then(|| server.clone());
                         tokio::spawn(async move {
                             let result = match result.await {
                                 Ok(result) => result.and_then(|output| {
@@ -205,6 +206,15 @@ pub async fn run_stdio_app_server(
                                 Err(error) => Err(error.into()),
                             };
                             send_stdio_response(&tx, id, result).await;
+                            // A settled turn can be reported before reclaiming workers.
+                            // The session admission lock arbitrates an immediate follow-up.
+                            if let Some(child) = pooled_child
+                                && let Err(error) = child.release_idle_component_workers().await
+                            {
+                                eprintln!(
+                                    "warning: could not release idle component workers: {error:#}"
+                                );
+                            }
                         });
                     }
                     Err(error) => send_stdio_response(&output_tx, id, Err(error)).await,

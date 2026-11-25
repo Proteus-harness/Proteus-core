@@ -10,7 +10,7 @@ use anyhow::Result;
 use proteus_process_host::{NewlineJsonFraming, ProcessTransport};
 
 use super::{
-    broker::{ComponentBrokerSnapshot, ControlCommand, StartRequest},
+    broker::{ComponentBrokerSnapshot, ControlCommand, RootCommand, StartRequest},
     handshake::initialize_transport,
     invocation::{
         CancelCause, ComponentBrokerError, ComponentBrokerErrorKind, ComponentFailure,
@@ -27,7 +27,7 @@ const MAX_FRAMES_PER_TICK: usize = 32;
 impl LoopState {
     pub(super) fn run(
         &mut self,
-        root_rx: Receiver<StartRequest>,
+        root_rx: Receiver<RootCommand>,
         control_rx: Receiver<ControlCommand>,
         stopped: &AtomicBool,
     ) {
@@ -55,9 +55,15 @@ impl LoopState {
 
             for _ in 0..MAX_ROOT_COMMANDS_PER_TICK {
                 match root_rx.try_recv() {
-                    Ok(request) => {
+                    Ok(RootCommand::Start(request)) => {
                         active_tick = true;
                         self.accept_start(request);
+                    }
+                    Ok(RootCommand::ReleaseIdle { ack }) => {
+                        active_tick = true;
+                        if !ack.is_closed() {
+                            let _ = ack.send(self.release_idle_worker());
+                        }
                     }
                     Err(TryRecvError::Empty) => break,
                     Err(TryRecvError::Disconnected) => break,
@@ -157,6 +163,28 @@ impl LoopState {
             last_failure: self.last_failure,
             last_failure_reason: self.last_failure_reason.clone(),
         }
+    }
+
+    fn release_idle_worker(&mut self) -> Result<bool, ComponentBrokerError> {
+        if !self.pending.is_empty() || !self.callbacks.is_empty() {
+            return Ok(false);
+        }
+        let Some(mut worker) = self.worker.take() else {
+            return Ok(false);
+        };
+        if let Err(error) = worker.transport.terminate() {
+            let reason = format!(
+                "failed to terminate idle component generation {}: {error:#}",
+                self.generation,
+            );
+            self.resource_failure(reason.clone());
+            return Err(ComponentBrokerError::new(
+                ComponentBrokerErrorKind::RuntimeUnavailable,
+                reason,
+            ));
+        }
+        self.advance_generation();
+        Ok(true)
     }
 
     fn ensure_worker(&mut self) -> Result<u32> {

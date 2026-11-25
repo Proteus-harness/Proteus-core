@@ -89,6 +89,38 @@ impl RuntimeRegistry {
         }
     }
 
+    pub(crate) async fn release_idle_component_workers(&self) -> Result<usize> {
+        use futures_util::stream::{FuturesUnordered, StreamExt};
+
+        if !self
+            .config_exports
+            .iter()
+            .any(|export| export.releases_when_idle())
+        {
+            return Ok(0);
+        }
+        let workspace = self.cwd.canonicalize()?;
+        let mut seen = std::collections::HashSet::new();
+        let mut workers = FuturesUnordered::new();
+        for export in &self.config_exports {
+            if export.releases_when_idle() && seen.insert(export.component_id()) {
+                workers.push(export.release_idle_broker(&workspace));
+            }
+        }
+        let mut released = 0;
+        let mut first_error = None;
+        while let Some(result) = workers.next().await {
+            match result {
+                Ok(true) => released += 1,
+                Ok(false) => {}
+                Err(error) => {
+                    first_error.get_or_insert(error);
+                }
+            }
+        }
+        first_error.map_or(Ok(released), Err)
+    }
+
     /// Reuse the configured component's metadata path without preparing an
     /// assembly, binding a model, or calling the provider's describe method.
     pub(crate) async fn inactive_model_catalog(

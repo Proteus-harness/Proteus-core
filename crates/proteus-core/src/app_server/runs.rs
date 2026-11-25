@@ -45,12 +45,13 @@ struct StandaloneOperation {
 }
 
 impl RunRegistry {
+    fn is_idle(&self) -> bool {
+        !self.closed && self.active.is_none() && !self.command_active && self.operations.is_empty()
+    }
+
     pub(super) fn ensure_idle_for_model_configuration(&self) -> Result<()> {
         anyhow::ensure!(
-            !self.closed
-                && self.active.is_none()
-                && !self.command_active
-                && self.operations.is_empty(),
+            self.is_idle(),
             "model configuration requires an idle session"
         );
         Ok(())
@@ -102,15 +103,19 @@ impl AppServerHandle {
     /// can slip between the idle check and shutdown.
     pub(super) async fn close_idle_runs(&self) -> Result<()> {
         let mut runs = self.runs.lock().await;
-        anyhow::ensure!(
-            !runs.closed
-                && runs.active.is_none()
-                && !runs.command_active
-                && runs.operations.is_empty(),
-            "new session requires an idle session"
-        );
+        anyhow::ensure!(runs.is_idle(), "new session requires an idle session");
         runs.closed = true;
         Ok(())
+    }
+
+    /// Called after child stdio turns. Hold admission until broker retirement
+    /// completes so a follow-up cannot race the just-settled turn's release.
+    pub(super) async fn release_idle_component_workers(&self) -> Result<usize> {
+        let runs = self.runs.lock().await;
+        if !runs.is_idle() {
+            return Ok(0);
+        }
+        self.runtime.release_idle_component_workers().await
     }
 
     pub async fn clear_history(&self) -> Result<()> {

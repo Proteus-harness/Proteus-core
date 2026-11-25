@@ -43,6 +43,18 @@ impl super::AgentRuntime {
             self.session.release_history().await;
         }
     }
+
+    pub(crate) async fn release_idle_component_workers(&self) -> anyhow::Result<usize> {
+        let Ok(_run) = self.session.run_lock.try_lock() else {
+            return Ok(0);
+        };
+        let state = self.services.execution_state.read().await;
+        state
+            .runtime
+            .registry
+            .release_idle_component_workers()
+            .await
+    }
 }
 
 fn release_unused_pages() {

@@ -45,6 +45,8 @@ pub struct ProcessComponentConfig {
     handshake_timeout_ms: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     transport: Option<ComponentTransportConfig>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    release_when_idle: bool,
     #[serde(default)]
     description: Option<String>,
     /// Opaque presentation reference; this process host never opens or fetches it.
@@ -136,6 +138,8 @@ impl ProcessComponentConfig {
             handshake_timeout_ms: &'a Option<u64>,
             #[serde(skip_serializing_if = "Option::is_none")]
             transport: &'a Option<ComponentTransportConfig>,
+            #[serde(skip_serializing_if = "std::ops::Not::not")]
+            release_when_idle: bool,
             description: &'a Option<String>,
             exports: &'a BTreeMap<String, BTreeMap<String, ProcessExportLaunchConfig>>,
         }
@@ -148,6 +152,7 @@ impl ProcessComponentConfig {
             sandbox: (!self.sandbox.is_trusted()).then_some(&self.sandbox),
             handshake_timeout_ms: &self.handshake_timeout_ms,
             transport: &self.transport,
+            release_when_idle: self.release_when_idle,
             description: &self.description,
             exports: &self.exports,
         }
@@ -182,6 +187,9 @@ impl ProcessComponentConfig {
         }
         if self.exports.is_empty() {
             bail!("{path}.exports must not be empty");
+        }
+        if self.release_when_idle && self.exports.contains_key("session_storage") {
+            bail!("{path}.release_when_idle cannot be used with session_storage exports");
         }
         for (slot, modules) in &self.exports {
             if slot.trim().is_empty() {
@@ -347,6 +355,13 @@ impl ProcessComponentLauncher {
         drop(released);
         Ok(())
     }
+
+    fn cached_broker(&self, workspace: &Path) -> Result<Option<Arc<ComponentBroker>>> {
+        let brokers = self.brokers.lock().map_err(|_| {
+            anyhow::anyhow!("component {:?} broker cache poisoned", self.component_id)
+        })?;
+        Ok(brokers.get(workspace).cloned())
+    }
 }
 
 /// One typed module export plus a shared component launcher.
@@ -413,6 +428,22 @@ impl ProcessExportConfig {
     pub(crate) fn release_discovery_brokers(&self) -> Result<()> {
         self.launcher.release_discovery_brokers()
     }
+
+    pub(crate) fn releases_when_idle(&self) -> bool {
+        self.launcher.config.release_when_idle
+    }
+
+    pub(crate) async fn release_idle_broker(&self, workspace: &Path) -> Result<bool> {
+        let Some(broker) = self.launcher.cached_broker(workspace)? else {
+            return Ok(false);
+        };
+        broker.release_if_idle().await.with_context(|| {
+            format!(
+                "release idle worker for component {:?}",
+                self.component_id()
+            )
+        })
+    }
 }
 
 #[cfg(test)]
@@ -468,6 +499,40 @@ mod tests {
         assert_eq!(
             serde_json::to_vec(&original.execution_identity()).unwrap(),
             serde_json::to_vec(&decorated.execution_identity()).unwrap()
+        );
+    }
+
+    #[test]
+    fn idle_release_is_preserved_in_execution_identity_and_excludes_storage() {
+        let config = serde_json::json!({
+            "command": "worker",
+            "release_when_idle": true,
+            "exports": {"tool": {"fixture": {}}}
+        });
+        let component: ProcessComponentConfig = serde_json::from_value(config).unwrap();
+        component
+            .validate_for("fixture", "components.fixture")
+            .unwrap();
+        assert_eq!(
+            serde_json::to_value(&component).unwrap()["release_when_idle"],
+            true
+        );
+        assert_eq!(
+            serde_json::to_value(component.execution_identity()).unwrap()["release_when_idle"],
+            true
+        );
+        let storage: ProcessComponentConfig = serde_json::from_value(serde_json::json!({
+            "command": "worker",
+            "release_when_idle": true,
+            "exports": {"tool": {"fixture": {}}, "session_storage": {"jsonl": {}}}
+        }))
+        .unwrap();
+        assert!(
+            storage
+                .validate_for("fixture", "components.fixture")
+                .unwrap_err()
+                .to_string()
+                .contains("cannot be used with session_storage")
         );
     }
 

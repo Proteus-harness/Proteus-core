@@ -45,6 +45,13 @@ pub(crate) struct StartRequest {
     pub(super) bootstrap: bool,
 }
 
+pub(super) enum RootCommand {
+    Start(StartRequest),
+    ReleaseIdle {
+        ack: oneshot::Sender<Result<bool, ComponentBrokerError>>,
+    },
+}
+
 pub(super) enum StartAck {
     Async(oneshot::Sender<Result<StartMeta, ComponentBrokerError>>),
     Blocking(mpsc::Sender<Result<StartMeta, ComponentBrokerError>>),
@@ -110,7 +117,7 @@ pub struct ComponentBrokerSnapshot {
 }
 
 struct BrokerInner {
-    root_tx: CommandSender<StartRequest>,
+    root_tx: CommandSender<RootCommand>,
     control_tx: CommandSender<ControlCommand>,
     binding: ProcessComponentBinding,
     options: ComponentBrokerOptions,
@@ -374,7 +381,7 @@ impl ComponentBroker {
                 }
             }
         } else {
-            match self.inner.root_tx.try_send(request) {
+            match self.inner.root_tx.try_send(RootCommand::Start(request)) {
                 Ok(()) => {}
                 Err(TrySendError::Full(_)) => {
                     return Err(ComponentBrokerError::new(
@@ -510,12 +517,15 @@ impl ComponentBroker {
                     )
                 })?;
         } else {
-            self.inner.root_tx.try_send(request).map_err(|error| {
-                ComponentBrokerError::new(
-                    ComponentBrokerErrorKind::Admission,
-                    format!("component-v3 blocking admission failed: {error}"),
-                )
-            })?;
+            self.inner
+                .root_tx
+                .try_send(RootCommand::Start(request))
+                .map_err(|error| {
+                    ComponentBrokerError::new(
+                        ComponentBrokerErrorKind::Admission,
+                        format!("component-v3 blocking admission failed: {error}"),
+                    )
+                })?;
         }
         ack_rx
             .recv_timeout(
@@ -560,6 +570,29 @@ impl ComponentBroker {
         ack_rx.recv_timeout(COMMAND_ACK_SLACK).map_err(|_| {
             ComponentBrokerError::stopped("component broker did not acknowledge reset")
         })
+    }
+
+    /// Stops an idle worker and leaves the broker ready for a new generation.
+    /// Earlier root admissions are handled first. A busy broker skips release.
+    pub async fn release_if_idle(&self) -> Result<bool, ComponentBrokerError> {
+        let (ack_tx, ack_rx) = oneshot::channel();
+        match self
+            .inner
+            .root_tx
+            .try_send(RootCommand::ReleaseIdle { ack: ack_tx })
+        {
+            Ok(()) => {}
+            Err(TrySendError::Full(_)) => return Ok(false),
+            Err(TrySendError::Disconnected(_)) => {
+                return Err(ComponentBrokerError::stopped("component broker is stopped"));
+            }
+        }
+        tokio::time::timeout(COMMAND_ACK_SLACK, ack_rx)
+            .await
+            .map_err(|_| {
+                ComponentBrokerError::stopped("component broker did not acknowledge idle release")
+            })?
+            .map_err(|_| ComponentBrokerError::stopped("component broker dropped idle release"))?
     }
 }
 

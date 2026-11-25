@@ -236,6 +236,63 @@ async fn targeted_cancel_keeps_sibling_and_generation() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn idle_release_preserves_pending_calls_and_restarts_lazily() -> Result<()> {
+    let broker = broker(ComponentBrokerOptions {
+        max_active_roots: 1,
+        ..ComponentBrokerOptions::default()
+    })?;
+    let workflow = export("workflow", "fixture.workflow");
+    let mut active = broker
+        .start_invocation(
+            &workflow,
+            PROCESS_WORKFLOW_METHOD,
+            json!({"op":"wait_cancel", "delay_ms":3000}),
+            INVOCATION_TIMEOUT,
+        )
+        .await?;
+    let mut queued = broker
+        .start_invocation(
+            &workflow,
+            PROCESS_WORKFLOW_METHOD,
+            json!({"op":"echo", "value":"queued"}),
+            INVOCATION_TIMEOUT,
+        )
+        .await?;
+    let before = broker.snapshot()?;
+    ensure!(before.active_invocations == 1 && before.pending_invocations == 2);
+    ensure!(!broker.release_if_idle().await?);
+    ensure!(broker.snapshot()? == before);
+
+    active
+        .cancel_handle()
+        .cancel_async(CancelCause::User)
+        .await?;
+    ensure!(active.result().await? == InvocationTerminal::Canceled);
+    ensure!(value(queued.result().await?)? == json!("queued"));
+    ensure!(broker.release_if_idle().await?);
+
+    let released = broker.snapshot()?;
+    ensure!(released.pid.is_none());
+    ensure!(released.generation == before.generation + 1);
+    ensure!(released.last_failure == before.last_failure);
+    ensure!(released.last_failure_reason == before.last_failure_reason);
+    ensure!(!broker.release_if_idle().await?);
+    ensure!(broker.snapshot()? == released);
+
+    let mut restarted = broker
+        .start_invocation(
+            &workflow,
+            PROCESS_WORKFLOW_METHOD,
+            json!({"op":"echo", "value":"restarted"}),
+            INVOCATION_TIMEOUT,
+        )
+        .await?;
+    ensure!(restarted.generation() == released.generation);
+    ensure!(value(restarted.result().await?)? == json!("restarted"));
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn dropped_terminal_receiver_cancels_owned_work() -> Result<()> {
     let broker = broker(ComponentBrokerOptions::default())?;
     let mut target = broker
