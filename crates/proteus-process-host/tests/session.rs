@@ -490,18 +490,18 @@ fn slow_transport_consumer_remains_receive_bounded() -> Result<()> {
     }))?;
     thread::sleep(Duration::from_millis(30));
 
-    assert_eq!(transport.recv_frame(SHORT_TIMEOUT)?["method"], "mock/burst");
-    assert_eq!(transport.recv_frame(SHORT_TIMEOUT)?["method"], "mock/burst");
+    for order in 1..=2 {
+        let frame = transport.recv_frame(SHORT_TIMEOUT)?;
+        assert_eq!(frame["method"], "mock/burst");
+        assert_eq!(frame["params"]["order"], order);
+    }
     let error = transport
         .recv_frame(SHORT_TIMEOUT)
         .expect_err("a slow consumer must trip the bounded frame queue");
     assert!(
         error
             .to_string()
-            .contains("receive buffer exceeded frame count limit")
-            || error
-                .to_string()
-                .contains("receive channel exceeded frame count limit"),
+            .contains("receive buffer exceeded frame count limit: attempted 3, max 2"),
         "unexpected slow-consumer error: {error}"
     );
     Ok(())

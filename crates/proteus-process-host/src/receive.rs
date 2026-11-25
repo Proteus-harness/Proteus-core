@@ -185,10 +185,6 @@ impl ReceiveBudget {
             bytes,
         })
     }
-
-    pub(crate) fn limits(&self) -> ReceiveLimits {
-        self.limits
-    }
 }
 
 #[derive(Debug)]

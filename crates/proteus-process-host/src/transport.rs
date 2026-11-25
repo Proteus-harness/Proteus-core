@@ -5,7 +5,7 @@ use std::{
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
-        mpsc::{self, Receiver, SyncSender, TryRecvError, TrySendError},
+        mpsc::{self, Receiver, Sender, TryRecvError},
     },
     thread::{self, JoinHandle},
     time::Duration,
@@ -275,7 +275,9 @@ impl<F: Framing> ProcessTransport<F> {
         let stopping = Arc::new(AtomicBool::new(false));
         let (lifecycle, lifecycle_thread) = ProcessLifecycle::spawn(child, wake.clone());
 
-        let (frame_tx, frame_rx) = mpsc::sync_channel(limits.receive.max_buffered_frames());
+        // Each queued frame holds a receive-budget permit, so the channel can grow
+        // on demand while retaining the configured frame and byte bounds.
+        let (frame_tx, frame_rx) = mpsc::channel();
         let receive_budget = ReceiveBudget::new(limits.receive);
         let reader_status = ReaderStatus::default();
         let reader_thread = spawn_reader(
@@ -403,7 +405,7 @@ impl<F: Framing> Drop for ProcessTransport<F> {
 fn spawn_reader<R, F>(
     stdout: R,
     framing: F,
-    frames: SyncSender<BufferedFrame>,
+    frames: Sender<BufferedFrame>,
     budget: ReceiveBudget,
     status: ReaderStatus,
     stopping: Arc<AtomicBool>,
@@ -443,17 +445,10 @@ where
                 }
             };
             let frame = BufferedFrame::new(value, permit);
-            match frames.try_send(frame) {
-                Ok(()) => wake.notify(),
-                Err(TrySendError::Full(_)) => {
-                    status.fail(format!(
-                        "receive channel exceeded frame count limit: max {}",
-                        budget.limits().max_buffered_frames()
-                    ));
-                    break;
-                }
-                Err(TrySendError::Disconnected(_)) => break,
+            if frames.send(frame).is_err() {
+                break;
             }
+            wake.notify();
         }
         wake.notify();
     })
