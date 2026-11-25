@@ -11,8 +11,8 @@ use super::{AppPendingRequests, AppQueuedUserMessage, AppServerEvent, StdioOutpu
 mod binding_refresh;
 mod session;
 use crate::{core::QueuedMessagesSnapshot, domain::SessionId};
-pub(super) use session::RuntimeEventSink;
-use session::{SequencedEvent, SessionView};
+use session::SessionView;
+pub(super) use session::{RuntimeEventSink, SequencedEvent};
 
 #[derive(Clone)]
 pub(super) struct AppEventPublisher(Arc<Inner>);
@@ -28,8 +28,9 @@ struct Inner {
 
 enum EventOutput {
     Session {
-        events: broadcast::Sender<AppServerEvent>,
+        raw_events: Mutex<Option<broadcast::Sender<AppServerEvent>>>,
         sequenced: broadcast::Sender<SequencedEvent>,
+        capacity: usize,
     },
     ProcessPeer(Mutex<Option<mpsc::WeakSender<StdioOutput>>>),
 }
@@ -77,9 +78,9 @@ impl AppSubscription {
                     return Ok(self.pending_event());
                 }
                 event = self.events.recv() => match event {
-                    Ok(event) if event.seq > self.seq || matches!(event.event, AppServerEvent::Shutdown) => {
+                    Ok(event) if event.seq > self.seq || matches!(&*event.event, AppServerEvent::Shutdown) => {
                         self.seq = event.seq;
-                        return Ok(event.event);
+                        return Ok(Arc::unwrap_or_clone(event.event));
                     }
                     Ok(_) => {}, // Already included in the snapshot.
                     Err(broadcast::error::RecvError::Lagged(count)) => {
@@ -109,8 +110,9 @@ impl AppEventPublisher {
             session_id,
             queue,
             EventOutput::Session {
-                events: broadcast::channel(capacity).0,
+                raw_events: Mutex::new(None),
                 sequenced: broadcast::channel(capacity).0,
+                capacity,
             },
         )
     }
@@ -157,19 +159,33 @@ impl AppEventPublisher {
     }
 
     pub(super) fn subscribe(&self) -> broadcast::Receiver<AppServerEvent> {
-        let EventOutput::Session { events, .. } = &self.0.output else {
+        let EventOutput::Session {
+            raw_events,
+            capacity,
+            ..
+        } = &self.0.output
+        else {
             unreachable!("process peers forward to their stdio writer");
         };
-        events.subscribe()
+        raw_events
+            .lock()
+            .expect("raw event channel lock")
+            .get_or_insert_with(|| broadcast::channel(*capacity).0)
+            .subscribe()
     }
 
-    pub(super) fn subscribe_session(&self) -> AppSubscription {
+    /// Observe published events without the session snapshot or raw-event clone.
+    pub(super) fn subscribe_events(&self) -> broadcast::Receiver<SequencedEvent> {
         let EventOutput::Session { sequenced, .. } = &self.0.output else {
             unreachable!("process peers have no display snapshot");
         };
+        sequenced.subscribe()
+    }
+
+    pub(super) fn subscribe_session(&self) -> AppSubscription {
         AppSubscription {
             publisher: self.clone(),
-            events: sequenced.subscribe(),
+            events: self.subscribe_events(),
             pending: self.subscribe_pending(),
             initial: true,
             resync: true,
@@ -255,9 +271,6 @@ impl AppEventPublisher {
         event: AppServerEvent,
         history: Option<super::read_model::CompletedTranscript>,
     ) -> Result<usize, broadcast::error::SendError<AppServerEvent>> {
-        let EventOutput::Session { events, sequenced } = &self.0.output else {
-            return Ok(0);
-        };
         let mut view = self.0.view.lock().expect("session view lock");
         if let Some(history) = history {
             view.history = Ok(Arc::new(history));
@@ -294,15 +307,50 @@ impl AppEventPublisher {
             }
             _ => false,
         };
-        let _ = sequenced.send(SequencedEvent {
-            seq: view.seq,
-            event: event.clone(),
-        });
-        let result = events.send(event);
+        let result = self.publish_event(view.seq, event);
         if changed || queue_changed {
             self.publish_pending(&mut pending);
         }
         result
+    }
+
+    // The view lock orders the single sequenced stream and any raw subscribers.
+    fn publish_event(
+        &self,
+        seq: u64,
+        event: AppServerEvent,
+    ) -> Result<usize, broadcast::error::SendError<AppServerEvent>> {
+        let EventOutput::Session {
+            raw_events,
+            sequenced,
+            ..
+        } = &self.0.output
+        else {
+            return Ok(0);
+        };
+        let mut raw = raw_events.lock().expect("raw event channel lock");
+        let Some(sender) = raw.as_ref().filter(|sender| sender.receiver_count() != 0) else {
+            *raw = None;
+            return sequenced
+                .send(SequencedEvent {
+                    seq,
+                    event: Arc::new(event),
+                })
+                .map_err(|error| broadcast::error::SendError(Arc::unwrap_or_clone(error.0.event)));
+        };
+
+        let event = Arc::new(event);
+        let count = sequenced
+            .send(SequencedEvent {
+                seq,
+                event: Arc::clone(&event),
+            })
+            .unwrap_or(0);
+        match sender.send(Arc::unwrap_or_clone(event)) {
+            Ok(raw_count) => Ok(count + raw_count),
+            Err(_) if count != 0 => Ok(count),
+            result => result,
+        }
     }
 
     fn sync_queue(&self, pending: &mut Pending) -> bool {

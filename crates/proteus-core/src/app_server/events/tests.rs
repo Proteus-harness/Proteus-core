@@ -1,4 +1,46 @@
 use super::*;
+
+#[tokio::test]
+async fn raw_event_subscribers_do_not_pin_an_extra_channel_to_every_session() {
+    let publisher = AppEventPublisher::new(4, crate::domain::new_session_id(), None);
+    let EventOutput::Session { raw_events, .. } = &publisher.0.output else {
+        panic!("expected the session publisher");
+    };
+    let mut observer = publisher.subscribe_events();
+    publisher
+        .send(AppServerEvent::Error {
+            message: "first".into(),
+        })
+        .unwrap();
+    assert!(raw_events.lock().unwrap().is_none());
+    let first = observer.recv().await.unwrap();
+    assert_eq!(first.seq, 1);
+
+    let mut raw = publisher.subscribe();
+    assert!(matches!(
+        raw.try_recv(),
+        Err(broadcast::error::TryRecvError::Empty)
+    ));
+    publisher
+        .send(AppServerEvent::Error {
+            message: "second".into(),
+        })
+        .unwrap();
+    let second = observer.recv().await.unwrap();
+    assert_eq!(second.seq, 2);
+    assert!(matches!(&*second.event, AppServerEvent::Error { message } if message == "second"));
+    assert!(
+        matches!(raw.recv().await.unwrap(), AppServerEvent::Error { message } if message == "second")
+    );
+    drop(raw);
+
+    publisher.send(AppServerEvent::Shutdown).unwrap();
+    assert!(raw_events.lock().unwrap().is_none());
+    assert!(matches!(
+        &*observer.recv().await.unwrap().event,
+        AppServerEvent::Shutdown
+    ));
+}
 use crate::{
     contracts::EventSink,
     domain::{Event, EventContext, EventEnvelope, new_message_id, new_thread_id, new_turn_id},

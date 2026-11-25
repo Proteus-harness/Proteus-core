@@ -30,10 +30,16 @@ pub(super) struct HttpAppState {
     // Owners/waiters keep gates alive; the registry keeps only weak references.
     session_lifecycle: Arc<StdMutex<HashMap<PathBuf, Weak<Mutex<()>>>>>,
     pub(super) session_servers: Arc<Mutex<HashMap<PathBuf, AppServerHandle>>>,
-    activity_events: broadcast::Sender<AppServerEvent>,
+    activity_events: broadcast::Sender<SessionActivityUpdate>,
     watched_sessions: Arc<StdMutex<HashSet<PathBuf>>>,
     pub(super) shutdown: broadcast::Sender<()>,
     pub(super) security: HttpSecurity,
+}
+
+#[derive(Clone)]
+pub(super) struct SessionActivityUpdate {
+    pub(super) session_dir: PathBuf,
+    pub(super) activity: AppSessionActivity,
 }
 
 impl HttpAppState {
@@ -91,7 +97,7 @@ impl HttpAppState {
         state
     }
 
-    pub(super) fn subscribe_activity(&self) -> broadcast::Receiver<AppServerEvent> {
+    pub(super) fn subscribe_activity(&self) -> broadcast::Receiver<SessionActivityUpdate> {
         self.activity_events.subscribe()
     }
 
@@ -242,7 +248,7 @@ impl HttpAppState {
         let watched = Arc::downgrade(&server.inner);
         let activity = self.activity_events.clone();
         let mut shutdown = self.shutdown.subscribe();
-        let mut events = server.subscribe();
+        let mut events = server.events.subscribe_events();
         tokio::spawn(async move {
             let registered_server = async || {
                 let registry = registry.upgrade()?;
@@ -286,8 +292,8 @@ impl HttpAppState {
                     received = events.recv() => {
                         let (update, stop) = match received {
                             Ok(event) => (
-                                app_event_affects_session_activity(&event),
-                                matches!(event, AppServerEvent::Shutdown),
+                                app_event_affects_session_activity(&event.event),
+                                matches!(&*event.event, AppServerEvent::Shutdown),
                             ),
                             Err(broadcast::error::RecvError::Lagged(_)) => (true, false),
                             Err(broadcast::error::RecvError::Closed) => break,
@@ -309,14 +315,14 @@ impl HttpAppState {
 }
 
 async fn publish_activity(
-    activity_events: &broadcast::Sender<AppServerEvent>,
+    activity_events: &broadcast::Sender<SessionActivityUpdate>,
     server: &AppServerHandle,
     session_dir: PathBuf,
 ) {
     let activity = server
         .session_activity(server.running_run_ids().await)
         .await;
-    let _ = activity_events.send(AppServerEvent::SessionActivityUpdated {
+    let _ = activity_events.send(SessionActivityUpdate {
         session_dir,
         activity,
     });

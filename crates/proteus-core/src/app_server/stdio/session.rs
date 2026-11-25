@@ -1,6 +1,8 @@
 //! A stdio connection can rotate its idle durable runtime without replacing
 //! the OS process. The previous event bridge is joined before shutdown.
 
+use std::sync::Arc;
+
 use anyhow::{Context, Result};
 use proteus_contracts::app_protocol::AppSubagentSession;
 use tokio::{sync::mpsc, task::JoinHandle};
@@ -16,9 +18,9 @@ pub(super) async fn start_bridge(
         return Ok((None, session_identity(server)?));
     }
     // Session snapshots can subsume the startup event before the subscriber
-    // gets scheduled. Capture that one authoritative event on the raw stream,
+    // gets scheduled. Capture that one authoritative published event directly,
     // then let the ordinary session subscription provide snapshots/deltas.
-    let mut bootstrap = server.subscribe();
+    let mut bootstrap = server.events.subscribe_events();
     let mut events = server.subscribe_session();
     server.start_session().await?;
     // start_session awaits publication. Fresh sessions therefore have their
@@ -28,12 +30,12 @@ pub(super) async fn start_bridge(
     loop {
         match bootstrap.try_recv() {
             Ok(event)
-                if matches!(&event, AppServerEvent::Runtime { envelope }
+                if matches!(&*event.event, AppServerEvent::Runtime { envelope }
                 if matches!(envelope.event, crate::domain::Event::SessionStarted { .. })) =>
             {
                 output
                     .send(StdioOutput::Event {
-                        event: Box::new(event),
+                        event: Box::new(Arc::unwrap_or_clone(event.event)),
                     })
                     .await
                     .context("stdio output closed during session bootstrap")?;

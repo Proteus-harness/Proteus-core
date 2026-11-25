@@ -73,9 +73,12 @@ pub(super) async fn sse_response(
                 }
                 event = activity_events.recv() => {
                     match event {
-                        Ok(event) => {
+                        Ok(update) => {
                             let output = StdioOutput::Event {
-                                event: Box::new(event),
+                                event: Box::new(AppServerEvent::SessionActivityUpdated {
+                                    session_dir: update.session_dir,
+                                    activity: update.activity,
+                                }),
                             };
                             yield Ok(Frame::data(encode_sse_output(&output)));
                         }
