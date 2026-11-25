@@ -61,7 +61,7 @@ fn turn_tracker_counts_iterations_and_collects_partial_text() {
     });
 
     assert_eq!(tracker.iterations, 1);
-    assert_eq!(tracker.partial_text(), "first answer");
+    assert_eq!(tracker.take_partial_text(), "first answer");
 
     // Вторая итерация прервана посреди стрима: хвост стрима приоритетнее
     // последнего завершённого текста.
@@ -75,7 +75,7 @@ fn turn_tracker_counts_iterations_and_collects_partial_text() {
         text: "partial tail".to_owned(),
     });
     assert_eq!(tracker.iterations, 2);
-    assert_eq!(tracker.partial_text(), "partial tail");
+    assert_eq!(tracker.take_partial_text(), "partial tail");
 }
 
 #[tokio::test]

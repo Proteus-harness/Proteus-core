@@ -237,7 +237,12 @@ async fn session_bootstrap_and_initial_write_are_bounded_and_release_permit() {
                 "x".repeat(1024 * 1024),
                 AgentTask::new("parent", dir.path().into()),
             );
-            let handle = runner.spawn(request.clone(), ctx.clone()).await.unwrap();
+            let parent_queue = Arc::downgrade(&ctx.queued_user_messages);
+            let handle = runner.spawn(request.clone(), ctx).await.unwrap();
+            assert!(
+                parent_queue.upgrade().is_none(),
+                "the running process peer must release the parent workflow context"
+            );
             if canceled {
                 tokio::time::sleep(Duration::from_millis(20)).await;
                 cancel.cancel();

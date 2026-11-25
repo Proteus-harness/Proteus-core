@@ -20,12 +20,9 @@ use std::sync::Arc;
 use anyhow::{Result, bail};
 use serde_json::Value;
 
-use crate::{
-    contracts::{
-        AgentAddress, AgentControl, AgentControlRequest, AgentWorkflowContext, CancellationToken,
-        ToolRegistry, ToolSource,
-    },
-    domain::ThreadId,
+use crate::contracts::{
+    AgentAddress, AgentControl, AgentControlRequest, AgentWorkflowContext, CancellationToken,
+    ToolRegistry, ToolSource,
 };
 
 use super::{AgentControlConfig, AgentControlSurface};
@@ -36,6 +33,14 @@ pub(crate) use task::{TASK_TOOL, calls_are_parallel_eligible};
 
 const TASK_SOURCE: &str = "agent-control-task";
 const COLLABORATION_SOURCE: &str = "agent-control-collaboration";
+
+/// Keep the UTF-8 prefix without retaining a larger original allocation.
+fn retain_summary(text: String, max_bytes: usize) -> String {
+    if text.capacity() <= max_bytes {
+        return text;
+    }
+    text[..text.floor_char_boundary(max_bytes)].to_owned()
+}
 
 pub(crate) fn owns_tool_source(source: &ToolSource) -> bool {
     matches!(source, ToolSource::Builtin { provider }
@@ -120,23 +125,4 @@ fn requested_agent_target(request: &AgentControlRequest) -> Result<Option<AgentA
         (false, Some(_)) => bail!("agent_control_target requires control_plane_owned=true"),
         (false, None) => Ok(None),
     }
-}
-
-/// Контекст process peer-а поверх родительского: собственный `thread_id`,
-/// role label для attribution, отдельный attenuated grant store и child
-/// cancellation token. Parent cancellation каскадируется ребёнку, targeted
-/// cancel ребёнка не затрагивает parent turn и соседние процессы.
-fn child_context(
-    ctx: &AgentWorkflowContext,
-    child_thread_id: ThreadId,
-    role_name: &str,
-) -> AgentWorkflowContext {
-    let mut child_ctx = ctx.clone();
-    child_ctx.thread_id = child_thread_id;
-    child_ctx.thread_label = Some(role_name.to_owned());
-    child_ctx.execution = child_ctx
-        .execution
-        .with_fresh_permission_grants()
-        .with_cancellation(ctx.execution.scope.cancellation.child_token());
-    child_ctx
 }

@@ -34,10 +34,9 @@ impl RunnerInner {
             .get(&profile.name)
             .and_then(|role| role.config.timeout_ms)
             .map(|millis| Instant::now() + Duration::from_millis(millis));
-        leased.child.set_write_budget(
-            deadline,
-            Some(forwarder.ctx.execution.scope.cancellation.clone()),
-        );
+        leased
+            .child
+            .set_write_budget(deadline, Some(forwarder.ctx.scope.cancellation.clone()));
         let send_id = new_call_id();
         let body = async {
             leased.child.drain_stale_outputs()?;
@@ -63,7 +62,7 @@ impl RunnerInner {
         };
         let result = match deadline {
             Some(deadline) => timeout_at(deadline, body).await.unwrap_or_else(|_| {
-                let status = if forwarder.ctx.execution.scope.cancellation.is_cancelled() {
+                let status = if forwarder.ctx.scope.cancellation.is_cancelled() {
                     AgentLifecycleStatus::Cancelled
                 } else {
                     AgentLifecycleStatus::TimedOut
@@ -72,7 +71,7 @@ impl RunnerInner {
             }),
             None => body.await,
         };
-        let interrupted = if forwarder.ctx.execution.scope.cancellation.is_cancelled() {
+        let interrupted = if forwarder.ctx.scope.cancellation.is_cancelled() {
             Some(AgentLifecycleStatus::Cancelled)
         } else if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
             Some(AgentLifecycleStatus::TimedOut)

@@ -54,7 +54,6 @@ use crate::{
 };
 
 use super::{
-    child_context,
     history::{HistoryNotifier, HistoryRetention},
     mailbox::ChildMailbox,
     pending::PendingChildren,
@@ -62,11 +61,11 @@ use super::{
 };
 use config::{ProcessRoleConfig, build_agent_profiles};
 use model_selection::ModelChoices;
-use outcome::{status_label, truncate_summary};
+use outcome::status_label;
 use pool::{PooledChild, ProcessPool, ReleaseOutcome, ResumeReservation};
 #[cfg(test)]
 use turn::should_forward_child_event;
-use turn::{ChildEventForwarder, TurnEnd, TurnTracker};
+use turn::{ChildEventForwarder, PeerTurnContext, TurnEnd, TurnTracker};
 
 pub(super) struct ProcessAgentControl {
     inner: Arc<RunnerInner>,
@@ -281,17 +280,20 @@ impl RunnerInner {
     async fn finish_interrupted(
         &self,
         profile: &AgentProfile,
-        ctx: &AgentWorkflowContext,
+        ctx: &PeerTurnContext,
         child_thread_id: ThreadId,
         status: AgentLifecycleStatus,
         resumable: bool,
     ) -> Result<AgentControlResult> {
-        ctx.emit(Event::SubagentFinished {
-            role: profile.name.clone(),
-            status: status_label(status),
-            iterations: 0,
-            child_thread_id,
-        })
+        ctx.emit(
+            ctx.parent.thread_id,
+            Event::SubagentFinished {
+                role: profile.name.clone(),
+                status: status_label(status),
+                iterations: 0,
+                child_thread_id,
+            },
+        )
         .await?;
         Ok(AgentControlResult::new(String::new(), status)
             .with_child_thread_id(child_thread_id)
@@ -300,13 +302,12 @@ impl RunnerInner {
 
     /// Тело запуска: аренда процесса (в пределах permit-а роли), turn,
     /// возврат процесса в пул, resumable-учёт и `SubagentFinished`. Живёт
-    /// detached tokio-таской; отменяется через child-токен `child_ctx`.
+    /// detached tokio-таской; отменяется через выделенный child-токен.
     async fn execute(
         self: Arc<Self>,
         profile: AgentProfile,
         request: AgentControlRequest,
-        ctx: AgentWorkflowContext,
-        child_ctx: AgentWorkflowContext,
+        ctx: PeerTurnContext,
         child_thread_id: ThreadId,
         resume: Option<ResumeReservation>,
         history: HistoryRetention,
@@ -323,7 +324,7 @@ impl RunnerInner {
             // Cancellation already visible at admission must not consume a
             // ready permit and discard a resumable peer on its first write.
             biased;
-            _ = child_ctx.execution.scope.cancellation.cancelled() => {
+            _ = ctx.scope.cancellation.cancelled() => {
                 let _ = mailbox.close_and_discard();
                 let resumable = match resume.as_ref() {
                     Some(reservation) => self.rollback_resume(reservation).await?,
@@ -347,9 +348,9 @@ impl RunnerInner {
             }
         };
 
-        let mut tracker = TurnTracker::default();
+        let mut tracker = TurnTracker::new(role.config.max_summary_bytes);
         let forwarder = ChildEventForwarder {
-            ctx: &child_ctx,
+            ctx: &ctx,
             child_thread_id,
             role: profile.name.clone(),
             source_call_id: request
@@ -358,10 +359,10 @@ impl RunnerInner {
                 .and_then(Value::as_str)
                 .map(str::to_owned),
             source_attribution: crate::contracts::ExecutionAttribution::for_turn(
-                ctx.execution.scope.execution_id,
-                ctx.session_id,
-                ctx.thread_id,
-                ctx.turn_id,
+                ctx.scope.execution_id,
+                ctx.parent.session_id,
+                ctx.parent.thread_id,
+                ctx.parent.turn_id,
             ),
         };
 
@@ -370,7 +371,7 @@ impl RunnerInner {
             role,
             resume.as_ref(),
             &request.task.cwd,
-            ctx.session_id,
+            ctx.parent.session_id,
         ) {
             Ok(leased) => leased,
             Err(error) => {
@@ -378,12 +379,15 @@ impl RunnerInner {
                 let _ = mailbox.close_and_discard();
                 drop(permit);
                 let _ = ctx
-                    .emit(Event::SubagentFinished {
-                        role: profile.name.clone(),
-                        status: "errored".into(),
-                        iterations: 0,
-                        child_thread_id,
-                    })
+                    .emit(
+                        ctx.parent.thread_id,
+                        Event::SubagentFinished {
+                            role: profile.name.clone(),
+                            status: "errored".into(),
+                            iterations: 0,
+                            child_thread_id,
+                        },
+                    )
                     .await;
                 return Err(error);
             }
@@ -417,12 +421,8 @@ impl RunnerInner {
 
                 let (status, summary) = match end {
                     TurnEnd::Completed(text) => (AgentLifecycleStatus::Completed, text),
-                    TurnEnd::Interrupted(status) => (status, tracker.partial_text()),
+                    TurnEnd::Interrupted(status) => (status, tracker.take_partial_text()),
                 };
-                let mut summary = summary;
-                if let Some(max_bytes) = role.config.max_summary_bytes {
-                    summary = truncate_summary(summary, max_bytes);
-                }
 
                 // Процесс возвращается в пул до освобождения permit-а,
                 // чтобы следующий ожидающий нашёл его в idle, а не спавнил
@@ -431,19 +431,22 @@ impl RunnerInner {
                     .release_process(
                         leased,
                         child_alive,
-                        ctx.session_id,
+                        ctx.parent.session_id,
                         child_thread_id.to_string(),
                         history,
                     )
                     .await?;
                 drop(permit);
 
-                ctx.emit(Event::SubagentFinished {
-                    role: profile.name.clone(),
-                    status: status_label(status),
-                    iterations: tracker.iterations,
-                    child_thread_id,
-                })
+                ctx.emit(
+                    ctx.parent.thread_id,
+                    Event::SubagentFinished {
+                        role: profile.name.clone(),
+                        status: status_label(status),
+                        iterations: tracker.iterations,
+                        child_thread_id,
+                    },
+                )
                 .await?;
 
                 let mut metadata = json!({
@@ -466,12 +469,15 @@ impl RunnerInner {
                 self.discard_process(leased)?;
                 drop(permit);
                 let _ = ctx
-                    .emit(Event::SubagentFinished {
-                        role: profile.name.clone(),
-                        status: "errored".into(),
-                        iterations: tracker.iterations,
-                        child_thread_id,
-                    })
+                    .emit(
+                        ctx.parent.thread_id,
+                        Event::SubagentFinished {
+                            role: profile.name.clone(),
+                            status: "errored".into(),
+                            iterations: tracker.iterations,
+                            child_thread_id,
+                        },
+                    )
                     .await;
                 Err(error)
             }
@@ -506,13 +512,13 @@ impl AgentControl for ProcessAgentControl {
         let prepared = self.inner.prepare(&request, &ctx)?;
         let mut reservation =
             reservation::SpawnReservation::new(self.inner.clone(), prepared.resume.clone());
-        let child_ctx = child_context(&ctx, prepared.child_thread_id, &prepared.profile.name);
+        let ctx = PeerTurnContext::from_parent(ctx);
         let spawn_id = new_call_id();
         let mailbox = Arc::new(ChildMailbox::default());
         let agent_target = requested_agent_target(&request)?;
         let reserve_result = self.inner.lock_pending()?.reserve(
             &spawn_id,
-            child_ctx.execution.scope.cancellation.clone(),
+            ctx.scope.cancellation.clone(),
             mailbox.clone(),
             agent_target.clone(),
             self.inner.max_parallel,
@@ -528,11 +534,14 @@ impl AgentControl for ProcessAgentControl {
 
         reservation.reserve_pending(spawn_id.clone());
         if let Err(error) = ctx
-            .emit(Event::SubagentStarted {
-                role: prepared.profile.name.clone(),
-                description: request.description.clone(),
-                child_thread_id: prepared.child_thread_id,
-            })
+            .emit(
+                ctx.parent.thread_id,
+                Event::SubagentStarted {
+                    role: prepared.profile.name.clone(),
+                    description: request.description.clone(),
+                    child_thread_id: prepared.child_thread_id,
+                },
+            )
             .await
         {
             return Err(error);
@@ -544,15 +553,16 @@ impl AgentControl for ProcessAgentControl {
             prepared.child_thread_id,
         );
         if let Some(target) = agent_target.as_ref() {
-            self.inner
-                .history_notifier
-                .bind(ctx.session_id, target, prepared.history.clone());
+            self.inner.history_notifier.bind(
+                ctx.parent.session_id,
+                target,
+                prepared.history.clone(),
+            );
         }
         let join = tokio::spawn(self.inner.clone().execute(
             prepared.profile,
             request,
-            ctx.clone(),
-            child_ctx,
+            ctx,
             prepared.child_thread_id,
             prepared.resume,
             prepared.history,

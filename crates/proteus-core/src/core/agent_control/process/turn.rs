@@ -1,21 +1,22 @@
 //! One stdio turn on a leased process child: event forwarding, interactive
 //! request bridging, usage tracking and cancel/timeout protocol.
 
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use anyhow::{Context as _, Result, bail};
 use proteus_contracts::app_protocol::{AppServerEvent, StdioOutput, StdioRequest};
 use tokio::time::{Instant, timeout_at};
 
-use super::super::mailbox::ChildMailbox;
+use super::super::{mailbox::ChildMailbox, retain_summary};
 use super::{
     child::ChildProcess,
     messaging::{PeerMessageDelivery, PeerMessageResponse},
 };
 use crate::{
     contracts::{
-        AgentLifecycleStatus, AgentWorkflowContext, ApprovalRequest, ExecutionAttribution,
-        RequestOrigin, UserInputResponse,
+        AgentLifecycleStatus, AgentTurnAttribution, AgentWorkflowContext, ApprovalRequest,
+        ApprovalTransport, EventEmitter, ExecutionAttribution, ExecutionScope, RequestOrigin,
+        ToolExecutionRecorder, UserInputResponse, UserInputTransport,
     },
     domain::{AgentOutput, Event, EventContext, EventEnvelope, ThreadId},
 };
@@ -33,6 +34,9 @@ pub(super) struct TurnTracker {
     /// источник partial summary при cancel/timeout.
     last_text: Option<String>,
     stream_buffer: String,
+    summary_limit: Option<usize>,
+    stream_has_text: bool,
+    stream_truncated: bool,
     // A cancel target is published only after its complete Send frame.
     pub(super) active_send_id: Option<String>,
     message_delivery: PeerMessageDelivery,
@@ -45,39 +49,118 @@ pub(super) struct TurnTracker {
 }
 
 impl TurnTracker {
+    pub(super) fn new(summary_limit: Option<usize>) -> Self {
+        Self {
+            summary_limit,
+            ..Self::default()
+        }
+    }
+
     pub(super) fn observe(&mut self, event: &Event) {
         match event {
             Event::ModelRequestPrepared { .. } => {
                 self.iterations = self.iterations.saturating_add(1);
                 self.stream_buffer.clear();
+                self.reset_stream();
             }
             Event::AssistantTextDelta { text, .. } => {
-                self.stream_buffer.push_str(text);
+                self.append_stream(text);
             }
             Event::ModelResponseReceived { .. } => {
-                if !self.stream_buffer.trim().is_empty() {
+                if self.stream_has_text {
                     self.last_text = Some(std::mem::take(&mut self.stream_buffer));
                 } else {
                     self.stream_buffer.clear();
                 }
+                self.reset_stream();
             }
             _ => {}
         }
     }
 
-    pub(super) fn partial_text(&self) -> String {
-        if !self.stream_buffer.trim().is_empty() {
-            self.stream_buffer.clone()
-        } else {
-            self.last_text.clone().unwrap_or_default()
+    fn reset_stream(&mut self) {
+        self.stream_has_text = false;
+        self.stream_truncated = false;
+    }
+
+    fn append_stream(&mut self, text: &str) {
+        // Preserve the nonblank decision even after the stored prefix is full.
+        if !self.stream_has_text {
+            self.stream_has_text = !text.trim().is_empty();
         }
+        let Some(max_bytes) = self.summary_limit else {
+            self.stream_buffer.push_str(text);
+            return;
+        };
+        if self.stream_truncated {
+            return;
+        }
+        let len = self.stream_buffer.len();
+        let end = text.floor_char_boundary(max_bytes - len);
+        // A codepoint crossing the limit ends the prefix. Later ASCII bytes
+        // cannot fill the unused bytes before that codepoint.
+        self.stream_truncated = end < text.len();
+        let capacity = self.stream_buffer.capacity();
+        if len + end > capacity {
+            let target = capacity
+                .saturating_mul(2)
+                .max(8)
+                .max(len + end)
+                .min(max_bytes);
+            self.stream_buffer.reserve_exact(target - len);
+        }
+        self.stream_buffer.push_str(&text[..end]);
+    }
+
+    pub(super) fn take_partial_text(&mut self) -> String {
+        if self.stream_has_text {
+            std::mem::take(&mut self.stream_buffer)
+        } else {
+            self.last_text.take().unwrap_or_default()
+        }
+    }
+
+    fn completed_text(&self, text: String) -> String {
+        match self.summary_limit {
+            Some(limit) => retain_summary(text, limit),
+            None => text,
+        }
+    }
+}
+
+/// Only the parent-side transports and identities used while the separate peer
+/// runs. A detached turn must not own the parent's model history or tool registry.
+pub(super) struct PeerTurnContext {
+    pub(super) parent: AgentTurnAttribution,
+    pub(super) scope: ExecutionScope,
+    events: Arc<EventEmitter>,
+    approval: Arc<dyn ApprovalTransport>,
+    user_input: Arc<dyn UserInputTransport>,
+    tool_recorder: Arc<dyn ToolExecutionRecorder>,
+}
+
+impl PeerTurnContext {
+    pub(super) fn from_parent(ctx: AgentWorkflowContext) -> Self {
+        Self {
+            parent: AgentTurnAttribution::new(ctx.session_id, ctx.thread_id, ctx.turn_id),
+            scope: ctx.execution.scope.child_cancellation_scope(),
+            events: ctx.events,
+            approval: ctx.execution.approval,
+            user_input: ctx.user_input,
+            tool_recorder: ctx.tool_recorder,
+        }
+    }
+
+    pub(super) async fn emit(&self, thread: ThreadId, event: Event) -> Result<()> {
+        let context = EventContext::new(self.parent.session_id, thread, Some(self.parent.turn_id));
+        self.events.emit(context, event).await
     }
 }
 
 /// Project the peer's physical root into its logical child alias. Descendant
 /// threads and source turn/execution identity survive every forwarding hop.
 pub(super) struct ChildEventForwarder<'a> {
-    pub(super) ctx: &'a AgentWorkflowContext,
+    pub(super) ctx: &'a PeerTurnContext,
     pub(super) child_thread_id: ThreadId,
     pub(super) role: String,
     pub(super) source_call_id: Option<String>,
@@ -103,11 +186,14 @@ impl ChildEventForwarder<'_> {
                         .await?;
                 }
                 self.ctx
-                    .emit(Event::SubagentSessionBound {
-                        child_thread_id: self.child_thread_id,
-                        session_id: session.session_id,
-                        session_dir: session.session_dir.clone(),
-                    })
+                    .emit(
+                        self.child_thread_id,
+                        Event::SubagentSessionBound {
+                            child_thread_id: self.child_thread_id,
+                            session_id: session.session_id,
+                            session_dir: session.session_dir.clone(),
+                        },
+                    )
                     .await?;
                 tracker.session_bound = true;
             }
@@ -129,9 +215,9 @@ impl ChildEventForwarder<'_> {
             }
             // The contract permits transports outside runtime attribution.
             None => RequestOrigin::for_turn(
-                self.ctx.execution.scope.execution_id,
+                self.ctx.scope.execution_id,
                 self.child_thread_id,
-                self.ctx.turn_id,
+                self.ctx.parent.turn_id,
             )
             .with_label(self.role.clone()),
         }
@@ -142,7 +228,7 @@ impl ChildEventForwarder<'_> {
             return;
         }
         let context = EventContext::new(
-            self.ctx.session_id,
+            self.ctx.parent.session_id,
             child.project_thread(envelope.thread_id, self.child_thread_id),
             envelope.turn_id,
         );
@@ -163,8 +249,8 @@ impl ChildEventForwarder<'_> {
         )
         .with_origin(self.origin(child, request.origin));
         let response = tokio::select! {
-            response = self.ctx.execution.approval.request_approval(forwarded) => response,
-            _ = self.ctx.execution.scope.cancellation.cancelled() => return None,
+            response = self.ctx.approval.request_approval(forwarded) => response,
+            _ = self.ctx.scope.cancellation.cancelled() => return None,
         };
         let (approved, note, cache) = match response {
             Ok(response) => (response.approved, response.note, response.cache),
@@ -193,7 +279,7 @@ impl ChildEventForwarder<'_> {
         forwarded.origin = Some(self.origin(child, forwarded.origin.take()));
         let response = tokio::select! {
             response = self.ctx.user_input.request_user_input(forwarded) => response,
-            _ = self.ctx.execution.scope.cancellation.cancelled() => return None,
+            _ = self.ctx.scope.cancellation.cancelled() => return None,
         };
         let response = response.unwrap_or_else(|_| UserInputResponse::empty());
         Some(StdioRequest::UserInput {
@@ -233,12 +319,12 @@ pub(super) async fn drive_turn(
     let mut pending_from_message_turn = false;
 
     loop {
-        if forwarder.ctx.execution.scope.cancellation.is_cancelled() {
+        if forwarder.ctx.scope.cancellation.is_cancelled() {
             return Ok(TurnEnd::Interrupted(AgentLifecycleStatus::Cancelled));
         }
 
         let delivery_guard = mailbox.lock_delivery().await;
-        if forwarder.ctx.execution.scope.cancellation.is_cancelled() {
+        if forwarder.ctx.scope.cancellation.is_cancelled() {
             drop(delivery_guard);
             return Ok(TurnEnd::Interrupted(AgentLifecycleStatus::Cancelled));
         }
@@ -272,7 +358,7 @@ pub(super) async fn drive_turn(
 
         let output = tokio::select! {
             output = child.next_output() => output,
-            _ = forwarder.ctx.execution.scope.cancellation.cancelled() => {
+            _ = forwarder.ctx.scope.cancellation.cancelled() => {
                 return Ok(TurnEnd::Interrupted(AgentLifecycleStatus::Cancelled));
             }
             _ = mailbox.notified() => continue,
@@ -418,7 +504,7 @@ async fn handle_output(
                         OutputVerdict::Continue
                     }
                     PeerMessageResponse::TurnCompleted(output) => {
-                        OutputVerdict::MessageTurnCompleted(output.text)
+                        OutputVerdict::MessageTurnCompleted(tracker.completed_text(output.text))
                     }
                 });
             }
@@ -430,6 +516,7 @@ async fn handle_output(
                 let text = serde_json::from_value::<AgentOutput>(output)
                     .context("subagent child returned an invalid Send output")?
                     .text;
+                let text = tracker.completed_text(text);
                 forwarder.bind_session(child, tracker).await?;
                 return Ok(OutputVerdict::Finished(TurnEnd::Completed(text)));
             }
@@ -473,5 +560,86 @@ async fn cancel_child_turn(
             }
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod summary_tests {
+    use super::*;
+    use crate::{domain::ModelRef, model_standard::FinishReason};
+
+    fn text_event(text: &str) -> Event {
+        Event::AssistantTextDelta {
+            offset: 0,
+            message_id: crate::domain::new_message_id(),
+            phase: None,
+            text: text.to_owned(),
+        }
+    }
+
+    #[test]
+    fn partial_summary_is_the_same_utf8_prefix_at_every_delta_boundary() {
+        let text = "　éЮ🐙ascii";
+        for split in (0..=text.len()).filter(|&split| text.is_char_boundary(split)) {
+            for limit in 0..=text.len() {
+                let mut tracker = TurnTracker::new(Some(limit));
+                tracker.observe(&text_event(&text[..split]));
+                tracker.observe(&text_event(&text[split..]));
+                let summary = tracker.take_partial_text();
+                assert_eq!(summary, &text[..text.floor_char_boundary(limit)]);
+                assert!(summary.capacity() <= limit);
+            }
+        }
+    }
+
+    #[test]
+    fn text_beyond_the_limit_still_decides_which_partial_summary_wins() {
+        let mut tracker = TurnTracker::new(Some(5));
+        tracker.observe(&text_event("previous"));
+        tracker.observe(&Event::ModelResponseReceived {
+            finish_reason: FinishReason::Stop,
+        });
+        tracker.observe(&text_event("     "));
+        tracker.observe(&Event::ModelResponseReceived {
+            finish_reason: FinishReason::Stop,
+        });
+        assert_eq!(tracker.last_text.as_deref(), Some("previ"));
+        tracker.observe(&text_event("　　　 "));
+        tracker.observe(&text_event("visible beyond the limit"));
+        tracker.observe(&Event::ModelResponseReceived {
+            finish_reason: FinishReason::Stop,
+        });
+        tracker.observe(&Event::ModelRequestPrepared {
+            model: ModelRef::new("fake", "fake-model"),
+        });
+        tracker.observe(&text_event("  "));
+        assert_eq!(tracker.take_partial_text(), "　");
+    }
+
+    #[test]
+    fn active_agents_keep_bounded_partial_buffers_and_unlimited_roles_keep_full_output() {
+        const MIB: usize = 1024 * 1024;
+        let text = "я".repeat(MIB);
+        let delta = text_event(&text);
+        let mut trackers: Vec<_> = (0..8).map(|_| TurnTracker::new(Some(8192))).collect();
+        for tracker in &mut trackers {
+            tracker.observe(&delta);
+            tracker.observe(&Event::ModelResponseReceived {
+                finish_reason: FinishReason::Stop,
+            });
+            tracker.observe(&delta);
+        }
+        let retained: usize = trackers
+            .iter()
+            .map(|tracker| {
+                tracker.stream_buffer.capacity() + tracker.last_text.as_ref().unwrap().capacity()
+            })
+            .sum();
+        assert_eq!(retained, 8 * 2 * 8192);
+
+        let mut unlimited = TurnTracker::new(None);
+        unlimited.observe(&delta);
+        assert_eq!(unlimited.take_partial_text(), text);
+        assert_eq!(unlimited.completed_text("a".repeat(MIB)).len(), MIB);
     }
 }

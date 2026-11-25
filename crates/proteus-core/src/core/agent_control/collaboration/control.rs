@@ -3,7 +3,7 @@ use std::{
     sync::{Arc, Mutex, MutexGuard, OnceLock},
 };
 
-use super::super::history::HistoryRetention;
+use super::super::{history::HistoryRetention, retain_summary};
 use anyhow::{Result, anyhow, bail};
 use serde_json::Value;
 use tokio::sync::Notify;
@@ -72,14 +72,12 @@ impl QueuedCompletion {
     }
 }
 
-#[derive(Clone)]
 enum AgentOutcome {
     Result {
         status: AgentLifecycleStatus,
         child_thread_id: Option<ThreadId>,
-        summary: String,
     },
-    Error(String),
+    Error,
 }
 
 pub(super) struct AgentReservation {
@@ -240,21 +238,33 @@ impl CollaborationControl {
             if record.generation != generation || record.outcome.is_some() {
                 return;
             }
-            record.outcome = Some(match result {
-                Ok(result) => compact_result(result),
-                Err(error) => AgentOutcome::Error(truncate_utf8(
-                    format!("{error:#}"),
-                    MAX_RETAINED_ERROR_BYTES,
-                )),
-            });
-            // Terminal records retain only bounded presentation data. The
+            let (outcome, summary, error) = match result {
+                Ok(result) => (
+                    terminal_result(&result),
+                    Some(retain_summary(result.summary, MAX_RETAINED_SUMMARY_BYTES)),
+                    None,
+                ),
+                Err(error) => (
+                    AgentOutcome::Error,
+                    None,
+                    Some(retain_summary(
+                        format!("{error:#}"),
+                        MAX_RETAINED_ERROR_BYTES,
+                    )),
+                ),
+            };
+            record.outcome = Some(outcome);
+            // The completion queue owns the one-shot presentation data. The
             // originating host owns a full AgentWorkflowContext/registry snapshot
             // and is needed only while the child is addressable.
             record.owner = None;
             record.handle = None;
             record.interrupt_requested = false;
+            let mut snapshot = view(path, record);
+            snapshot.summary = summary;
+            snapshot.error = error;
             let completion = QueuedCompletion {
-                snapshot: view(path, record, true),
+                snapshot,
                 history: record.history.clone(),
             };
             session.completions.push_back(completion);
@@ -278,7 +288,7 @@ impl CollaborationControl {
             .agents
             .iter()
             .filter(|(path, _)| root_prefix || *path == &prefix)
-            .map(|(path, record)| (record.seq, view(path, record, false)))
+            .map(|(path, record)| (record.seq, view(path, record)))
             .collect::<Vec<_>>();
         records.sort_by_key(|(seq, _)| *seq);
         Ok(records.into_iter().map(|(_, view)| view).collect())
@@ -384,7 +394,7 @@ impl CollaborationControl {
             Some(AgentOutcome::Result { .. }) => {
                 bail!("collaboration agent '{path}' has no resumable task id")
             }
-            Some(AgentOutcome::Error(_)) => {
+            Some(AgentOutcome::Error) => {
                 bail!("collaboration agent '{path}' errored and cannot be resumed")
             }
             None => bail!("collaboration agent '{path}' is still starting"),
@@ -555,29 +565,16 @@ impl SessionState {
     }
 }
 
-fn view(path: &str, record: &AgentRecord, include_payload: bool) -> AgentRecordSnapshot {
-    let (status, child_thread_id, summary, error) = match &record.outcome {
-        _ if record.reserved_generation.is_some() => {
-            (AgentLifecycleStatus::Starting, None, None, None)
-        }
+fn view(path: &str, record: &AgentRecord) -> AgentRecordSnapshot {
+    let (status, child_thread_id) = match &record.outcome {
+        _ if record.reserved_generation.is_some() => (AgentLifecycleStatus::Starting, None),
         Some(AgentOutcome::Result {
             status,
             child_thread_id,
-            summary,
-        }) => (
-            *status,
-            *child_thread_id,
-            include_payload.then(|| summary.clone()),
-            None,
-        ),
-        Some(AgentOutcome::Error(error)) => (
-            AgentLifecycleStatus::Errored,
-            None,
-            None,
-            include_payload.then(|| error.clone()),
-        ),
-        None if record.handle.is_some() => (AgentLifecycleStatus::Running, None, None, None),
-        None => (AgentLifecycleStatus::Starting, None, None, None),
+        }) => (*status, *child_thread_id),
+        Some(AgentOutcome::Error) => (AgentLifecycleStatus::Errored, None),
+        None if record.handle.is_some() => (AgentLifecycleStatus::Running, None),
+        None => (AgentLifecycleStatus::Starting, None),
     };
     let child_thread_id = if record
         .history
@@ -595,12 +592,12 @@ fn view(path: &str, record: &AgentRecord, include_payload: bool) -> AgentRecordS
         generation: record.reserved_generation.unwrap_or(record.generation),
         status,
         child_thread_id,
-        summary,
-        error,
+        summary: None,
+        error: None,
     }
 }
 
-fn compact_result(result: AgentControlResult) -> AgentOutcome {
+fn terminal_result(result: &AgentControlResult) -> AgentOutcome {
     let child_thread_id = result
         .metadata
         .get("resumable")
@@ -610,20 +607,7 @@ fn compact_result(result: AgentControlResult) -> AgentOutcome {
     AgentOutcome::Result {
         status: result.status,
         child_thread_id,
-        summary: truncate_utf8(result.summary, MAX_RETAINED_SUMMARY_BYTES),
     }
-}
-
-fn truncate_utf8(mut value: String, max_bytes: usize) -> String {
-    if value.len() <= max_bytes {
-        return value;
-    }
-    let mut end = max_bytes;
-    while !value.is_char_boundary(end) {
-        end -= 1;
-    }
-    value.truncate(end);
-    value
 }
 
 fn normalize_target(target: &str) -> Result<String> {
@@ -642,5 +626,58 @@ fn normalize_prefix(prefix: Option<&str>) -> Result<String> {
     match prefix {
         None | Some("") | Some("/root") | Some("/root/") => Ok("/root/".to_owned()),
         Some(prefix) => normalize_target(prefix),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn long_summaries_and_errors_are_owned_only_by_the_completion_queue() {
+        let control = CollaborationControl::default();
+        let session = crate::domain::new_session_id();
+        let summary = "я".repeat(1 << 20);
+        for i in 0..8 {
+            let agent = control
+                .reserve(session, &format!("agent_{i}"), "role")
+                .unwrap();
+            control.complete(
+                session,
+                &agent.path,
+                agent.generation,
+                Ok(AgentControlResult::new(
+                    summary.clone(),
+                    AgentLifecycleStatus::Completed,
+                )),
+            );
+        }
+        let failed = control.reserve(session, "failure", "role").unwrap();
+        control.complete(
+            session,
+            &failed.path,
+            failed.generation,
+            Err(anyhow!("{summary}")),
+        );
+
+        let results = control.drain_completions(session).unwrap();
+        assert_eq!(results.len(), 8);
+        for result in &results {
+            let text = result.summary.as_ref().unwrap();
+            assert_eq!(text, &summary[..MAX_RETAINED_SUMMARY_BYTES]);
+            assert_eq!(text.capacity(), MAX_RETAINED_SUMMARY_BYTES);
+        }
+        let errors = control.drain_completions(session).unwrap();
+        let error = errors[0].error.as_ref().unwrap();
+        assert_eq!(error, &summary[..MAX_RETAINED_ERROR_BYTES]);
+        assert_eq!(error.capacity(), MAX_RETAINED_ERROR_BYTES);
+        assert!(control.drain_completions(session).unwrap().is_empty());
+        assert!(
+            control
+                .list(session, None)
+                .unwrap()
+                .iter()
+                .all(|row| { row.summary.is_none() && row.error.is_none() })
+        );
     }
 }

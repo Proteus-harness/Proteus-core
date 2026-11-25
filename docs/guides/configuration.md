@@ -1626,6 +1626,11 @@ tools, policy и содержательные ограничения не нас
 bounds. Поставляемые `config.toml` и `codex.config.toml` описывают read-only
 explorer inline. Named `codex-explore` и `codex-coder` остаются отдельными
 примерами полных peers; их tool surfaces и policy находятся в child profiles.
+После завершения задачи пул может сохранять дочерний Core с его активными
+модулями для следующего обращения по `task_id`. Общий предел таких процессов
+задаёт `max_idle_processes`. Параметр роли `max_processes` ограничивает параллельное исполнение.
+При заданном `max_summary_bytes` родитель удерживает UTF-8-префикс ответа
+в этом бюджете, в том числе во время получения текста для частичного результата.
 `codex-task.config.toml` явно выбирает task facade и inline coder с worktree.
 
 Профиль `codex-go` включает актуальный `codex.config.toml` и каталог
