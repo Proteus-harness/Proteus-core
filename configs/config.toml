@@ -90,6 +90,7 @@ env_allowlist = ["HOME", "PROTEUS_HOME"]
 
 [components.codex-patch]
 command = "proteus-codex-patch-module"
+release_when_idle = true
 env_allowlist = ["HOME", "PROTEUS_HOME"]
 
 [components.codex-patch.exports.tool.codex_patch]
@@ -116,6 +117,7 @@ env_allowlist = ["HOME", "PROTEUS_HOME"]
 
 [components.plan-tool]
 command = "proteus-plan-tool-module"
+release_when_idle = true
 env_allowlist = ["HOME", "PROTEUS_HOME"]
 
 [components.plan-tool.exports.tool.plan_tool]
@@ -167,6 +169,7 @@ env_allowlist = ["HOME", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "
 
 [components.code-mode]
 command = "proteus-code-mode-module"
+release_when_idle = true
 
 [components.code-mode.exports.tool.code_mode]
 
