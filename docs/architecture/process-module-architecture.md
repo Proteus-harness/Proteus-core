@@ -46,7 +46,12 @@ AppConfig.components
 `ProcessComponentLauncher` кэширует один broker на canonical workspace.
 Поэтому два adapters одного component не запускают два одинаковых child
 process. Другой workspace получает отдельный broker: относительный `cwd` и
-module semantics не протекают между репозиториями.
+module semantics не протекают между репозиториями. После сборки runtime
+Core освобождает broker компонента, который понадобился только для discovery
+отключённых инструментов. Описания инструментов остаются в каталоге, а запрос
+схемы настроек при необходимости снова запускает компонент. Если тот же
+компонент обслуживает выбранный slot или включённый инструмент, его broker
+продолжает работать.
 
 ## Config И Identity
 

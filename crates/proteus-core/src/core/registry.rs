@@ -22,6 +22,9 @@ use crate::{
 #[path = "registry/compaction_tests.rs"]
 mod compaction_tests;
 #[cfg(test)]
+#[path = "registry/discovery_tests.rs"]
+mod discovery_tests;
+#[cfg(test)]
 #[path = "tool_terminal_binding_tests.rs"]
 mod tool_terminal_tests;
 
@@ -249,6 +252,13 @@ impl RuntimeRegistry {
                 .map(|id| catalog.build_session_storage(id, &build_ctx))
                 .transpose()?,
         };
+        // Bootstrap validates every process tool and records its inventory,
+        // including disabled entries. Once all runtime slots are assembled,
+        // only components retained by a live adapter need to remain running.
+        // Config discovery can reconnect on demand using the same descriptors.
+        for export in &catalog.config_exports {
+            export.release_discovery_brokers()?;
+        }
         Ok(Self {
             config_exports: catalog.config_exports,
             session_storage,

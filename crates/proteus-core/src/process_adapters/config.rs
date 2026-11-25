@@ -331,6 +331,22 @@ impl ProcessComponentLauncher {
         brokers.insert(workspace, Arc::clone(&broker));
         Ok(broker)
     }
+
+    fn release_discovery_brokers(&self) -> Result<()> {
+        let released: Vec<_> = {
+            let mut brokers = self.brokers.lock().map_err(|_| {
+                anyhow::anyhow!("component {:?} broker cache poisoned", self.component_id)
+            })?;
+            // The cache is the only source of new broker owners. A sole
+            // cached owner means no runtime adapter retained this worker.
+            brokers
+                .extract_if(|_, broker| Arc::strong_count(broker) == 1)
+                .collect()
+        };
+        // Worker shutdown can wait for the broker thread. Drop outside the lock.
+        drop(released);
+        Ok(())
+    }
 }
 
 /// One typed module export plus a shared component launcher.
@@ -392,6 +408,10 @@ impl ProcessExportConfig {
 
     pub(crate) fn connect(&self, workspace: &Path) -> Result<Arc<ComponentBroker>> {
         self.launcher.connect(workspace)
+    }
+
+    pub(crate) fn release_discovery_brokers(&self) -> Result<()> {
+        self.launcher.release_discovery_brokers()
     }
 }
 
