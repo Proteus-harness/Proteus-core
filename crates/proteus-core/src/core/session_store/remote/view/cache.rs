@@ -462,37 +462,40 @@ pub(super) fn save_model(
     )
 }
 
-/// A startup projection holds only its returned display row owner and a
-/// disposable independent canonical conversation until that section saves.
-pub(super) struct StartupProjection<'a, T> {
-    pub(super) summary: &'a AppSessionSummary,
+/// The cache owns the validated conversation and borrows the rendered rows
+/// from the same immutable projection used by the initial page.
+pub(super) struct StartupProjection {
+    pub(super) summary: AppSessionSummary,
     pub(super) revision: u64,
-    pub(super) usage: &'a SessionUsageSnapshot,
+    pub(super) usage: SessionUsageSnapshot,
     pub(super) history: StartupHistory,
+    pub(super) context_summary: AppContextHistorySummary,
     pub(super) context: Vec<ModelContextObservation>,
-    pub(super) transcript: &'a T,
     pub(super) prefix: Option<PrefixIdentities>,
 }
 
-pub(super) fn save_startup_projection<T: CacheRows>(
-    store: &RemoteSessionStore,
-    source: &RemoteCacheSource,
-    model: StartupProjection<'_, T>,
-) -> Option<()> {
-    save_model_sections(
-        store,
-        source,
-        ReadMetadata {
-            summary: model.summary,
-            revision: model.revision,
-            usage: model.usage,
-        },
-        None,
-        CacheConversation::Owned(model.history),
-        Cow::Owned(model.context),
-        model.transcript.rows_ref(),
-        model.prefix.map(CachePrefix::Owned),
-    )
+impl StartupProjection {
+    pub(super) fn save(
+        self,
+        store: &RemoteSessionStore,
+        source: &RemoteCacheSource,
+        transcript: &impl CacheRows,
+    ) -> Option<()> {
+        save_model_sections(
+            store,
+            source,
+            ReadMetadata {
+                summary: &self.summary,
+                revision: self.revision,
+                usage: &self.usage,
+            },
+            None,
+            CacheConversation::Owned(self.history, self.context_summary),
+            Cow::Owned(self.context),
+            transcript.rows_ref(),
+            self.prefix.map(CachePrefix::Owned),
+        )
+    }
 }
 
 #[cfg(test)]
@@ -501,19 +504,17 @@ pub(super) fn save_startup_model<T: CacheRows>(
     source: &RemoteCacheSource,
     model: &mut SessionReadModel<T>,
 ) -> Option<()> {
-    save_startup_projection(
-        store,
-        source,
-        StartupProjection {
-            summary: &model.summary,
-            revision: model.conversation.revision,
-            usage: &model.usage,
-            history: StartupHistory::Full(std::mem::take(&mut model.conversation.messages)),
-            context: std::mem::take(&mut model.conversation.model_context),
-            transcript: &model.transcript,
-            prefix: model.prefix.take(),
-        },
-    )
+    let history = StartupHistory::Full(std::mem::take(&mut model.conversation.messages));
+    StartupProjection {
+        summary: model.summary.clone(),
+        revision: model.conversation.revision,
+        usage: model.usage.clone(),
+        context_summary: history.context_summary(),
+        history,
+        context: std::mem::take(&mut model.conversation.model_context),
+        prefix: model.prefix.take(),
+    }
+    .save(store, source, &model.transcript)
 }
 
 pub(super) fn write_plain_conversation(
@@ -580,21 +581,21 @@ struct ReadMetadata<'a> {
 
 enum CacheConversation<'a> {
     Borrowed(&'a [CanonicalMessage]),
-    Owned(StartupHistory),
+    Owned(StartupHistory, AppContextHistorySummary),
 }
 
 impl CacheConversation<'_> {
     fn len(&self) -> usize {
         match self {
             Self::Borrowed(rows) => rows.len(),
-            Self::Owned(history) => history.len(),
+            Self::Owned(history, _) => history.len(),
         }
     }
 
     fn write(&self, store: &RemoteSessionStore, source: &RemoteCacheSource) -> Option<Section> {
         match self {
             Self::Borrowed(rows) => write_transcript(store, source, rows),
-            Self::Owned(history) => history.write(store, source),
+            Self::Owned(history, _) => history.write(store, source),
         }
     }
 }
@@ -630,10 +631,7 @@ fn save_model_sections(
     let previous = header(store).map(|header| (header.source, header.transcript));
     let conversation = messages.write(store, source)?;
     let context_summary = match messages {
-        CacheConversation::Owned(history) => {
-            // Drop all canonical owners before allocating the display section.
-            SavedContextSummary::Computed(history.context_summary())
-        }
+        CacheConversation::Owned(_, summary) => SavedContextSummary::Computed(summary),
         CacheConversation::Borrowed(messages) => SavedContextSummary::Borrowed(messages),
     };
     let transcript = match rows {
@@ -743,11 +741,28 @@ pub(super) fn update_tools(
     (tools.len() <= 16_384).then_some(())
 }
 
-fn accepted(status: &str) -> bool {
+pub(super) fn accepted(status: &str) -> bool {
     !matches!(status, "failed" | "denied")
 }
 
 pub(super) fn tool_state(store: &RemoteSessionStore, name: &str) -> Option<AppLatestToolState> {
+    if let Some(pending) = store.publishing_transcript(None) {
+        let tool = match &pending.rows {
+            DisplayRows::Text { .. } => None,
+            DisplayRows::Full(rows) => rows
+                .iter()
+                .rev()
+                .filter_map(|row| row.tool.as_ref())
+                .find(|tool| tool.name == name && accepted(&tool.status))
+                .map(AppToolState::from),
+        };
+        if RemoteCacheSource::read(store)?.revision()? == pending.revision {
+            return Some(AppLatestToolState {
+                revision: pending.revision.clone(),
+                tool,
+            });
+        }
+    }
     let header = fresh_header(store)?;
     let tool = match header.tools.get(name) {
         Some(digest) => match read_content::<AppToolState>(store, digest) {

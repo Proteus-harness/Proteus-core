@@ -1,5 +1,6 @@
 """Bounded unit/exec checks, without Core builds, GUI or user sessions."""
 import copy
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -9,7 +10,7 @@ import tempfile
 from types import SimpleNamespace
 import unittest
 
-from journal import digest, message_digest, seed_summary, verify_active
+from journal import digest, message_digest, read_blob, seed_summary, verify_active
 from launcher import MANIFEST_ENV, plan
 from resume_idle import check_snapshot
 from fixtures import prepare_case, prepare_fixtures
@@ -84,6 +85,54 @@ def inline(kind, payload, seq, turn=None):
 
 
 class PreservationTests(unittest.TestCase):
+    def test_shared_blob_checks_chunk_and_expanded_hashes(self):
+        with tempfile.TemporaryDirectory() as folder:
+            session = Path(folder)
+            shared = session / "blobs/shared"
+            shared.mkdir(parents=True)
+            chunks = [b'{"x":', b'123}']
+            payload = b"".join(chunks)
+            sha = hashlib.sha256(payload).hexdigest()
+            leaf = Path("blobs") / f"{sha}.json"
+            ref = dict(sha256=sha, bytes=len(payload), relative_path=str(leaf))
+            parts = []
+            for chunk in chunks:
+                key = hashlib.sha256(chunk).hexdigest()
+                part = shared / f"{key}.bin"
+                part.write_bytes(chunk)
+                parts.append(dict(sha256=key, bytes=len(chunk)))
+            manifest = dict(bytes=len(payload), sha256=sha, chunks=parts)
+            def write_manifest():
+                (session / leaf).write_bytes(b"PROTEUS-SHARED-BLOB-1\n" + json.dumps(manifest).encode())
+            write_manifest()
+            self.assertEqual(read_blob(session, ref), {"x": 123})
+            parts.reverse()
+            write_manifest()
+            with self.assertRaisesRegex(ValueError, "canonical blob size/hash mismatch"):
+                read_blob(session, ref)
+            part.write_bytes(b"321}")
+            with self.assertRaisesRegex(ValueError, "chunk hash mismatch"):
+                read_blob(session, ref)
+
+    def test_split_appends_match_single_append_and_reject_another_session(self):
+        with tempfile.TemporaryDirectory() as folder:
+            session = Path(folder)
+            journal = session / "journal.jsonl"
+            def append(seq, rows):
+                return inline("history_mutated", dict(mutation="append", messages=rows,
+                              previous_revision=seq-1, new_revision=seq), seq)
+            rows = [message(i) for i in range(7)]
+            journal.write_text(json.dumps(append(1, rows)) + "\n")
+            expected = seed_summary(session, 7, 1)
+            parts = [append(1, rows[:3]), append(2, rows[3:])]
+            journal.write_text("".join(json.dumps(p) + "\n" for p in parts))
+            actual = seed_summary(session, 7, 1)
+            self.assertEqual(actual, dict(expected, history_mutations=2))
+            parts[1]["session_id"] = "another"
+            journal.write_text("".join(json.dumps(p) + "\n" for p in parts))
+            with self.assertRaisesRegex(ValueError, "incomplete initial"):
+                seed_summary(session, 7, 1)
+
     def test_fixture_spec_keeps_uncompacted_input_separate(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

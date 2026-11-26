@@ -17,6 +17,24 @@ pub(crate) enum DisplayRows {
 }
 
 impl DisplayRows {
+    pub(super) fn len(&self) -> usize {
+        match self {
+            Self::Full(rows) => rows.len(),
+            Self::Text { rows, .. } => rows.len(),
+        }
+    }
+
+    pub(super) fn copy_range(&self, range: std::ops::Range<usize>) -> Vec<AppTranscriptMessage> {
+        match self {
+            Self::Full(rows) => rows[range].to_vec(),
+            Self::Text { rows, timestamp_ms } => rows[range]
+                .iter()
+                .cloned()
+                .map(|row| row.into_full(*timestamp_ms))
+                .collect(),
+        }
+    }
+
     pub(crate) fn into_full(self) -> Vec<AppTranscriptMessage> {
         match self {
             Self::Full(rows) => rows,
@@ -29,6 +47,7 @@ impl DisplayRows {
     }
 }
 
+#[derive(Clone)]
 pub(crate) struct CompactTextRow {
     pub(crate) message_id: MessageId,
     pub(crate) phase: Option<MessagePhase>,

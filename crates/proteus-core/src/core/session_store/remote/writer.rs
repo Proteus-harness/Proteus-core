@@ -38,16 +38,22 @@ pub(super) struct RemoteWriter {
     display_capture: Option<DisplayCapture>,
 }
 
-pub(super) fn shared_writer(
+// A newly opened read handle and a live runtime can address the same session.
+pub(super) struct SessionHandles {
+    writer: Arc<tokio::sync::Mutex<RemoteWriter>>,
+    pub(super) publishing: std::sync::Mutex<Option<Arc<view::PublishingTranscript>>>,
+}
+
+pub(super) fn shared_handles(
     service: &StorageService,
     session: &proteus_contracts::contracts::SessionLocator,
-) -> Arc<tokio::sync::Mutex<RemoteWriter>> {
+) -> Arc<SessionHandles> {
     use std::{
         collections::HashMap,
         sync::{Mutex, OnceLock, Weak},
     };
     type Key = (usize, proteus_contracts::contracts::SessionLocator);
-    type Handle = Weak<tokio::sync::Mutex<RemoteWriter>>;
+    type Handle = Weak<SessionHandles>;
     static WRITERS: OnceLock<Mutex<HashMap<Key, Handle>>> = OnceLock::new();
     let mut writers = WRITERS
         .get_or_init(Default::default)
@@ -58,10 +64,13 @@ pub(super) fn shared_writer(
         return writer;
     }
     writers.retain(|_, writer| writer.strong_count() != 0);
-    let writer = Arc::new(tokio::sync::Mutex::new(RemoteWriter::new(
-        service.clone(),
-        session.clone(),
-    )));
+    let writer = Arc::new(SessionHandles {
+        writer: Arc::new(tokio::sync::Mutex::new(RemoteWriter::new(
+            service.clone(),
+            session.clone(),
+        ))),
+        publishing: Default::default(),
+    });
     writers.insert(key, Arc::downgrade(&writer));
     writer
 }
@@ -250,14 +259,14 @@ impl RemoteSessionStore {
         > + Send
         + 'static,
     ) -> Result<T> {
-        let mut writer = self.writer.clone().lock_owned().await;
+        let mut writer = self.handles.writer.clone().lock_owned().await;
         // Admission transfers ownership to this task. Caller cancellation stops
         // waiting while the admitted persistence transaction finishes/reconciles.
         tokio::spawn(async move { operation(&mut writer).await }).await?
     }
 
     pub(crate) async fn begin_display_capture(&self) {
-        let mut writer = self.writer.lock().await;
+        let mut writer = self.handles.writer.lock().await;
         writer.display_capture = None;
         if writer.lease.is_some()
             && let Some(records) = DisplayRecordWriter::new()
@@ -268,7 +277,7 @@ impl RemoteSessionStore {
     }
 
     pub(crate) async fn finish_display_capture(&self) -> Option<CommittedDisplay> {
-        let mut writer = self.writer.lock().await;
+        let mut writer = self.handles.writer.lock().await;
         let capture = writer.display_capture.take()?;
         if writer.revision == capture.start.revision {
             return None;
@@ -401,7 +410,7 @@ impl RemoteSessionStore {
         .await
     }
     pub(crate) async fn history_revision(&self) -> Result<u64> {
-        let writer = self.writer.lock().await;
+        let writer = self.handles.writer.lock().await;
         if writer.lease.is_some() {
             return Ok(writer.revision.history_revision);
         }

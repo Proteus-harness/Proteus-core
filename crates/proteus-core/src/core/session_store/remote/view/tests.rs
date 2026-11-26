@@ -1,4 +1,5 @@
 mod support;
+mod publishing;
 
 use super::*;
 use support::{Backend, append, full};

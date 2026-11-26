@@ -1,6 +1,7 @@
-"""Post-measurement canonical journal verification, one record/blob at a time."""
+"""Post-measurement canonical journal verification."""
 import hashlib
 import json
+import re
 from itertools import islice
 from pathlib import Path
 
@@ -8,6 +9,39 @@ from pathlib import Path
 def digest(path):
     with Path(path).open("rb") as stream:
         return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
+def read_blob(session, stored):
+    sha, size = stored["sha256"], stored["bytes"]
+    relative = Path(stored["relative_path"])
+    if not re.fullmatch(r"[0-9a-f]{64}", sha) or relative != Path("blobs") / f"{sha}.json":
+        raise ValueError("invalid canonical blob reference")
+    path = session / relative
+    limit = 64 * 1024 * 1024
+    if not path.resolve().is_relative_to(session) or not 0 <= size <= limit or path.stat().st_size > limit:
+        raise ValueError("invalid canonical blob size or path")
+    magic = b"PROTEUS-SHARED-BLOB-1\n"
+    data = path.read_bytes()
+    if data.startswith(magic):
+        manifest = json.loads(data[len(magic):])
+        if (manifest["bytes"] != size or manifest["sha256"] != sha
+                or not 1 <= len(manifest["chunks"]) <= limit // (16 * 1024) + 1):
+            raise ValueError("invalid canonical blob manifest")
+        data = bytearray()
+        for chunk in manifest["chunks"]:
+            key, length = chunk["sha256"], chunk["bytes"]
+            if not re.fullmatch(r"[0-9a-f]{64}", key) or not 0 < length <= min(65536, size - len(data)):
+                raise ValueError("invalid canonical blob chunk")
+            part = session / "blobs" / "shared" / f"{key}.bin"
+            if not part.resolve().is_relative_to(session) or part.stat().st_size != length:
+                raise ValueError("canonical blob chunk size/path mismatch")
+            content = part.read_bytes()
+            if len(content) != length or hashlib.sha256(content).hexdigest() != key:
+                raise ValueError("canonical blob chunk hash mismatch")
+            data.extend(content)
+    if len(data) != size or hashlib.sha256(data).hexdigest() != sha:
+        raise ValueError("canonical blob size/hash mismatch")
+    return json.loads(data)
 
 
 def records(session):
@@ -26,15 +60,7 @@ def records(session):
             if stored["storage"] == "inline":
                 payload = stored["value"]
             elif stored["storage"] == "blob":
-                sha = stored["sha256"]
-                relative = Path(stored["relative_path"])
-                if len(sha) != 64 or relative != Path("blobs") / f"{sha}.json":
-                    raise ValueError("invalid canonical blob reference")
-                path = session / relative
-                if not path.resolve().is_relative_to(session) or path.stat().st_size != stored["bytes"] or digest(path) != sha:
-                    raise ValueError("canonical blob size/hash mismatch")
-                with path.open() as blob:
-                    payload = json.load(blob)
+                payload = read_blob(session, stored)
             else:
                 raise ValueError("unsupported canonical payload storage")
             yield record, payload
@@ -66,14 +92,47 @@ def _request_history_digest(messages):
     return message_digest(messages[:-1])
 
 
+def seed_records(session, expected_rows):
+    """Present the initial typed-seeder appends as one logical display corpus."""
+    source = iter(records(session))
+    first = next(source, None)
+    if first is None:
+        return
+    record, payload = first
+    appends = 1
+    last_revision = payload.get("new_revision")
+    if record["kind"] == "history_mutated" and payload["mutation"] == "append":
+        messages = payload["messages"]
+        while 0 < len(messages) < expected_rows:
+            following = next(source, None)
+            if following is None:
+                break
+            entry, change = following
+            if (entry["kind"] != "history_mutated" or change["mutation"] != "append"
+                    or change.get("compaction") or not change["messages"]
+                    or len(messages) + len(change["messages"]) > expected_rows
+                    or change.get("previous_revision") != last_revision
+                    or entry.get("turn_id") != record.get("turn_id")
+                    or entry["session_id"] != record["session_id"]
+                    or entry.get("thread_id") != record.get("thread_id")):
+                raise ValueError("incomplete initial typed-seeder appends")
+            messages.extend(change["messages"])
+            appends += 1
+            last_revision = change.get("new_revision")
+    yield record, payload, appends
+    for record, payload in source:
+        yield record, payload, 1
+
+
 def seed_summary(session, expected_rows, text_repeats, model_history_rows=None,
                  seed_model_requests=0, request_payload_kib=0):
     if model_history_rows is not None and not 1 <= model_history_rows <= expected_rows:
         raise ValueError("model history must retain 1..ROWS messages")
     seed = None
     mutations = 0
+    physical_mutations = 0
     requests, responses = set(), set()
-    for record, payload in records(session):
+    for record, payload, group_size in seed_records(session, expected_rows):
         kind = record["kind"]
         if kind == "model_request_recorded" and seed_model_requests:
             if (seed is None or record.get("turn_id") is not None or payload.get("origin") != "auxiliary"
@@ -106,6 +165,7 @@ def seed_summary(session, expected_rows, text_repeats, model_history_rows=None,
         if requests:
             raise ValueError("synthetic exchanges must follow immutable history mutations")
         mutations += 1
+        physical_mutations += group_size
         messages = payload["messages"]
         if seed is not None:
             report = payload.get("compaction") or {}
@@ -143,7 +203,7 @@ def seed_summary(session, expected_rows, text_repeats, model_history_rows=None,
         raise ValueError("declared synthetic compaction is missing")
     if len(requests) != seed_model_requests or responses != requests:
         raise ValueError("declared synthetic model exchanges are missing")
-    seed["history_mutations"] = mutations
+    seed["history_mutations"] = physical_mutations
     seed["stored_model_requests"] = len(requests)
     seed["stored_request_extra_payload_bytes"] = len(requests) * request_payload_kib * 1024
     return seed
@@ -164,7 +224,7 @@ def verify_active(session, seed, rounds):
     initial_mutations = 0
     seeded_ui_verified = False
     declared_compaction_seen = False
-    for record, payload in records(session):
+    for record, payload, _ in seed_records(session, seed["rows"]):
         kind = record["kind"]
         if kind == "history_mutated":
             messages = payload["messages"]

@@ -19,7 +19,7 @@ use proteus_core::core::{
 use std::path::PathBuf;
 
 const USAGE: &str = "session_index_fixture CONFIG_ROOT WORKSPACE ROWS TEXT_REPEATS \
-    [MODEL_HISTORY_ROWS] [--model-request-repeats N] [--request-payload-kib K]";
+    [MODEL_HISTORY_ROWS] [--append-chunk-rows N] [--model-request-repeats N] [--request-payload-kib K]";
 const REQUEST_PAYLOAD_PREFIX: &str = "SYNTHETIC_REQUEST_PAYLOAD_";
 
 #[tokio::main]
@@ -37,11 +37,13 @@ async fn main() -> Result<()> {
     let repeats: usize = positional[3].parse()?;
     let model_history_rows: Option<usize> =
         positional.get(4).map(|value| value.parse()).transpose()?;
+    let mut append_chunk_rows = rows;
     let mut model_request_repeats = 0_usize;
     let mut request_payload_kib = 0_usize;
     let mut flags = args[flags_at..].chunks_exact(2);
     for flag in &mut flags {
         match flag[0].as_str() {
+            "--append-chunk-rows" => append_chunk_rows = flag[1].parse()?,
             "--model-request-repeats" => model_request_repeats = flag[1].parse()?,
             "--request-payload-kib" => request_payload_kib = flag[1].parse()?,
             other => anyhow::bail!("unknown flag {other}; {USAGE}"),
@@ -65,7 +67,7 @@ async fn main() -> Result<()> {
         total_request_payload_bytes <= 1024 * 1024 * 1024,
         "total request payload exceeds 1 GiB"
     );
-    ensure!(rows > 0 && repeats > 0);
+    ensure!(rows > 0 && repeats > 0 && append_chunk_rows > 0);
     ensure!(model_history_rows.is_none_or(|keep| keep > 0 && keep <= rows));
     std::fs::create_dir_all(&cwd)?;
     let store = SessionStore::new(
@@ -90,7 +92,9 @@ async fn main() -> Result<()> {
         })
         .collect();
     let thread_id = new_thread_id();
-    store.append_history(thread_id, None, &messages).await?;
+    for chunk in messages.chunks(append_chunk_rows) {
+        store.append_history(thread_id, None, chunk).await?;
+    }
     if let Some(keep) = model_history_rows {
         let tail = &messages[messages.len() - keep..];
         let mut report = HistoryCompactionReport::unchanged(

@@ -19,7 +19,7 @@ pub(crate) mod prepared;
 pub(crate) mod snapshot;
 pub(crate) mod view;
 mod writer;
-use writer::RemoteWriter;
+use writer::SessionHandles;
 
 pub type StorageService = Arc<dyn SessionStorage>;
 
@@ -27,7 +27,7 @@ pub type StorageService = Arc<dyn SessionStorage>;
 pub struct RemoteSessionStore {
     pub(crate) service: StorageService,
     pub(crate) descriptor: StorageSessionDescriptor,
-    writer: Arc<tokio::sync::Mutex<RemoteWriter>>,
+    handles: Arc<SessionHandles>,
     created_root: Option<PathBuf>,
 }
 
@@ -86,7 +86,7 @@ impl RemoteSessionStore {
             "this client requires a session display locator"
         );
         Ok(Self {
-            writer: writer::shared_writer(&service, &descriptor.session),
+            handles: writer::shared_handles(&service, &descriptor.session),
             service,
             descriptor,
             created_root: None,

@@ -20,6 +20,8 @@ mod committed;
 mod incremental;
 pub(crate) use committed::CommittedDisplay;
 mod prefix;
+mod publishing;
+pub(super) use publishing::PublishingTranscript;
 mod startup_history;
 mod text_rows;
 pub(crate) use cache::RemoteCacheSource;
@@ -113,7 +115,7 @@ impl RemoteSessionStore {
         &self,
         read: RemoteValidatedRead,
         paged: bool,
-        allow_compact_history: bool,
+        initial_open: bool,
         render: impl FnOnce(&mut RemoteJournalSnapshot) -> Result<DisplayRows>,
     ) -> Result<SessionReadView> {
         let source = RemoteCacheSource::from_cursor(&read.cursor());
@@ -121,7 +123,7 @@ impl RemoteSessionStore {
             let (mut snapshot, state) = read.into_parts();
             let mut history = StartupHistory::prepare(
                 state.history,
-                allow_compact_history && paged && snapshot.has_compact_text_stage(),
+                initial_open && paged && snapshot.has_compact_text_stage(),
             );
             let transcript = render(&mut snapshot)?;
             let mut prefix = snapshot.scan_display_prefix()?;
@@ -139,19 +141,52 @@ impl RemoteSessionStore {
             )
             // Preserve snapshot drop/release after Describe and before saving.
         };
-        let _ = cache::save_startup_projection(
-            self,
-            &source,
-            cache::StartupProjection {
-                summary: &summary,
+        let projection = cache::StartupProjection {
+            summary: summary.clone(),
+            revision,
+            usage: usage.clone(),
+            context_summary: history.context_summary(),
+            history,
+            context,
+            prefix: Some(prefix),
+        };
+        if paged
+            && initial_open
+            && let Some((runtime, permit, revision_key)) = publishing::admit(&transcript, &source)
+        {
+            let pending = std::sync::Arc::new(PublishingTranscript::new(
+                revision_key,
+                transcript,
+                projection.context_summary.clone(),
+                usage.clone(),
+                permit,
+            ));
+            let page = pending.page(None).expect("tail of validated transcript");
+            *self.handles.publishing.lock().unwrap() = Some(pending.clone());
+            let store = self.clone();
+            runtime.spawn_blocking(move || {
+                let saved = projection.save(&store, &source, &pending.rows);
+                // If the cache filled up or the journal advanced, the old cursor
+                // still addresses its immutable rows for the life of the session.
+                if saved.is_some() {
+                    store.handles.publishing.lock().unwrap().take();
+                }
+                drop(pending);
+                crate::release_unused_allocator_pages();
+            });
+            return Ok(SessionReadView {
+                summary,
                 revision,
-                usage: &usage,
-                history,
-                context,
-                transcript: &transcript,
-                prefix: Some(prefix),
-            },
-        );
+                usage,
+                transcript: page.messages,
+                cursor: Some(AppTranscriptCursor {
+                    revision: page.revision,
+                    before: page.start,
+                    base: None,
+                }),
+            });
+        }
+        let _ = projection.save(self, &source, &transcript);
         // A concurrent projection may have advanced HEAD. Only this immutable
         // revision can provide a page for the model's summary, revision and usage.
         let page = if paged {
@@ -226,12 +261,17 @@ impl RemoteSessionStore {
     }
 
     pub(crate) fn fresh_read_usage(&self) -> Option<SessionUsageSnapshot> {
+        if let Some(pending) = self.current_publishing_transcript() {
+            return Some(pending.usage.clone());
+        }
         Some(cache::fresh_header(self)?.usage)
     }
 
     pub(crate) fn fresh_context_summary(&self) -> Option<AppContextHistorySummary> {
-        let header = cache::fresh_header(self)?;
-        Some(header.context_summary)
+        if let Some(pending) = self.current_publishing_transcript() {
+            return Some(pending.context_summary.clone());
+        }
+        Some(cache::fresh_header(self)?.context_summary)
     }
 
     pub(crate) fn saved_transcript_page(
@@ -239,14 +279,25 @@ impl RemoteSessionStore {
         before: Option<usize>,
         revision: Option<&str>,
     ) -> Option<AppTranscriptPage> {
+        if let Some(pending) = self.publishing_transcript(revision) {
+            let page = pending.page(before);
+            if revision.is_some() || RemoteCacheSource::read(self)?.revision()? == pending.revision
+            {
+                return page;
+            }
+        }
         cache::transcript_page(self, before, revision, false)
     }
 
     pub(crate) fn saved_display_page(&self) -> Option<AppTranscriptPage> {
         cache::transcript_page(self, None, None, true)
+            .or_else(|| self.publishing_transcript(None)?.page(None))
     }
 
     pub(crate) fn saved_transcript(&self, revision: &str) -> Option<Vec<AppTranscriptMessage>> {
+        if let Some(pending) = self.publishing_transcript(Some(revision)) {
+            return Some(pending.rows.copy_range(0..pending.rows.len()));
+        }
         cache::load_named_transcript(self, revision)
     }
 
