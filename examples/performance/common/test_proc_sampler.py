@@ -114,6 +114,23 @@ class SamplerTests(unittest.TestCase):
             self.assertEqual([event["type"] for event in events], ["phase", "sample", "summary"])
             self.assertEqual(events[1]["phase"], "startup")
 
+    def test_command_line_remains_available_only_in_live_samples(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            proc = Path(temporary)
+            for pid, parent in [(100, 1), (101, 100)]:
+                self.fake_process(proc, pid, parent, 100, 100, 80)
+                (proc / str(pid) / "cmdline").write_bytes(b"/test/backend\0--token\0fixture-secret\0")
+            output = proc / "samples.jsonl"
+            with Recorder(Tree(100, proc=proc), output) as recorder:
+                live = recorder.sample()
+            self.assertTrue(all(row["argv"][-1] == "fixture-secret" for row in live["processes"]))
+            saved = output.read_text()
+            self.assertNotIn("fixture-secret", saved)
+            sample = json.loads(saved.splitlines()[0])
+            self.assertEqual(len(sample["processes"]), 2)
+            self.assertTrue(all("argv" not in row for row in sample["processes"]))
+            self.assertEqual(sample["groups"], live["groups"])
+
     def test_live_synthetic_reparent_and_exit(self):
         # 8 MiB in the root + 8 MiB in its child, no application or GUI launch.
         child_code = "import time; data=bytearray(8*1024*1024); print('child_ready', flush=True); time.sleep(30)"

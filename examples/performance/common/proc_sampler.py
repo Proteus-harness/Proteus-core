@@ -298,7 +298,15 @@ class Recorder:
         eligible = self.phase_intervals.observe(event)
         if event.get("type") == "sample":
             event["phase_interval_eligible"] = eligible
-        self.file.write(json.dumps(event, ensure_ascii=False) + "\n")
+        persisted = event
+        if "processes" in event:
+            # Live validators may use the backend's command line for their local
+            # HTTP request. Keep arguments (including its token) out of JSONL.
+            persisted = dict(event, processes=[
+                {key: value for key, value in row.items() if key != "argv"}
+                for row in event["processes"]
+            ])
+        self.file.write(json.dumps(persisted, ensure_ascii=False) + "\n")
         self.file.flush()
         return event
 
