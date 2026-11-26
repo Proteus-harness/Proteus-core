@@ -5,7 +5,7 @@ use serde::Serialize;
 
 use super::{
     super::{MAX_BYTES, MAX_ENTRIES},
-    command::{os, read},
+    command::{Output, os, read, run},
     complete_records,
     history::{CommitSummary, head_commit},
     prefix, repository, revision, stats,
@@ -60,6 +60,44 @@ pub(super) struct Scan {
     pub(super) truncated: bool,
 }
 
+#[derive(Default, Serialize)]
+pub(crate) struct ChangesSummary {
+    repository: bool,
+    branch: Option<String>,
+    detached_head: Option<String>,
+    upstream: Option<String>,
+    ahead: u64,
+    behind: u64,
+    count: usize,
+    truncated: bool,
+}
+
+/// The badge needs the branch, sync state and bounded number of changed paths.
+/// Let Git apply the session directory pathspec; no filenames leave this call.
+pub(crate) fn changes_summary(root: &Path) -> Result<ChangesSummary> {
+    let output = read_status(root, &[".".to_owned()])?;
+    if !output.success && !output.truncated && !repository(root)? {
+        return Ok(ChangesSummary::default());
+    }
+    let scan = parse_status(output, "")?;
+    let detached_head = if let (None, Some(oid)) = (&scan.branch, &scan.head_oid) {
+        let head = run(root, &["rev-parse", "--short", oid])?.checked("rev-parse")?;
+        Some(String::from_utf8(head.bytes)?.trim_end().to_owned())
+    } else {
+        None
+    };
+    Ok(ChangesSummary {
+        repository: true,
+        branch: scan.branch,
+        detached_head,
+        upstream: scan.upstream,
+        ahead: scan.ahead,
+        behind: scan.behind,
+        count: scan.entries.len(),
+        truncated: scan.truncated,
+    })
+}
+
 pub(crate) fn changes(root: &Path) -> Result<Changes> {
     if !repository(root)? {
         return Ok(Changes {
@@ -103,6 +141,10 @@ pub(crate) fn changes(root: &Path) -> Result<Changes> {
 
 pub(super) fn scan(root: &Path, pathspecs: &[String]) -> Result<Scan> {
     let prefix = prefix(root)?;
+    parse_status(read_status(root, pathspecs)?, &prefix)
+}
+
+fn read_status(root: &Path, pathspecs: &[String]) -> Result<Output> {
     let mut args = os(&[
         "status",
         "--porcelain=v2",
@@ -113,7 +155,10 @@ pub(super) fn scan(root: &Path, pathspecs: &[String]) -> Result<Scan> {
         "--",
     ]);
     args.extend(pathspecs.iter().map(std::ffi::OsStr::new));
-    let output = read(root, &args, MAX_BYTES)?;
+    read(root, &args, MAX_BYTES)
+}
+
+fn parse_status(output: Output, prefix: &str) -> Result<Scan> {
     ensure!(
         output.success || output.truncated,
         "cannot read Git changes"
@@ -177,7 +222,7 @@ pub(super) fn scan(root: &Path, pathspecs: &[String]) -> Result<Scan> {
             }
             _ => continue,
         };
-        let Some(path) = path.strip_prefix(prefix.as_str()) else {
+        let Some(path) = path.strip_prefix(prefix) else {
             continue;
         };
         if scan.entries.len() == MAX_ENTRIES {
@@ -187,7 +232,7 @@ pub(super) fn scan(root: &Path, pathspecs: &[String]) -> Result<Scan> {
         scan.entries.push(Change {
             path: path.to_owned(),
             original: original
-                .and_then(|original| original.strip_prefix(prefix.as_str()))
+                .and_then(|original| original.strip_prefix(prefix))
                 .map(str::to_owned),
             status: combined(staged, unstaged),
             staged,

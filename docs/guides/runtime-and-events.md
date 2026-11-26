@@ -946,6 +946,10 @@ store; stdio остаётся привязанным к одной session пр�
   отключаются (кроме явного `no_verify` у commit). Запросы адресуют только
   cwd сессии; область репозитория выше cwd не показывается, но коммиты,
   история, ветки и синхронизация с remote относятся ко всему репозиторию.
+  - `GET /workspace/changes?session_dir=<path>&view=summary` — сводка для
+    Git-бейджа с полями `repository, branch, detached_head, upstream, ahead,
+    behind, count, truncated`. Число изменённых путей ограничено тем же
+    пределом, что и список панели. Для detached HEAD возвращается короткий hash.
   - `GET /workspace/changes?session_dir=<path>` — `{repository, branch,
     head, refs_revision, upstream, ahead, behind, added, deleted, entries, truncated}`.
     `branch` — имя текущей ветки или `null` при detached HEAD и вне

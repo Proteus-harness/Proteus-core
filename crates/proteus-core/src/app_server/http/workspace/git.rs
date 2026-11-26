@@ -26,7 +26,7 @@ pub(crate) use log::{DEFAULT_LOG_ENTRIES, LogQuery, log};
 pub(crate) use remote::{fetch, pull, push};
 pub(crate) use show::{commit_details, commit_diff};
 pub(crate) use stash::{stash, stash_pop, uncommit};
-pub(crate) use status::changes;
+pub(crate) use status::{changes, changes_summary};
 pub(crate) use write::{CommitOptions, Selection, checkout, commit, discard, stage, unstage};
 
 use command::{os, read, run};

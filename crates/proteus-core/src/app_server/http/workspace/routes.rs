@@ -55,14 +55,18 @@ pub(crate) async fn get(
             })
             .await?
         }
-        "/workspace/changes" | "/workspace/branches" => {
-            query_param(query, None)?;
+        "/workspace/changes" => {
+            let view = query_param(query, Some("view"))?;
             let server = server_for_query(state, query).await?;
-            if path == "/workspace/changes" {
-                in_session_root(server, git::changes).await?
-            } else {
-                in_session_root(server, git::branches).await?
+            match view.as_deref() {
+                None => in_session_root(server, git::changes).await?,
+                Some("summary") => in_session_root(server, git::changes_summary).await?,
+                Some(_) => anyhow::bail!("unknown changes view"),
             }
+        }
+        "/workspace/branches" => {
+            query_param(query, None)?;
+            in_session_root(server_for_query(state, query).await?, git::branches).await?
         }
         "/workspace/log" => {
             let log = log_query(query)?;

@@ -9,6 +9,46 @@ fn log(root: &std::path::Path, limit: usize, skip: usize, all: bool) -> Value {
 }
 
 #[test]
+fn workspace_git_badge_summary_matches_scoped_changes() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    assert_eq!(
+        json(workspace_git::changes_summary(root).unwrap())["repository"],
+        false
+    );
+    init(root);
+    fs::create_dir(root.join("sub")).unwrap();
+    fs::write(root.join("sub/tracked"), "first").unwrap();
+    fs::write(root.join("outside"), "one").unwrap();
+    git(root, &["add", "."]);
+    let unborn = json(workspace_git::changes_summary(root).unwrap());
+    assert_eq!(unborn["count"], 2);
+    assert!(unborn["detached_head"].is_null());
+    git(root, &["commit", "-qm", "fixture"]);
+    git(root, &["checkout", "--detach", "-q"]);
+    git(root, &["mv", "sub/tracked", "sub/moved"]);
+    fs::write(root.join("outside"), "two").unwrap();
+    fs::write(root.join("sub/new"), "new").unwrap();
+    let sub = root.join("sub");
+    let full = json(workspace_git::changes(&sub).unwrap());
+    let badge = json(workspace_git::changes_summary(&sub).unwrap());
+    assert_eq!(badge["count"], 2);
+    assert_eq!(badge["count"], full["entries"].as_array().unwrap().len());
+    assert_eq!(badge["detached_head"], full["head"]["short"]);
+    for key in [
+        "repository",
+        "branch",
+        "upstream",
+        "ahead",
+        "behind",
+        "truncated",
+    ] {
+        assert_eq!(badge[key], full[key]);
+    }
+    assert!(badge.get("entries").is_none());
+}
+
+#[test]
 fn workspace_git_changes_count_lines_against_head() {
     let root = tempfile::tempdir().unwrap();
     let root = root.path();
