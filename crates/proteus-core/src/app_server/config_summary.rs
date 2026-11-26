@@ -165,7 +165,9 @@ fn push_unique(options: &mut Vec<String>, value: &str) {
 
 impl super::AppServerHandle {
     pub async fn config_summary(&self) -> Value {
-        self.config_summary_with_catalog(true).await
+        let summary = self.config_summary_with_catalog(true).await;
+        self.rearm_idle_worker_retirement().await;
+        summary
     }
 
     /// Selected configuration is local data; remote discovery must not delay it.

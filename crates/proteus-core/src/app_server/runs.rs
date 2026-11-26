@@ -139,6 +139,15 @@ impl AppServerHandle {
             .subscribe()
     }
 
+    /// Discovery can start a worker without admitting a turn. Give it a fresh
+    /// retirement deadline, including when the previous one already elapsed.
+    pub(super) async fn rearm_idle_worker_retirement(&self) {
+        let runs = self.runs.lock().await;
+        if let Some(idle) = runs.worker_idle_since.as_ref().filter(|_| runs.is_idle()) {
+            idle.send_replace(Some(Instant::now()));
+        }
+    }
+
     /// Hold admission until broker retirement completes. Verify the HTTP
     /// watcher's deadline belongs to the current idle period under that lock.
     pub(super) async fn release_idle_component_workers_since(

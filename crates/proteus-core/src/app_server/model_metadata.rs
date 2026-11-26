@@ -5,6 +5,8 @@ impl AppServerHandle {
     pub async fn model_quota(
         &self,
     ) -> anyhow::Result<Option<crate::contracts::ModelQuotaSnapshot>> {
-        self.runtime.model_quota().await
+        let quota = self.runtime.model_quota().await;
+        self.rearm_idle_worker_retirement().await;
+        quota
     }
 }

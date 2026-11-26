@@ -216,10 +216,18 @@ async fn worker_reclamation_ignores_a_deadline_from_an_earlier_idle_period() {
 
     let mut idle = server.watch_worker_idle().await;
     let expired = idle.borrow_and_update().unwrap();
+    server.local_config_summary().await;
+    assert!(!idle.has_changed().unwrap());
+    server.config_summary().await;
+    assert!(idle.has_changed().unwrap());
+    let after_discovery = idle.borrow_and_update().unwrap();
+    assert!(after_discovery >= expired);
     server
         .register_test_run("active", CancellationToken::new())
         .await;
     assert!(idle.borrow_and_update().is_none());
+    server.rearm_idle_worker_retirement().await;
+    assert!(!idle.has_changed().unwrap());
     assert_eq!(
         server
             .release_idle_component_workers_since(Some(expired))
