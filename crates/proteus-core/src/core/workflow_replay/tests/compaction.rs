@@ -258,7 +258,7 @@ async fn compacted_journal_with_metadata(metadata: serde_json::Value) -> TestJou
         .checkpoint_history(
             thread_id,
             turn_id,
-            &compacted_messages,
+            compacted_messages.clone(),
             Some(report.clone()),
             vec![],
         )
@@ -301,7 +301,7 @@ async fn compacted_journal_with_metadata(metadata: serde_json::Value) -> TestJou
     let mut final_history = compacted_messages;
     final_history.extend(response.messages);
     store
-        .checkpoint_history(thread_id, turn_id, &final_history, None, vec![])
+        .checkpoint_history(thread_id, turn_id, final_history.clone(), None, vec![])
         .await
         .expect("compacted history");
     append_preparation_hook(

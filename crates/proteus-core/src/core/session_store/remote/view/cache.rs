@@ -225,10 +225,24 @@ fn matches(store: &RemoteSessionStore, header: &Header) -> bool {
 // complete source and section checks on this owned, immutable header.
 struct CheckedHeader(Header);
 
+struct CheckedSection<'a>(&'a Section);
+
 impl CheckedHeader {
     fn read(store: &RemoteSessionStore, key: &str) -> Option<Self> {
         let header = serde_json::from_value(read_value(store, key)?).ok()?;
         matches(store, &header).then_some(Self(header))
+    }
+
+    fn conversation(&self) -> CheckedSection<'_> {
+        CheckedSection(&self.0.conversation)
+    }
+
+    fn transcript(&self) -> CheckedSection<'_> {
+        CheckedSection(&self.0.transcript)
+    }
+
+    fn context(&self) -> CheckedSection<'_> {
+        CheckedSection(&self.0.context)
     }
 }
 
@@ -236,6 +250,7 @@ pub(super) fn header(store: &RemoteSessionStore) -> Option<Header> {
     CheckedHeader::read(store, HEAD).map(|checked| checked.0)
 }
 
+#[cfg(test)]
 pub(super) fn header_at_revision(store: &RemoteSessionStore, revision: &str) -> Option<Header> {
     checked_header_at_revision(store, revision).map(|checked| checked.0)
 }
@@ -249,8 +264,12 @@ fn checked_header_at_revision(store: &RemoteSessionStore, revision: &str) -> Opt
 }
 
 pub(super) fn fresh_header(store: &RemoteSessionStore) -> Option<Header> {
-    let header = header(store)?;
-    (RemoteCacheSource::read(store).as_ref() == Some(&header.source)).then_some(header)
+    fresh_checked_header(store).map(|checked| checked.0)
+}
+
+fn fresh_checked_header(store: &RemoteSessionStore) -> Option<CheckedHeader> {
+    let checked = CheckedHeader::read(store, HEAD)?;
+    (RemoteCacheSource::read(store).as_ref() == Some(&checked.0.source)).then_some(checked)
 }
 
 pub(super) fn publish(store: &RemoteSessionStore, header: &Header) -> Option<()> {
@@ -275,25 +294,25 @@ pub(super) fn publish(store: &RemoteSessionStore, header: &Header) -> Option<()>
 
 fn load_cached<T>(
     store: &RemoteSessionStore,
-    read_conversation: impl FnOnce(&Header) -> Option<(T, usize)>,
+    read_conversation: impl FnOnce(&CheckedHeader) -> Option<(T, usize)>,
 ) -> Option<(Header, T, Vec<AppTranscriptMessage>)> {
-    let header = fresh_header(store)?;
-    let (conversation, message_count) = read_conversation(&header)?;
-    let transcript = read_section(store, &header.transcript, 0, header.transcript.rows)?;
+    let checked = fresh_checked_header(store)?;
+    let (conversation, message_count) = read_conversation(&checked)?;
+    let transcript = checked.transcript().read_full(store)?;
+    let CheckedHeader(header) = checked;
     (SessionReadModel::matches_parts(store, &header.summary, &header.usage, message_count)
         && RemoteCacheSource::read(store).as_ref() == Some(&header.source))
     .then_some((header, conversation, transcript))
 }
 
 pub(super) fn load_model(store: &RemoteSessionStore) -> Option<SessionReadModel> {
-    let (header, conversation, transcript) = load_cached(store, |header| {
-        let messages: Vec<CanonicalMessage> =
-            read_section(store, &header.conversation, 0, header.conversation.rows)?;
+    let (header, conversation, transcript) = load_cached(store, |checked| {
+        let messages: Vec<CanonicalMessage> = checked.conversation().read_full(store)?;
         let message_count = messages.len();
-        let model_context = read_section(store, &header.context, 0, header.context.rows)?;
+        let model_context = checked.context().read_full(store)?;
         Some((
             ConversationSnapshot {
-                revision: header.revision,
+                revision: checked.0.revision,
                 messages,
                 model_context,
             },
@@ -310,29 +329,30 @@ pub(super) fn load_model(store: &RemoteSessionStore) -> Option<SessionReadModel>
 }
 
 pub(super) fn load_transcript(store: &RemoteSessionStore) -> Option<Vec<AppTranscriptMessage>> {
-    load_cached(store, |header| {
+    load_cached(store, |checked| {
         // Verify the same typed rows and pages, but keep neither unused output vector.
         let mut message_count = 0usize;
-        visit_section::<CanonicalMessage>(
-            store,
-            &header.conversation,
-            0,
-            header.conversation.rows,
-            |_| {
+        checked
+            .conversation()
+            .visit_full::<CanonicalMessage>(store, |_| {
                 message_count = message_count.checked_add(1)?;
                 Some(())
-            },
-        )?;
-        visit_section::<ModelContextObservation>(
-            store,
-            &header.context,
-            0,
-            header.context.rows,
-            |_| Some(()),
-        )?;
+            })?;
+        checked
+            .context()
+            .visit_full::<ModelContextObservation>(store, |_| Some(()))?;
         Some(((), message_count))
     })
     .map(|(_, _, transcript)| transcript)
+}
+
+pub(super) fn load_named_transcript(
+    store: &RemoteSessionStore,
+    revision: &str,
+) -> Option<Vec<AppTranscriptMessage>> {
+    checked_header_at_revision(store, revision)?
+        .transcript()
+        .read_full(store)
 }
 
 pub(super) fn load_view(

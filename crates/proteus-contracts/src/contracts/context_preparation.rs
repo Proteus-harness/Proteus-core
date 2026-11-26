@@ -148,13 +148,28 @@ impl HistoryCompactionReport {
         input: &ContextPreparationInput,
         output: &ContextPreparationOutput,
     ) -> Self {
+        Self::from_context_preparation_summary(
+            input.reason.clone(),
+            input.messages.len(),
+            input.token_estimate,
+            output,
+        )
+    }
+
+    /// Builds the same report without retaining the full preparation input.
+    pub fn from_context_preparation_summary(
+        reason: Option<String>,
+        input_messages: usize,
+        token_estimate: Option<u32>,
+        output: &ContextPreparationOutput,
+    ) -> Self {
         Self {
             changed: output.changed,
             user_message_replacements: output.user_message_replacements.clone(),
-            reason: input.reason.clone(),
-            input_messages: input.messages.len(),
+            reason,
+            input_messages,
             output_messages: output.messages.len(),
-            original_token_estimate: output.original_token_estimate.or(input.token_estimate),
+            original_token_estimate: output.original_token_estimate.or(token_estimate),
             output_token_estimate: output.token_estimate,
             trigger_tokens: output.trigger_tokens,
             summary_source: output.summary_source.clone(),
@@ -461,7 +476,9 @@ mod tests {
 
     #[test]
     fn typed_diagnostics_are_strict_and_metadata_does_not_override_report() {
-        let input = input().with_token_estimate(Some(64));
+        let input = input()
+            .with_reason("codex_pre_turn")
+            .with_token_estimate(Some(64));
         let mut output = ContextPreparationOutput::unchanged(input.messages.clone());
         output.token_estimate = Some(12);
         output.metadata = json!({"input_messages":999,"trigger_tokens":999});
@@ -470,6 +487,24 @@ mod tests {
         assert_eq!(report.output_token_estimate, Some(12));
         assert_eq!(report.original_token_estimate, Some(64));
         assert_eq!(report.trigger_tokens, None);
+        assert_eq!(report.reason.as_deref(), Some("codex_pre_turn"));
+
+        let summary = |output: &ContextPreparationOutput| {
+            HistoryCompactionReport::from_context_preparation_summary(
+                input.reason.clone(),
+                input.messages.len(),
+                input.token_estimate,
+                output,
+            )
+        };
+        assert_eq!(summary(&output), report);
+        output.original_token_estimate = Some(96);
+        assert_eq!(summary(&output).original_token_estimate, Some(96));
+        assert_eq!(
+            summary(&output),
+            HistoryCompactionReport::from_context_preparation_output(&input, &output)
+        );
+
         let valid = serde_json::to_value(HookResponse::ContextPreparation { output }).unwrap();
         for (field, value) in [
             ("original_token_estimate", json!(-1)),

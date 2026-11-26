@@ -247,8 +247,7 @@ impl RemoteSessionStore {
     }
 
     pub(crate) fn saved_transcript(&self, revision: &str) -> Option<Vec<AppTranscriptMessage>> {
-        let header = cache::header_at_revision(self, revision)?;
-        cache::read_section(self, &header.transcript, 0, header.transcript.rows)
+        cache::load_named_transcript(self, revision)
     }
 
     pub(crate) fn saved_tool_state(&self, name: &str) -> Option<AppLatestToolState> {

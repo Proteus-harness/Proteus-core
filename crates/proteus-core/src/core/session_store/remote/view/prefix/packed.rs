@@ -8,43 +8,81 @@ use serde_json::Value;
 use std::borrow::Cow;
 use uuid::Uuid;
 
+// Only pack() can construct this writer-side value. The decoder uses
+// Packed<C, String> instead and does not trust received fields.
+#[derive(Serialize)]
+#[serde(transparent)]
+pub(in crate::core::session_store::remote::view) struct GeneratedBase64(String);
+
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(in crate::core::session_store::remote::view) struct Packed<C> {
+pub(in crate::core::session_store::remote::view) struct Packed<C, B = String> {
     format: u8,
-    history: String,
-    turns: String,
-    exchanges: String,
-    messages: String,
+    history: B,
+    turns: B,
+    exchanges: B,
+    messages: B,
     // Each 17-byte record is UUID plus a strict 0/1 explicit membership flag.
-    parts: String,
+    parts: B,
     calls: C,
 }
 
-impl<C: Serialize> Packed<C> {
+pub(in crate::core::session_store::remote::view) type EncodedPrefix<'a> =
+    Packed<Cow<'a, HashSet<CallId>>, GeneratedBase64>;
+
+impl<C: Serialize> Packed<C, GeneratedBase64> {
+    fn fits_bytes(&self, limit: usize) -> Option<()> {
+        // The generated standard Base64 alphabet contains no JSON-escaped
+        // characters. Charge its exact bytes without walking the strings.
+        let limit = [
+            &self.history,
+            &self.turns,
+            &self.exchanges,
+            &self.messages,
+            &self.parts,
+        ]
+        .into_iter()
+        .try_fold(limit, |left, field| left.checked_sub(field.0.len()))?;
+        // Count quotes, keys, punctuation and unrestricted call IDs with
+        // the same wire schema and serializer, not a hand-written constant.
+        let overhead = Packed {
+            format: self.format,
+            history: "",
+            turns: "",
+            exchanges: "",
+            messages: "",
+            parts: "",
+            calls: &self.calls,
+        };
+        crate::core::session_store::json_size::encoded_len(&overhead, limit).map(|_| ())
+    }
+
     pub(in crate::core::session_store::remote::view) fn into_bounded_value(self) -> Option<Value> {
-        crate::core::session_store::json_size::encoded_len(&self, LIMIT)?;
+        self.fits_bytes(LIMIT)?;
         // Match the derived field order, including when Map preserves insertion order.
         let mut object = serde_json::Map::with_capacity(7);
         object.insert("format".to_owned(), Value::from(self.format));
-        object.insert("history".to_owned(), Value::String(self.history));
-        object.insert("turns".to_owned(), Value::String(self.turns));
-        object.insert("exchanges".to_owned(), Value::String(self.exchanges));
-        object.insert("messages".to_owned(), Value::String(self.messages));
-        object.insert("parts".to_owned(), Value::String(self.parts));
+        object.insert("history".to_owned(), Value::String(self.history.0));
+        object.insert("turns".to_owned(), Value::String(self.turns.0));
+        object.insert("exchanges".to_owned(), Value::String(self.exchanges.0));
+        object.insert("messages".to_owned(), Value::String(self.messages.0));
+        object.insert("parts".to_owned(), Value::String(self.parts.0));
         object.insert("calls".to_owned(), serde_json::to_value(self.calls).ok()?);
         Some(Value::Object(object))
     }
 }
 
-fn pack<const N: usize>(records: impl Iterator<Item = [u8; N]>, n: usize) -> String {
+fn pack<const N: usize>(
+    records: impl Iterator<Item = [u8; N]>,
+    n: usize,
+) -> GeneratedBase64 {
     const BATCH_RECORDS: usize = 48;
     if n <= BATCH_RECORDS {
         let mut bytes = Vec::with_capacity(n * N);
         for item in records {
             bytes.extend_from_slice(&item);
         }
-        return STANDARD.encode(bytes);
+        return GeneratedBase64(STANDARD.encode(bytes));
     }
 
     let size = base64::encoded_len(n * N, true).expect("encoded prefix length");
@@ -78,10 +116,10 @@ fn pack<const N: usize>(records: impl Iterator<Item = [u8; N]>, n: usize) -> Str
         encode(batch[..used].as_flattened());
     }
     output.truncate(written);
-    String::from_utf8(output).expect("Base64 is UTF-8")
+    GeneratedBase64(String::from_utf8(output).expect("Base64 is UTF-8"))
 }
 
-fn ids(set: &HashSet<Uuid>) -> String {
+fn ids(set: &HashSet<Uuid>) -> GeneratedBase64 {
     pack(set.iter().map(|id| *id.as_bytes()), set.len())
 }
 
@@ -110,7 +148,7 @@ struct PrefixFields<'a> {
 }
 
 impl<'a> PrefixFields<'a> {
-    fn encode(self) -> Option<Packed<Cow<'a, HashSet<CallId>>>> {
+    fn encode(self) -> Option<EncodedPrefix<'a>> {
         let Self {
             history,
             turns,
@@ -167,7 +205,7 @@ impl<'a> PrefixFields<'a> {
 impl PrefixIdentities {
     pub(in crate::core::session_store::remote::view) fn encode_cache(
         &self,
-    ) -> Option<Packed<Cow<'_, HashSet<CallId>>>> {
+    ) -> Option<EncodedPrefix<'_>> {
         PrefixFields {
             history: Cow::Borrowed(&self.history),
             turns: Cow::Borrowed(&self.turns),
@@ -181,7 +219,7 @@ impl PrefixIdentities {
 
     pub(in crate::core::session_store::remote::view) fn into_encoded_cache(
         self,
-    ) -> Option<Packed<Cow<'static, HashSet<CallId>>>> {
+    ) -> Option<EncodedPrefix<'static>> {
         PrefixFields {
             history: Cow::Owned(self.history),
             turns: Cow::Owned(self.turns),

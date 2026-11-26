@@ -396,7 +396,7 @@ impl AgentRuntime {
         let workflow = crate::core::reviewed_workflow::run(
             snapshot.runtime.registry.workflow.as_ref(),
             task.clone(),
-            checkpoint_recorder.initial_history.clone(),
+            &checkpoint_recorder.initial_history,
             workflow_context,
             Some(checkpoint_recorder.as_ref()),
         );

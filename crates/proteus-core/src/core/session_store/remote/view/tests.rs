@@ -263,6 +263,114 @@ fn cache_fingerprints_ignore_independent_worker_object_order() {
     assert!(store.fresh_read_model().is_some());
 }
 
+#[test]
+fn full_cache_reads_keep_physical_order_and_pinned_history() {
+    use crate::model_standard::CanonicalMessage;
+    use proteus_contracts::contracts::ModelContextObservation;
+
+    let (backend, store) = Backend::store();
+    backend.append(953);
+    let model = store.project_read_model(full).unwrap();
+    let header = cache::header(&store).unwrap();
+    let revision = header.source.revision().unwrap();
+    let records = backend.0.lock().unwrap().record_reads;
+    let rows = serde_json::to_value(&model.transcript).unwrap();
+
+    // Establish the reference traversal from the general section readers.
+    backend.0.lock().unwrap().cache_reads.clear();
+    cache::read_section::<CanonicalMessage>(&store, &header.conversation, 0, header.conversation.rows)
+        .unwrap();
+    cache::read_section::<ModelContextObservation>(&store, &header.context, 0, header.context.rows)
+        .unwrap();
+    let mut current_reads = vec!["display-view-v1-head".to_owned()];
+    current_reads.append(&mut backend.0.lock().unwrap().cache_reads);
+    cache::read_section::<AppTranscriptMessage>(&store, &header.transcript, 0, header.transcript.rows)
+        .unwrap();
+    let body_reads = std::mem::take(&mut backend.0.lock().unwrap().cache_reads);
+    current_reads.extend(body_reads.iter().cloned());
+
+    let current = store.fresh_read_model().unwrap();
+    assert_eq!(current.conversation, model.conversation);
+    assert_eq!(serde_json::to_value(current.transcript).unwrap(), rows);
+    assert_eq!(
+        std::mem::take(&mut backend.0.lock().unwrap().cache_reads),
+        current_reads,
+    );
+    assert_eq!(
+        serde_json::to_value(store.fresh_read_transcript().unwrap()).unwrap(),
+        rows,
+    );
+    assert_eq!(
+        std::mem::take(&mut backend.0.lock().unwrap().cache_reads),
+        current_reads,
+    );
+
+    // Even when the latest revision changes during the read, the stored
+    // named revision stays available and cannot become the current result.
+    backend.0.lock().unwrap().append_on_cache_read = body_reads.last().cloned();
+    assert!(store.fresh_read_transcript().is_none());
+    assert_eq!(
+        std::mem::take(&mut backend.0.lock().unwrap().cache_reads),
+        current_reads,
+    );
+    assert_eq!(
+        serde_json::to_value(store.saved_transcript(&revision).unwrap()).unwrap(),
+        rows,
+    );
+    let mut expected = vec![format!("display-revision-{revision}")];
+    expected.extend(body_reads);
+    let state = backend.0.lock().unwrap();
+    assert_eq!(state.cache_reads, expected);
+    assert_eq!(state.record_reads, records);
+}
+
+#[test]
+fn full_cache_reads_reject_bad_unused_manifest_and_bad_typed_body() {
+    use serde_json::json;
+
+    const HEAD: &str = "display-view-v1-head";
+    let (backend, store) = Backend::store();
+    backend.append(4);
+    store.project_read_model(full).unwrap();
+    let revision = cache::header(&store).unwrap().source.revision().unwrap();
+    let named = format!("display-revision-{revision}");
+    let head = backend.0.lock().unwrap().cache[HEAD].clone();
+
+    // A corrupt context manifest is rejected even for a named transcript,
+    // where the context body would not otherwise be accessed.
+    let mut bad_header = head.clone();
+    bad_header["context"]["rows"] = json!(1);
+    {
+        let mut state = backend.0.lock().unwrap();
+        state.cache.insert(HEAD.to_owned(), bad_header.clone());
+        state.cache.insert(named.clone(), bad_header);
+        state.cache_reads.clear();
+    }
+    assert!(store.fresh_read_model().is_none());
+    assert!(store.fresh_read_transcript().is_none());
+    assert!(store.saved_transcript(&revision).is_none());
+    assert_eq!(
+        std::mem::take(&mut backend.0.lock().unwrap().cache_reads),
+        [HEAD.to_owned(), HEAD.to_owned(), named],
+    );
+
+    // A valid manifest and matching content hash cannot bypass typed decoding.
+    let bad_body = json!([0, 1, 2, 3]);
+    let hash = proteus_contracts::contracts::storage_value_etag(&bad_body).unwrap();
+    let key = format!("display-data-{hash}");
+    let mut checked_shape = head;
+    checked_shape["conversation"]["pages"][0]["hash"] = json!(hash);
+    checked_shape["conversation"]["pages"][0]["bytes"] =
+        json!(serde_json::to_vec(&bad_body).unwrap().len());
+    {
+        let mut state = backend.0.lock().unwrap();
+        state.cache.insert(HEAD.to_owned(), checked_shape);
+        state.cache.insert(key.clone(), bad_body);
+    }
+    assert!(store.fresh_read_transcript().is_none());
+    assert_eq!(backend.0.lock().unwrap().cache_reads, [HEAD.to_owned(), key]);
+}
+
 mod latest_page;
 mod packs;
 

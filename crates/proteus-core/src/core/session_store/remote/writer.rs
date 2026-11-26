@@ -386,14 +386,14 @@ impl RemoteSessionStore {
         &self,
         thread_id: ThreadId,
         turn_id: TurnId,
-        messages: &[CanonicalMessage],
+        messages: Vec<CanonicalMessage>,
         compaction: Option<HistoryCompactionReport>,
         tool_results: Vec<proteus_contracts::contracts::WorkflowToolResultBinding>,
     ) -> Result<()> {
         self.mutate_history(
             thread_id,
             Some(turn_id),
-            messages.to_vec(),
+            messages,
             HistoryMutationKind::Checkpoint,
             compaction,
             tool_results,

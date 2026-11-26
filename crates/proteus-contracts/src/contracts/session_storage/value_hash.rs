@@ -1,4 +1,6 @@
 //! Stable content fingerprints without a serialized copy of a cached value.
+use std::io;
+
 use anyhow::{Context, Result};
 use ring::digest::{Context as DigestContext, SHA256};
 use serde::{
@@ -10,17 +12,30 @@ use serde_json::Value;
 /// SHA-256 of compact JSON with lexicographically ordered object keys. Ordering
 /// is explicit so independent worker builds agree even with `preserve_order`.
 pub fn storage_value_etag(value: &Value) -> Result<String> {
-    let mut writer = DigestWriter(DigestContext::new(&SHA256));
+    fingerprint::<false>(value, 0).map(|(etag, _)| etag)
+}
+
+/// The same canonical etag and compact JSON byte count, with an inclusive
+/// serialized byte limit. No partial etag is returned on overflow.
+pub fn storage_value_etag_with_len(value: &Value, max_bytes: usize) -> Result<(String, usize)> {
+    fingerprint::<true>(value, max_bytes)
+}
+
+fn fingerprint<const BOUNDED: bool>(value: &Value, limit: usize) -> Result<(String, usize)> {
+    let mut writer = DigestWriter::<BOUNDED> {
+        digest: DigestContext::new(&SHA256),
+        remaining: limit,
+    };
     serde_json::to_writer(&mut writer, &OrderedValue(value))
         .context("failed to fingerprint storage value")?;
-    let digest = writer.0.finish();
+    let digest = writer.digest.finish();
     let mut etag = String::with_capacity(digest.as_ref().len() * 2);
     const HEX: &[u8; 16] = b"0123456789abcdef";
     for &byte in digest.as_ref() {
         etag.push(char::from(HEX[usize::from(byte >> 4)]));
         etag.push(char::from(HEX[usize::from(byte & 0x0f)]));
     }
-    Ok(etag)
+    Ok((etag, limit - writer.remaining))
 }
 
 struct OrderedValue<'a>(&'a Value);
@@ -75,13 +90,56 @@ fn can_write_in_order(values: &serde_json::Map<String, Value>) -> bool {
     true
 }
 
-struct DigestWriter(DigestContext);
-impl std::io::Write for DigestWriter {
-    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        self.0.update(bytes);
+struct DigestWriter<const BOUNDED: bool> {
+    digest: DigestContext,
+    remaining: usize,
+}
+
+impl<const BOUNDED: bool> io::Write for DigestWriter<BOUNDED> {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        if BOUNDED {
+            self.remaining = self
+                .remaining
+                .checked_sub(bytes.len())
+                .ok_or_else(|| io::Error::other("encoded JSON exceeds byte budget"))?;
+        }
+        self.digest.update(bytes);
         Ok(bytes.len())
     }
-    fn flush(&mut self) -> std::io::Result<()> {
+    fn flush(&mut self) -> io::Result<()> {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::{Map, json};
+
+    #[test]
+    fn bounded_storage_fingerprint_matches_canonical_with_exact_json_cap() {
+        let nested = Map::from_iter([
+            ("z".into(), json!(["\n\t\\\0", "ключ🦀", -1.5, null])),
+            ("a".into(), json!({"second": 2, "first": true})),
+        ]);
+        for value in [
+            json!(null),
+            json!(""),
+            json!([Value::Object(nested), false]),
+            json!({"deflate_v1": ["AA==", "BB==", "CC=="]}),
+        ] {
+            let bytes = serde_json::to_vec(&value).unwrap().len();
+            let expected = storage_value_etag(&value).unwrap();
+            assert_eq!(
+                storage_value_etag_with_len(&value, bytes).unwrap(),
+                (expected.clone(), bytes)
+            );
+            assert_eq!(
+                storage_value_etag_with_len(&value, bytes + 1).unwrap(),
+                (expected, bytes)
+            );
+            assert!(storage_value_etag_with_len(&value, bytes - 1).is_err());
+            assert!(storage_value_etag_with_len(&value, 0).is_err());
+        }
     }
 }

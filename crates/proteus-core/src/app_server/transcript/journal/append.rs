@@ -90,30 +90,50 @@ pub(crate) fn journal_transcript_append_committed(
     baseline: &[[u8; 32]],
     final_history_len: usize,
 ) -> Result<Option<SessionTranscriptAppend>> {
+    append_committed_from_scan(
+        |visit| records.scan(visit),
+        prefix,
+        baseline,
+        final_history_len,
+    )
+}
+
+fn append_committed_from_scan(
+    mut scan: impl FnMut(&mut dyn FnMut(JournalRecord) -> Result<()>) -> Result<()>,
+    prefix: &mut PrefixIdentities,
+    baseline: &[[u8; 32]],
+    final_history_len: usize,
+) -> Result<Option<SessionTranscriptAppend>> {
     let Some(conversation_appended) = final_history_len.checked_sub(baseline.len()) else {
         return Ok(None);
     };
     let mut independent = true;
-    records.scan(|mut record| {
+    scan(&mut |mut record| {
         independent &= inspect_suffix(prefix, baseline, &mut record)?;
         Ok(())
     })?;
     if !independent {
         return Ok(None);
     }
+    // Independence above must see only the old identities; repeats within
+    // this new turn are allowed. Now capture the next prefix in the renderer's
+    // first full scan of the same finished, privately owned stage. Index the
+    // original facts before stripping checkpoints for display only. The
+    // publisher drops this unshared index on any render or publication failure.
+    let mut index_next_scan = true;
     let transcript = transcript_from_scan(
         |visit| {
-            records.scan(|mut record| {
+            let index_original = std::mem::take(&mut index_next_scan);
+            scan(&mut |mut record| {
+                if index_original {
+                    prefix.visit(&record, false);
+                }
                 strip_checkpoint_baseline(&mut record, baseline.len())?;
                 visit(record)
             })
         },
         None,
     )?;
-    records.scan(|record| {
-        prefix.visit(&record, false);
-        Ok(())
-    })?;
     Ok(Some(SessionTranscriptAppend {
         transcript,
         conversation_appended,

@@ -96,6 +96,81 @@ fn validated_new_turn_with_two_retained_history_checkpoints_hits_fast_path() {
 }
 
 #[test]
+fn committed_checkpoints_index_original_facts_in_the_render_scan() {
+    let records = checkpoint_fixture();
+    let previous = validated_history(&records[..1]).unwrap();
+    let final_history = validated_history(&records).unwrap();
+    let baseline = previous
+        .iter()
+        .map(history_message_sha256)
+        .collect::<Result<Vec<_>>>()
+        .unwrap();
+    let mut prefix = PrefixIdentities::default();
+    prefix.visit(&records[0], false);
+    let (mut staged, _) = crate::core::DisplayRecords::stage_for_test(&records[1..]);
+    let mut scans = 0;
+    let mut decodes = 0;
+    let appended = append_committed_from_scan(
+        |visit| {
+            scans += 1;
+            staged.scan(|record| {
+                decodes += 1;
+                visit(record)
+            })
+        },
+        &mut prefix,
+        &baseline,
+        final_history.len(),
+    )
+    .unwrap()
+    .expect("repeated new IDs in the same turn are independent of the old prefix");
+    // Closed causal fixture: independence + renderer discovery + renderer rows.
+    // The old separate index pass was a fourth decode of all five records.
+    assert_eq!((scans, decodes), (3, 15));
+    assert_eq!(appended.conversation_appended, 3);
+    let mut actual = super::super::super::source::from_records(&records[..1], None).unwrap();
+    actual.extend(appended.transcript);
+    let expected = super::super::super::source::from_records(&records, None).unwrap();
+    assert_eq!(
+        serde_json::to_value(actual).unwrap(),
+        serde_json::to_value(expected).unwrap()
+    );
+    for part in final_history.iter().flat_map(|message| &message.parts) {
+        assert!(prefix.has_explicit_part(&part.part_id));
+    }
+}
+
+#[test]
+fn committed_scan_error_after_overlap_still_precedes_fallback() {
+    let records = checkpoint_fixture();
+    let old = &records[0];
+    let baseline = validated_history(&records[..1])
+        .unwrap()
+        .iter()
+        .map(history_message_sha256)
+        .collect::<Result<Vec<_>>>()
+        .unwrap();
+    let mut prefix = PrefixIdentities::default();
+    prefix.visit(old, false);
+    let mut overlap = old.clone();
+    overlap.session_seq = records[1].session_seq;
+    let mut scans = 0;
+    let error = append_committed_from_scan(
+        |visit| {
+            scans += 1;
+            visit(overlap.clone())?;
+            anyhow::bail!("transcript staging record count changed")
+        },
+        &mut prefix,
+        &baseline,
+        4,
+    )
+    .unwrap_err();
+    assert_eq!(error.to_string(), "transcript staging record count changed");
+    assert_eq!(scans, 1);
+}
+
+#[test]
 fn a_checkpoint_must_retain_the_exact_canonical_prefix_including_metadata() {
     let records = checkpoint_fixture();
     let baseline = validated_history(&records[..1])

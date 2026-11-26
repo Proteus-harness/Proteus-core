@@ -90,7 +90,7 @@ impl Workflow for ProcessWorkflowAdapter {
             .client
             .invoke_with_dispatcher_and_cancellation(
                 PROCESS_WORKFLOW_METHOD,
-                &input,
+                input,
                 dispatcher,
                 &cancellation,
             )

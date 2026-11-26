@@ -15,7 +15,7 @@ use crate::{
         HookEvent, HookInput, ModelCallOrigin, ToolSelectionInput, ToolSelectionOutput,
         ToolSelectionRequest, WorkflowInvocationContext, WorkflowRuntimeStatus,
     },
-    domain::{AgentTask, Event, ToolCall, ToolResult, ToolSpec},
+    domain::{AgentTask, Event, HistoryCompactionReport, ToolCall, ToolResult, ToolSpec},
     model_standard::{CanonicalModelRequest, CanonicalModelResponse},
 };
 
@@ -189,18 +189,45 @@ impl WorkflowHostRuntime {
                 }
             };
         self.run_active(async {
-            if let Ok(ctx) = self.ctx.agent() {
-                ctx.emit(Event::HistoryCompactionStarted { reason: input.reason.clone(), input_messages: input.messages.len(), token_estimate: input.token_estimate, trigger_tokens: None }).await?;
-            }
-            let result = preparation.prepare(input.clone()).await;
-            if let Ok(ctx) = self.ctx.agent() {
-                match &result {
-                    Ok(result) => ctx.emit(Event::HistoryCompactionCompleted { report: crate::domain::HistoryCompactionReport::from_context_preparation_output(&input, &result.output) }).await?,
-                    Err(error) => ctx.emit(Event::HistoryCompactionFailed { reason: input.reason.clone(), input_messages: input.messages.len(), token_estimate: input.token_estimate, trigger_tokens: None, message: format!("{error:#}") }).await?,
-                }
+            let report = if let Ok(ctx) = self.ctx.agent() {
+                let reason = input.reason.clone();
+                let input_messages = input.messages.len();
+                let token_estimate = input.token_estimate;
+                ctx.emit(Event::HistoryCompactionStarted {
+                    reason: reason.clone(),
+                    input_messages,
+                    token_estimate,
+                    trigger_tokens: None,
+                })
+                .await?;
+                Some((ctx, reason, input_messages, token_estimate))
+            } else {
+                None
+            };
+            let result = preparation.prepare(input).await;
+            if let Some((ctx, reason, input_messages, token_estimate)) = report {
+                let event = match &result {
+                    Ok(result) => Event::HistoryCompactionCompleted {
+                        report: HistoryCompactionReport::from_context_preparation_summary(
+                            reason,
+                            input_messages,
+                            token_estimate,
+                            &result.output,
+                        ),
+                    },
+                    Err(error) => Event::HistoryCompactionFailed {
+                        reason,
+                        input_messages,
+                        token_estimate,
+                        trigger_tokens: None,
+                        message: format!("{error:#}"),
+                    },
+                };
+                ctx.emit(event).await?;
             }
             result
-        }).await
+        })
+        .await
     }
 
     pub(crate) fn visible_tools(&self, cwd: PathBuf) -> Result<Vec<ToolSpec>> {
@@ -291,7 +318,7 @@ impl WorkflowHostRuntime {
     }
 
     pub(crate) async fn emit_event(&self, event: Event) -> Result<()> {
-        let ctx = self.ctx.agent()?.clone();
+        let ctx = self.ctx.agent()?;
         self.run_active(async move { ctx.emit(event).await }).await
     }
 
@@ -401,3 +428,7 @@ async fn execute_tool_batch(
 #[cfg(test)]
 #[path = "workflow_host/selection_tests.rs"]
 mod selection_tests;
+
+#[cfg(test)]
+#[path = "workflow_host/event_tests.rs"]
+mod event_tests;

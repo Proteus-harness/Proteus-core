@@ -202,6 +202,20 @@ pub(super) fn read_checked_transcript<T: DeserializeOwned>(
     collect_section(store, &checked.0.transcript, start, end, true)
 }
 
+impl super::CheckedSection<'_> {
+    pub(super) fn read_full<T: DeserializeOwned>(self, store: &RemoteSessionStore) -> Option<Vec<T>> {
+        collect_section(store, self.0, 0, self.0.rows, true)
+    }
+
+    pub(super) fn visit_full<T: DeserializeOwned>(
+        self,
+        store: &RemoteSessionStore,
+        visit: impl FnMut(T) -> Option<()>,
+    ) -> Option<()> {
+        visit_section_impl(store, self.0, 0, self.0.rows, true, visit)
+    }
+}
+
 fn collect_section<T: DeserializeOwned>(
     store: &RemoteSessionStore,
     section: &Section,

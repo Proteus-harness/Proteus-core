@@ -1,6 +1,14 @@
-use std::{path::Path, sync::Arc, time::Duration};
+use std::{
+    path::Path,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+    time::Duration,
+};
 
 use proteus_module_protocol::{ProcessExportBinding, v3::NoAsyncHostRequests};
+use serde::{Serialize, Serializer};
 use serde_json::{Value, json};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -12,7 +20,10 @@ use super::{ProcessExportClient, ProcessInvocationError, ProcessInvocationFailur
 use crate::{
     contracts::{
         CancellationToken, PROCESS_CONTEXT_BUILD_METHOD, PROCESS_CONTEXT_CONTRACT_VERSION,
+        ProcessWorkflowInput, ProcessWorkflowRuntimeInfo,
     },
+    domain::{AgentTask, PermissionMode, ReasoningConfig, new_execution_id},
+    model_standard::{CanonicalMessage, MessageRole},
     process_adapters::{ProcessComponentConfig, ProcessComponentLauncher},
 };
 
@@ -226,6 +237,170 @@ async fn already_canceled_token_does_not_serialize_or_dispatch() {
         .await;
     let error = result.expect_err("pre-canceled invocation");
     assert!(format!("{error:#}").contains("was canceled"));
+}
+
+#[derive(Default)]
+struct InputLifetime {
+    serialized: AtomicUsize,
+    dropped: AtomicUsize,
+}
+
+impl InputLifetime {
+    fn counts(&self) -> (usize, usize) {
+        (
+            self.serialized.load(Ordering::SeqCst),
+            self.dropped.load(Ordering::SeqCst),
+        )
+    }
+}
+
+struct OwnedInput<T> {
+    input: T,
+    lifetime: Arc<InputLifetime>,
+    fail_encoding: bool,
+}
+
+impl<T: Serialize> Serialize for OwnedInput<T> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.lifetime.serialized.fetch_add(1, Ordering::SeqCst);
+        if self.fail_encoding {
+            return Err(serde::ser::Error::custom("inert request encoding failure"));
+        }
+        self.input.serialize(serializer)
+    }
+}
+
+impl<T> Drop for OwnedInput<T> {
+    fn drop(&mut self) {
+        self.lifetime.dropped.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn owned_workflow_input_drops_during_gated_broker_admission() {
+    let workspace = tempfile::tempdir().unwrap();
+    let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let client = client(
+        workspace.path(),
+        json!({"PROTEUS_TEST_RESTART_HANDSHAKE_PORT": listener.local_addr().unwrap().port().to_string()}),
+    );
+    client.broker.reset().unwrap();
+    let input = ProcessWorkflowInput {
+        task: AgentTask::new("inert workflow echo", workspace.path().to_owned()),
+        history: vec![CanonicalMessage::text(MessageRole::User, "é🦀".repeat(1024))],
+        runtime: ProcessWorkflowRuntimeInfo {
+            execution_id: new_execution_id(),
+            conversation: None,
+            model_ref: None,
+            model_context: Vec::new(),
+            interrupted_turns: Vec::new(),
+            instructions: Vec::new(),
+            intent: None,
+            continuation: None,
+            permission_mode: PermissionMode::Normal,
+            reasoning: ReasoningConfig::default(),
+            max_input_tokens: None,
+            model_timeout_ms: 30_000,
+            context_timeout_ms: 10_000,
+            workflow_timeout_ms: 300_000,
+        },
+    };
+    let expected = serde_json::to_value(&input).unwrap();
+    let lifetime = Arc::new(InputLifetime::default());
+    let parameters = OwnedInput {
+        input,
+        lifetime: lifetime.clone(),
+        fail_encoding: false,
+    };
+    // The inert context fixture echoes the request; no workflow is executed.
+    // Spawn also exercises Send of the owning invocation future.
+    let mut invocation = tokio::spawn(async move {
+        client
+            .invoke_with_dispatcher_and_cancellation::<_, Value>(
+                PROCESS_CONTEXT_BUILD_METHOD,
+                parameters,
+                Arc::new(NoAsyncHostRequests),
+                &CancellationToken::new(),
+            )
+            .await
+    });
+    let (mut gate, _) = timeout(Duration::from_secs(2), listener.accept())
+        .await
+        .expect("replacement worker must reach handshake")
+        .unwrap();
+    let mut ready = [0; 6];
+    timeout(Duration::from_secs(1), gate.read_exact(&mut ready))
+        .await
+        .unwrap()
+        .unwrap();
+    let observation = (lifetime.counts(), invocation.is_finished());
+    gate.write_all(b"1").await.unwrap();
+    let echoed = timeout(Duration::from_secs(2), &mut invocation).await;
+    if echoed.is_err() {
+        invocation.abort();
+    }
+    let echoed = echoed.unwrap().unwrap().unwrap();
+    assert_eq!(&ready, b"ready\n");
+    assert_eq!(
+        observation,
+        ((1, 1), false),
+        "drop must not wait for admission"
+    );
+    assert_eq!(echoed.get("value"), Some(&expected));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn owned_input_preserves_precancel_and_serde_errors_while_worker_is_disconnected() {
+    let workspace = tempfile::tempdir().unwrap();
+    let client = client(workspace.path(), json!({}));
+    client.broker.reset().unwrap();
+    let disconnected = client.broker.snapshot().unwrap();
+    assert_eq!(disconnected.pid, None);
+    assert_eq!(disconnected.active_invocations, 0);
+    assert_eq!(disconnected.pending_invocations, 0);
+
+    for canceled in [true, false] {
+        let cancellation = CancellationToken::new();
+        if canceled {
+            cancellation.cancel();
+        }
+        let lifetime = Arc::new(InputLifetime::default());
+        let error = timeout(
+            Duration::from_secs(2),
+            client.invoke_with_dispatcher_and_cancellation::<_, Value>(
+                PROCESS_CONTEXT_BUILD_METHOD,
+                OwnedInput {
+                    input: Value::Null,
+                    lifetime: lifetime.clone(),
+                    fail_encoding: true,
+                },
+                Arc::new(NoAsyncHostRequests),
+                &cancellation,
+            ),
+        )
+        .await
+        .expect("pre-cancel or serialization failure cannot wait for admission")
+        .expect_err("disconnected worker must not receive these inputs");
+
+        if canceled {
+            assert_eq!(
+                error.to_string(),
+                "process module \"cancel-probe\": build was canceled"
+            );
+            assert_eq!(lifetime.counts(), (0, 1));
+        } else {
+            assert_eq!(
+                error.to_string(),
+                "process module \"cancel-probe\": failed to serialize build request"
+            );
+            assert_eq!(
+                error.root_cause().to_string(),
+                "inert request encoding failure"
+            );
+            assert_eq!(lifetime.counts(), (1, 1));
+        }
+        assert_eq!(client.broker.snapshot().unwrap(), disconnected);
+    }
 }
 
 #[test]

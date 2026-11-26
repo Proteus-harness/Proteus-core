@@ -152,6 +152,7 @@ async fn completion_review_checkpoint_and_continuation_share_delivered_steering(
             else {
                 panic!("start")
             };
+            let admitted_user = reserved.message.clone();
             let running = tokio::spawn({
                 let runtime = runtime.clone();
                 async move {
@@ -197,6 +198,11 @@ async fn completion_review_checkpoint_and_continuation_share_delivered_steering(
             let reviews = reviewer.histories.lock().await;
             assert_eq!(reviews.len(), 2);
             for history in reviews.iter() {
+                assert_eq!(
+                    history.first(),
+                    Some(&admitted_user),
+                    "review reconstruction keeps the exact admitted user anchor"
+                );
                 let positions = history
                     .iter()
                     .enumerate()

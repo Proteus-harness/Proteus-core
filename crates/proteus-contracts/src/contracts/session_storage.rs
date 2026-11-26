@@ -50,7 +50,7 @@ impl std::error::Error for SessionStorageFailure {}
 mod tests;
 mod validation;
 mod value_hash;
-pub use value_hash::storage_value_etag;
+pub use value_hash::{storage_value_etag, storage_value_etag_with_len};
 
 /// The key is interpreted only by the selected storage implementation.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]

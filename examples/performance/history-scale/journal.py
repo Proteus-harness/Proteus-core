@@ -48,9 +48,10 @@ def text(message):
 def message_digest(messages):
     value = hashlib.sha256()
     count = 0
+    encode = json.JSONEncoder(ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode
     for message in messages:
         # IDs, part IDs, roles, metadata and text must all survive unchanged.
-        encoded = json.dumps(message, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+        encoded = encode(message).encode()
         value.update(len(encoded).to_bytes(8, "little"))
         value.update(encoded)
         count += 1
@@ -152,6 +153,7 @@ def verify_active(session, seed, rounds):
     ui_ids = set(seed["ids"])
     ids = set(seed.get("model_ids", seed["ids"]))
     excluded_ids = ui_ids - ids
+    del ui_ids  # Do not retain the full display index while decoding records.
     active_rows = seed.get("model_history_rows", seed["rows"])
     active_sha = seed.get("model_messages_sha256", seed["messages_sha256"])
     first_requests = {}
@@ -193,7 +195,7 @@ def verify_active(session, seed, rounds):
                     raise ValueError("uncompacted replacement would reset persistent UI history")
                 if seen_count != active_rows or sha != active_sha:
                     raise ValueError("history checkpoint/replacement discarded or changed seeded rows")
-                if any(message["id"] in excluded_ids for message in messages):
+                if excluded_ids and any(message["id"] in excluded_ids for message in messages):
                     raise ValueError("checkpoint reintroduced compacted-away model messages")
                 final_seed_sha = sha
                 count = len(messages)
@@ -209,7 +211,7 @@ def verify_active(session, seed, rounds):
             messages = payload["request"]["messages"]
             seen_count, sha = message_digest(message for message in messages if message["id"] in ids)
             if (seen_count != active_rows or sha != active_sha
-                    or any(message["id"] in excluded_ids for message in messages)):
+                    or (excluded_ids and any(message["id"] in excluded_ids for message in messages))):
                 raise ValueError("model request lost or changed seeded canonical messages")
             first_requests.setdefault(turn, dict(total_messages=len(messages), seeded_messages=seen_count))
         elif kind == "turn_settled":

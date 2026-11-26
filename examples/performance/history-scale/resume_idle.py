@@ -59,13 +59,13 @@ def observe(process, config, entry, case, cycle, events, timeout):
                     if event.get("type") == "session_snapshot":
                         summary = check_snapshot(event["snapshot"], entry)
                         ready_ns = time.monotonic_ns()
+                        # Legacy snapshots may contain the entire parsed transcript.
+                        del record, event
                         with gzip.open(case / f"{cycle}-peer-{peer}.snapshot.json.gz", "wb", compresslevel=1) as saved:
-                            saved.write(line[6:])
+                            saved.write(memoryview(line)[6:])
                         events.put(dict(type="snapshot_ready", peer=peer, origin=origin,
                                         monotonic_ns=ready_ns, bytes=len(line) - 6, **summary))
-                        # Baseline may return 50k rows while current returns 50.
-                        # Do not retain the parsed baseline in the idle reader.
-                        del record, event, summary, line
+                        del summary, line
                         break
                 else:
                     raise RuntimeError("HTTP event stream ended before its session snapshot")

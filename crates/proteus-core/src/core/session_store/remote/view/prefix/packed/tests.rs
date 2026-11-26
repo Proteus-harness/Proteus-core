@@ -156,3 +156,28 @@ fn startup_and_borrowed_reject_the_same_escaped_over_budget_prefix() {
             .is_none()
     );
 }
+
+#[test]
+fn generated_base64_budget_matches_full_wire_count_at_exact_boundaries() {
+    let empty = PrefixIdentities::default();
+    let mut prefix = fixture();
+    prefix
+        .calls
+        .insert("quote \" slash / reverse \\ controls \n\r\t\0\u{1f} Unicode 🦀".into());
+    for count in [0, 1, 47, 48, 49, 96, 97] {
+        // Reach the batched encoder using digits and all its JSON-sensitive
+        // alphabet cases (+, /, =) without triggering an escape.
+        prefix.history = (0..count)
+            .map(|i| if i % 2 == 0 { [255; 32] } else { [248; 32] })
+            .collect();
+        for unbounded in [&empty, &prefix] {
+            let packed = unbounded.encode_cache().unwrap();
+            let full = serde_json::to_vec(&packed).unwrap();
+            let value = serde_json::to_value(&packed).unwrap();
+            for limit in [0, full.len() - 1, full.len(), full.len() + 1] {
+                assert_eq!(packed.fits_bytes(limit).is_some(), full.len() <= limit);
+            }
+            assert_eq!(packed.into_bounded_value(), Some(value));
+        }
+    }
+}

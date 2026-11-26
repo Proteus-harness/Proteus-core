@@ -121,10 +121,11 @@ impl ProcessExportClient {
     }
 
     /// Reuse the invocation's token rather than waking periodically to poll it.
+    /// Owned parameters are released after encoding, before broker admission.
     pub async fn invoke_with_dispatcher_and_cancellation<P, R>(
         &self,
         method: &str,
-        params: &P,
+        params: P,
         dispatcher: Arc<dyn AsyncHostRequestDispatcher>,
         cancellation: &CancellationToken,
     ) -> Result<R>
@@ -144,7 +145,7 @@ impl ProcessExportClient {
     async fn invoke_with_cancellation_source<P, R, F>(
         &self,
         method: &str,
-        params: &P,
+        params: P,
         dispatcher: Arc<dyn AsyncHostRequestDispatcher>,
         mut cancellation: CancellationSource<'_, F>,
     ) -> Result<R>
@@ -156,7 +157,8 @@ impl ProcessExportClient {
         if cancellation.is_cancelled() {
             bail!("process module {:?}: {method} was canceled", self.module_id);
         }
-        let value = self.encode(method, params)?;
+        let value = self.encode(method, &params)?;
+        drop(params);
         let mut handle = {
             let start = self.start(method, value, dispatcher);
             tokio::pin!(start);

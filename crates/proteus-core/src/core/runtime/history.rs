@@ -276,6 +276,27 @@ pub(super) fn refresh_committed_history(
         .zip(&redacted)
         .map(|(raw, stored)| (raw.id, (raw, stored)))
         .collect::<std::collections::HashMap<_, _>>();
+    let count = history.len();
+    // An unchanged prefix already owns exactly the live rows the merge would
+    // clone. A repeated ID can select a different live row, even when its
+    // redacted form matches, so keep the general merge for those cases.
+    if count != 0
+        && originals.len() == count
+        && let Some(added) = durable.get(count..)
+        && history
+            .iter()
+            .zip(&redacted)
+            .zip(&durable)
+            .all(|((raw, stored), committed)| raw.id == stored.id && stored == committed)
+        && added.iter().all(|row| !originals.contains_key(&row.id))
+    {
+        if !added.is_empty() {
+            drop(originals);
+            drop(redacted);
+            history.extend(durable.into_iter().skip(count));
+        }
+        return Ok(());
+    }
     let merged = durable
         .into_iter()
         .map(|message| match originals.get(&message.id) {
@@ -292,19 +313,73 @@ mod tests {
     use super::*;
 
     #[test]
+    fn refreshing_unchanged_durable_history_keeps_the_live_buffer() {
+        let live = CanonicalMessage::text(MessageRole::Assistant, "known")
+            .with_metadata(serde_json::json!({"secret": "live-only"}));
+        let mut history = vec![live.clone()];
+        let durable = crate::core::session_journal::redacted_history(&history).unwrap();
+        assert_ne!(history, durable);
+        let allocation = history.as_ptr();
+
+        refresh_committed_history(&mut history, durable).unwrap();
+
+        assert_eq!(history, vec![live]);
+        assert_eq!(history.as_ptr(), allocation);
+    }
+
+    #[test]
     fn refreshing_a_checkpoint_keeps_live_values_and_adopts_missing_progress() {
         let mut live = CanonicalMessage::text(MessageRole::Assistant, "known");
         live.metadata = serde_json::json!({"secret": "live-only"});
-        let mut history = vec![live.clone()];
+        let mut history = Vec::with_capacity(2);
+        history.push(live.clone());
+        let live_secret = history[0].metadata["secret"].as_str().unwrap().as_ptr();
         let mut durable = crate::core::session_journal::redacted_history(&history).unwrap();
-        let completed = CanonicalMessage::text(MessageRole::Assistant, "acknowledgement lost");
+        let completed = CanonicalMessage::text(MessageRole::Assistant, "acknowledgement lost")
+            .with_metadata(serde_json::json!({"note": "new durable value"}));
         durable.push(completed.clone());
+        let stored_note = durable[1].metadata["note"].as_str().unwrap().as_ptr();
         refresh_committed_history(&mut history, durable).unwrap();
         assert_eq!(history, vec![live, completed]);
+        assert_eq!(
+            history[0].metadata["secret"].as_str().unwrap().as_ptr(),
+            live_secret
+        );
+        assert_eq!(
+            history[1].metadata["note"].as_str().unwrap().as_ptr(),
+            stored_note
+        );
+
+        // Same ordered IDs and count do not prove equal content.
+        let mut durable = crate::core::session_journal::redacted_history(&history).unwrap();
+        durable[0].metadata = serde_json::json!({"checkpoint": "changed"});
+        refresh_committed_history(&mut history, durable.clone()).unwrap();
+        assert_eq!(history, durable);
+
         let mut replacement = history[0].clone();
-        replacement.metadata = serde_json::json!({"checkpoint": "changed"});
+        replacement.metadata = serde_json::json!({"checkpoint": "shorter"});
         refresh_committed_history(&mut history, vec![replacement.clone()]).unwrap();
         assert_eq!(history, vec![replacement]);
+    }
+
+    #[test]
+    fn refreshing_with_a_repeated_id_uses_the_same_last_live_row() {
+        let first = CanonicalMessage::text(MessageRole::Assistant, "same text")
+            .with_metadata(serde_json::json!({"secret": "first raw value"}));
+        let last = first
+            .clone()
+            .with_metadata(serde_json::json!({"secret": "last raw value"}));
+        let mut history = vec![first, last.clone()];
+        let durable = crate::core::session_journal::redacted_history(&history).unwrap();
+        assert_eq!(durable[0], durable[1]);
+        refresh_committed_history(&mut history, durable).unwrap();
+        assert_eq!(history, vec![last.clone(), last]);
+
+        let live = history.pop().unwrap();
+        let mut durable = crate::core::session_journal::redacted_history(&history).unwrap();
+        durable.push(durable[0].clone());
+        refresh_committed_history(&mut history, durable).unwrap();
+        assert_eq!(history, vec![live.clone(), live]);
     }
 
     fn changed_report() -> HistoryCompactionReport {

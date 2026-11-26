@@ -11,7 +11,7 @@ use anyhow::Result;
 use std::{
     collections::HashMap,
     fs::File,
-    io::{self, BufRead, BufReader, BufWriter, Seek, Write},
+    io::{self, BufRead, BufReader, BufWriter, Read, Seek, Write},
 };
 
 mod text_append;
@@ -28,6 +28,7 @@ const MAX_RETAINED_FINAL_SCAN_BYTES: usize = 4 * 1024 * 1024;
 // Only seed typical large projected/strict pages. Higher outliers retain
 // incremental growth and the existing staging limit.
 const MAX_SINGLE_RECORD_RESERVE: u64 = 64 * 1024 * 1024;
+const PREFIX_WITNESS_CHUNK_BYTES: usize = 8 * 1024;
 
 fn single_record_reserve(count: usize, written: u64) -> usize {
     if count == 1
@@ -334,8 +335,22 @@ impl DisplayRecords {
             })?;
             return Ok(prefix);
         };
-        let mut first = Some(witness);
         let expected_bytes = self.single_record_reserve;
+        if self.count == 1
+            && expected_bytes != 0
+            && self
+                .file
+                .rewind()
+                .and_then(|()| {
+                    matches_prefix_line(&mut self.file, expected_bytes, &witness.sha256)
+                })
+                .unwrap_or(false)
+        {
+            return Ok(witness.prefix);
+        }
+        // A declined probe is not an error or a new read authority. Rewind
+        // through the original scan with the witness and its decode order.
+        let mut first = Some(witness);
         self.scan_lines(|line, last, _| {
             if let Some(witness) = first.take()
                 && line.len() == expected_bytes
@@ -385,6 +400,46 @@ impl DisplayRecords {
     }
 }
 
+fn matches_prefix_line(
+    input: &mut impl Read,
+    mut remaining: usize,
+    expected_digest: &ring::digest::Digest,
+) -> io::Result<bool> {
+    let mut scratch = [0; PREFIX_WITNESS_CHUNK_BYTES];
+    let mut digest = ring::digest::Context::new(&ring::digest::SHA256);
+    loop {
+        let len = remaining.min(scratch.len());
+        let chunk = &mut scratch[..len];
+        input.read_exact(chunk)?;
+        remaining -= len;
+        let body = if remaining == 0 {
+            let Some(body) = chunk.strip_suffix(b"\n") else {
+                return Ok(false);
+            };
+            body
+        } else {
+            &*chunk
+        };
+        if body.contains(&b'\n') {
+            return Ok(false);
+        }
+        digest.update(chunk);
+        if remaining == 0 {
+            break;
+        }
+    }
+    if digest.finish().as_ref() != expected_digest.as_ref() {
+        return Ok(false);
+    }
+    // A matching first line isn't enough: there must be physical EOF.
+    loop {
+        match input.read(&mut scratch[..1]) {
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            result => return result.map(|read| read == 0),
+        }
+    }
+}
+
 fn release_scan_line(line: &mut Vec<u8>, last: bool) {
     // A memory hint only: the same loop continues to physical EOF and count.
     if line.capacity() > MAX_RETAINED_FINAL_SCAN_BYTES && last {
@@ -414,6 +469,11 @@ fn prefix_candidate(record: &JournalRecord) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        core::JOURNAL_SCHEMA_VERSION,
+        domain::{new_record_id, new_session_id},
+        model_standard::{CanonicalMessage, MessageRole},
+    };
 
     #[test]
     fn only_large_bounded_single_records_get_a_reserve_hint() {
@@ -426,6 +486,133 @@ mod tests {
         }
         for bytes in [floor + 1, MAX_SINGLE_RECORD_RESERVE] {
             assert_eq!(single_record_reserve(1, bytes), bytes as usize);
+        }
+    }
+
+    #[test]
+    fn prefix_probe_bounds_reads_and_retries_short_or_interrupted_reads() {
+        struct ShortReads<'a> {
+            input: &'a [u8],
+            interrupt: bool,
+        }
+        impl Read for ShortReads<'_> {
+            fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
+                assert!(bytes.len() <= PREFIX_WITNESS_CHUNK_BYTES);
+                self.interrupt = !self.interrupt;
+                if self.interrupt {
+                    return Err(io::ErrorKind::Interrupted.into());
+                }
+                let count = bytes.len().min(61);
+                self.input.read(&mut bytes[..count])
+            }
+        }
+        for size in [
+            PREFIX_WITNESS_CHUNK_BYTES,
+            PREFIX_WITNESS_CHUNK_BYTES + 1,
+        ] {
+            let mut line = vec![b'X'; size];
+            line[size - 1] = b'\n';
+            let sha = ring::digest::digest(&ring::digest::SHA256, &line);
+            let mut reader = ShortReads { input: &line, interrupt: false };
+            assert!(matches_prefix_line(&mut reader, size, &sha).unwrap());
+            // Even a digest of the exact bytes cannot witness a second line.
+            line[PREFIX_WITNESS_CHUNK_BYTES - 2] = b'\n';
+            let sha = ring::digest::digest(&ring::digest::SHA256, &line);
+            assert!(!matches_prefix_line(&mut line.as_slice(), size, &sha).unwrap());
+        }
+    }
+
+    #[test]
+    fn witnessed_large_stage_keeps_prefix_identities_and_fallback_errors() {
+        let text = format!("{}é🦀\\\n", "x".repeat(980));
+        let mut record = JournalRecord {
+            schema_version: JOURNAL_SCHEMA_VERSION,
+            record_id: new_record_id(),
+            session_seq: 1,
+            timestamp_ms: 42,
+            session_id: new_session_id(),
+            execution_id: None,
+            thread_id: None,
+            turn_id: None,
+            entry: JournalEntry::HistoryMutated(HistoryMutated {
+                previous_revision: 0,
+                new_revision: 1,
+                mutation: HistoryMutationKind::Append,
+                messages: (0..MIN_ROWS)
+                    .map(|_| CanonicalMessage::text(MessageRole::User, text.as_str()))
+                    .collect(),
+                compaction: None,
+                tool_results: vec![],
+            }),
+        };
+        let first = PartId::from_u128(1);
+        let replacement = PartId::from_u128(2);
+        let JournalEntry::HistoryMutated(mutation) = &mut record.entry else {
+            unreachable!();
+        };
+        mutation.messages[0].parts[0].part_id = first;
+
+        let mut writer = DisplayRecordWriter::new_for_replay().unwrap();
+        writer.push(&record);
+        let mut staged = writer.finish().unwrap();
+        assert!(staged.single_record_reserve > MAX_RETAINED_FINAL_SCAN_BYTES);
+        let size = staged.single_record_reserve;
+        let mut exact = vec![0; size];
+        staged.file.rewind().unwrap();
+        staged.file.read_exact(&mut exact).unwrap();
+        staged.scan_capturing_prefix(|_| Ok(())).unwrap();
+        assert!(staged.prefix_witness.is_some());
+        assert!(staged.scan_prefix().unwrap().has_explicit_part(&first));
+        assert!(staged.prefix_witness.is_none());
+
+        // Rearm from the original complete stage before doing any test writes.
+        staged.scan_capturing_prefix(|_| Ok(())).unwrap();
+        let JournalEntry::HistoryMutated(mutation) = &mut record.entry else {
+            unreachable!();
+        };
+        mutation.messages[0].parts[0].part_id = replacement;
+        let mut changed = serde_json::to_vec(&record).unwrap();
+        changed.push(b'\n');
+        assert_eq!(changed.len(), size);
+        staged.file.rewind().unwrap();
+        staged.file.write_all(&changed).unwrap();
+        let prefix = staged.scan_prefix().unwrap();
+        assert!(!prefix.has_explicit_part(&first));
+        assert!(prefix.has_explicit_part(&replacement));
+        drop(changed);
+
+        // The stock decoder diagnoses the extra line before checking count.
+        let bad = b"{not json}\n";
+        let serde_error = serde_json::from_slice::<JournalRecord>(bad).unwrap_err().to_string();
+        let JournalEntry::HistoryMutated(mutation) = &mut record.entry else {
+            unreachable!();
+        };
+        mutation.messages.truncate(1);
+        let mut valid_tail = serde_json::to_vec(&record).unwrap();
+        valid_tail.push(b'\n');
+        for (tail, truncated, error) in [
+            (bad.as_slice(), false, serde_error.as_str()),
+            (
+                valid_tail.as_slice(),
+                false,
+                "transcript staging record count changed",
+            ),
+            (b"{}".as_slice(), false, "incomplete transcript staging record"),
+            (b"".as_slice(), true, "incomplete transcript staging record"),
+        ] {
+            staged.file.set_len(size as u64).unwrap();
+            staged.file.rewind().unwrap();
+            staged.file.write_all(&exact).unwrap();
+            staged.scan_capturing_prefix(|_| Ok(())).unwrap();
+            assert!(staged.prefix_witness.is_some());
+            if truncated {
+                staged.file.set_len(size as u64 - 1).unwrap();
+            } else {
+                staged.file.seek(io::SeekFrom::End(0)).unwrap();
+                staged.file.write_all(tail).unwrap();
+            }
+            assert_eq!(staged.scan_prefix().unwrap_err().to_string(), error);
+            assert!(staged.prefix_witness.is_none());
         }
     }
 }

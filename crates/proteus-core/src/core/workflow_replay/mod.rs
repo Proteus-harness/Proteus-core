@@ -238,7 +238,7 @@ pub async fn replay_workflow(
     let replay_result = crate::core::reviewed_workflow::run(
         workflow.as_ref(),
         fixture.opened.task.clone(),
-        fixture.initial_history.clone(),
+        &fixture.initial_history,
         workflow_context,
         None,
     )

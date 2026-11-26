@@ -161,7 +161,7 @@ impl WorkflowHistoryRecorder for TurnHistoryRecorder {
                 .checkpoint_history(
                     agent.thread_id,
                     agent.turn_id,
-                    &prepared.final_messages,
+                    prepared.final_messages,
                     compaction.clone(),
                     checkpoint.tool_results,
                 )

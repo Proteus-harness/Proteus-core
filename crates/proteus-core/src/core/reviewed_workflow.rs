@@ -9,7 +9,7 @@ use crate::{
 };
 use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
-use std::sync::Arc;
+use std::{future::Future, sync::Arc};
 
 const MAX_CONTINUATIONS: u32 = 8;
 
@@ -41,17 +41,36 @@ impl EventSink for ReviewedEvents {
     }
 }
 
-pub(super) async fn run(
+pub(super) fn run<'a>(
+    workflow: &'a dyn Workflow,
+    task: AgentTask,
+    initial_history: &'a [CanonicalMessage],
+    context: AgentWorkflowContext,
+    normalizer: Option<&'a dyn CandidateHistoryNormalizer>,
+) -> impl Future<Output = Result<WorkflowOutput>> + 'a {
+    // Make the workflow-owned copy before the caller starts its timeout.
+    // Completion review can reconstruct from the already-owned input slice.
+    run_with_history(
+        workflow,
+        task,
+        initial_history,
+        initial_history.to_vec(),
+        context,
+        normalizer,
+    )
+}
+
+async fn run_with_history(
     workflow: &dyn Workflow,
     task: AgentTask,
-    initial_history: Vec<CanonicalMessage>,
+    initial_history: &[CanonicalMessage],
+    mut history: Vec<CanonicalMessage>,
     context: AgentWorkflowContext,
     normalizer: Option<&dyn CandidateHistoryNormalizer>,
 ) -> Result<WorkflowOutput> {
     if !context.execution.hooks.is_active() {
-        return workflow.run(task, initial_history, context.into()).await;
+        return workflow.run(task, history, context.into()).await;
     }
-    let mut history = initial_history.clone();
     let original_user_message_id = history
         .last()
         .context("completion review has no persisted user anchor")?
@@ -98,7 +117,7 @@ pub(super) async fn run(
         history = output
             .history_replacement
             .clone()
-            .unwrap_or_else(|| initial_history.clone());
+            .unwrap_or_else(|| initial_history.to_vec());
         history.extend(output.new_messages.clone());
         let mut current_user_message_id = original_user_message_id;
         for report in &output.compactions {

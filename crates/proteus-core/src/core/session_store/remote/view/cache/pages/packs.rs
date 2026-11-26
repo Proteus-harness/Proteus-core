@@ -10,6 +10,7 @@ use miniz_oxide::{
     },
     inflate::decompress_to_vec_with_limit,
 };
+use proteus_contracts::contracts::storage_value_etag_with_len;
 use serde_json::{Map, Value};
 
 // Compact JSON of {"deflate_v1":[]} plus quoted base64 strings and commas.
@@ -56,26 +57,27 @@ impl PackRef {
         store: &RemoteSessionStore,
         pages: &[PageRef],
     ) -> Option<(Encoding, Vec<Value>)> {
-        let value = read_value(store, &format!("display-data-{}", self.hash))?;
-        // A disposable header's byte counts are not authority for a returned
-        // object's size. Reject an oversized body before hashing its contents.
-        let size = encoded_len(&value, MAX_BYTES)?;
-        if hash(&value).as_deref() != Some(&self.hash) {
+        let mut value = read_value(store, &format!("display-data-{}", self.hash))?;
+        let object = value.as_object()?;
+        if object.len() != 1 {
             return None;
         }
-        match value {
-            Value::Object(mut object) if object.len() == 1 => {
-                let Value::Array(leaves) = object.remove("deflate_v1")? else {
-                    return None;
-                };
-                let smallest = pages.iter().map(|page| page.bytes).min()?;
-                (size <= 2 * smallest
-                    && leaves.len() == self.count
-                    && leaves.iter().all(Value::is_string))
-                .then_some((Encoding::DeflateV1, leaves))
-            }
-            _ => None,
+        let leaves = object.get("deflate_v1")?.as_array()?;
+        if leaves.len() != self.count || !leaves.iter().all(Value::is_string) {
+            return None;
         }
+        // This shape cannot require sorting a large object before writing
+        // any bytes. Count the actual physical value as its canonical hash
+        // is computed, independently of the header's claimed sizes.
+        let (digest, size) = storage_value_etag_with_len(&value, MAX_BYTES).ok()?;
+        let smallest = pages.iter().map(|page| page.bytes).min()?;
+        if digest != self.hash || size > 2 * smallest {
+            return None;
+        }
+        let Value::Array(leaves) = value.as_object_mut()?.remove("deflate_v1")? else {
+            return None;
+        };
+        Some((Encoding::DeflateV1, leaves))
     }
 }
 

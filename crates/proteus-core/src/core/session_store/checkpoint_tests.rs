@@ -2,7 +2,7 @@ use super::*;
 use crate::{
     contracts::ToolExecutionRecorder,
     contracts::{ExecutionAttribution, WorkflowToolResultBinding},
-    core::{JournalEntry, SessionToolExecutionRecorder, TurnOpened},
+    core::{HistoryMutationKind, JournalEntry, SessionToolExecutionRecorder, TurnOpened},
     domain::{
         AgentTask, HistoryCompactionReport, ToolCall, ToolCallResolution, ToolResult,
         new_execution_id, new_session_id, new_thread_id, new_turn_id,
@@ -48,9 +48,23 @@ async fn committed_history_matches_replay_after_checkpoints_and_writer_restart()
         .await
         .unwrap();
     store
-        .checkpoint_history(thread, turn, &history, Some(report.clone()), vec![])
+        .checkpoint_history(thread, turn, history.clone(), Some(report.clone()), vec![])
         .await
         .unwrap();
+    let records = store.load_records().unwrap();
+    let checkpoint = records.last().unwrap();
+    let JournalEntry::HistoryMutated(mutation) = &checkpoint.entry else {
+        panic!("expected the committed checkpoint record");
+    };
+    assert_eq!(
+        (checkpoint.thread_id, checkpoint.turn_id),
+        (Some(thread), Some(turn))
+    );
+    assert_eq!(mutation.mutation, HistoryMutationKind::Checkpoint);
+    assert_eq!((mutation.previous_revision, mutation.new_revision), (1, 2));
+    assert_eq!(mutation.messages, history);
+    assert_eq!(mutation.compaction.as_ref(), Some(&report));
+    assert!(mutation.tool_results.is_empty());
     store
         .replace_history(thread, Some(turn), &history, Some(report))
         .await
@@ -167,14 +181,14 @@ async fn checkpoint_captures_only_declared_root_results_in_binding_order() {
     ] {
         assert!(
             store
-                .checkpoint_history(thread, turn, &history, None, invalid)
+                .checkpoint_history(thread, turn, history.clone(), None, invalid)
                 .await
                 .is_err()
         );
     }
     assert_eq!(store.load_projection().unwrap().history_revision, 1);
     store
-        .checkpoint_history(thread, turn, &history, None, bindings.clone())
+        .checkpoint_history(thread, turn, history.clone(), None, bindings.clone())
         .await
         .unwrap();
     let recorder = SessionToolExecutionRecorder::new(store.clone());
@@ -258,7 +272,13 @@ async fn checkpoint_captures_only_declared_root_results_in_binding_order() {
         "later model item",
     ));
     store
-        .checkpoint_history(thread, turn, &acknowledged, None, vec![bindings[1].clone()])
+        .checkpoint_history(
+            thread,
+            turn,
+            acknowledged.clone(),
+            None,
+            vec![bindings[1].clone()],
+        )
         .await
         .unwrap();
     let mut expected = acknowledged.clone();
@@ -275,14 +295,14 @@ async fn checkpoint_captures_only_declared_root_results_in_binding_order() {
     changed[2].parts.clear();
     assert!(
         store
-            .checkpoint_history(thread, turn, &changed, None, vec![bindings[1].clone()])
+            .checkpoint_history(thread, turn, changed, None, vec![bindings[1].clone()])
             .await
             .is_err()
     );
     acknowledged.remove(2);
     assert!(
         store
-            .checkpoint_history(thread, turn, &acknowledged, None, vec![bindings[1].clone()])
+            .checkpoint_history(thread, turn, acknowledged, None, vec![bindings[1].clone()])
             .await
             .is_err()
     );
