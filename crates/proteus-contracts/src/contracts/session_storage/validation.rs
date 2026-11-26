@@ -343,8 +343,7 @@ impl SessionStorageRequest {
                         "storage metadata has no revision"
                     );
                     ensure!(
-                        serde_json::to_vec(&document.value)?.len()
-                            <= SESSION_STORAGE_MAX_METADATA_BYTES,
+                        metadata_value_fits(&document.value)?,
                         "storage metadata response is too large"
                     );
                 }
@@ -453,6 +452,25 @@ fn validate_ack(
         "storage ACK has an invalid committed record"
     );
     Ok(())
+}
+
+// Use the same compact formatter as to_vec, and preserve post-serialization validation.
+pub(super) fn metadata_value_fits(value: &serde_json::Value) -> serde_json::Result<bool> {
+    struct Budget(Option<usize>);
+    impl std::io::Write for Budget {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0 = self.0.and_then(|remaining| remaining.checked_sub(bytes.len()));
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    let mut budget = Budget(Some(SESSION_STORAGE_MAX_METADATA_BYTES));
+    serde_json::to_writer(&mut budget, value)?;
+    Ok(budget.0.is_some())
 }
 
 /// Count encoded payload bytes without allocating a second copy of record data.

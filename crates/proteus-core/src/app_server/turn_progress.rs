@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use crate::domain::{Event, EventEnvelope, ThreadId, ToolCall};
 
 use super::transcript::{AppTranscriptMessage, AppTranscriptSubagent, AppTranscriptTool};
@@ -170,10 +172,11 @@ impl TurnProgress {
             }
             Event::ToolFinished { result } => {
                 let status = if result.ok { "done" } else { "failed" };
+                let text = tool_result_text(result);
                 self.set_tool_status(
                     &result.call_id,
                     status,
-                    Some(result.text_or_status()),
+                    Some(text.as_ref()),
                     Some(&result.metadata),
                 );
             }
@@ -390,14 +393,14 @@ impl TurnProgress {
         &mut self,
         call_id: &str,
         status: &str,
-        result: Option<String>,
+        result: Option<&str>,
         metadata: Option<&serde_json::Value>,
     ) {
         if set_tool_status_in(
             &mut self.messages,
             call_id,
             status,
-            result.as_deref(),
+            result,
             metadata,
             false,
         ) {
@@ -407,7 +410,7 @@ impl TurnProgress {
             &mut self.background_subagents,
             call_id,
             status,
-            result.as_deref(),
+            result,
             metadata,
             true,
         );
@@ -522,6 +525,18 @@ fn set_tool_status_in(
         }
     }
     false
+}
+
+fn tool_result_text(result: &crate::domain::ToolResult) -> Cow<'_, str> {
+    // Direct text is truncated for display; borrow it instead of cloning
+    // the full result. Keep the same precedence and structured fallback.
+    result
+        .error
+        .as_deref()
+        .filter(|text| !text.is_empty())
+        .or_else(|| (!result.output.is_empty()).then_some(result.output.as_str()))
+        .map(Cow::Borrowed)
+        .unwrap_or_else(|| Cow::Owned(result.text_or_status()))
 }
 
 fn update_tool(

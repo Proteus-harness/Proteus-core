@@ -455,7 +455,7 @@ impl SessionStorageRequest {
                 "null storage metadata is reserved for deletion"
             );
             ensure!(
-                serde_json::to_vec(value)?.len() <= SESSION_STORAGE_MAX_METADATA_BYTES,
+                validation::metadata_value_fits(value)?,
                 "storage metadata is too large"
             );
         }

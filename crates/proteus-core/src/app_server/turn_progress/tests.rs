@@ -284,6 +284,66 @@ fn snapshots_subagent_card_and_nested_child_tools() {
 }
 
 #[test]
+fn tool_finish_borrows_direct_text_before_truncating_at_a_scalar_boundary() {
+    let call_id = "bounded-preview";
+    let error_prefix = "e".repeat(MAX_SUBAGENT_TOOL_RESULT_BYTES - 1);
+    let output_prefix = "o".repeat(MAX_SUBAGENT_TOOL_RESULT_BYTES - 2);
+    let tail = "z".repeat(256 * 1024);
+    let output = format!("{output_prefix}🦀{tail}");
+    let content = vec![crate::domain::ToolContent::Text {
+        text: "structured fallback".to_owned(),
+    }];
+    for (error, output, expected) in [
+        (
+            Some(format!("{error_prefix}🦀{tail}")),
+            output.clone(),
+            error_prefix.as_str(),
+        ),
+        (Some(String::new()), output.clone(), output_prefix.as_str()),
+        (Some(" ".to_owned()), output, " "),
+    ] {
+        let result = ToolResult::new(
+            call_id.to_owned(),
+            false,
+            output,
+            content.clone(),
+            error,
+            serde_json::Value::Null,
+        );
+        let source = result
+            .error
+            .as_deref()
+            .filter(|text| !text.is_empty())
+            .unwrap_or(&result.output);
+        let text = tool_result_text(&result);
+        assert!(matches!(&text, Cow::Borrowed(_)));
+        assert_eq!(text.as_ptr(), source.as_ptr());
+        assert_eq!(
+            truncate_utf8(&result.text_or_status(), MAX_SUBAGENT_TOOL_RESULT_BYTES),
+            expected,
+        );
+        drop(text);
+
+        let mut progress = TurnProgress::default();
+        apply(
+            &mut progress,
+            Event::ToolCallRequested {
+                call: ToolCall::new(call_id, "synthetic", json!({})),
+            },
+        );
+        apply(&mut progress, Event::ToolFinished { result });
+        let tool = progress.messages[0].tool.as_ref().unwrap();
+        assert_eq!(tool.status, "failed");
+        assert_eq!(tool.result.as_deref(), Some(expected));
+    }
+    let structured = ToolResult::ok(call_id.to_owned(), "").with_content(content);
+    assert_eq!(
+        tool_result_text(&structured).as_ref(),
+        structured.text_or_status(),
+    );
+}
+
+#[test]
 fn preview_prefix_respects_utf8_byte_boundaries() {
     for (text, limit, expected) in [
         ("", 0, ""),
