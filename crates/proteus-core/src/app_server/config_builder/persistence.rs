@@ -288,7 +288,7 @@ async fn persist_json_profile(
 ) -> Result<()> {
     let selection = crate::core::config_selection(path)?;
     let physical = crate::core::physical_config_path(path);
-    let next = serde_json::to_value(config)?;
+    let mut next = serde_json::to_value(config)?;
     let mut document: Value = match tokio::fs::read(&physical).await {
         Ok(bytes) => serde_json::from_slice(&bytes)
             .with_context(|| format!("failed to parse config JSON at {}", path.display()))?,
@@ -338,13 +338,14 @@ async fn persist_json_profile(
         !selection.is_empty() && model_settings_unchanged(config, baseline.as_ref());
     let local_model_settings = preserve_model_settings
         .then(|| {
-            root.get("module_config")
-                .and_then(|item| item.get("model"))
-                .cloned()
+            root.get_mut("module_config")
+                .and_then(|item| item.get_mut("model"))
+                .map(Value::take)
         })
         .flatten();
     for key in ["modules", "module_config", "addons"] {
-        root.insert(key.into(), next[key].clone());
+        let value = next.get_mut(key).map(Value::take).unwrap_or(Value::Null);
+        root.insert(key.into(), value);
     }
     if preserve_model_settings {
         if let Some(settings) = root.get_mut("module_config").and_then(Value::as_object_mut) {
@@ -368,7 +369,12 @@ async fn persist_json_profile(
             .as_object_mut()
             .with_context(|| format!("config JSON {section} must be an object"))?;
         for key in keys {
-            section_value.insert((*key).into(), next[section][*key].clone());
+            let value = next
+                .get_mut(section)
+                .and_then(|section| section.get_mut(*key))
+                .map(Value::take)
+                .unwrap_or(Value::Null);
+            section_value.insert((*key).into(), value);
         }
     }
     if !component_ids.is_empty() {
@@ -379,9 +385,12 @@ async fn persist_json_profile(
             .as_object_mut()
             .context("config JSON components must be an object")?;
         for id in component_ids {
-            match next["components"].get(id) {
+            match next
+                .get_mut("components")
+                .and_then(|value| value.get_mut(id))
+            {
                 Some(component) => {
-                    components.insert(id.clone(), component.clone());
+                    components.insert(id.clone(), component.take());
                 }
                 None => {
                     components.remove(id);

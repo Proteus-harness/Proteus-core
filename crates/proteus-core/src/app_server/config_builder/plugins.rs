@@ -24,7 +24,7 @@ pub(super) fn builder_tools(
         .iter()
         .map(|tool| {
             (
-                tool.name.clone(),
+                tool.name.as_str(),
                 ConfigBuilderTool {
                     name: tool.name.clone(),
                     source: tool.source.clone(),
@@ -43,7 +43,7 @@ pub(super) fn builder_tools(
         .collect::<BTreeMap<_, _>>();
     let mut warnings = Vec::new();
     for (source, spec) in process_tool_specs {
-        if let Some(registered) = tools.get(&spec.name) {
+        if let Some(registered) = tools.get(spec.name.as_str()) {
             if registered.owner.as_ref() != source.process_owner() {
                 warnings.push(ConfigBuilderWarning {
                     severity: "warning".into(),
@@ -53,7 +53,7 @@ pub(super) fn builder_tools(
             continue;
         }
         tools.insert(
-            spec.name.clone(),
+            spec.name.as_str(),
             ConfigBuilderTool {
                 name: spec.name.clone(),
                 source: source.label(),

@@ -12,6 +12,7 @@ pub(super) fn build_tools(
     config: &AppConfig,
     registered_tools: &[(ToolSource, ToolSpec)],
     warnings: &mut Vec<TopologyWarning>,
+    include_input_schemas: bool,
 ) -> Vec<ToolTopology> {
     let enabled_names = config
         .tools
@@ -33,7 +34,11 @@ pub(super) fn build_tools(
                 enabled: tool_enabled(config, source, &spec.name),
                 runtime_managed: runtime_managed(source, &spec.name),
                 registered: true,
-                input_schema: spec.input_schema.clone(),
+                input_schema: if include_input_schemas {
+                    spec.input_schema.clone()
+                } else {
+                    serde_json::Value::Null
+                },
             }
         })
         .collect::<Vec<_>>();

@@ -179,34 +179,35 @@ impl super::AppServerHandle {
         use proteus_contracts::app_protocol::config::*;
         let (snapshot, model_ref, reasoning, mode) = self.runtime.configuration_view().await;
         let module_epoch = snapshot.epoch;
-        let config = snapshot.assembly_plan.config().clone();
-        let (active_catalog, inactive_options) = tokio::join!(
-            async {
-                if !discover {
-                    return Ok(None);
-                }
-                snapshot.registry.model_catalog().await
-            },
-            super::model_selection::inactive_model_options(
-                &config,
-                model_ref.as_ref(),
-                &snapshot.registry,
-                discover,
-            ),
-        );
-        let mut selection = super::model_selection::selection_summary(
-            &config,
-            &model_ref,
-            &reasoning,
-            active_catalog,
-        );
+        let config = snapshot.assembly_plan.config();
+        let (mut selection, inactive_options) = if discover {
+            let (active_catalog, inactive) = tokio::join!(
+                snapshot.registry.model_catalog(),
+                super::model_selection::inactive_model_options(
+                    config,
+                    model_ref.as_ref(),
+                    &snapshot.registry,
+                ),
+            );
+            (
+                super::model_selection::selection_summary(
+                    config,
+                    &model_ref,
+                    &reasoning,
+                    active_catalog,
+                ),
+                inactive,
+            )
+        } else {
+            super::model_selection::local_model_options(config, &model_ref, &reasoning)
+        };
         let tools = snapshot.registry.tools.entries();
         let session_settings =
             super::session_settings::compose(self, mode, &model_ref, &reasoning, &selection).await;
         selection.models.extend(inactive_options);
         let summary = ConfigSummary {
             display_text: render_config_summary(
-                &config,
+                config,
                 self.config_path.as_deref(),
                 &self.cwd,
                 mode,

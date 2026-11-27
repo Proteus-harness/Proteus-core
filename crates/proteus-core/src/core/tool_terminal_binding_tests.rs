@@ -203,7 +203,7 @@ fn registry(wait: bool, deny_leaf: bool) -> RuntimeRegistry {
             .unwrap();
     }
     RuntimeRegistry {
-        config_exports: vec![],
+        config_exports: Arc::default(),
         hook_subscriptions: Default::default(),
         hooks: vec![("fixture".into(), Arc::new(Hook))],
         cwd: "/workspace".into(),

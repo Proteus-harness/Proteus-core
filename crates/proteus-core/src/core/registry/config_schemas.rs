@@ -1,6 +1,9 @@
 //! Read-only configuration discovery, independent of behavior slot dispatch.
 use crate::domain::ModuleConfigSchema;
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 #[derive(Default)]
 pub(crate) struct ConfigSchemas {
@@ -10,12 +13,12 @@ pub(crate) struct ConfigSchemas {
 
 impl super::RuntimeRegistry {
     pub(crate) async fn config_schemas(&self) -> ConfigSchemas {
-        let exports = self.config_exports.clone();
+        let exports = Arc::clone(&self.config_exports);
         let cwd = self.cwd.clone();
         match tokio::task::spawn_blocking(move || {
             let mut result = ConfigSchemas::default();
             let mut seen = BTreeSet::new();
-            for export in exports {
+            for export in exports.iter() {
                 if !seen.insert(export.component_id().to_owned()) {
                     continue;
                 }

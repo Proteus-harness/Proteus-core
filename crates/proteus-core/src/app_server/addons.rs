@@ -4,14 +4,11 @@ use proteus_contracts::app_protocol::{addons::*, http::SetConfigBuilderRequest};
 
 impl AppServerHandle {
     pub async fn addons_snapshot(&self) -> AppAddonsSnapshot {
-        let (config, catalogs, mcp_servers, plugins) = self.runtime.addon_catalogs().await;
+        let (settings, catalogs, mcp_servers, plugins) = self.runtime.addon_catalogs().await;
         AppAddonsSnapshot {
             reload_error: self.profile_error.lock().await.clone(),
             writable: self.config_path.is_some(),
-            settings: AppAddonsUpdate {
-                addons: config.addons,
-                mcp_servers: config.tools.mcp_servers,
-            },
+            settings,
             catalogs,
             mcp_servers,
             plugins,

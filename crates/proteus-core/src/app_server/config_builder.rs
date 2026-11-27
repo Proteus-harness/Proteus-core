@@ -26,7 +26,7 @@ use serde_json::Value;
 use crate::{
     core::{
         AppConfig, ModuleCatalogEntrySummary, ModuleSourceTopology, ModuleTopology, ModulesConfig,
-        TopologyBuildInput, TopologySnapshot, build_topology_snapshot,
+        TopologyBuildInput, TopologySnapshot, build_config_builder_topology,
         core_slots::{CoreSlotSelection, core_slot_descriptor_by_id},
     },
     domain::PermissionMode,
@@ -44,7 +44,7 @@ impl AppServerHandle {
     pub async fn config_builder_snapshot(&self) -> ConfigBuilderSnapshot {
         let (runtime, _, _, mode) = self.runtime.configuration_view().await;
         let tools = &runtime.registry.tool_inventory;
-        let topology = build_topology_snapshot(TopologyBuildInput {
+        let topology = build_config_builder_topology(TopologyBuildInput {
             plan: &runtime.assembly_plan,
             tools,
             module_epoch: runtime.epoch,
@@ -282,7 +282,7 @@ pub(super) fn config_builder_snapshot_from_topology(
     process_tool_specs: &[(crate::contracts::ToolSource, crate::domain::ToolSpec)],
 ) -> ConfigBuilderSnapshot {
     let target_path = config_builder_target_path(topology.config_path.as_deref().map(Path::new));
-    let modules = topology.modules.clone();
+    let modules = &topology.modules;
     let slots = topology
         .slots
         .iter()

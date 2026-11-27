@@ -30,7 +30,8 @@ mod tool_terminal_tests;
 
 #[derive(Clone)]
 pub struct RuntimeRegistry {
-    config_exports: Vec<crate::process_adapters::ProcessExportConfig>,
+    // Immutable per registry generation, also retained by schema discovery tasks.
+    config_exports: Arc<Vec<crate::process_adapters::ProcessExportConfig>>,
     pub hooks: Vec<(String, Arc<dyn crate::contracts::HookHandler>)>,
     hook_subscriptions: super::config::HookSubscriptions,
     pub cwd: PathBuf,
@@ -106,7 +107,7 @@ impl RuntimeRegistry {
         let workspace = self.cwd.canonicalize()?;
         let mut seen = std::collections::HashSet::new();
         let mut workers = FuturesUnordered::new();
-        for export in &self.config_exports {
+        for export in self.config_exports.iter() {
             if export.releases_when_idle() && seen.insert(export.component_id()) {
                 workers.push(export.release_idle_broker(&workspace));
             }
@@ -296,7 +297,7 @@ impl RuntimeRegistry {
             export.release_discovery_brokers()?;
         }
         Ok(Self {
-            config_exports: catalog.config_exports,
+            config_exports: Arc::new(catalog.config_exports),
             session_storage,
             hooks,
             hook_subscriptions: config.modules.hook_events.clone(),

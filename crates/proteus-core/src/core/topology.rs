@@ -13,6 +13,15 @@ use slots::build_slots;
 use tools::build_tools;
 
 pub fn build_topology_snapshot(input: TopologyBuildInput<'_>) -> TopologySnapshot {
+    build_topology(input, true)
+}
+
+pub(crate) fn build_config_builder_topology(input: TopologyBuildInput<'_>) -> TopologySnapshot {
+    // Settings project neither graph edges nor tool invocation schemas.
+    build_topology(input, false)
+}
+
+fn build_topology(input: TopologyBuildInput<'_>, inspection: bool) -> TopologySnapshot {
     let plan = input.plan;
     let config = plan.config();
     let model = plan.model.as_ref().map(|model| ModelTopology {
@@ -38,16 +47,21 @@ pub fn build_topology_snapshot(input: TopologyBuildInput<'_>) -> TopologySnapsho
             module.active = plan.hooks.contains(&module.id);
         }
     }
-    let tools = build_tools(config, input.tools, &mut warnings);
-    let mut edges = build_edges(&active_modules, &modules, &tools);
-    for (index, id) in plan.hooks.iter().enumerate() {
-        edges.push(TopologyEdge {
-            from: "config".to_owned(),
-            to: format!("module:hook:{id}"),
-            kind: "ordered_hook".to_owned(),
-            label: Some(format!("{}", index + 1)),
-        });
-    }
+    let tools = build_tools(config, input.tools, &mut warnings, inspection);
+    let edges = if inspection {
+        let mut edges = build_edges(active_modules, &modules, &tools);
+        for (index, id) in plan.hooks.iter().enumerate() {
+            edges.push(TopologyEdge {
+                from: "config".to_owned(),
+                to: format!("module:hook:{id}"),
+                kind: "ordered_hook".to_owned(),
+                label: Some(format!("{}", index + 1)),
+            });
+        }
+        edges
+    } else {
+        Vec::new()
+    };
 
     TopologySnapshot {
         profile: plan.profile.clone(),

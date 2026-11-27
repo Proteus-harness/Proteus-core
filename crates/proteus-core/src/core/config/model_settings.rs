@@ -59,8 +59,10 @@ impl ModelSourceMetadata {
                     })
                 })
             });
-        let catalogue_writable =
-            file && complete_local && local_names == available.keys().collect::<Vec<_>>();
+        let catalogue_writable = file
+            && complete_local
+            && local_names.len() == available.len()
+            && local_names.into_iter().eq(available.keys());
         let local_roles = local
             .and_then(|v| v.pointer("/agent_control/roles"))
             .and_then(Value::as_array);
@@ -215,6 +217,14 @@ pub(super) fn remove_outer_choice(source: &mut Value, selection: &[String]) -> R
     Ok(())
 }
 
+fn source_roles(source: &Value) -> Option<&[Value]> {
+    source
+        .get("agent_control")?
+        .get("roles")?
+        .as_array()
+        .map(Vec::as_slice)
+}
+
 /// Only the fields needed to retain ownership and exact aliases survive load.
 /// Never retain or duplicate unrelated component settings/instructions here.
 pub(super) fn source_view(source: &Value) -> Value {
@@ -245,16 +255,31 @@ pub(super) fn source_view(source: &Value) -> Value {
             );
         }
     }
-    if let Some(roles) = source
-        .pointer("/agent_control/roles")
-        .and_then(Value::as_array)
-    {
-        view.insert("agent_control".into(), serde_json::json!({"roles": roles.iter().map(|role| {
-            let mut projected = Map::new();
-            for key in ["name","model"] { if let Some(value) = role.get(key) { projected.insert(key.into(),value.clone()); } }
-            if let Some(child) = role.get("config") { projected.insert("config".into(), if child.is_object() { source_view(child) } else { Value::Null }); }
-            Value::Object(projected)
-        }).collect::<Vec<_>>()}));
+    if let Some(roles) = source_roles(source) {
+        let roles = roles
+            .iter()
+            .map(|role| {
+                let mut projected = Map::new();
+                for key in ["name", "model"] {
+                    if let Some(value) = role.get(key) {
+                        projected.insert(key.into(), value.clone());
+                    }
+                }
+                if let Some(child) = role.get("config") {
+                    let child = if child.is_object() {
+                        source_view(child)
+                    } else {
+                        Value::Null
+                    };
+                    projected.insert("config".into(), child);
+                }
+                Value::Object(projected)
+            })
+            .collect();
+        view.insert(
+            "agent_control".into(),
+            Value::Object(Map::from_iter([("roles".into(), Value::Array(roles))])),
+        );
     }
     Value::Object(view)
 }
@@ -277,9 +302,7 @@ pub(super) fn source_choice(
         return Ok((None, true));
     };
     let parent = super::selected_config_value_mut(source, parents)?;
-    let choice = parent
-        .pointer("/agent_control/roles")
-        .and_then(Value::as_array)
+    let choice = source_roles(parent)
         .and_then(|roles| {
             roles
                 .iter()

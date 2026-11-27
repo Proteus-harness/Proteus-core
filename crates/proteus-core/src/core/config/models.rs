@@ -8,7 +8,7 @@ use serde_json::{Map, Value};
 
 use super::{ModelConfig, ProviderProfileConfig};
 
-#[derive(Clone, Default)]
+#[derive(Default)]
 struct ModelScope {
     presets: BTreeMap<String, ProviderProfileConfig>,
     selected: Option<String>,
@@ -35,14 +35,15 @@ pub(super) fn normalize_model_sources(source: &mut Value) -> Result<()> {
 }
 
 fn named_presets(value: Value) -> Result<BTreeMap<String, ProviderProfileConfig>> {
-    let entries = value.as_object().context("models must be an object")?;
+    let Value::Object(entries) = value else {
+        anyhow::bail!("models must be an object");
+    };
     let mut result = BTreeMap::new();
     for (name, profile) in entries {
         ensure!(!name.trim().is_empty(), "model aliases must not be empty");
-        let mut profile = profile
-            .as_object()
-            .with_context(|| format!("model alias {name:?} must be an object"))?
-            .clone();
+        let Value::Object(mut profile) = profile else {
+            anyhow::bail!("model alias {name:?} must be an object");
+        };
         for key in ["provider", "model"] {
             ensure!(
                 profile
@@ -53,10 +54,8 @@ fn named_presets(value: Value) -> Result<BTreeMap<String, ProviderProfileConfig>
             );
         }
         let mut reasoning = match profile.remove("reasoning") {
-            Some(value) => value
-                .as_object()
-                .context("model reasoning must be an object")?
-                .clone(),
+            Some(Value::Object(value)) => value,
+            Some(_) => anyhow::bail!("model reasoning must be an object"),
             None => Map::new(),
         };
         for key in ["effort", "summary", "budget_tokens"] {
@@ -79,7 +78,7 @@ fn named_presets(value: Value) -> Result<BTreeMap<String, ProviderProfileConfig>
                 "model alias {name:?} has an empty effort"
             );
         }
-        result.insert(name.clone(), profile);
+        result.insert(name, profile);
     }
     Ok(result)
 }
@@ -106,11 +105,11 @@ fn normalize(source: &mut Value, parent: Option<&ModelScope>) -> Result<ModelSco
         "config must define models or providers, not both"
     );
     let legacy_independent = object.contains_key("providers") && explicit;
-    let mut scope = if legacy_independent {
-        ModelScope::default()
-    } else {
-        parent.cloned().unwrap_or_default()
-    };
+    let mut scope = ModelScope::default();
+    if let Some(parent) = parent.filter(|_| !legacy_independent) {
+        scope.presets = parent.presets.clone();
+        scope.selected = parent.selected.clone();
+    }
     let local = if let Some(models) = object.remove("models") {
         named_presets(models)?
     } else if let Some(providers) = object.remove("providers") {
@@ -148,7 +147,20 @@ fn normalize(source: &mut Value, parent: Option<&ModelScope>) -> Result<ModelSco
             inherit_bindings(object, parent, &scope.presets)?;
         }
     }
-    capture_bindings(object, &mut scope);
+    // Binding snapshots are only consumed by inline children. External roles
+    // and the scope returned to a caller use only the catalogue and selection.
+    if object
+        .get("agent_control")
+        .and_then(|control| control.get("roles"))
+        .and_then(Value::as_array)
+        .is_some_and(|roles| {
+            roles
+                .iter()
+                .any(|role| role.get("config").is_some_and(Value::is_object))
+        })
+    {
+        capture_bindings(object, &mut scope);
+    }
     let Some(control) = object
         .get_mut("agent_control")
         .and_then(Value::as_object_mut)
@@ -218,7 +230,6 @@ fn normalize(source: &mut Value, parent: Option<&ModelScope>) -> Result<ModelSco
 }
 
 fn capture_bindings(object: &Map<String, Value>, scope: &mut ModelScope) {
-    scope.components.clear();
     for (name, component) in object
         .get("components")
         .and_then(Value::as_object)
@@ -229,12 +240,20 @@ fn capture_bindings(object: &Map<String, Value>, scope: &mut ModelScope) {
             .get("exports")
             .and_then(|exports| exports.get("model"))
         {
-            let mut component = component.clone();
-            component
-                .as_object_mut()
+            let launch = component
+                .as_object()
                 .unwrap()
-                .insert("exports".into(), serde_json::json!({"model": models}));
-            scope.components.insert(name.clone(), component);
+                .iter()
+                .map(|(key, value)| {
+                    let value = if key == "exports" {
+                        Value::Object(Map::from_iter([("model".into(), models.clone())]))
+                    } else {
+                        value.clone()
+                    };
+                    (key.clone(), value)
+                })
+                .collect();
+            scope.components.insert(name.clone(), Value::Object(launch));
         }
     }
     scope.settings = object
@@ -243,6 +262,16 @@ fn capture_bindings(object: &Map<String, Value>, scope: &mut ModelScope) {
         .and_then(Value::as_object)
         .cloned()
         .unwrap_or_default();
+}
+
+fn same_component_launch(left: &Map<String, Value>, right: &Map<String, Value>) -> bool {
+    let launch_len =
+        |fields: &Map<String, Value>| fields.len() - usize::from(fields.contains_key("exports"));
+    launch_len(left) == launch_len(right)
+        && left
+            .iter()
+            .filter(|(name, _)| name.as_str() != "exports")
+            .all(|(name, value)| right.get(name) == Some(value))
 }
 
 fn inherit_bindings(
@@ -254,16 +283,11 @@ fn inherit_bindings(
         .values()
         .map(|profile| profile.provider.as_str())
         .collect::<std::collections::BTreeSet<_>>();
-    let mut components = object
-        .remove("components")
-        .map(|value| {
-            value
-                .as_object()
-                .cloned()
-                .context("components must be an object")
-        })
-        .transpose()?
-        .unwrap_or_default();
+    let mut components = match object.remove("components") {
+        Some(Value::Object(components)) => components,
+        Some(_) => anyhow::bail!("components must be an object"),
+        None => Map::new(),
+    };
     for (name, inherited) in &parent.components {
         let models = inherited["exports"]["model"]
             .as_object()
@@ -284,15 +308,10 @@ fn inherit_bindings(
                 target["exports"]["model"] = serde_json::json!({});
                 target
             });
-            let mut target_launch = target.clone();
-            target_launch
-                .as_object_mut()
-                .context("component must be an object")?
-                .remove("exports");
-            let mut inherited_launch = inherited.clone();
-            inherited_launch.as_object_mut().unwrap().remove("exports");
+            let target_launch = target.as_object().context("component must be an object")?;
+            let inherited_launch = inherited.as_object().unwrap();
             ensure!(
-                target_launch == inherited_launch,
+                same_component_launch(target_launch, inherited_launch),
                 "conflicting model component binding {name:?}"
             );
             let exports = target

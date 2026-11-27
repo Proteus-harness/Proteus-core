@@ -21,7 +21,7 @@ impl JournalProjection {
             .filter(|(_, lifecycle)| !lifecycle.result && lifecycle.effect.is_none())
             .map(|(call_id, _)| call_id.clone())
             .collect::<Vec<_>>();
-        unresolved_tool_calls.sort();
+        unresolved_tool_calls.sort_unstable();
         let mut unsettled_turns = state
             .opened_turns
             .keys()

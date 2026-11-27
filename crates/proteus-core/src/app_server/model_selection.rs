@@ -66,6 +66,53 @@ fn configured_option(model: ModelRef) -> ModelOption {
     }
 }
 
+fn group_configured_options(
+    models: impl IntoIterator<Item = ModelRef>,
+) -> BTreeMap<String, Vec<ModelOption>> {
+    let mut groups = BTreeMap::<_, Vec<_>>::new();
+    for model in models {
+        groups
+            .entry(model.provider.clone())
+            .or_default()
+            .push(configured_option(model));
+    }
+    groups
+}
+
+pub(super) fn local_model_options(
+    config: &AppConfig,
+    active: &Option<ModelRef>,
+    reasoning: &ReasoningConfig,
+) -> (SelectionSummary, Vec<ModelOption>) {
+    let mut active_options = Vec::new();
+    let inactive =
+        group_configured_options(configured_model_options(config).into_iter().filter_map(
+            |model| {
+                if active
+                    .as_ref()
+                    .is_some_and(|active| active.provider == model.provider)
+                {
+                    active_options.push(model);
+                    None
+                } else {
+                    Some(model)
+                }
+            },
+        ))
+        .into_values()
+        .flatten()
+        .collect();
+    let summary = match active {
+        Some(active) => configured_selection(config, active, reasoning, active_options),
+        None => SelectionSummary {
+            models: Vec::new(),
+            efforts: Vec::new(),
+            error: None,
+        },
+    };
+    (summary, inactive)
+}
+
 /// Catalogs are grouped by the configured model route, not by model names:
 /// different providers may offer the same model ID. Keep provider order stable
 /// even when their independent metadata calls complete in a different order.
@@ -73,22 +120,14 @@ pub(super) async fn inactive_model_options(
     config: &AppConfig,
     active: Option<&ModelRef>,
     registry: &RuntimeRegistry,
-    discover: bool,
 ) -> Vec<ModelOption> {
-    let mut groups = BTreeMap::<_, Vec<_>>::new();
-    for model in configured_model_options(config) {
-        if !active.is_some_and(|active| active.provider == model.provider) {
-            groups
-                .entry(model.provider.clone())
-                .or_default()
-                .push(configured_option(model));
-        }
-    }
+    let groups = group_configured_options(
+        configured_model_options(config)
+            .into_iter()
+            .filter(|model| !active.is_some_and(|active| active.provider == model.provider)),
+    );
     let deadline = Instant::now() + INACTIVE_CATALOG_LIMIT;
     stream::iter(groups.into_iter().map(|(provider, configured)| async move {
-        if !discover {
-            return configured;
-        }
         if Instant::now() >= deadline {
             return Vec::new();
         }
@@ -129,28 +168,36 @@ pub(super) fn selection_summary(
             error: None,
         },
         Ok(None) => {
-            let mut efforts = configured_reasoning_effort_options(config, active, reasoning);
-            if !efforts.iter().any(|value| value == "none") {
-                efforts.insert(0, "none".into());
-            }
-            let mut configured = configured_model_options(config);
-            if !configured.contains(active) {
-                configured.insert(0, active.clone());
-            }
-            SelectionSummary {
-                models: configured
-                    .into_iter()
-                    .filter(|model| model.provider == active.provider)
-                    .map(configured_option)
-                    .collect(),
-                efforts,
-                error: None,
-            }
+            configured_selection(config, active, reasoning, configured_model_options(config))
         }
         Err(error) => SelectionSummary {
             models: Vec::new(),
             efforts: Vec::new(),
             error: Some(format!("{error:#}")),
         },
+    }
+}
+
+fn configured_selection(
+    config: &AppConfig,
+    active: &ModelRef,
+    reasoning: &ReasoningConfig,
+    mut configured: Vec<ModelRef>,
+) -> SelectionSummary {
+    let mut efforts = configured_reasoning_effort_options(config, active, reasoning);
+    if !efforts.iter().any(|value| value == "none") {
+        efforts.insert(0, "none".into());
+    }
+    if !configured.contains(active) {
+        configured.insert(0, active.clone());
+    }
+    SelectionSummary {
+        models: configured
+            .into_iter()
+            .filter(|model| model.provider == active.provider)
+            .map(configured_option)
+            .collect(),
+        efforts,
+        error: None,
     }
 }

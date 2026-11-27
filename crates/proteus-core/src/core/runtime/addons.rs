@@ -1,13 +1,13 @@
 use super::AgentRuntime;
 use proteus_contracts::app_protocol::addons::{
-    AppAgentPluginState, AppMcpServerState, AppSkillCatalog,
+    AppAddonsUpdate, AppAgentPluginState, AppMcpServerState, AppSkillCatalog,
 };
 
 impl AgentRuntime {
     pub(crate) async fn addon_catalogs(
         &self,
     ) -> (
-        crate::core::AppConfig,
+        AppAddonsUpdate,
         Vec<AppSkillCatalog>,
         Vec<AppMcpServerState>,
         Vec<AppAgentPluginState>,
@@ -29,8 +29,12 @@ impl AgentRuntime {
                 },
             });
         }
+        let config = snapshot.assembly_plan.config();
         (
-            snapshot.assembly_plan.config().clone(),
+            AppAddonsUpdate {
+                addons: config.addons.clone(),
+                mcp_servers: config.tools.mcp_servers.clone(),
+            },
             catalogs,
             snapshot.registry.mcp_servers.clone(),
             snapshot.registry.plugins.clone(),
