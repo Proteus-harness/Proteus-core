@@ -151,13 +151,22 @@ fn overflow_is_reported_without_wrapping_or_partial_success() {
     assert_eq!(error.to_string(), "JSON frame length overflow");
     assert_eq!(counter.bytes, usize::MAX);
 
-    for value in [json!(null), json!(false), json!(1), json!(""), json!([]), json!({})] {
+    for value in [
+        json!(null),
+        json!(false),
+        json!(1),
+        json!(""),
+        json!([]),
+        json!({}),
+    ] {
         let mut counter = ByteCounter { bytes: usize::MAX };
         let error = serde_json::to_writer(&mut counter, &value).unwrap_err();
         assert_eq!(error.to_string(), "JSON frame length overflow");
         assert_eq!(counter.bytes, usize::MAX);
     }
-    let mut counter = ByteCounter { bytes: usize::MAX - 3 };
+    let mut counter = ByteCounter {
+        bytes: usize::MAX - 3,
+    };
     assert!(
         serde_json::to_writer(&mut counter, &json!("\0")).is_err(),
         "escape expansion must also be checked"
