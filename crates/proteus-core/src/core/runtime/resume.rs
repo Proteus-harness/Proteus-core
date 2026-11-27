@@ -83,7 +83,7 @@ impl AgentRuntime {
         // The writer owns validation history; this is the sole additional owned
         // history for execution. No raw projection or third copy is created.
         *history = state.history;
-        *model_context = state.model_context;
+        *model_context = ModelContextState::from_snapshot(state.model_context);
         self.session
             .history_resident
             .store(true, std::sync::atomic::Ordering::SeqCst);

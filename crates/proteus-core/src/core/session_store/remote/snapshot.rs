@@ -226,7 +226,7 @@ pub(crate) struct RemoteJournalResumeState {
     pub history: Vec<CanonicalMessage>,
     pub history_revision: u64,
     pub interrupted_turns: Vec<proteus_contracts::contracts::WorkflowHistoryInterruption>,
-    pub model_context: proteus_session_semantics::ModelContextState,
+    pub model_context: Vec<proteus_contracts::contracts::ModelContextObservation>,
     pub usage: proteus_contracts::domain::SessionUsageSnapshot,
     pub last_history_turn: Option<TurnId>,
 }
@@ -236,9 +236,7 @@ impl From<proteus_contracts::contracts::StorageResumeState> for RemoteJournalRes
             history: state.conversation.messages,
             history_revision: state.conversation.revision.history_revision,
             interrupted_turns: state.interrupted_turns,
-            model_context: proteus_session_semantics::ModelContextState::from_snapshot(
-                state.conversation.model_context,
-            ),
+            model_context: state.conversation.model_context,
             usage: state.usage,
             last_history_turn: state.last_history_turn,
         }

@@ -6,19 +6,21 @@
 //! unpublished until every pass succeeds.
 use anyhow::Result;
 
+use super::super::rows::reserve_text_append_tail;
+
 use crate::{
     contracts::OperationOwner,
     core::{
         CompactTextRow, DisplayRows, JournalEntry, JournalReadSnapshot, JournalRecord,
         ModelResponseOutcome, StagedRenderRecord, StagedTextRow, ToolCallRecordPhase,
     },
-    domain::TurnId,
+    domain::{SubagentSessionBinding, TurnId},
     model_standard::ContentPart,
 };
 
 use super::{
     AppTranscriptMessage, HistoryMutationKind, TranscriptProjectionState, TranscriptReplay,
-    TranscriptTimestamps, TranscriptVisibility,
+    TranscriptSubagentLink, TranscriptTimestamps, TranscriptVisibility,
 };
 
 /// The caller must strictly validate the entire snapshot before invoking this
@@ -111,8 +113,20 @@ pub(super) fn transcript_from_scan(
             {
                 last_response_with_parts = Some(record.session_seq);
             }
-            JournalEntry::SubagentSessionBoundRecorded(binding) => {
-                subagent_bindings.insert(binding.source_call_id.clone(), binding);
+            JournalEntry::SubagentSessionBoundRecorded(SubagentSessionBinding {
+                source_call_id,
+                child_thread_id,
+                session_id,
+                session_dir,
+            }) => {
+                subagent_bindings.insert(
+                    source_call_id,
+                    TranscriptSubagentLink {
+                        child_thread_id,
+                        session_id,
+                        session_dir,
+                    },
+                );
             }
             JournalEntry::ToolResultRecorded(tool) => {
                 final_results.insert(tool.result.call_id);
@@ -148,6 +162,7 @@ pub(super) fn transcript_from_scan(
     // Its evidence may precede a reset or follow the response itself.
     let need_commits = last_response_with_parts.is_some_and(|seq| seq >= start);
     let mut committed_parts = std::collections::HashSet::new();
+    let mut workflow_root_calls = std::collections::HashSet::new();
     let mut timestamps = TranscriptTimestamps::default();
     scan(&mut |record| {
         match record.entry {
@@ -156,7 +171,7 @@ pub(super) fn transcript_from_scan(
                     && visibility.is_root_record(record.thread_id, record.turn_id)
                 {
                     if matches!(owner, OperationOwner::Workflow) {
-                        visibility.workflow_root_calls.insert(tool.call.id.clone());
+                        workflow_root_calls.insert(tool.call.id.clone());
                     }
                     visibility
                         .display_tool_calls
@@ -206,7 +221,7 @@ pub(super) fn transcript_from_scan(
             let executed = model
                 .tool_calls
                 .iter()
-                .any(|call| visibility.workflow_root_calls.contains(&call.id));
+                .any(|call| workflow_root_calls.contains(&call.id));
             if committed || executed {
                 visibility
                     .visible_model_responses
@@ -215,7 +230,7 @@ pub(super) fn transcript_from_scan(
         }
         Ok(())
     })?;
-    drop(committed_parts);
+    drop((committed_parts, workflow_root_calls));
 
     let mut replay = TranscriptReplay {
         state: TranscriptProjectionState {
@@ -261,6 +276,8 @@ fn render_causal(
                     .state
                     .timestamps
                     .record_staged_text_append(timestamp_ms);
+                let input_rows = append.into_rows();
+                let ceiling = input_rows.len();
                 let mut rows = Vec::new();
                 for StagedTextRow {
                     id,
@@ -269,12 +286,13 @@ fn render_causal(
                     part_id,
                     scope,
                     mut text,
-                } in append.into_rows()
+                } in input_rows
                 {
                     if let Some(text) = replay
                         .state
                         .take_staged_text_value(part_id, scope, &mut text)
                     {
+                        reserve_text_append_tail(&mut rows, ceiling);
                         rows.push(CompactTextRow {
                             message_id: id,
                             phase,
@@ -300,9 +318,11 @@ fn render_causal(
                         .iter()
                         .all(|message| message.parts.len() == 1)
                 {
+                    let ceiling = mutation.messages.len();
                     let mut rows = Vec::new();
                     for mut message in std::mem::take(&mut mutation.messages) {
                         if let Some(text) = replay.state.take_staged_text(&mut message.parts[0]) {
+                            reserve_text_append_tail(&mut rows, ceiling);
                             rows.push(CompactTextRow {
                                 message_id: message.id,
                                 phase: message.phase,

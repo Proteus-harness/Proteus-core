@@ -1,37 +1,12 @@
 use std::{
     error::Error,
     fmt,
-    io::{self, Write},
     sync::{Arc, Mutex},
     time::Duration,
 };
 
 use anyhow::{Result, bail};
 use serde_json::Value;
-
-pub(crate) fn compact_json_len(value: &Value) -> Result<usize> {
-    #[derive(Default)]
-    struct ByteCounter {
-        bytes: usize,
-    }
-
-    impl Write for ByteCounter {
-        fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
-            self.bytes = self.bytes.checked_add(buffer.len()).ok_or_else(|| {
-                io::Error::new(io::ErrorKind::FileTooLarge, "JSON frame length overflow")
-            })?;
-            Ok(buffer.len())
-        }
-
-        fn flush(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-    }
-
-    let mut counter = ByteCounter::default();
-    serde_json::to_writer(&mut counter, value)?;
-    Ok(counter.bytes)
-}
 
 /// Default maximum number of frames retained inside one process transport.
 pub const DEFAULT_MAX_BUFFERED_FRAMES: usize = 256;

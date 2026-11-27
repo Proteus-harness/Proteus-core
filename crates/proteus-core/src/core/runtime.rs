@@ -372,7 +372,8 @@ impl AgentRuntime {
                             anyhow::anyhow!("{error:#}; additionally failed to recover history after clear: {recovery:#}")
                         })?;
                         history::refresh_committed_history(&mut *session.history.lock().await, state.history)?;
-                        *session.model_context.lock().await = state.model_context;
+                        *session.model_context.lock().await =
+                            super::model_context::ModelContextState::from_snapshot(state.model_context);
                         *session.history_turn.lock().await = state.last_history_turn;
                         *session.interrupted_turns.lock().await = state.interrupted_turns;
                         return Err(error);

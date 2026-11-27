@@ -23,7 +23,8 @@ struct RecordedAt {
 pub(super) struct TranscriptTimestamps {
     messages: HashMap<MessageId, RecordedAt>,
     parts: HashMap<PartId, RecordedAt>,
-    calls: HashMap<CallId, RecordedAt>,
+    // Call dates keep the first timestamp; only message and part dates need sequences.
+    calls: HashMap<CallId, i64>,
     single_staged_record: bool,
     uniform_message_date: Option<i64>,
 }
@@ -134,10 +135,14 @@ impl TranscriptTimestamps {
                 }
             }
             JournalEntry::ToolCallRecorded(item) => {
-                self.calls.entry(item.call.id.clone()).or_insert(at);
+                self.calls
+                    .entry(item.call.id.clone())
+                    .or_insert(at.timestamp_ms);
             }
             JournalEntry::ToolResultRecorded(item) | JournalEntry::ToolEffectRecorded(item) => {
-                self.calls.entry(item.result.call_id.clone()).or_insert(at);
+                self.calls
+                    .entry(item.result.call_id.clone())
+                    .or_insert(at.timestamp_ms);
             }
             _ => {}
         }
@@ -155,7 +160,7 @@ impl TranscriptTimestamps {
             if let Some(id) = call_id {
                 // Hosted cards can reuse an old call ID. Keep call dates global
                 // instead of adding an unbounded set of absent hosted-call IDs.
-                self.calls.entry(id.clone()).or_insert(at);
+                self.calls.entry(id.clone()).or_insert(at.timestamp_ms);
             }
         }
     }
@@ -194,7 +199,7 @@ impl TranscriptTimestamps {
     }
 
     pub(super) fn call(&self, id: &str) -> Option<i64> {
-        self.calls.get(id).map(|at| at.timestamp_ms)
+        self.calls.get(id).copied()
     }
 }
 

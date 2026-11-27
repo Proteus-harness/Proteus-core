@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-use crate::domain::{Event, EventEnvelope, ThreadId, ToolCall};
+use crate::domain::{Event, EventEnvelope, ThreadId, ToolCall, ToolResult};
 
 use super::transcript::{AppTranscriptMessage, AppTranscriptSubagent, AppTranscriptTool};
 
@@ -164,21 +164,15 @@ impl TurnProgress {
                 }
             }
             Event::ApprovalRequested { call_id, .. } => {
-                self.set_tool_status(call_id, "waiting_approval", None, None);
+                self.set_tool_status(call_id, "waiting_approval", None);
             }
             Event::ApprovalResolved { call_id, approved } => {
                 let status = if *approved { "approved" } else { "denied" };
-                self.set_tool_status(call_id, status, None, None);
+                self.set_tool_status(call_id, status, None);
             }
             Event::ToolFinished { result } => {
                 let status = if result.ok { "done" } else { "failed" };
-                let text = tool_result_text(result);
-                self.set_tool_status(
-                    &result.call_id,
-                    status,
-                    Some(text.as_ref()),
-                    Some(&result.metadata),
-                );
+                self.set_tool_status(&result.call_id, status, Some(result));
             }
             Event::SubagentStarted {
                 role,
@@ -389,21 +383,8 @@ impl TurnProgress {
         });
     }
 
-    fn set_tool_status(
-        &mut self,
-        call_id: &str,
-        status: &str,
-        result: Option<&str>,
-        metadata: Option<&serde_json::Value>,
-    ) {
-        if set_tool_status_in(
-            &mut self.messages,
-            call_id,
-            status,
-            result,
-            metadata,
-            false,
-        ) {
+    fn set_tool_status(&mut self, call_id: &str, status: &str, result: Option<&ToolResult>) {
+        if set_tool_status_in(&mut self.messages, call_id, status, result, false) {
             return;
         }
         set_tool_status_in(
@@ -411,7 +392,6 @@ impl TurnProgress {
             call_id,
             status,
             result,
-            metadata,
             true,
         );
     }
@@ -505,29 +485,35 @@ fn set_tool_status_in(
     messages: &mut [AppTranscriptMessage],
     call_id: &str,
     status: &str,
-    result: Option<&str>,
-    metadata: Option<&serde_json::Value>,
+    result: Option<&ToolResult>,
     compact: bool,
 ) -> bool {
-    for message in messages.iter_mut().rev() {
+    let Some(tool) = messages.iter_mut().rev().find_map(|message| {
         if let Some(tool) = message.tool.as_mut().filter(|tool| tool.call_id == call_id) {
-            update_tool(tool, status, result, metadata, compact);
-            return true;
+            return Some(tool);
         }
-        if let Some(tool) = message.subagent.as_mut().and_then(|subagent| {
+        message.subagent.as_mut().and_then(|subagent| {
             subagent
                 .tools
                 .iter_mut()
                 .find(|tool| tool.call_id == call_id)
-        }) {
-            update_tool(tool, status, result, metadata, compact);
-            return true;
-        }
-    }
-    false
+        })
+    }) else {
+        return false;
+    };
+    // A late result for an absent card has nowhere to render its text.
+    let text = result.map(tool_result_text);
+    update_tool(
+        tool,
+        status,
+        text.as_deref(),
+        result.map(|r| &r.metadata),
+        compact,
+    );
+    true
 }
 
-fn tool_result_text(result: &crate::domain::ToolResult) -> Cow<'_, str> {
+fn tool_result_text(result: &ToolResult) -> Cow<'_, str> {
     // Direct text is truncated for display; borrow it instead of cloning
     // the full result. Keep the same precedence and structured fallback.
     result
@@ -536,7 +522,24 @@ fn tool_result_text(result: &crate::domain::ToolResult) -> Cow<'_, str> {
         .filter(|text| !text.is_empty())
         .or_else(|| (!result.output.is_empty()).then_some(result.output.as_str()))
         .map(Cow::Borrowed)
-        .unwrap_or_else(|| Cow::Owned(result.text_or_status()))
+        .unwrap_or_else(|| {
+            use bytes::BufMut;
+            let mut prefix = Vec::new();
+            let writer = (&mut prefix).limit(MAX_SUBAGENT_TOOL_RESULT_BYTES).writer();
+            match result.write_text_or_status(writer) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::WriteZero => {
+                    // A UTF-8 scalar may straddle the byte boundary.
+                    let valid = prefix
+                        .utf8_chunks()
+                        .next()
+                        .map_or(0, |chunk| chunk.valid().len());
+                    prefix.truncate(valid);
+                }
+                Err(error) => panic!("failed to render tool result preview: {error}"),
+            }
+            Cow::Owned(String::from_utf8(prefix).expect("tool result text is UTF-8"))
+        })
 }
 
 fn update_tool(
@@ -553,7 +556,7 @@ fn update_tool(
     }
     if let Some(metadata) = metadata {
         if let Some(value) = metadata.get("tool_terminal") {
-            tool.terminal = serde_json::from_value(value.clone())
+            tool.terminal = serde::Deserialize::deserialize(value)
                 .ok()
                 .or(tool.terminal.take());
         }
@@ -578,6 +581,22 @@ fn truncate_utf8(value: &str, max_bytes: usize) -> &str {
 
 fn compact_json(value: &serde_json::Value, max_bytes: usize) -> serde_json::Value {
     use bytes::BufMut;
+    use serde_json::Value;
+
+    // These values have a fixed compact encoding; no preview buffer is needed
+    // when that encoding already fits. Keep the writer for smaller budgets.
+    let fixed_len = match value {
+        Value::Null | Value::Bool(true) => Some(4),
+        Value::Bool(false) => Some(5),
+        Value::Array(items) if items.is_empty() => Some(2),
+        Value::Object(fields) if fields.is_empty() => Some(2),
+        Value::String(text) if text.is_empty() => Some(2),
+        _ => None,
+    };
+    if fixed_len.is_some_and(|len| len <= max_bytes) {
+        return value.clone();
+    }
+
     let mut prefix = Vec::new();
     let writer = (&mut prefix).limit(max_bytes).writer();
     match serde_json::to_writer(writer, value) {

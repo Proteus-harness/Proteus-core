@@ -52,8 +52,7 @@ impl RemoteSessionStore {
                     cache::extend_known_section(self, &source, &next.conversation, &state.history)?;
                 next.transcript =
                     cache::append_section(self, &source, &next.transcript, &suffix.transcript)?;
-                next.context =
-                    cache::write_section(self, &source, &state.model_context.snapshot())?;
+                next.context = cache::write_section(self, &source, &state.model_context)?;
                 next.cursor = Some(cursor.clone());
                 next.base = Some(AppTranscriptBase {
                     revision: previous_source.revision()?,
@@ -86,7 +85,7 @@ impl RemoteSessionStore {
             conversation: ConversationSnapshot {
                 revision: state.history_revision,
                 messages: state.history,
-                model_context: state.model_context.snapshot(),
+                model_context: state.model_context,
             },
             transcript,
             usage: state.usage,

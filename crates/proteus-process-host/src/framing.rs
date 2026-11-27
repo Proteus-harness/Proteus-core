@@ -150,9 +150,10 @@ impl Framing for ContentLengthFraming {
 fn read_content_length<R: BufRead>(reader: &mut R, max_frame_bytes: usize) -> Result<usize> {
     let mut content_length = None;
     let mut header_bytes = 0usize;
+    let mut line = Vec::new();
 
     loop {
-        let mut line = Vec::new();
+        line.clear();
         loop {
             let buffer = reader.fill_buf()?;
             if buffer.is_empty() {

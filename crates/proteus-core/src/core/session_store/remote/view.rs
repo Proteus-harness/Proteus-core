@@ -72,7 +72,7 @@ impl<T> SessionReadModel<T> {
             conversation: ConversationSnapshot {
                 revision: state.history_revision,
                 messages: state.history,
-                model_context: state.model_context.snapshot(),
+                model_context: state.model_context,
             },
             transcript,
             usage: state.usage,
@@ -129,7 +129,7 @@ impl RemoteSessionStore {
             let mut prefix = snapshot.scan_display_prefix()?;
             prefix.history = history.fingerprints()?;
             let summary = cache::summary_with(self, history.len(), || history.preview())?;
-            let context = state.model_context.snapshot();
+            let context = state.model_context;
             (
                 history,
                 transcript,
@@ -144,7 +144,6 @@ impl RemoteSessionStore {
         let projection = cache::StartupProjection {
             summary: summary.clone(),
             revision,
-            usage: usage.clone(),
             context_summary: history.context_summary(),
             history,
             context,
@@ -165,7 +164,7 @@ impl RemoteSessionStore {
             *self.handles.publishing.lock().unwrap() = Some(pending.clone());
             let store = self.clone();
             runtime.spawn_blocking(move || {
-                let saved = projection.save(&store, &source, &pending.rows);
+                let saved = projection.save(&store, &source, &pending.usage, &pending.rows);
                 // If the cache filled up or the journal advanced, the old cursor
                 // still addresses its immutable rows for the life of the session.
                 if saved.is_some() {
@@ -186,7 +185,7 @@ impl RemoteSessionStore {
                 }),
             });
         }
-        let _ = projection.save(self, &source, &transcript);
+        let _ = projection.save(self, &source, &usage, &transcript);
         // A concurrent projection may have advanced HEAD. Only this immutable
         // revision can provide a page for the model's summary, revision and usage.
         let page = if paged {

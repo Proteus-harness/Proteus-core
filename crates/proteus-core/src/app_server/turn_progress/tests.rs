@@ -344,6 +344,37 @@ fn tool_finish_borrows_direct_text_before_truncating_at_a_scalar_boundary() {
 }
 
 #[test]
+fn tool_finish_bounds_structured_json_without_splitting_utf8() {
+    let call_id = "bounded-structured-preview";
+    // The leading quote and the ASCII prefix leave two bytes for the crab.
+    let text = "a".repeat(MAX_SUBAGENT_TOOL_RESULT_BYTES - 3);
+    let result = ToolResult::ok(call_id.to_owned(), "").with_content(vec![
+        crate::domain::ToolContent::Json {
+            value: json!(format!("{text}🦀\n{}", "b".repeat(256 * 1024))),
+        },
+        crate::domain::ToolContent::Text {
+            text: "unretained tail".to_owned(),
+        },
+    ]);
+    let expected = format!("\"{text}");
+    assert_eq!(
+        truncate_utf8(&result.text_or_status(), MAX_SUBAGENT_TOOL_RESULT_BYTES),
+        expected,
+    );
+
+    let mut progress = TurnProgress::default();
+    apply(
+        &mut progress,
+        Event::ToolCallRequested {
+            call: ToolCall::new(call_id, "synthetic", json!({})),
+        },
+    );
+    apply(&mut progress, Event::ToolFinished { result });
+    let tool = progress.messages[0].tool.as_ref().unwrap();
+    assert_eq!(tool.result.as_deref(), Some(expected.as_str()));
+}
+
+#[test]
 fn preview_prefix_respects_utf8_byte_boundaries() {
     for (text, limit, expected) in [
         ("", 0, ""),

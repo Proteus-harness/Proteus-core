@@ -154,7 +154,7 @@ impl StagedTextAppend {
         self.messages.iter().map(PlainHistoryMessage::identities)
     }
 
-    pub(crate) fn into_rows(self) -> impl Iterator<Item = StagedTextRow> {
+    pub(crate) fn into_rows(self) -> impl ExactSizeIterator<Item = StagedTextRow> {
         self.messages.into_iter().map(|m| {
             let (id, role, phase, part_id, scope, text) = m.into_display_fields();
             StagedTextRow {

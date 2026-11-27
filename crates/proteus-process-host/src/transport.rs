@@ -22,7 +22,8 @@ use crate::{
     DEFAULT_MAX_QUEUED_CONTROL_WRITES, DEFAULT_MAX_QUEUED_WRITE_BYTES, DEFAULT_MAX_QUEUED_WRITES,
     Framing, ProcessFrameWriter, ProcessLifecycle, ProcessSpec, ProcessWake, ReceiveFrameError,
     ReceiveLimits, SendFrameError,
-    receive::{BufferedFrame, ReaderStatus, ReceiveBudget, compact_json_len},
+    compact_size::compact_json_len,
+    receive::{BufferedFrame, ReaderStatus, ReceiveBudget},
     writer::{WriterLimits, spawn_writer},
 };
 

@@ -203,7 +203,10 @@ pub(super) fn read_checked_transcript<T: DeserializeOwned>(
 }
 
 impl super::CheckedSection<'_> {
-    pub(super) fn read_full<T: DeserializeOwned>(self, store: &RemoteSessionStore) -> Option<Vec<T>> {
+    pub(super) fn read_full<T: DeserializeOwned>(
+        self,
+        store: &RemoteSessionStore,
+    ) -> Option<Vec<T>> {
         collect_section(store, self.0, 0, self.0.rows, true)
     }
 
@@ -224,12 +227,30 @@ fn collect_section<T: DeserializeOwned>(
     checked: bool,
 ) -> Option<Vec<T>> {
     let mut result = None;
-    visit_section_impl(store, section, start, end, checked, |row| {
-        result
-            .get_or_insert_with(|| Vec::with_capacity(end - start))
-            .push(row);
-        Some(())
-    })?;
+    visit_section_pages(
+        store,
+        section,
+        start,
+        end,
+        checked,
+        |rows: Vec<T>, selected| {
+            if result.is_none()
+                && selected == (0..rows.len())
+                && rows.len() == end - start
+                && rows.capacity() == rows.len()
+            {
+                // Return the exact decoded allocation without retaining spare rows.
+                result = Some(rows);
+            } else {
+                for row in rows.into_iter().skip(selected.start).take(selected.len()) {
+                    result
+                        .get_or_insert_with(|| Vec::with_capacity(end - start))
+                        .push(row);
+                }
+            }
+            Some(())
+        },
+    )?;
     Some(result.unwrap_or_default())
 }
 
@@ -252,6 +273,29 @@ fn visit_section_impl<T: DeserializeOwned>(
     end: usize,
     checked: bool,
     mut visit: impl FnMut(T) -> Option<()>,
+) -> Option<()> {
+    visit_section_pages(
+        store,
+        section,
+        start,
+        end,
+        checked,
+        |rows: Vec<T>, selected| {
+            for row in rows.into_iter().skip(selected.start).take(selected.len()) {
+                visit(row)?;
+            }
+            Some(())
+        },
+    )
+}
+
+fn visit_section_pages<T: DeserializeOwned>(
+    store: &RemoteSessionStore,
+    section: &Section,
+    start: usize,
+    end: usize,
+    checked: bool,
+    mut visit: impl FnMut(Vec<T>, std::ops::Range<usize>) -> Option<()>,
 ) -> Option<()> {
     if start > end || end > section.rows || (!checked && !valid_section(section)) {
         return None;
@@ -280,14 +324,18 @@ fn visit_section_impl<T: DeserializeOwned>(
         index += count;
         let upper = offset + pages.iter().map(|p| p.rows).sum::<usize>();
         if upper > start {
-            let (encoding, bodies) = match pack {
-                Some(pack) => pack.read(store, pages)?,
+            let (encoding, leaf, bodies) = match pack {
+                Some(pack) => {
+                    let (encoding, bodies) = pack.read(store, pages)?;
+                    (encoding, None, bodies)
+                }
                 None => (
                     packs::Encoding::Json,
-                    vec![super::read_content_value(store, &pages[0].hash)?],
+                    Some(super::read_content_value(store, &pages[0].hash)?),
+                    Vec::new(),
                 ),
             };
-            for (page, body) in pages.iter().zip(bodies) {
+            for (page, body) in pages.iter().zip(leaf.into_iter().chain(bodies)) {
                 let next = offset + page.rows;
                 if next > start && offset < end {
                     let body = encoding.decode(body, page.bytes)?;
@@ -300,9 +348,7 @@ fn visit_section_impl<T: DeserializeOwned>(
                     }
                     let first = start.saturating_sub(offset);
                     let last = (end - offset).min(page.rows);
-                    for value in rows.into_iter().skip(first).take(last - first) {
-                        visit(value)?;
-                    }
+                    visit(rows, first..last)?;
                 }
                 offset = next;
             }

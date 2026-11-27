@@ -19,6 +19,16 @@ pub(super) struct TranscriptRows {
 #[cfg(test)]
 mod tests;
 
+/// A certified text-only append emits at most one row per input message.
+/// Try smaller growth only when the next accepted row already requires it.
+pub(super) fn reserve_text_append_tail<T>(rows: &mut Vec<T>, ceiling: usize) {
+    let cap = rows.capacity();
+    if rows.len() == cap && ceiling > cap && ceiling < cap.saturating_mul(2) {
+        // A refused optional reserve leaves Vec's ordinary growth intact.
+        let _ = rows.try_reserve_exact(ceiling - cap);
+    }
+}
+
 impl TranscriptRows {
     /// A single text-only append produces at most one row per input message.
     /// Do not preallocate while all decoded inputs are still owned.
@@ -30,21 +40,9 @@ impl TranscriptRows {
         }
     }
 
-    fn reserve_text_append_tail(&mut self) {
-        let cap = self.rows.capacity();
-        if self.rows.len() == cap
-            && self.text_append_ceiling > cap
-            && self.text_append_ceiling < cap.saturating_mul(2)
-        {
-            // The row already passed filtering; growth is inevitable now.
-            // A refused optional reserve leaves Vec's ordinary growth intact.
-            let _ = self.rows.try_reserve_exact(self.text_append_ceiling - cap);
-        }
-    }
-
     pub(super) fn push(&mut self, row: AppTranscriptMessage) {
         if self.text_append_ceiling != 0 {
-            self.reserve_text_append_tail();
+            reserve_text_append_tail(&mut self.rows, self.text_append_ceiling);
             // No reasoning row can search old answer positions in this append.
         } else if row.role == "assistant"
             && let Some(id) = row.message_id

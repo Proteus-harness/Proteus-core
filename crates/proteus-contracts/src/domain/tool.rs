@@ -1,4 +1,8 @@
-use std::borrow::Cow;
+use std::{
+    borrow::Cow,
+    fmt,
+    io::{self, Write},
+};
 
 use serde::{Deserialize, Serialize};
 
@@ -151,40 +155,82 @@ impl ToolResult {
     /// Text representation for model/UI boundaries where an empty result would
     /// otherwise disappear.
     pub fn text_or_status(&self) -> String {
-        if let Some(error) = &self.error
-            && !error.is_empty()
-        {
-            return error.clone();
+        if let Some(text) = self.direct_text() {
+            return text.to_owned();
         }
-
-        if !self.output.is_empty() {
-            return self.output.clone();
-        }
-
-        let mut content_text = Vec::new();
-        for content in &self.content {
-            let text = match content {
-                ToolContent::Text { text } if !text.is_empty() => Cow::Borrowed(text.as_str()),
-                ToolContent::Json { value } => Cow::Owned(value.to_string()),
-                ToolContent::Image { mime_type, .. } => {
-                    Cow::Owned(format!("[image tool content: {mime_type}]"))
-                }
-                ToolContent::Binary { mime_type, .. } => {
-                    Cow::Owned(format!("[binary tool content: {mime_type}]"))
-                }
-                _ => continue,
-            };
-            content_text.push(text);
-        }
-
-        if !content_text.is_empty() {
-            return content_text.join("\n");
-        }
-
-        if self.ok {
-            "(no output)".to_owned()
+        let items: Vec<_> = self
+            .display_items()
+            .map(|item| match item {
+                ToolDisplayItem::Text(text) => Cow::Borrowed(text),
+                item => Cow::Owned(item.to_string()),
+            })
+            .collect();
+        if items.is_empty() {
+            self.empty_status().to_owned()
         } else {
-            "(tool failed without an error message)".to_owned()
+            items.join("\n")
+        }
+    }
+
+    /// Stream the same text to a writer, propagating a byte limit or other
+    /// write error before formatting any remaining content.
+    pub fn write_text_or_status(&self, mut writer: impl Write) -> io::Result<()> {
+        if let Some(text) = self.direct_text() {
+            return writer.write_all(text.as_bytes());
+        }
+        let mut items = self.display_items();
+        let Some(first) = items.next() else {
+            return writer.write_all(self.empty_status().as_bytes());
+        };
+        write!(writer, "{first}")?;
+        for item in items {
+            write!(writer, "\n{item}")?;
+        }
+        Ok(())
+    }
+
+    fn direct_text(&self) -> Option<&str> {
+        self.error
+            .as_deref()
+            .filter(|text| !text.is_empty())
+            .or_else(|| (!self.output.is_empty()).then_some(self.output.as_str()))
+    }
+
+    fn display_items(&self) -> impl Iterator<Item = ToolDisplayItem<'_>> {
+        self.content.iter().filter_map(|content| match content {
+            ToolContent::Text { text } if !text.is_empty() => Some(ToolDisplayItem::Text(text)),
+            ToolContent::Json { value } => Some(ToolDisplayItem::Json(value)),
+            ToolContent::Image { mime_type, .. } => {
+                Some(ToolDisplayItem::Media("image", mime_type))
+            }
+            ToolContent::Binary { mime_type, .. } => {
+                Some(ToolDisplayItem::Media("binary", mime_type))
+            }
+            _ => None,
+        })
+    }
+
+    fn empty_status(&self) -> &'static str {
+        if self.ok {
+            "(no output)"
+        } else {
+            "(tool failed without an error message)"
+        }
+    }
+}
+
+enum ToolDisplayItem<'a> {
+    Text(&'a str),
+    Json(&'a serde_json::Value),
+    Media(&'static str, &'a str),
+}
+
+impl fmt::Display for ToolDisplayItem<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Text(text) => formatter.write_str(text),
+            Self::Json(value) => fmt::Display::fmt(value, formatter),
+            Self::Media(kind, mime_type) => write!(formatter, "[{kind} tool content: {mime_type}]"),
         }
     }
 }

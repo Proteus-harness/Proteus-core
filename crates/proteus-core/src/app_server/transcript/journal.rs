@@ -22,7 +22,7 @@ use crate::{
         HistoryMutationKind, JournalEntry, JournalRecord, ModelResponseOutcome,
         ToolCallRecordPhase, TurnSettled, TurnSettlementStatus,
     },
-    domain::{CallId, PartId, ThreadId, ToolCallResolution, TurnId},
+    domain::{CallId, PartId, SessionId, ThreadId, ToolCallResolution, TurnId},
     model_standard::{CanonicalMessage, CanonicalPart, ContentPart, PartProvenance, PartScope},
 };
 
@@ -90,7 +90,13 @@ struct TranscriptReplay {
     state: TranscriptProjectionState,
     visibility: TranscriptVisibility,
     final_results: HashSet<CallId>,
-    subagent_bindings: HashMap<CallId, crate::domain::SubagentSessionBinding>,
+    subagent_bindings: HashMap<CallId, TranscriptSubagentLink>,
+}
+
+struct TranscriptSubagentLink {
+    child_thread_id: ThreadId,
+    session_id: SessionId,
+    session_dir: std::path::PathBuf,
 }
 
 impl TranscriptReplay {
@@ -115,9 +121,14 @@ impl TranscriptReplay {
             subagent_bindings: records
                 .iter()
                 .filter_map(|record| match &record.entry {
-                    JournalEntry::SubagentSessionBoundRecorded(binding) => {
-                        Some((binding.source_call_id.clone(), binding.clone()))
-                    }
+                    JournalEntry::SubagentSessionBoundRecorded(binding) => Some((
+                        binding.source_call_id.clone(),
+                        TranscriptSubagentLink {
+                            child_thread_id: binding.child_thread_id,
+                            session_id: binding.session_id,
+                            session_dir: binding.session_dir.clone(),
+                        },
+                    )),
                     _ => None,
                 })
                 .collect(),
@@ -237,11 +248,18 @@ impl TranscriptReplay {
     }
 
     fn finish(mut self) -> Vec<AppTranscriptMessage> {
-        for row in &mut self.state.transcript.rows {
+        let mut rows = std::mem::take(&mut self.state.transcript.rows);
+        let subagent_bindings = {
+            // Row finalization no longer needs the replay indexes.
+            let replay = self;
+            replay.subagent_bindings
+        };
+
+        for row in &mut rows {
             let Some(tool) = &mut row.tool else {
                 continue;
             };
-            let Some(binding) = self.subagent_bindings.get(&tool.call_id) else {
+            let Some(binding) = subagent_bindings.get(&tool.call_id) else {
                 continue;
             };
             if !tool.metadata.is_object() {
@@ -253,17 +271,15 @@ impl TranscriptReplay {
                 "session_id": binding.session_id, "session_dir": binding.session_dir,
             });
         }
-        finalize_interrupted_tools(&mut self.state.transcript.rows);
-        self.state.transcript.rows
+        drop(subagent_bindings);
+        finalize_interrupted_tools(&mut rows);
+        rows
     }
 }
 
 #[derive(Default)]
 struct TranscriptVisibility {
     root_threads: HashMap<TurnId, ThreadId>,
-    // A nested call is a display fact, not evidence that its auxiliary model
-    // response was selected by the workflow. Keep those eligibility sets apart.
-    workflow_root_calls: HashSet<CallId>,
     display_tool_calls: HashMap<TurnId, HashSet<CallId>>,
     visible_model_responses: HashSet<crate::domain::ExchangeId>,
     certified_text_responses: bool,
@@ -335,7 +351,6 @@ impl TranscriptVisibility {
 
         Self {
             root_threads,
-            workflow_root_calls,
             display_tool_calls,
             visible_model_responses,
             certified_text_responses: false,

@@ -8,6 +8,7 @@
 //! Child stderr is piped and drained
 //! into `std::io::sink()` by a background thread.
 
+mod compact_size;
 mod framing;
 mod host;
 mod launch;

@@ -467,7 +467,6 @@ pub(super) fn save_model(
 pub(super) struct StartupProjection {
     pub(super) summary: AppSessionSummary,
     pub(super) revision: u64,
-    pub(super) usage: SessionUsageSnapshot,
     pub(super) history: StartupHistory,
     pub(super) context_summary: AppContextHistorySummary,
     pub(super) context: Vec<ModelContextObservation>,
@@ -479,6 +478,7 @@ impl StartupProjection {
         self,
         store: &RemoteSessionStore,
         source: &RemoteCacheSource,
+        usage: &SessionUsageSnapshot,
         transcript: &impl CacheRows,
     ) -> Option<()> {
         save_model_sections(
@@ -487,7 +487,7 @@ impl StartupProjection {
             ReadMetadata {
                 summary: &self.summary,
                 revision: self.revision,
-                usage: &self.usage,
+                usage,
             },
             None,
             CacheConversation::Owned(self.history, self.context_summary),
@@ -508,13 +508,12 @@ pub(super) fn save_startup_model<T: CacheRows>(
     StartupProjection {
         summary: model.summary.clone(),
         revision: model.conversation.revision,
-        usage: model.usage.clone(),
         context_summary: history.context_summary(),
         history,
         context: std::mem::take(&mut model.conversation.model_context),
         prefix: model.prefix.take(),
     }
-    .save(store, source, &model.transcript)
+    .save(store, source, &model.usage, &model.transcript)
 }
 
 pub(super) fn write_plain_conversation(

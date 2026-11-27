@@ -166,7 +166,9 @@ impl CanonicalMessage {
     }
 
     pub fn text(role: MessageRole, text: impl Into<String>) -> Self {
-        Self::new(role, vec![ContentPart::Text { text: text.into() }])
+        let payload = ContentPart::Text { text: text.into() };
+        let (provenance, scope) = default_part_semantics(&role, &payload);
+        Self::from_parts(role, vec![CanonicalPart::new(provenance, scope, payload)])
     }
 
     /// Сообщение с произвольными parts. Остальные поля можно выставить

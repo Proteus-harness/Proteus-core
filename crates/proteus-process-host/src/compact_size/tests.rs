@@ -144,32 +144,22 @@ fn mixed_trees_and_long_escape_runs_match_the_serializer() {
 
 #[test]
 fn overflow_is_reported_without_wrapping_or_partial_success() {
-    let mut size = JsonSize { bytes: usize::MAX };
-    size.add(0).unwrap();
-    let error = size.add(1).unwrap_err();
+    let mut counter = ByteCounter { bytes: usize::MAX };
+    assert_eq!(counter.write(b"").unwrap(), 0);
+    let error = counter.write(b"1").unwrap_err();
     assert_eq!(error.kind(), io::ErrorKind::FileTooLarge);
     assert_eq!(error.to_string(), "JSON frame length overflow");
-    assert_eq!(size.bytes, usize::MAX);
+    assert_eq!(counter.bytes, usize::MAX);
 
-    for value in [
-        json!(null),
-        json!(false),
-        json!(1),
-        json!(""),
-        json!([]),
-        json!({}),
-    ] {
-        let mut size = JsonSize { bytes: usize::MAX };
-        assert_eq!(
-            size.value(&value).unwrap_err().to_string(),
-            "JSON frame length overflow"
-        );
+    for value in [json!(null), json!(false), json!(1), json!(""), json!([]), json!({})] {
+        let mut counter = ByteCounter { bytes: usize::MAX };
+        let error = serde_json::to_writer(&mut counter, &value).unwrap_err();
+        assert_eq!(error.to_string(), "JSON frame length overflow");
+        assert_eq!(counter.bytes, usize::MAX);
     }
-    let mut size = JsonSize {
-        bytes: usize::MAX - 3,
-    };
+    let mut counter = ByteCounter { bytes: usize::MAX - 3 };
     assert!(
-        size.string("\0").is_err(),
+        serde_json::to_writer(&mut counter, &json!("\0")).is_err(),
         "escape expansion must also be checked"
     );
 }
