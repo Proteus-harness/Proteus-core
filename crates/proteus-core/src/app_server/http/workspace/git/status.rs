@@ -79,7 +79,7 @@ pub(crate) fn changes_summary(root: &Path) -> Result<ChangesSummary> {
     if !output.success && !output.truncated && !repository(root)? {
         return Ok(ChangesSummary::default());
     }
-    let scan = parse_status(output, "")?;
+    let (scan, count) = parse_status::<false>(output, "")?;
     let detached_head = if let (None, Some(oid)) = (&scan.branch, &scan.head_oid) {
         let head = run(root, &["rev-parse", "--short", oid])?.checked("rev-parse")?;
         Some(String::from_utf8(head.bytes)?.trim_end().to_owned())
@@ -93,7 +93,7 @@ pub(crate) fn changes_summary(root: &Path) -> Result<ChangesSummary> {
         upstream: scan.upstream,
         ahead: scan.ahead,
         behind: scan.behind,
-        count: scan.entries.len(),
+        count,
         truncated: scan.truncated,
     })
 }
@@ -141,7 +141,7 @@ pub(crate) fn changes(root: &Path) -> Result<Changes> {
 
 pub(super) fn scan(root: &Path, pathspecs: &[String]) -> Result<Scan> {
     let prefix = prefix(root)?;
-    parse_status(read_status(root, pathspecs)?, &prefix)
+    parse_status::<true>(read_status(root, pathspecs)?, &prefix).map(|(scan, _)| scan)
 }
 
 fn read_status(root: &Path, pathspecs: &[String]) -> Result<Output> {
@@ -158,7 +158,8 @@ fn read_status(root: &Path, pathspecs: &[String]) -> Result<Output> {
     read(root, &args, MAX_BYTES)
 }
 
-fn parse_status(output: Output, prefix: &str) -> Result<Scan> {
+// The badge validates the same records as the detailed view without owning them.
+fn parse_status<const COLLECT: bool>(output: Output, prefix: &str) -> Result<(Scan, usize)> {
     ensure!(
         output.success || output.truncated,
         "cannot read Git changes"
@@ -172,6 +173,7 @@ fn parse_status(output: Output, prefix: &str) -> Result<Scan> {
         entries: Vec::new(),
         truncated: output.truncated,
     };
+    let mut count = 0;
     let mut records = complete_records(&output.bytes);
     while let Some(record) = records.next() {
         let record = std::str::from_utf8(record).context("Git status is not UTF-8")?;
@@ -188,7 +190,11 @@ fn parse_status(output: Output, prefix: &str) -> Result<Scan> {
                     None,
                     staged,
                     unstaged,
-                    revision::stage(fields[4], fields[7], 0),
+                    if COLLECT {
+                        revision::stage(fields[4], fields[7], 0)
+                    } else {
+                        String::new()
+                    },
                 )
             }
             Some(b'2') => {
@@ -204,14 +210,22 @@ fn parse_status(output: Output, prefix: &str) -> Result<Scan> {
                     Some(original),
                     staged,
                     unstaged,
-                    revision::stage(fields[4], fields[7], 0),
+                    if COLLECT {
+                        revision::stage(fields[4], fields[7], 0)
+                    } else {
+                        String::new()
+                    },
                 )
             }
             Some(b'u') => {
                 let fields = status_fields::<11>(record)?;
-                let index = (0..3)
-                    .map(|i| revision::stage(fields[3 + i], fields[7 + i], (i + 1) as u8))
-                    .collect::<String>();
+                let index = if COLLECT {
+                    (0..3)
+                        .map(|i| revision::stage(fields[3 + i], fields[7 + i], (i + 1) as u8))
+                        .collect::<String>()
+                } else {
+                    String::new()
+                };
                 (fields[10], None, Some(CONFLICT), Some(CONFLICT), index)
             }
             Some(b'?') => {
@@ -225,25 +239,28 @@ fn parse_status(output: Output, prefix: &str) -> Result<Scan> {
         let Some(path) = path.strip_prefix(prefix) else {
             continue;
         };
-        if scan.entries.len() == MAX_ENTRIES {
+        if count == MAX_ENTRIES {
             scan.truncated = true;
             break;
         }
-        scan.entries.push(Change {
-            path: path.to_owned(),
-            original: original
-                .and_then(|original| original.strip_prefix(prefix))
-                .map(str::to_owned),
-            status: combined(staged, unstaged),
-            staged,
-            unstaged,
-            added: None,
-            deleted: None,
-            revision: None,
-            index,
-        });
+        count += 1;
+        if COLLECT {
+            scan.entries.push(Change {
+                path: path.to_owned(),
+                original: original
+                    .and_then(|original| original.strip_prefix(prefix))
+                    .map(str::to_owned),
+                status: combined(staged, unstaged),
+                staged,
+                unstaged,
+                added: None,
+                deleted: None,
+                revision: None,
+                index,
+            });
+        }
     }
-    Ok(scan)
+    Ok((scan, count))
 }
 
 fn status_fields<const N: usize>(record: &str) -> Result<[&str; N]> {

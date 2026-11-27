@@ -58,6 +58,8 @@ impl Serialize for OrderedValue<'_> {
                     for (key, value) in values {
                         map.serialize_entry(key, &OrderedValue(value))?;
                     }
+                } else if values.len() <= SMALL_OBJECT_KEYS {
+                    return write_small_object(map, values);
                 } else {
                     let mut entries = values.iter().collect::<Vec<_>>();
                     entries.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
@@ -70,6 +72,28 @@ impl Serialize for OrderedValue<'_> {
             value => value.serialize(serializer),
         }
     }
+}
+
+const SMALL_OBJECT_KEYS: usize = 12;
+
+// Keep scratch out of the serializer's frames for arrays and sorted objects.
+#[inline(never)]
+fn write_small_object<M: SerializeMap>(
+    mut map: M,
+    values: &serde_json::Map<String, Value>,
+) -> Result<M::Ok, M::Error> {
+    let mut iter = values.iter();
+    let first = iter.next().expect("unsorted object has entries");
+    let mut scratch = [first; SMALL_OBJECT_KEYS];
+    let entries = &mut scratch[..values.len()];
+    for (slot, entry) in entries[1..].iter_mut().zip(iter) {
+        *slot = entry;
+    }
+    entries.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
+    for &(key, value) in entries.iter() {
+        map.serialize_entry(key, &OrderedValue(value))?;
+    }
+    map.end()
 }
 
 fn can_write_in_order(values: &serde_json::Map<String, Value>) -> bool {
