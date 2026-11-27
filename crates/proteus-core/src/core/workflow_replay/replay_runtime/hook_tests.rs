@@ -393,7 +393,9 @@ async fn exact_selection_replays_without_a_following_model_request() {
 
 #[tokio::test]
 async fn no_hook_selection_still_consumes_exact_candidates() {
-    use crate::contracts::{ToolSelectionInput, ToolSelectionOutput, ToolSelectionRequest};
+    use crate::contracts::{
+        ConversationSnapshot, ToolSelectionInput, ToolSelectionOutput, ToolSelectionRequest,
+    };
     let before = input(HookEvent::BeforeToolSelection {
         input: ToolSelectionInput::new(
             ToolSelectionRequest::new(AgentTask::new("task", ".".into())),
@@ -401,22 +403,35 @@ async fn no_hook_selection_still_consumes_exact_candidates() {
         ),
         output: ToolSelectionOutput::new(vec![]),
     });
-    let trace = HookTrace {
-        owner: crate::contracts::OperationOwner::Workflow,
-        input: before.clone(),
-        steps: vec![],
-        output: Some(before.event.clone()),
+    let legacy_conversation = ConversationSnapshot {
+        revision: 1,
+        messages: vec![crate::model_standard::CanonicalMessage::text(
+            crate::model_standard::MessageRole::User,
+            "legacy history",
+        )],
+        model_context: vec![],
     };
-    let state = state(vec![trace], vec![]);
-    let replay = ReplayHooks::new(state.clone(), vec![]);
-    let mut changed = before.clone();
-    let HookEvent::BeforeToolSelection { input, .. } = &mut changed.event else {
-        unreachable!()
-    };
-    input.request.phase = Some("different".into());
-    assert!(replay.apply(changed).await.is_err());
-    assert_eq!(replay.apply(before.clone()).await.unwrap(), before.event);
-    assert!(replay.apply(before).await.is_err());
+    for conversation in [None, Some(legacy_conversation)] {
+        let trace = HookTrace {
+            owner: crate::contracts::OperationOwner::Workflow,
+            input: HookInput {
+                conversation,
+                ..before.clone()
+            },
+            steps: vec![],
+            output: Some(before.event.clone()),
+        };
+        let state = state(vec![trace], vec![]);
+        let replay = ReplayHooks::new(state, vec![]);
+        let mut changed = before.clone();
+        let HookEvent::BeforeToolSelection { input, .. } = &mut changed.event else {
+            unreachable!()
+        };
+        input.request.phase = Some("different".into());
+        assert!(replay.apply(changed).await.is_err());
+        assert_eq!(replay.apply(before.clone()).await.unwrap(), before.event);
+        assert!(replay.apply(before.clone()).await.is_err());
+    }
 }
 
 #[tokio::test]

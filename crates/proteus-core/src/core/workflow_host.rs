@@ -258,14 +258,16 @@ impl WorkflowHostRuntime {
             })
             .unwrap_or_else(|_| ExecutionAttribution::detached(execution.scope.execution_id));
         self.run_active(async {
-            let conversation = match self
-                .ctx
-                .agent()
-                .ok()
-                .and_then(|agent| agent.conversation.as_ref())
+            let conversation = if execution.hooks.is_active()
+                && let Some(reader) = self
+                    .ctx
+                    .agent()
+                    .ok()
+                    .and_then(|agent| agent.conversation.as_ref())
             {
-                Some(reader) => Some(reader.read().await?),
-                None => None,
+                Some(reader.read().await?)
+            } else {
+                None
             };
             let accepted = execution
                 .hooks

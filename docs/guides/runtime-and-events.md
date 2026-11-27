@@ -399,8 +399,9 @@ Core вызывает её в восьми точках: `turn_started`, `before
 `HookInput.conversation` — обязательный nullable read-only snapshot: у
 conversation-bound `before_model` и `before_context` он содержит canonical
 history, revision и context observations; `BeforeToolSelection` получает
-optional bound snapshot; у остальных events и standalone
-операций — `null`. Hook response
+bound snapshot при наличии обработчиков. При пустой цепочке Core записывает
+`BeforeToolSelection` с полным набором кандидатов для replay и `conversation: null`.
+У остальных events и standalone операций — `null`. Hook response
 меняет только разрешённые поля event. Journal schema v21 записывает snapshot
 как часть trace; replay использует записанный transformed outcome как oracle,
 не вызывает handlers и не воспроизводит их package-owned storage effects.

@@ -51,6 +51,8 @@ impl ExecutionHooks for RuntimeHookChain {
         if input.attribution.execution_id != self.scope.execution_id {
             anyhow::bail!("hook attribution conflicts with bound execution scope");
         }
+        // Replay still needs the policy-visible candidates when no handler
+        // changes the selection.
         if self.handlers.is_empty()
             && !matches!(&input.event, HookEvent::BeforeToolSelection { .. })
         {

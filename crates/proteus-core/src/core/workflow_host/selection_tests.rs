@@ -1,12 +1,18 @@
 use super::*;
 use crate::contracts::{
-    ApprovalPolicy, CancellationToken, ExecutionContext, ExecutionHooks, ExecutionScope,
+    AgentWorkflowContext, ApprovalPolicy, CancellationToken, ConversationReader,
+    ConversationSnapshot, EventEmitter, ExecutionContext, ExecutionHooks, ExecutionScope,
     HookHandler, HookHost, HookResponse, NoopExecutionRecorder, PolicyContext,
     PolicyVisibilityContext, Tool, ToolContext, ToolRegistry, WorkflowExecutionContext,
 };
-use crate::domain::{PermissionMode, PolicyDecision, ToolSafety};
+use crate::domain::{
+    PermissionMode, PolicyDecision, ToolSafety, new_session_id, new_thread_id, new_turn_id,
+};
 use async_trait::async_trait;
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicUsize, Ordering},
+};
 
 struct ProbeTool(&'static str, bool);
 #[async_trait]
@@ -126,4 +132,69 @@ async fn cancelled_selection_does_not_invoke_hooks() {
         .is_err()
     );
     assert!(captured.lock().unwrap().is_empty());
+}
+
+struct CountedHistory(Arc<AtomicUsize>);
+
+#[async_trait]
+impl ConversationReader for CountedHistory {
+    async fn read(&self) -> Result<ConversationSnapshot> {
+        self.0.fetch_add(1, Ordering::Relaxed);
+        Ok(ConversationSnapshot {
+            revision: 42,
+            messages: vec![],
+            model_context: vec![],
+        })
+    }
+}
+
+#[tokio::test]
+async fn only_active_selection_hooks_read_agent_history() {
+    for active in [false, true] {
+        let (host, captured) = host();
+        let mut execution = host.ctx.execution().clone();
+        if !active {
+            let scope = execution.scope.clone();
+            execution = execution.with_hooks(Arc::new(crate::core::RuntimeHookChain::new(
+                vec![],
+                scope,
+                Arc::new(NoopExecutionRecorder),
+                None,
+            )));
+        }
+        let mut agent = AgentWorkflowContext::new(
+            execution,
+            new_session_id(),
+            new_thread_id(),
+            new_turn_id(),
+            None,
+            Default::default(),
+            1000,
+            Arc::new(EventEmitter::new(Arc::new(
+                crate::core::event_store::FanoutEventSink::new(vec![]),
+            ))),
+            Arc::new(crate::stubs::EmptyContextBuilder),
+            Arc::new(crate::core::HeadlessUserInputTransport),
+            crate::test_model::no_context_preparation(),
+            None,
+        );
+        let reads = Arc::new(AtomicUsize::new(0));
+        agent.conversation = Some(Arc::new(CountedHistory(reads.clone())));
+        let host = WorkflowHostRuntime::new(agent.into(), "/tmp".into());
+        let output = host
+            .select_tools(ToolSelectionRequest::new(AgentTask::new(
+                "select",
+                "/tmp".into(),
+            )))
+            .await
+            .unwrap();
+        assert_eq!(output.tools[0].name, "available");
+        assert_eq!(reads.load(Ordering::Relaxed), usize::from(active));
+        let captured = captured.lock().unwrap();
+        if active {
+            assert_eq!(captured[0].conversation.as_ref().unwrap().revision, 42);
+        } else {
+            assert!(captured.is_empty());
+        }
+    }
 }
