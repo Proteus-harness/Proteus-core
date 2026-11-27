@@ -185,6 +185,7 @@ async fn registry_compaction_callbacks_use_configured_hooks_without_a_strong_ref
     let model_ref = config.model_ref();
     let registry = RuntimeRegistry {
         config_exports: vec![],
+        hook_subscriptions: Default::default(),
         hooks: vec![
             ("prepare".into(), Arc::new(NestedPreparation)),
             ("instructions".into(), instructions.clone()),
