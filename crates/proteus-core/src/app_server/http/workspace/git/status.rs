@@ -75,10 +75,12 @@ pub(crate) struct ChangesSummary {
 /// The badge needs the branch, sync state and bounded number of changed paths.
 /// Let Git apply the session directory pathspec; no filenames leave this call.
 pub(crate) fn changes_summary(root: &Path) -> Result<ChangesSummary> {
-    let output = read_status(root, &[".".to_owned()])?;
-    if !output.success && !output.truncated && !repository(root)? {
-        return Ok(ChangesSummary::default());
-    }
+    let output = match read_status(root, &[".".to_owned()]) {
+        Ok(output) if output.success || output.truncated => output,
+        // The read-only Git preflight can reject the directory before status runs.
+        _ if !repository(root)? => return Ok(ChangesSummary::default()),
+        result => result?,
+    };
     let (scan, count) = parse_status::<false>(output, "")?;
     let detached_head = if let (None, Some(oid)) = (&scan.branch, &scan.head_oid) {
         let head = run(root, &["rev-parse", "--short", oid])?.checked("rev-parse")?;
