@@ -5,7 +5,9 @@ use super::super::normalize::{
 use super::canonical_rewrite::rewrite_response;
 use super::{ReplayState, mismatch};
 use crate::{
-    contracts::{ExecutionHooks, HookEvent, HookInput, HookResponse, HookStepOutcome},
+    contracts::{
+        ExecutionHooks, HookEvent, HookEventKind, HookInput, HookResponse, HookStepOutcome,
+    },
     core::session_journal::apply_recorded_hook_response,
     domain::CallId,
     model_standard::RequestShaper,
@@ -19,10 +21,29 @@ mod diagnostics;
 pub(in crate::core::workflow_replay) struct ReplayHooks {
     state: Arc<ReplayState>,
     module_ids: Vec<String>,
+    subscriptions: crate::core::config::HookSubscriptions,
 }
 impl ReplayHooks {
     pub fn new(state: Arc<ReplayState>, module_ids: Vec<String>) -> Self {
-        Self { state, module_ids }
+        Self {
+            state,
+            module_ids,
+            subscriptions: Default::default(),
+        }
+    }
+
+    pub(in crate::core::workflow_replay) fn with_subscriptions(
+        mut self,
+        subscriptions: crate::core::config::HookSubscriptions,
+    ) -> Self {
+        self.subscriptions = subscriptions;
+        self
+    }
+
+    fn subscribers(&self, event: HookEventKind) -> impl Iterator<Item = &String> + Clone {
+        self.module_ids
+            .iter()
+            .filter(move |id| self.subscriptions.includes(id, event))
     }
 }
 
@@ -31,10 +52,14 @@ impl ExecutionHooks for ReplayHooks {
     fn is_active(&self) -> bool {
         !self.module_ids.is_empty()
     }
+    fn is_active_for(&self, event: HookEventKind) -> bool {
+        self.subscribers(event).next().is_some()
+    }
     async fn apply(&self, input: HookInput) -> Result<HookEvent> {
-        if self.module_ids.is_empty()
-            && !matches!(&input.event, HookEvent::BeforeToolSelection { .. })
-        {
+        let kind = input.event.kind();
+        let subscribers = self.subscribers(kind);
+        let subscriber_count = subscribers.clone().count();
+        if subscriber_count == 0 && kind != HookEventKind::BeforeToolSelection {
             let mut event = input.event;
             if let HookEvent::AfterTool { call, result } = &mut event {
                 let inner = self.state.lock();
@@ -68,11 +93,11 @@ impl ExecutionHooks for ReplayHooks {
             );
         };
         let trace = inner.hooks[index].0.clone();
-        if trace.steps.len() > self.module_ids.len()
+        if trace.steps.len() > subscriber_count
             || trace
                 .steps
                 .iter()
-                .zip(&self.module_ids)
+                .zip(subscribers)
                 .any(|(step, id)| &step.module_id != id)
         {
             return mismatch(
@@ -93,7 +118,7 @@ impl ExecutionHooks for ReplayHooks {
                     }
                 )
             );
-        if !stopped && trace.steps.len() != self.module_ids.len() {
+        if !stopped && trace.steps.len() != subscriber_count {
             return mismatch(
                 &mut inner,
                 "recorded successful hook boundary omitted a configured contribution".to_owned(),

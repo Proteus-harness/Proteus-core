@@ -1,4 +1,5 @@
 use super::BoundModel;
+use crate::contracts::HookEventKind;
 use crate::core::model_call_scope::current_model_call_origin;
 use crate::model_standard::{CanonicalModelRequest, ModelOperation};
 use anyhow::Result;
@@ -21,7 +22,7 @@ impl BoundModel {
         {
             return Ok(request);
         }
-        let conversation = if self.hooks.is_active() {
+        let conversation = if self.hooks.is_active_for(HookEventKind::BeforeModel) {
             match &self.binding.conversation {
                 Some(reader) => Some(reader.read().await?),
                 None => None,

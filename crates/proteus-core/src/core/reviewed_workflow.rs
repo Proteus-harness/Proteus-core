@@ -1,8 +1,9 @@
 //! Root-owned completion review, shared by live execution and journal replay.
 use crate::{
     contracts::{
-        AgentWorkflowContext, EventSink, ExecutionAttribution, HookEvent, HookInput, Workflow,
-        WorkflowContinuation, WorkflowHistoryCheckpoint, WorkflowHistoryUpdate, WorkflowOutput,
+        AgentWorkflowContext, EventSink, ExecutionAttribution, HookEvent, HookEventKind, HookInput,
+        Workflow, WorkflowContinuation, WorkflowHistoryCheckpoint, WorkflowHistoryUpdate,
+        WorkflowOutput,
     },
     domain::{AgentTask, Event, EventEnvelope},
     model_standard::{CanonicalMessage, InstructionBlock, InstructionKind},
@@ -68,7 +69,11 @@ async fn run_with_history(
     context: AgentWorkflowContext,
     normalizer: Option<&dyn CandidateHistoryNormalizer>,
 ) -> Result<WorkflowOutput> {
-    if !context.execution.hooks.is_active() {
+    if !context
+        .execution
+        .hooks
+        .is_active_for(HookEventKind::BeforeStop)
+    {
         return workflow.run(task, history, context.into()).await;
     }
     let original_user_message_id = history

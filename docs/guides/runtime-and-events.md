@@ -396,10 +396,16 @@ Core вызывает её в восьми точках: `turn_started`, `before
 действуют также в host callbacks внешнего workflow и при detached tool calls.
 Отдельный workflow не обязан повторять их wiring.
 
+В `[modules.hook_events]` можно задать список событий для конкретного id из
+`modules.hooks`. Например, `pi_compact = ["before_context"]` оставляет этому
+обработчику только подготовку контекста. Обработчик без списка получает все
+события. Core сохраняет подписки в снимке конфигурации хода, чтобы replay применял
+тот же порядок и состав обработчиков.
+
 `HookInput.conversation` — обязательный nullable read-only snapshot: у
 conversation-bound `before_model` и `before_context` он содержит canonical
 history, revision и context observations; `BeforeToolSelection` получает
-bound snapshot при наличии обработчиков. При пустой цепочке Core записывает
+bound snapshot при наличии обработчиков этого события. Без получателей Core записывает
 `BeforeToolSelection` с полным набором кандидатов для replay и `conversation: null`.
 У остальных events и standalone операций — `null`. Hook response
 меняет только разрешённые поля event. Journal schema v21 записывает snapshot

@@ -32,6 +32,7 @@ mod tool_terminal_tests;
 pub struct RuntimeRegistry {
     config_exports: Vec<crate::process_adapters::ProcessExportConfig>,
     pub hooks: Vec<(String, Arc<dyn crate::contracts::HookHandler>)>,
+    hook_subscriptions: super::config::HookSubscriptions,
     pub cwd: PathBuf,
     pub model_config: Option<crate::core::ModelConfig>,
     pub runtime_config: crate::core::RuntimeConfig,
@@ -68,12 +69,15 @@ impl RuntimeRegistry {
         scope: crate::contracts::ExecutionScope,
         recorder: Arc<dyn crate::contracts::ExecutionRecorder>,
     ) -> Arc<dyn crate::contracts::ExecutionHooks> {
-        Arc::new(crate::core::RuntimeHookChain::new(
-            self.hooks.clone(),
-            scope,
-            recorder,
-            self.model_service.clone(),
-        ))
+        Arc::new(
+            crate::core::RuntimeHookChain::new(
+                self.hooks.clone(),
+                scope,
+                recorder,
+                self.model_service.clone(),
+            )
+            .with_subscriptions(self.hook_subscriptions.clone()),
+        )
     }
     pub(crate) async fn model_quota(&self) -> Result<Option<crate::contracts::ModelQuotaSnapshot>> {
         match &self.model_service {
@@ -295,6 +299,7 @@ impl RuntimeRegistry {
             config_exports: catalog.config_exports,
             session_storage,
             hooks,
+            hook_subscriptions: config.modules.hook_events.clone(),
             cwd: cwd.to_path_buf(),
             model_config,
             runtime_config: config.runtime.clone(),
@@ -338,12 +343,15 @@ impl RuntimeRegistry {
     ) -> Result<ExecutionContext> {
         let scope = model_binding.scope().clone();
         let attribution = model_binding.attribution();
-        let chain = Arc::new(crate::core::RuntimeHookChain::new(
-            self.hooks.clone(),
-            scope.clone(),
-            model_binding.recorder(),
-            self.model_service.clone(),
-        ));
+        let chain = Arc::new(
+            crate::core::RuntimeHookChain::new(
+                self.hooks.clone(),
+                scope.clone(),
+                model_binding.recorder(),
+                self.model_service.clone(),
+            )
+            .with_subscriptions(self.hook_subscriptions.clone()),
+        );
         let hooks: Arc<dyn crate::contracts::ExecutionHooks> = chain.clone();
         let weak_hooks: Arc<dyn crate::contracts::ExecutionHooks> = Arc::new(
             super::extension_operations::WeakExecutionHooks(Arc::downgrade(&hooks)),

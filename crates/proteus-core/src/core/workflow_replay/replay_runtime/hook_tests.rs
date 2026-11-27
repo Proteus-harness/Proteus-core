@@ -385,7 +385,10 @@ async fn exact_selection_replays_without_a_following_model_request() {
         output: Some(accepted.clone()),
     };
     let state = state(vec![trace], vec![]);
-    let replay = ReplayHooks::new(state.clone(), vec!["selector".into()]);
+    let subscriptions =
+        serde_json::from_value(serde_json::json!({"compactor":["before_context"]})).unwrap();
+    let replay = ReplayHooks::new(state.clone(), vec!["compactor".into(), "selector".into()])
+        .with_subscriptions(subscriptions);
     assert_eq!(replay.apply(before.clone()).await.unwrap(), accepted);
     assert!(state.summary().issues.is_empty());
     assert!(replay.apply(before).await.is_err());

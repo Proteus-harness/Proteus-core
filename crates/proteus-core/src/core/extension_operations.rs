@@ -142,6 +142,11 @@ impl ExecutionHooks for WeakExecutionHooks {
     fn is_active(&self) -> bool {
         self.0.upgrade().is_some_and(|hooks| hooks.is_active())
     }
+    fn is_active_for(&self, event: crate::contracts::HookEventKind) -> bool {
+        self.0
+            .upgrade()
+            .is_some_and(|hooks| hooks.is_active_for(event))
+    }
     async fn apply(&self, input: HookInput) -> Result<HookEvent> {
         let hooks = self
             .0

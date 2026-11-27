@@ -145,10 +145,10 @@ pub async fn replay_workflow(
         fixture.thread_id,
         fixture.turn_id,
     );
-    let hooks: Arc<dyn ExecutionHooks> = Arc::new(ReplayHooks::new(
-        state.clone(),
-        fixture.snapshot.modules.hooks.clone(),
-    ));
+    let hooks: Arc<dyn ExecutionHooks> = Arc::new(
+        ReplayHooks::new(state.clone(), fixture.snapshot.modules.hooks.clone())
+            .with_subscriptions(fixture.snapshot.modules.hook_events.clone()),
+    );
     let approval: Arc<dyn crate::contracts::ApprovalTransport> = Arc::new(
         ReplayApprovalTransport::new(state.clone(), fixture.snapshot.approval_available),
     );
@@ -212,7 +212,20 @@ pub async fn replay_workflow(
         Arc::new(HeadlessUserInputTransport),
         Arc::new(ReplayContextPreparation::new(
             state.clone(),
-            fixture.snapshot.modules.hooks.clone(),
+            fixture
+                .snapshot
+                .modules
+                .hooks
+                .iter()
+                .filter(|id| {
+                    fixture
+                        .snapshot
+                        .modules
+                        .hook_events
+                        .includes(id, crate::contracts::HookEventKind::BeforeContext)
+                })
+                .cloned()
+                .collect(),
         )),
         None,
     )

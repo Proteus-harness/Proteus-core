@@ -1,8 +1,8 @@
 use super::{AgentRuntime, ExecutionAdmissionSnapshot};
 use crate::{
     contracts::{
-        ExecutionAttribution, ExecutionRecorder, ExecutionScope, HookEvent, HookInput,
-        HookTurnStatus, NoopExecutionRecorder,
+        ExecutionAttribution, ExecutionRecorder, ExecutionScope, HookEvent, HookEventKind,
+        HookInput, HookTurnStatus, NoopExecutionRecorder,
     },
     core::{SessionExecutionRecorder, TurnSettled, TurnSettlementStatus},
 };
@@ -15,6 +15,13 @@ impl AgentRuntime {
         task: &crate::domain::AgentTask,
         history: &[crate::model_standard::CanonicalMessage],
     ) {
+        if !context
+            .execution
+            .hooks
+            .is_active_for(HookEventKind::TurnStarted)
+        {
+            return;
+        }
         if let Err(error) = context
             .execution
             .hooks

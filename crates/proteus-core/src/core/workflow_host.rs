@@ -12,8 +12,9 @@ use anyhow::{Result, anyhow};
 use crate::{
     contracts::{
         ContextBuildInput, ContextPreparationInput, ContextPreparationResult, ExecutionAttribution,
-        HookEvent, HookInput, ModelCallOrigin, ToolSelectionInput, ToolSelectionOutput,
-        ToolSelectionRequest, WorkflowInvocationContext, WorkflowRuntimeStatus,
+        HookEvent, HookEventKind, HookInput, ModelCallOrigin, ToolSelectionInput,
+        ToolSelectionOutput, ToolSelectionRequest, WorkflowInvocationContext,
+        WorkflowRuntimeStatus,
     },
     domain::{AgentTask, Event, HistoryCompactionReport, ToolCall, ToolResult, ToolSpec},
     model_standard::{CanonicalModelRequest, CanonicalModelResponse},
@@ -258,7 +259,9 @@ impl WorkflowHostRuntime {
             })
             .unwrap_or_else(|_| ExecutionAttribution::detached(execution.scope.execution_id));
         self.run_active(async {
-            let conversation = if execution.hooks.is_active()
+            let conversation = if execution
+                .hooks
+                .is_active_for(HookEventKind::BeforeToolSelection)
                 && let Some(reader) = self
                     .ctx
                     .agent()

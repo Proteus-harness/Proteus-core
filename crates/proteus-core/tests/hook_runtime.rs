@@ -63,13 +63,26 @@ fn records(runtime: &AgentRuntime) -> Vec<proteus_core::core::JournalRecord> {
 }
 #[tokio::test]
 async fn independently_useful_process_hooks_change_actual_request_and_tool_result() {
+    for filtered in [false, true] {
+        assert_instruction_and_budget_hooks(filtered).await;
+    }
+}
+
+async fn assert_instruction_and_budget_hooks(filtered: bool) {
     let workspace = tempfile::tempdir().unwrap();
     std::fs::write(
         workspace.path().join("probe.txt"),
         "HEAD middle output TAIL",
     )
     .unwrap();
-    let config = config().await;
+    let mut config = config().await;
+    if filtered {
+        config.modules.hook_events = serde_json::from_value(json!({
+            "hook.instructions": ["before_model"],
+            "hook.output_budget": ["after_tool"],
+        }))
+        .unwrap();
+    }
     let runtime = AgentRuntime::builder(config.clone(), workspace.path().into())
         .with_config_path(Some(&workspace.path().join("config.toml")))
         .build_async()
@@ -95,35 +108,37 @@ async fn independently_useful_process_hooks_change_actual_request_and_tool_resul
     let events = records
         .iter()
         .filter_map(|record| match &record.entry {
-            JournalEntry::HookInvoked(trace) => Some(&trace.input.event),
+            JournalEntry::HookInvoked(trace) => Some(trace),
             _ => None,
         })
         .collect::<Vec<_>>();
-    assert!(
-        events
-            .iter()
-            .any(|event| matches!(event, HookEvent::TurnStarted { .. }))
-    );
-    assert!(
-        events
-            .iter()
-            .any(|event| matches!(event, HookEvent::BeforeModel { .. }))
-    );
-    assert!(
-        events
-            .iter()
-            .any(|event| matches!(event, HookEvent::BeforeTool { .. }))
-    );
-    assert!(
-        events
-            .iter()
-            .any(|event| matches!(event, HookEvent::AfterTool { .. }))
-    );
-    assert!(
-        events
-            .iter()
-            .any(|event| matches!(event, HookEvent::TurnSettled { .. }))
-    );
+    use proteus_contracts::contracts::HookEventKind::*;
+    for kind in [BeforeModel, AfterTool] {
+        assert!(events.iter().any(|trace| trace.input.event.kind() == kind));
+    }
+    for kind in [TurnStarted, BeforeTool, BeforeStop, TurnSettled] {
+        assert_eq!(
+            events.iter().any(|trace| trace.input.event.kind() == kind),
+            !filtered
+        );
+    }
+    if filtered {
+        for trace in events {
+            match trace.input.event.kind() {
+                BeforeModel => assert_eq!(trace.steps[0].module_id, "hook.instructions"),
+                AfterTool => assert_eq!(trace.steps[0].module_id, "hook.output_budget"),
+                BeforeToolSelection => {
+                    assert!(trace.steps.is_empty());
+                    assert!(trace.input.conversation.is_none());
+                    continue;
+                }
+                other => panic!("unexpected subscribed event: {other:?}"),
+            }
+            assert_eq!(trace.steps.len(), 1);
+        }
+        // Replay must use the recorded subscriptions even if the profile has changed.
+        config.modules.hook_events = Default::default();
+    }
     assert_replay(&runtime, &config).await;
 }
 #[tokio::test]

@@ -413,6 +413,9 @@ pub struct ModulesConfig {
     /// Explicit execution order of process hook contributions.
     #[serde(default)]
     pub hooks: Vec<String>,
+    /// Optional event lists keyed by hook id. Unlisted hooks receive every event.
+    #[serde(default, skip_serializing_if = "HookSubscriptions::is_empty")]
+    pub hook_events: HookSubscriptions,
     #[serde(default)]
     pub workflow: Option<String>,
     #[serde(default)]
@@ -421,11 +424,26 @@ pub struct ModulesConfig {
     pub policy: Option<String>,
 }
 
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct HookSubscriptions(BTreeMap<String, Vec<crate::contracts::HookEventKind>>);
+
+impl HookSubscriptions {
+    fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub(crate) fn includes(&self, id: &str, event: crate::contracts::HookEventKind) -> bool {
+        self.0.get(id).is_none_or(|events| events.contains(&event))
+    }
+}
+
 impl Default for ModulesConfig {
     fn default() -> Self {
         Self {
             session_storage: None,
             hooks: Vec::new(),
+            hook_events: HookSubscriptions::default(),
             workflow: None,
             context: None,
             policy: None,

@@ -74,6 +74,33 @@ pub enum HookEvent {
 }
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
+pub enum HookEventKind {
+    TurnStarted,
+    BeforeToolSelection,
+    BeforeContext,
+    BeforeModel,
+    BeforeTool,
+    AfterTool,
+    BeforeStop,
+    TurnSettled,
+}
+
+impl HookEvent {
+    pub fn kind(&self) -> HookEventKind {
+        match self {
+            Self::TurnStarted { .. } => HookEventKind::TurnStarted,
+            Self::BeforeToolSelection { .. } => HookEventKind::BeforeToolSelection,
+            Self::BeforeContext { .. } => HookEventKind::BeforeContext,
+            Self::BeforeModel { .. } => HookEventKind::BeforeModel,
+            Self::BeforeTool { .. } => HookEventKind::BeforeTool,
+            Self::AfterTool { .. } => HookEventKind::AfterTool,
+            Self::BeforeStop { .. } => HookEventKind::BeforeStop,
+            Self::TurnSettled { .. } => HookEventKind::TurnSettled,
+        }
+    }
+}
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
 pub enum HookTurnStatus {
     Success,
     Error,
@@ -318,6 +345,9 @@ pub trait HookHandler: Send + Sync {
 pub trait ExecutionHooks: Send + Sync {
     fn is_active(&self) -> bool {
         true
+    }
+    fn is_active_for(&self, _event: HookEventKind) -> bool {
+        self.is_active()
     }
     async fn apply(&self, input: HookInput) -> Result<HookEvent>;
 }

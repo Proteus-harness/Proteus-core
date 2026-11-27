@@ -1,6 +1,6 @@
 use super::{BoundTools, ToolExecutionObserver};
 use crate::{
-    contracts::{HookEvent, HookInput},
+    contracts::{HookEvent, HookEventKind, HookInput},
     domain::{ToolCall, ToolCallResolution, ToolResult, ToolSpec},
 };
 use anyhow::Result;
@@ -97,7 +97,7 @@ impl BoundTools {
         raw: ToolResult,
     ) -> Result<ToolResult> {
         let raw = self.truncate_result(raw);
-        if self.hooks.is_active() {
+        if self.hooks.is_active_for(HookEventKind::AfterTool) {
             self.binding
                 .recorder
                 .tool_effect_recorded(self.binding.attribution, &raw)

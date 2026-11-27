@@ -150,17 +150,30 @@ impl ConversationReader for CountedHistory {
 
 #[tokio::test]
 async fn only_active_selection_hooks_read_agent_history() {
-    for active in [false, true] {
+    for (configured, subscribed) in [(false, false), (true, false), (true, true)] {
         let (host, captured) = host();
         let mut execution = host.ctx.execution().clone();
-        if !active {
+        if !subscribed {
             let scope = execution.scope.clone();
-            execution = execution.with_hooks(Arc::new(crate::core::RuntimeHookChain::new(
-                vec![],
-                scope,
-                Arc::new(NoopExecutionRecorder),
-                None,
-            )));
+            let handlers = if configured {
+                vec![(
+                    "selector".into(),
+                    Arc::new(Selector(captured.clone())) as Arc<dyn HookHandler>,
+                )]
+            } else {
+                vec![]
+            };
+            let subscriptions =
+                serde_json::from_value(serde_json::json!({"selector":["before_context"]})).unwrap();
+            execution = execution.with_hooks(Arc::new(
+                crate::core::RuntimeHookChain::new(
+                    handlers,
+                    scope,
+                    Arc::new(NoopExecutionRecorder),
+                    None,
+                )
+                .with_subscriptions(subscriptions),
+            ));
         }
         let mut agent = AgentWorkflowContext::new(
             execution,
@@ -189,9 +202,9 @@ async fn only_active_selection_hooks_read_agent_history() {
             .await
             .unwrap();
         assert_eq!(output.tools[0].name, "available");
-        assert_eq!(reads.load(Ordering::Relaxed), usize::from(active));
+        assert_eq!(reads.load(Ordering::Relaxed), usize::from(subscribed));
         let captured = captured.lock().unwrap();
-        if active {
+        if subscribed {
             assert_eq!(captured[0].conversation.as_ref().unwrap().revision, 42);
         } else {
             assert!(captured.is_empty());

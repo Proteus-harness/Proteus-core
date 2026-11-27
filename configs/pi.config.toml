@@ -35,6 +35,9 @@ context = "pi_context"
 policy = "codex_policy"
 hooks = ["pi_compact"]
 
+[modules.hook_events]
+pi_compact = ["before_context"]
+
 [agent_control]
 surface = "none"
 roles = []

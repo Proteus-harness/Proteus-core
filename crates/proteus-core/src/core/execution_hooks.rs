@@ -1,8 +1,10 @@
 //! Ordered host-owned hook execution and durable accepted boundary facts.
+use super::config::HookSubscriptions;
 use crate::{
     contracts::{
         CancellationToken, ExecutionHooks, ExecutionRecorder, ExecutionScope, HookEvent,
-        HookHandler, HookInput, HookStep, HookStepOutcome, HookTrace, apply_hook_response,
+        HookEventKind, HookHandler, HookInput, HookStep, HookStepOutcome, HookTrace,
+        apply_hook_response,
     },
     core::ModelService,
 };
@@ -12,6 +14,7 @@ use std::sync::{Arc, OnceLock};
 
 pub struct RuntimeHookChain {
     handlers: Vec<(String, Arc<dyn HookHandler>)>,
+    subscriptions: HookSubscriptions,
     scope: ExecutionScope,
     recorder: Arc<dyn ExecutionRecorder>,
     model_service: Option<Arc<ModelService>>,
@@ -26,11 +29,16 @@ impl RuntimeHookChain {
     ) -> Self {
         Self {
             handlers,
+            subscriptions: HookSubscriptions::default(),
             scope,
             recorder,
             model_service,
             operations: OnceLock::new(),
         }
+    }
+    pub(crate) fn with_subscriptions(mut self, subscriptions: HookSubscriptions) -> Self {
+        self.subscriptions = subscriptions;
+        self
     }
     pub(crate) fn bind_operations(
         &self,
@@ -47,15 +55,19 @@ impl ExecutionHooks for RuntimeHookChain {
     fn is_active(&self) -> bool {
         !self.handlers.is_empty()
     }
+    fn is_active_for(&self, event: HookEventKind) -> bool {
+        self.handlers
+            .iter()
+            .any(|(id, _)| self.subscriptions.includes(id, event))
+    }
     async fn apply(&self, input: HookInput) -> Result<HookEvent> {
         if input.attribution.execution_id != self.scope.execution_id {
             anyhow::bail!("hook attribution conflicts with bound execution scope");
         }
         // Replay still needs the policy-visible candidates when no handler
         // changes the selection.
-        if self.handlers.is_empty()
-            && !matches!(&input.event, HookEvent::BeforeToolSelection { .. })
-        {
+        let kind = input.event.kind();
+        if kind != HookEventKind::BeforeToolSelection && !self.is_active_for(kind) {
             return Ok(input.event);
         }
         let notification = matches!(
@@ -76,6 +88,9 @@ impl ExecutionHooks for RuntimeHookChain {
             output: None,
         };
         for (module_id, handler) in &self.handlers {
+            if !self.subscriptions.includes(module_id, kind) {
+                continue;
+            }
             let invocation = HookInput {
                 event: event.clone(),
                 attribution: trace.input.attribution,
